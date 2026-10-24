@@ -739,6 +739,7 @@ fn field_type_to_string(field_type: &FieldType) -> String {
     match field_type {
         FieldType::String => "string".to_string(),
         FieldType::Number => "number".to_string(),
+        FieldType::Int => "int".to_string(),
         FieldType::Boolean => "boolean".to_string(),
         FieldType::Date => "date".to_string(),
         FieldType::Datetime => "datetime".to_string(),
@@ -785,8 +786,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,

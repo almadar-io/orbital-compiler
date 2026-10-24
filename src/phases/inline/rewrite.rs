@@ -1468,6 +1468,7 @@ fn element_admits_string(shape: &FieldDefinition) -> bool {
     !matches!(
         shape.field_type,
         FieldType::Number
+            | FieldType::Int
             | FieldType::Boolean
             | FieldType::Money
             | FieldType::File
@@ -1540,6 +1541,10 @@ fn sexpr_tree_contains_binding(value: &SExpression) -> bool {
 
 /// Substitute every `@config.X` binding in an inline trait's transitions
 /// (and ticks, if any) with the trait's own declared config-field default.
+/// A `secret` knob's reads stay `@config.<knob>` in the resolved program, so its secret-flow rules hold there too; the
+/// knob's effective value is its declared default, which the kernel binds at run time.
+pub(crate) const SECRET_KNOB_TYPE: &str = "secret";
+
 pub(crate) fn apply_inline_config_defaults(
     trait_def: &mut TraitDefinition,
     recorder: &mut Vec<ConfigProvenanceRecord>,
@@ -1553,6 +1558,9 @@ pub(crate) fn apply_inline_config_defaults(
     for (k, field) in declared.iter() {
         if field.field_type == "trait" {
             trait_knobs.insert(k.clone());
+        }
+        if field.field_type == SECRET_KNOB_TYPE {
+            continue;
         }
         if let Some(default) = field.default.as_ref() {
             let mut v = default.clone();

@@ -313,8 +313,7 @@ mod tests {
                     store: None,
                     shared: false,
                     identity: false,
-                    local: false,
-                    seed_mock: false,
+                    browser: false,
                     locale_instances: None,
                     read_policy: None,
                     create_policy: None,
@@ -355,15 +354,13 @@ mod tests {
 
     fn bare_trait(name: &str) -> TraitDefinition {
         TraitDefinition {
-            local: false,
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: Some("Task".to_string()),
             emits: None,
@@ -376,7 +373,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -524,7 +520,6 @@ mod tests {
             {
                 "name": "Browse",
                 "linkedEntity": "Row",
-                "category": "interaction",
                 "emits": [ { "event": "EDIT_ROW", "scope": "internal" } ],
                 "config": { "itemActions": { "type": "array", "default": [ { "event": "VIEW", "label": "View" } ] } },
                 "stateMachine": { "states": [], "events": [], "transitions": [
@@ -534,7 +529,6 @@ mod tests {
             {
                 "name": "EditModal",
                 "linkedEntity": "Row",
-                "category": "interaction",
                 "listens": [ { "event": "EDIT_ROW", "triggers": "OPEN_EDIT", "source": { "kind": "trait", "trait": "Browse" } } ],
                 "stateMachine": { "states": [], "events": [], "transitions": [
                     { "from": "idle", "to": "open", "event": "OPEN_EDIT", "effects": [] }
@@ -552,7 +546,6 @@ mod tests {
             {
                 "name": "Browse",
                 "linkedEntity": "Row",
-                "category": "interaction",
                 "emits": [ { "event": "EDIT_ROW", "scope": "internal" } ],
                 "config": { "itemActions": { "type": "array", "default": [
                     { "event": "VIEW", "label": "View" },
@@ -565,7 +558,6 @@ mod tests {
             {
                 "name": "EditModal",
                 "linkedEntity": "Row",
-                "category": "interaction",
                 "listens": [ { "event": "EDIT_ROW", "triggers": "OPEN_EDIT", "source": { "kind": "trait", "trait": "Browse" } } ],
                 "stateMachine": { "states": [], "events": [], "transitions": [
                     { "from": "idle", "to": "open", "event": "OPEN_EDIT", "effects": [] }
@@ -587,7 +579,6 @@ mod tests {
             {
                 "name": "Publisher",
                 "linkedEntity": "Row",
-                "category": "interaction",
                 "emits": [ { "event": "ROW_CHANGED", "scope": "external" } ],
                 "stateMachine": { "states": [], "events": [], "transitions": [
                     { "from": "idle", "to": "idle", "event": "INIT", "effects": [] }
@@ -596,7 +587,6 @@ mod tests {
             {
                 "name": "Subscriber",
                 "linkedEntity": "Row",
-                "category": "interaction",
                 "listens": [ { "event": "ROW_CHANGED", "triggers": "REFRESH", "source": { "kind": "trait", "trait": "Publisher" } } ],
                 "stateMachine": { "states": [], "events": [], "transitions": [
                     { "from": "idle", "to": "idle", "event": "REFRESH", "effects": [] }
@@ -618,7 +608,6 @@ mod tests {
             {
                 "name": "Host",
                 "linkedEntity": "Row",
-                "category": "interaction",
                 "emits": [ { "event": "ROW_ACTION", "scope": "internal" } ],
                 "config": { "body": { "type": "string", "default": "@trait.Child" } },
                 "stateMachine": { "states": [], "events": [], "transitions": [
@@ -628,7 +617,6 @@ mod tests {
             {
                 "name": "Child",
                 "linkedEntity": "Row",
-                "category": "interaction",
                 "stateMachine": { "states": [], "events": [], "transitions": [
                     { "from": "idle", "to": "idle", "event": "INIT", "effects": [
                         ["render-ui", "main", { "type": "button", "action": "ROW_ACTION", "label": "Go" } ]
@@ -638,7 +626,6 @@ mod tests {
             {
                 "name": "Watcher",
                 "linkedEntity": "Row",
-                "category": "interaction",
                 "listens": [ { "event": "ROW_ACTION", "triggers": "ROW_ACTED", "source": { "kind": "trait", "trait": "Host" } } ],
                 "stateMachine": { "states": [], "events": [], "transitions": [
                     { "from": "idle", "to": "idle", "event": "ROW_ACTED", "effects": [] }

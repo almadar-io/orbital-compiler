@@ -45,7 +45,7 @@ fn external_of(module: &orbital_core_base::ir::OirModule, key: &str) -> bool {
 #[test]
 fn the_oir_record_is_the_shared_input_record() {
     let module = resolve_to_oir(&schema(json!([
-        { "key": "DO_CREATE", "name": "Do create", "external": true, "description": "Create a task",
+        { "key": "DO_CREATE", "name": "Do create", "input": true, "description": "Create a task",
           "payloadSchema": [{ "name": "title", "type": "string", "required": true }] },
         { "key": "SAVE", "name": "Save" }
     ])))
@@ -62,7 +62,7 @@ fn the_oir_record_is_the_shared_input_record() {
 #[test]
 fn a_declared_input_is_external_in_the_oir() {
     let module = resolve_to_oir(&schema(json!([
-        { "key": "DO_CREATE", "name": "Do create", "external": true,
+        { "key": "DO_CREATE", "name": "Do create", "input": true,
           "payloadSchema": [{ "name": "title", "type": "string", "required": true }] },
         { "key": "SAVE", "name": "Save" }
     ])))
@@ -76,7 +76,7 @@ fn the_flag_survives_a_duplicate_key_merge() {
     // A bare entry first, then the payload-typed external declaration of the same key.
     let module = resolve_to_oir(&schema(json!([
         { "key": "DO_CREATE", "name": "Do create" },
-        { "key": "DO_CREATE", "name": "Do create", "external": true,
+        { "key": "DO_CREATE", "name": "Do create", "input": true,
           "payloadSchema": [{ "name": "title", "type": "string" }] }
     ])))
     .expect("resolves");

@@ -1569,20 +1569,24 @@ pub(crate) fn resolve_orbital_reference(
             let PageRef::Inline(page_def) = p else {
                 continue;
             };
-            if omitted_pages.contains(page_def.path.as_str()) {
+            let route = page_def.is_route();
+            if route && omitted_pages.contains(page_def.path.as_str()) {
                 continue;
             }
             let mut pd = page_def.clone();
-            pd.path = path_map
-                .get(&pd.path)
-                .cloned()
-                .unwrap_or_else(|| pd.path.clone());
+            if route {
+                pd.path = path_map
+                    .get(&pd.path)
+                    .cloned()
+                    .unwrap_or_else(|| pd.path.clone());
+            }
             // Which upstream page this is: kept through nested imports, so the
             // per-locale imports of one page share it (their hreflang alternates).
             pd.source_page = page_def.source_page.clone().or_else(|| page_def.id.clone());
             if let Some(mods) = obj
                 .page_modifiers
                 .as_ref()
+                .filter(|_| route)
                 .and_then(|m| m.get(&page_def.path))
             {
                 let local_path = pd.path.clone();
@@ -1651,7 +1655,12 @@ pub(crate) fn resolve_orbital_reference(
             // reference (matches the local-trait-mount shape
             // `orbital-lolo`'s own page lowering already produces —
             // `reference: Some(name)`, no alias qualification).
-            if let Some(mount_names) = obj.mounts.as_ref().and_then(|m| m.get(&page_def.path)) {
+            if let Some(mount_names) = obj
+                .mounts
+                .as_ref()
+                .filter(|_| route)
+                .and_then(|m| m.get(&page_def.path))
+            {
                 let sibling_names: HashSet<&str> = orbital
                     .traits
                     .iter()
@@ -1685,7 +1694,7 @@ pub(crate) fn resolve_orbital_reference(
                         continue;
                     }
                     traits.push(TraitReference::Reference {
-                        local: false,
+                        dispatch: None,
                         reference: Some(name.clone()),
                         ref_id: None,
                         id: None,
@@ -1908,8 +1917,7 @@ pub(crate) fn resolve_orbital_reference(
     }
     primary_entity.shared |= obj.shared;
     primary_entity.identity |= obj.identity;
-    primary_entity.local |= obj.local;
-    primary_entity.seed_mock |= obj.seed_mock;
+    primary_entity.browser |= obj.browser;
 
     let mut mock_unknown_field: Vec<String> = Vec::new();
     if let Some(mock) = obj.mock.as_ref() {
@@ -2069,6 +2077,11 @@ pub(crate) fn resolve_orbital_reference(
             // not at all for what the import omits (G-ORB-378).
             if !rename_imported_obligation(&mut expect, &upstream, obj, &kept_traits, &omitted_pages) {
                 continue;
+            }
+            if let orbital_core_base::schema::ExpectDeclaration::Entity { shape: Some(fields), .. }
+            | orbital_core_base::schema::ExpectDeclaration::Identity { shape: Some(fields), .. } = &mut expect
+            {
+                rename_relation_targets_in_fields(fields, &subs, &entity_ids);
             }
             if let orbital_core_base::schema::ExpectDeclaration::Entity { name, strict: true, .. } = &mut expect {
                 if let Some(local) = entity_renames.get(name.as_str()) {
@@ -4695,6 +4708,50 @@ mod tests {
             "traits": []
         }))
         .expect("OtherOrbital fixture must deserialize")
+    }
+
+    #[test]
+    fn an_entities_binding_renames_the_relation_targets_inside_inherited_expectation_shapes() {
+        let upstream: Orbital = serde_json::from_value(json!({
+            "name": "NotesOrbital",
+            "entity": { "name": "Note", "persistence": "persistent", "fields": [
+                { "name": "id", "type": "string", "required": true },
+                { "name": "ownerId", "type": "relation", "relation": { "entity": "Learner", "cardinality": "one" } }
+            ] },
+            "expects": [
+                { "kind": "identity", "name": "Learner", "shape": [{ "name": "id", "type": "string", "required": true }] },
+                { "kind": "entity", "name": "Path", "shape": [
+                    { "name": "id", "type": "string", "required": true },
+                    { "name": "ownerId", "type": "relation", "relation": { "entity": "Learner", "cardinality": "one" } },
+                    { "name": "topicId", "type": "relation", "relation": { "entity": "Topic", "cardinality": "one" } }
+                ] }
+            ],
+            "traits": []
+        }))
+        .unwrap();
+        let mut ctx = InlineContext::new();
+        ctx.add_alias_multi("Up", vec![upstream], "notes".to_string());
+        let mut orbital: Orbital = serde_json::from_value(json!({ "name": "Local", "entity": "Up.orbitals.NotesOrbital.entity", "traits": [] })).unwrap();
+        orbital.uses = Some(vec![UseDeclaration { lazy: None, from: "notes".to_string(), alias: "Up".to_string(), config: None }]);
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.NotesOrbital".to_string(),
+            entities: Some(HashMap::from([("Learner".to_string(), "LearnerLearner".to_string())])),
+            ..Default::default()
+        };
+        let consumer_ids = HashMap::from([("LearnerLearner".to_string(), "ent_LEARNERLEARNERID000000000".to_string())]);
+        resolve_orbital_reference(&mut orbital, &obj, &ctx, &HashMap::new(), &consumer_ids, &HashMap::new(), None, &mut Vec::new(), None, &mut Vec::new())
+            .expect("resolves");
+        let target = |fields: &[FieldDefinition], name: &str| {
+            fields.iter().find(|f| f.name.as_deref() == Some(name)).and_then(|f| f.relation.as_ref()).map(|r| r.entity.clone())
+        };
+        let EntityRef::Inline(entity) = &orbital.entity else { panic!("primary must be inline") };
+        assert_eq!(target(&entity.fields, "ownerId").as_deref(), Some("LearnerLearner"), "control: the import's own relation follows the binding");
+        let path_shape = orbital.expects.iter().flatten().find_map(|e| match e {
+            orbital_core_base::schema::ExpectDeclaration::Entity { name, shape: Some(shape), .. } if name == "Path" => Some(shape.clone()),
+            _ => None,
+        }).expect("the Path expectation travels with the import");
+        assert_eq!(target(&path_shape, "ownerId").as_deref(), Some("LearnerLearner"), "an expectation's relation to the bound entity follows the binding");
+        assert_eq!(target(&path_shape, "topicId").as_deref(), Some("Topic"), "control: a relation to an unbound entity is left as declared");
     }
 
     fn stage_b_ctx() -> InlineContext {

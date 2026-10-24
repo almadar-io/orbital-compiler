@@ -424,7 +424,7 @@ mod os_grants {
             "name": name,
             "entity": { "name": format!("{name}Row"), "persistence": "runtime", "fields": [{ "name": "id", "type": "string", "required": true }] },
             "traits": [{
-                "name": format!("{name}Runner"), "linkedEntity": format!("{name}Row"), "category": "interaction", "local": local,
+                "name": format!("{name}Runner"), "linkedEntity": format!("{name}Row"), "category": "interaction", "dispatch": local.then_some("client"),
                 "stateMachine": {
                     "states": [{ "name": "idle", "isInitial": true }],
                     "events": [{ "key": "INIT" }],

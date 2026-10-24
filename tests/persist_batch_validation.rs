@@ -20,7 +20,7 @@ fn row() -> Value {
 
 fn draft() -> Value {
     json!({
-        "name": "Draft", "persistence": "persistent", "collection": "drafts", "local": true,
+        "name": "Draft", "persistence": "persistent", "collection": "drafts", "browser": true,
         "fields": [{ "name": "id", "type": "string", "required": true }, { "name": "body", "type": "string" }]
     })
 }

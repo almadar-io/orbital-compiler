@@ -186,6 +186,10 @@ impl<'c> Inferer<'c> {
                         return Some(Known::Void);
                     }
                 }
+                if let orbital_core_base::ir::OirEffect::Set { target, value, .. } = effect.as_ref() {
+                    self.infer_set_value(target, value);
+                    return Some(Known::Void);
+                }
                 for child in effect.child_exprs() {
                     self.known(child);
                 }
@@ -512,6 +516,10 @@ impl<'c> Inferer<'c> {
                         | orbital_core_base::ir::OirEffect::SetDynamic { .. }
                 ) =>
             {
+                if let orbital_core_base::ir::OirEffect::Set { target, value, .. } = effect.as_ref() {
+                    self.infer_set_value(target, value);
+                    return None;
+                }
                 for child in effect.child_exprs() {
                     self.infer(child);
                 }
@@ -683,6 +691,30 @@ impl<'c> Inferer<'c> {
         None
     }
 
+    /// A `set` value is read against the declared type of the field it writes: branches and list items whose types
+    /// differ are one value when that type admits each of them. Findings of the plain reading stand whenever the
+    /// declared type does not admit the value.
+    fn infer_set_value(&self, target: &OirBinding, value: &OirExpr) {
+        let mark = self.diagnostics.borrow().len();
+        self.infer(value);
+        if self.diagnostics.borrow().len() == mark {
+            return;
+        }
+        let Some(declared) = self.ctx.binding_type(target) else {
+            return;
+        };
+        let found = self.diagnostics.borrow_mut().split_off(mark);
+        let admitted = self
+            .infer_contextual(value, &declared, &Default::default(), &mut Vec::new())
+            .is_some()
+            && self.diagnostics.borrow().len() == mark;
+        if !admitted {
+            let mut diagnostics = self.diagnostics.borrow_mut();
+            diagnostics.truncate(mark);
+            diagnostics.extend(found);
+        }
+    }
+
     fn infer_contextual(
         &self,
         expr: &OirExpr,
@@ -719,6 +751,12 @@ impl<'c> Inferer<'c> {
                     .infer_contextual(expr, inner, named, expanding)
                     .map(|_| expected.clone());
             }
+        }
+        if let Some((_, then_branch, else_branch)) = conditional_parts(expr) {
+            for branch in [then_branch, else_branch] {
+                self.infer_contextual(branch, expected, named, expanding)?;
+            }
+            return Some(expected.clone());
         }
         let literal_container = matches!(expr, OirExpr::Array { .. } | OirExpr::Object { .. });
         if literal_container {
@@ -1733,6 +1771,20 @@ fn refine_type(
 
 fn is_ordering(name: &str) -> bool {
     matches!(name, "<" | "<=" | ">" | ">=")
+}
+
+/// The condition and branches of an `if`, however it was lowered.
+fn conditional_parts(expr: &OirExpr) -> Option<(&OirExpr, &OirExpr, &OirExpr)> {
+    match expr {
+        OirExpr::Conditional { condition, then_branch, else_branch } => {
+            Some((&**condition, &**then_branch, &**else_branch))
+        }
+        OirExpr::Call { function, args } if function == "if" => match args.as_slice() {
+            [condition, then_branch, else_branch] => Some((condition, then_branch, else_branch)),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// The branch of an `if` that can run when its condition is provably decided without running the program (a
@@ -3411,5 +3463,92 @@ mod tests {
         assert_eq!(w.len(), 2, "tick + listener guards must each warn: {w:?}");
         assert!(w.iter().any(|s| s.contains("tick")));
         assert!(w.iter().any(|s| s.contains("listener")));
+    }
+
+    struct ExactRow(Row);
+    impl TypeCtx for ExactRow {
+        fn binding_type(&self, binding: &OirBinding) -> Option<OirType> {
+            self.0.binding_type(binding)
+        }
+        fn object_literals_are_exact(&self) -> bool {
+            true
+        }
+    }
+
+    fn shape_row() -> OirType {
+        let mut entity = OirField::new("entity", OirType::String);
+        entity.required = false;
+        let mut address = OirField::new("address", OirType::String);
+        address.required = false;
+        OirType::Struct {
+            additional: None,
+            fields: vec![OirField::new("name", OirType::String), entity, address],
+        }
+    }
+
+    fn record(fields: Vec<(&str, OirExpr)>) -> OirExpr {
+        OirExpr::Object { fields: fields.into_iter().map(|(n, v)| (n.to_string(), v)).collect() }
+    }
+
+    fn set_rows(value: OirExpr) -> OirExpr {
+        OirExpr::effect(orbital_core_base::ir::OirEffect::set(
+            OirBinding { root: OirBindingRoot::Entity, path: vec!["rows".into()] },
+            value,
+        ))
+    }
+
+    fn two_shapes() -> OirExpr {
+        OirExpr::Conditional {
+            condition: Box::new(entity(&["flag"])),
+            then_branch: Box::new(list_of(vec![record(vec![("name", text("a")), ("entity", text("x"))])])),
+            else_branch: Box::new(list_of(vec![record(vec![("name", text("b")), ("address", text("y"))])])),
+        }
+    }
+
+    #[test]
+    fn set_branches_that_differ_in_optional_fields_fit_the_declared_element_type() {
+        let ctx = ExactRow(Row(vec![("flag", OirType::Boolean), ("rows", OirType::array(shape_row()))]));
+        assert!(check_oir_expr(&set_rows(two_shapes()), &ctx).is_empty());
+        let nested = OirExpr::Conditional {
+            condition: Box::new(entity(&["flag"])),
+            then_branch: Box::new(two_shapes()),
+            else_branch: Box::new(list_of(vec![])),
+        };
+        assert!(check_oir_expr(&set_rows(nested), &ctx).is_empty());
+    }
+
+    #[test]
+    fn control_set_branches_the_declared_type_does_not_admit_still_conflict() {
+        let ctx = ExactRow(Row(vec![("flag", OirType::Boolean), ("rows", OirType::array(shape_row()))]));
+        let wrong = OirExpr::Conditional {
+            condition: Box::new(entity(&["flag"])),
+            then_branch: Box::new(list_of(vec![record(vec![("name", text("a")), ("entity", text("x"))])])),
+            else_branch: Box::new(list_of(vec![record(vec![("name", num(1.0))])])),
+        };
+        assert!(!check_oir_expr(&set_rows(wrong), &ctx).is_empty());
+        let undeclared = ExactRow(Row(vec![("flag", OirType::Boolean)]));
+        assert!(!check_oir_expr(&set_rows(two_shapes()), &undeclared).is_empty());
+        let scalar = ExactRow(Row(vec![("flag", OirType::Boolean), ("rows", OirType::Number)]));
+        assert!(!check_oir_expr(&set_rows(two_shapes()), &scalar).is_empty());
+    }
+
+    #[test]
+    fn a_checked_local_admits_branches_its_declared_type_admits() {
+        let expected = OirType::array(shape_row());
+        let ctx = ExactRow(Row(vec![("flag", OirType::Boolean)]));
+        assert!(check_oir_expr(&checked_local(two_shapes(), expected), &ctx).is_empty());
+    }
+
+    #[test]
+    fn a_list_conflict_names_the_item_types_that_differ() {
+        let ctx = ExactRow(Row(vec![("flag", OirType::Boolean)]));
+        let found = check_oir_expr(&two_shapes(), &ctx);
+        let Some(Mismatch::Conflict { expected, actual }) = found.first().map(|d| d.mismatch.clone())
+        else {
+            panic!("{found:?}");
+        };
+        assert_ne!(expected, actual);
+        assert!(expected.contains("entity") && expected.starts_with('['), "{expected}");
+        assert!(actual.contains("address") && actual.starts_with('['), "{actual}");
     }
 }

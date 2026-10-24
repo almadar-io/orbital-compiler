@@ -325,7 +325,7 @@ mod tests {
                 "entity": { "name": "Item", "persistence": "persistent", "collection": "items",
                             "fields": [ { "name": "id", "type": "string" }, entity_field ] },
                 "traits": [{
-                    "name": "T", "linkedEntity": "Item", "category": "interaction",
+                    "name": "T", "linkedEntity": "Item",
                     "typeParams": [ { "name": "v", "kind": "Type" } ],
                     "config": { "rows": { "type": "[Row]", "items": config_items } },
                     "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
@@ -348,7 +348,7 @@ mod tests {
                     "entity": { "name": "Item", "persistence": "persistent", "collection": "items",
                                 "fields": [ { "name": "id", "type": "string" } ] },
                     "traits": [{
-                        "name": "T", "linkedEntity": linked, "category": "interaction",
+                        "name": "T", "linkedEntity": linked,
                         "typeParams": [ { "name": "v", "kind": "Type" } ],
                         "typeArgs": args,
                         "config": { "result": { "type": "$v" }, "results": { "type": "[$v]" }, "plain": { "type": "string" } },

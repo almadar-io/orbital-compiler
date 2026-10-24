@@ -10,7 +10,7 @@
 //!   produce (the state check cannot see a dead self-loop or a dead second way in).
 //! - `ORB_CONTROL_VALUE_DISCARDED` — a composed trait's rendered control fires
 //!   an event carrying a value that no other trait hears and whose own
-//!   handling reads none of it. An event the trait offers outward (`-> external`) defers to an
+//!   handling reads none of it. An event the trait offers outward (`-> input`) defers to an
 //!   importer, except in a finished program (`orb validate --final`, `discarded_offered_values`).
 
 use std::collections::{HashSet, VecDeque};
@@ -162,7 +162,7 @@ fn unreachable_states(
             ErrorCode::ComposedStateUnreachable,
             path.to_string(),
             format!(
-                "'{}' can never enter {} — it is entered only on {}, which nothing in the program sends: no listens route, no control or effect fires it, and it is not declared external",
+                "'{}' can never enter {} — it is entered only on {}, which nothing in the program sends: no listens route, no control or effect fires it, and it is not a declared input",
                 td.name,
                 dead.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(", "),
                 missing.join(", ")
@@ -173,7 +173,7 @@ fn unreachable_states(
 }
 
 /// The events a composed trait can receive: everything the program produces, the page
-/// lifecycle, its listens' triggers, its `external` inputs and the portal shell's dismiss events.
+/// lifecycle, its listens' triggers, its declared inputs and the portal shell's dismiss events.
 fn trait_inputs(td: &TraitDefinition, produced: &HashSet<String>) -> HashSet<String> {
     let mut inputs: HashSet<String> = produced.clone();
     inputs.extend(
@@ -185,7 +185,7 @@ fn trait_inputs(td: &TraitDefinition, produced: &HashSet<String>) -> HashSet<Str
         inputs.insert(l.triggers.clone().unwrap_or_else(|| l.event.clone()));
     }
     for e in td.state_machine.events.iter().flatten() {
-        if e.external == Some(true) {
+        if e.input == Some(true) {
             inputs.insert(e.key.clone());
         }
     }
@@ -558,7 +558,7 @@ mod tests {
     /// and its own `SAVE` arm only closes it.
     fn form(name: &str, listens: serde_json::Value, source: bool) -> serde_json::Value {
         let mut t = serde_json::json!({
-            "name": name, "linkedEntity": "Item", "category": "interaction",
+            "name": name, "linkedEntity": "Item",
             "listens": listens,
             "stateMachine": {
                 "states": [{ "name": "closed", "isInitial": true }, { "name": "open" }],
@@ -583,7 +583,7 @@ mod tests {
 
     fn opener(action: &str) -> serde_json::Value {
         serde_json::json!({
-            "name": "AddButton", "linkedEntity": "Item", "category": "interaction",
+            "name": "AddButton", "linkedEntity": "Item",
             "sourceBehavior": composed("ButtonRender", "std/behaviors/ui-button"),
             "config": { "action": { "type": "event", "default": action } },
             "stateMachine": {
@@ -597,12 +597,12 @@ mod tests {
 
     fn store(listens: serde_json::Value) -> serde_json::Value {
         serde_json::json!({
-            "name": "Store", "linkedEntity": "Item", "category": "lifecycle",
+            "name": "Store", "linkedEntity": "Item",
             "sourceBehavior": composed("RecordStore", "std/behaviors/std-record-store"),
             "listens": listens,
             "stateMachine": {
                 "states": [{ "name": "ready", "isInitial": true }],
-                "events": [{ "key": "INIT" }, { "key": "DO_CREATE", "external": true, "payloadSchema": [{ "name": "data", "type": "object" }] }],
+                "events": [{ "key": "INIT" }, { "key": "DO_CREATE", "input": true, "payloadSchema": [{ "name": "data", "type": "object" }] }],
                 "transitions": [
                     { "from": "ready", "to": "ready", "event": "INIT" },
                     { "from": "ready", "to": "ready", "event": "DO_CREATE", "effects": [["persist", "create", "Item", "@payload.data"]] }
@@ -683,7 +683,7 @@ mod tests {
     #[test]
     fn edge_an_input_declared_external_is_the_host_s_to_send() {
         let mut f = form("ItemForm", serde_json::json!([]), true);
-        f["stateMachine"]["events"][1]["external"] = serde_json::json!(true);
+        f["stateMachine"]["events"][1]["input"] = serde_json::json!(true);
         assert!(hits(program(vec![f]), ErrorCode::ComposedStateUnreachable).is_empty());
     }
 
@@ -719,7 +719,7 @@ mod tests {
     /// `browsing`. Both states are reachable, so only the transition can be dead.
     fn browse(listens: serde_json::Value, source: bool) -> serde_json::Value {
         let mut t = serde_json::json!({
-            "name": "ItemBrowse", "linkedEntity": "Item", "category": "interaction",
+            "name": "ItemBrowse", "linkedEntity": "Item",
             "listens": listens,
             "stateMachine": {
                 "states": [{ "name": "loading", "isInitial": true }, { "name": "browsing" }],
@@ -833,7 +833,7 @@ mod tests {
     #[test]
     fn edge_an_external_event_is_the_host_s_to_send() {
         let mut b = browse(serde_json::json!([]), true);
-        b["stateMachine"]["events"][2]["external"] = serde_json::json!(true);
+        b["stateMachine"]["events"][2]["input"] = serde_json::json!(true);
         assert!(hits(program(vec![b]), ErrorCode::ComposedTransitionUnreachable).is_empty());
     }
 
@@ -935,7 +935,7 @@ mod tests {
         ];
         arm.extend(effects_extra);
         serde_json::json!({
-            "name": "NoteSearch", "linkedEntity": "SearchResult", "category": "interaction",
+            "name": "NoteSearch", "linkedEntity": "SearchResult",
             "sourceBehavior": composed("SearchResultSearch", "std/behaviors/std-search"),
             "emits": [{ "event": "SEARCH", "scope": "external", "payloadSchema": [{ "name": "searchTerm", "type": "string", "required": true }] }],
             "stateMachine": {
@@ -982,7 +982,7 @@ mod tests {
         let render =
             serde_json::json!(["render-ui", "main", { "type": "box", "hoverEvent": "HOVER" }]);
         serde_json::json!({
-            "name": "TaskIntro", "linkedEntity": "SearchResult", "category": "interaction",
+            "name": "TaskIntro", "linkedEntity": "SearchResult",
             "sourceBehavior": composed("BoxRender", "std/behaviors/ui-box"),
             "emits": [{ "event": "HOVER", "scope": "external", "payloadSchema": [{ "name": "hovered", "type": "boolean", "required": true }] }],
             "stateMachine": {
@@ -1007,7 +1007,7 @@ mod tests {
 
     fn layout_with_empty_search_arm() -> serde_json::Value {
         serde_json::json!({
-            "name": "DetailLayout", "linkedEntity": "SearchResult", "category": "interaction",
+            "name": "DetailLayout", "linkedEntity": "SearchResult",
             "sourceBehavior": composed("AppLayout", "std/behaviors/std-app-layout"),
             "stateMachine": {
                 "states": [{ "name": "composing", "isInitial": true }],

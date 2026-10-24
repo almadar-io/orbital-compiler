@@ -117,7 +117,9 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
         // control. `client-unbound-state-machine` reads the SAME set the
         // opposite way — it fires precisely when a trait is NOT in it.
         let bound = client_bound_traits(orbital);
-        ctx.merge(validate_client_bound_state_machines(i, orbital, &bound));
+        if super::mounts::is_program(schema, orbital) {
+            ctx.merge(validate_client_bound_state_machines(i, orbital, &bound));
+        }
         let page_traits = crate::phases::embed_graph::page_declared_traits(orbital);
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             if let TraitReference::Inline(trait_def) = trait_ref {
@@ -1904,9 +1906,6 @@ fn validate_client_bound_state_machines(
         let TraitReference::Inline(trait_def) = trait_ref else {
             continue;
         };
-        if !super::page::requires_page(trait_def) {
-            continue;
-        }
         let transition_count = trait_def.state_machine.transitions.len();
         if transition_count == 0 {
             continue;
@@ -1941,10 +1940,10 @@ fn validate_client_bound_state_machines(
         };
         result.add_error(
             ValidationError::error(
-                ErrorCode::CircuitClientUnboundStateMachine,
+                ErrorCode::TraitUnmounted,
                 &path,
                 format!(
-                    "'{}.{}' owns a state machine ({} transition(s)) but is in no page decl and no page's @trait embed closure — the client never binds it, so it can never handle an event in the shipped app",
+                    "'{}.{}' owns a state machine ({} transition(s)) but is listed on no page (route or protocol endpoint) and no page's @trait embed closure reaches it — nothing mounts it, so it can never handle an event in the shipped app",
                     orbital.name, trait_def.name, transition_count
                 ),
             )
@@ -3430,8 +3429,6 @@ mod tests {
             entity_rebindable: None,
             entity_contract: None,
             effect_row: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: None,
             linked_entity_id: None,
@@ -3477,8 +3474,7 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
-            local: false,
+            dispatch: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -3913,7 +3909,6 @@ mod tests {
         let trait_def = trait_def_json(serde_json::json!({
             "name": "TestTrait",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
                 "transitions": [{
@@ -3939,7 +3934,6 @@ mod tests {
         let trait_def = trait_def_json(serde_json::json!({
             "name": "TestTrait",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
                 "transitions": [{
@@ -3957,7 +3951,6 @@ mod tests {
         let trait_def = trait_def_json(serde_json::json!({
             "name": "TestTrait",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
                 "transitions": [{
@@ -3985,7 +3978,6 @@ mod tests {
         let trait_def = trait_def_json(serde_json::json!({
             "name": "TestTrait",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "playing", "isInitial": true }],
                 "transitions": [
@@ -4007,7 +3999,6 @@ mod tests {
         let trait_def = trait_def_json(serde_json::json!({
             "name": "TestTrait",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [
                     { "name": "idle", "isInitial": true },
@@ -4030,7 +4021,6 @@ mod tests {
         let trait_def = trait_def_json(serde_json::json!({
             "name": "TestTrait",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "playing", "isInitial": true }],
                 "transitions": [
@@ -4051,7 +4041,6 @@ mod tests {
         let trait_def = trait_def_json(serde_json::json!({
             "name": "TestTrait",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "playing", "isInitial": true }],
                 "transitions": [
@@ -4071,7 +4060,6 @@ mod tests {
         let trait_def = trait_def_json(serde_json::json!({
             "name": "TestTrait",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "playing", "isInitial": true }],
                 "transitions": [
@@ -4092,7 +4080,6 @@ mod tests {
         let trait_def = trait_def_json(serde_json::json!({
             "name": "TestTrait",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "marking", "isInitial": true }],
                 "transitions": [
@@ -4117,7 +4104,6 @@ mod tests {
         let trait_def = trait_def_json(serde_json::json!({
             "name": "TestTrait",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "marking", "isInitial": true }],
                 "transitions": [
@@ -4141,7 +4127,6 @@ mod tests {
         let trait_def = trait_def_json(serde_json::json!({
             "name": "TestTrait",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "marking", "isInitial": true }],
                 "transitions": [
@@ -4197,7 +4182,6 @@ mod tests {
         serde_json::json!({
             "name": name,
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
                 "transitions": [{ "from": "idle", "to": "idle", "event": "INIT", "effects": [] }]
@@ -4267,7 +4251,6 @@ mod tests {
             vec![serde_json::json!({
                 "name": "Stateless",
                 "linkedEntity": "Item",
-                "category": "interaction",
                 "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] }
             })],
             serde_json::json!([{ "name": "Home", "path": "/home" }]),
@@ -4296,7 +4279,6 @@ mod tests {
         let wrapper = serde_json::json!({
             "name": "Wrapper",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
                 "transitions": [{
@@ -4512,7 +4494,6 @@ mod tests {
         let trait_def = trait_def_json(serde_json::json!({
             "name": "Orphan",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "loading", "isInitial": true }, { "name": "browsing" }, { "name": "opened" }],
                 "transitions": [
@@ -4577,7 +4558,6 @@ mod tests {
             serde_json::json!({
                 "name": "Owner",
                 "linkedEntity": "Item",
-                "category": "interaction",
                 "stateMachine": {
                     "states": [{ "name": "browsing", "isInitial": true }],
                     "transitions": [
@@ -4591,7 +4571,6 @@ mod tests {
             serde_json::json!({
                 "name": "Trigger",
                 "linkedEntity": "Item",
-                "category": "interaction",
                 "stateMachine": {
                     "states": [{ "name": "idle", "isInitial": true }],
                     "transitions": [
@@ -4717,7 +4696,6 @@ mod tests {
         let leaf = serde_json::json!({
             "name": "LeafIcon",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
                 "transitions": [
@@ -4745,7 +4723,6 @@ mod tests {
         let leaf = serde_json::json!({
             "name": "LeafButton",
             "linkedEntity": "Item",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
                 "transitions": [
@@ -4779,7 +4756,6 @@ mod tests {
             serde_json::json!({
                 "name": "Owner",
                 "linkedEntity": "Item",
-                "category": "interaction",
                 "stateMachine": {
                     "states": [{ "name": "browsing", "isInitial": true }],
                     "transitions": [
@@ -4796,7 +4772,6 @@ mod tests {
             serde_json::json!({
                 "name": "Trigger",
                 "linkedEntity": "Item",
-                "category": "interaction",
                 "stateMachine": {
                     "states": [{ "name": "idle", "isInitial": true }],
                     "transitions": [
@@ -4816,7 +4791,6 @@ mod tests {
             serde_json::json!({
                 "name": "Owner",
                 "linkedEntity": "Item",
-                "category": "interaction",
                 "stateMachine": {
                     "states": [
                         { "name": "browsing", "isInitial": true },
@@ -4836,7 +4810,6 @@ mod tests {
             serde_json::json!({
                 "name": "Trigger",
                 "linkedEntity": "Item",
-                "category": "interaction",
                 "stateMachine": {
                     "states": [{ "name": "idle", "isInitial": true }],
                     "transitions": [
@@ -4848,7 +4821,6 @@ mod tests {
             serde_json::json!({
                 "name": "Sibling",
                 "linkedEntity": "Item",
-                "category": "interaction",
                 "stateMachine": {
                     "states": [{ "name": "idle", "isInitial": true }],
                     "transitions": [
@@ -4870,7 +4842,6 @@ mod tests {
             serde_json::json!({
                 "name": "Owner",
                 "linkedEntity": "Item",
-                "category": "interaction",
                 "stateMachine": {
                     "states": [{ "name": "browsing", "isInitial": true }],
                     "transitions": [
@@ -4883,7 +4854,6 @@ mod tests {
             serde_json::json!({
                 "name": "Trigger",
                 "linkedEntity": "Item",
-                "category": "interaction",
                 "stateMachine": {
                     "states": [{ "name": "idle", "isInitial": true }],
                     "transitions": [
@@ -5042,7 +5012,6 @@ mod tests {
         let shell = serde_json::json!({
             "name": "Shell",
             "linkedEntity": "Item",
-            "category": "interaction",
             "config": { "contentTrait": { "type": "trait", "default": "@trait.Catalog" } },
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
@@ -5050,7 +5019,7 @@ mod tests {
             }
         });
         let catalog = serde_json::json!({
-            "name": "Catalog", "linkedEntity": "Item", "category": "interaction",
+            "name": "Catalog", "linkedEntity": "Item",
             "stateMachine": {
                 "states": [{ "name": "browsing", "isInitial": true }],
                 "transitions": [{ "from": "browsing", "to": "browsing", "event": "INIT",
@@ -5058,7 +5027,7 @@ mod tests {
             }
         });
         let stray = serde_json::json!({
-            "name": "Stray", "linkedEntity": "Item", "category": "interaction",
+            "name": "Stray", "linkedEntity": "Item",
             "stateMachine": {
                 "states": [{ "name": "browsing", "isInitial": true }],
                 "transitions": [{ "from": "browsing", "to": "browsing", "event": "INIT",
@@ -5081,7 +5050,6 @@ mod tests {
         let shell = serde_json::json!({
             "name": "Shell",
             "linkedEntity": "Item",
-            "category": "interaction",
             "config": { "contentTrait": { "type": "trait", "default": "@trait.Catalog" } },
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
@@ -5089,7 +5057,7 @@ mod tests {
             }
         });
         let catalog = serde_json::json!({
-            "name": "Catalog", "linkedEntity": "Item", "category": "interaction",
+            "name": "Catalog", "linkedEntity": "Item",
             "stateMachine": {
                 "states": [{ "name": "browsing", "isInitial": true }],
                 "transitions": [{ "from": "browsing", "to": "browsing", "event": "INIT",
@@ -5097,7 +5065,7 @@ mod tests {
             }
         });
         let stray = serde_json::json!({
-            "name": "Stray", "linkedEntity": "Item", "category": "interaction",
+            "name": "Stray", "linkedEntity": "Item",
             "stateMachine": {
                 "states": [{ "name": "browsing", "isInitial": true }],
                 "transitions": [{ "from": "browsing", "to": "browsing", "event": "INIT",
@@ -5117,7 +5085,7 @@ mod tests {
     /// writer. `Body` owns the page; `Sim` lives inside an overlay.
     fn overlay_embed_orbital() -> Orbital {
         let shell = serde_json::json!({
-            "name": "Shell", "linkedEntity": "Item", "category": "interaction",
+            "name": "Shell", "linkedEntity": "Item",
             "config": { "contentTrait": { "type": "trait", "default": "@trait.Body" } },
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
@@ -5126,7 +5094,7 @@ mod tests {
             }
         });
         let body = serde_json::json!({
-            "name": "Body", "linkedEntity": "Item", "category": "interaction",
+            "name": "Body", "linkedEntity": "Item",
             "stateMachine": {
                 "states": [{ "name": "reading", "isInitial": true }],
                 "transitions": [{ "from": "reading", "to": "reading", "event": "INIT",
@@ -5134,7 +5102,7 @@ mod tests {
             }
         });
         let viz = serde_json::json!({
-            "name": "Viz", "linkedEntity": "Item", "category": "interaction",
+            "name": "Viz", "linkedEntity": "Item",
             "config": { "readyView": { "type": "render-ui", "default": { "type": "drawer", "children": ["@trait.Sim"] } } },
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
@@ -5143,7 +5111,7 @@ mod tests {
             }
         });
         let sim = serde_json::json!({
-            "name": "Sim", "linkedEntity": "Item", "category": "interaction",
+            "name": "Sim", "linkedEntity": "Item",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
                 "transitions": [{ "from": "idle", "to": "idle", "event": "INIT",
@@ -5181,7 +5149,7 @@ mod tests {
 
     fn channel_rendering(pattern: &str) -> serde_json::Value {
         serde_json::json!({
-            "name": "Shell", "linkedEntity": "Item", "category": "interaction",
+            "name": "Shell", "linkedEntity": "Item",
             "config": {
                 "contentTrait": { "type": "trait", "default": "@trait.Catalog" },
                 "layoutPattern": { "type": "pattern", "default": pattern }
@@ -5196,7 +5164,7 @@ mod tests {
 
     fn catalog_rendering(body: serde_json::Value) -> serde_json::Value {
         serde_json::json!({
-            "name": "Catalog", "linkedEntity": "Item", "category": "interaction",
+            "name": "Catalog", "linkedEntity": "Item",
             "stateMachine": {
                 "states": [{ "name": "browsing", "isInitial": true }],
                 "transitions": [{ "from": "browsing", "to": "browsing", "event": "INIT", "effects": [["render-ui", "main", body]] }]
@@ -5206,7 +5174,7 @@ mod tests {
 
     fn add_button(slot: &str, body: serde_json::Value) -> serde_json::Value {
         serde_json::json!({
-            "name": "AddButton", "linkedEntity": "Item", "category": "interaction",
+            "name": "AddButton", "linkedEntity": "Item",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
                 "transitions": [{ "from": "idle", "to": "idle", "event": "INIT", "effects": [["render-ui", slot, body]] }]
@@ -5246,7 +5214,7 @@ mod tests {
         let mut shell = channel_shell();
         shell["config"]["contentTrait"]["default"] = serde_json::json!("@trait.List");
         let list = serde_json::json!({
-            "name": "List", "linkedEntity": "Item", "category": "interaction",
+            "name": "List", "linkedEntity": "Item",
             "config": { "rowTrait": { "type": "trait", "default": "@trait.Catalog" } },
             "stateMachine": {
                 "states": [{ "name": "browsing", "isInitial": true }],
@@ -5377,7 +5345,7 @@ mod tests {
     #[test]
     fn second_content_body_silent_for_a_sole_writer_owner() {
         let catalog = serde_json::json!({
-            "name": "Catalog", "linkedEntity": "Item", "category": "interaction",
+            "name": "Catalog", "linkedEntity": "Item",
             "stateMachine": {
                 "states": [{ "name": "browsing", "isInitial": true }],
                 "transitions": [{ "from": "browsing", "to": "browsing", "event": "INIT",
@@ -5392,7 +5360,7 @@ mod tests {
 
     fn main_writer(name: &str, body: serde_json::Value) -> serde_json::Value {
         serde_json::json!({
-            "name": name, "linkedEntity": "Item", "category": "interaction",
+            "name": name, "linkedEntity": "Item",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
                 "transitions": [{ "from": "idle", "to": "idle", "event": "INIT", "effects": [["render-ui", "main", body]] }]
@@ -5456,7 +5424,7 @@ mod tests {
     #[test]
     fn ambiguous_owner_silent_under_a_channel_owner() {
         let shell = serde_json::json!({
-            "name": "Shell", "linkedEntity": "Item", "category": "interaction",
+            "name": "Shell", "linkedEntity": "Item",
             "config": { "contentTrait": { "type": "trait", "default": "@trait.Catalog" } },
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],

@@ -27,7 +27,7 @@ pub fn validate_all_slots(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
                 let path = format!("orbitals[{}].pages[{}]", i, j);
 
                 // Only validate inline pages, not references
-                if let Some(page) = page_ref.as_inline() {
+                if let Some(page) = page_ref.as_inline().filter(|p| p.is_route()) {
                     // Collect all inline traits for this page
                     // Note: Only inline traits are supported. Referenced traits should be defined inline within orbitals.
                     let page_traits: Vec<&TraitDefinition> = page
@@ -100,11 +100,7 @@ pub fn validate_page_slots(
     }
 
     // Check main slot coverage
-    if !initial_slots.contains_key("main")
-        && traits
-            .iter()
-            .any(|trait_def| super::page::requires_page(trait_def))
-    {
+    if !initial_slots.contains_key("main") && !traits.is_empty() {
         result.add_error(
             ValidationError::error(
                 ErrorCode::SlotMainNotCovered,
@@ -518,15 +514,13 @@ mod tests {
 
     fn create_trait_with_render_ui(name: &str, slot: &str) -> TraitDefinition {
         TraitDefinition {
-            local: false,
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: None,
             emits: None,
@@ -562,7 +556,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -704,15 +697,13 @@ mod tests {
         });
 
         TraitDefinition {
-            local: false,
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: None,
             emits: None,
@@ -742,7 +733,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -949,15 +939,13 @@ mod tests {
             ],
         };
         let trait_orphan = TraitDefinition {
-            local: false,
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: "TraitOrphan".to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: None,
             emits: None,
@@ -966,7 +954,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,

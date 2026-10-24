@@ -205,6 +205,22 @@ pub enum InlineError {
     },
 
     #[error(
+        "Type name '{name}' is declared by {first} and by {second} with DIFFERENT shapes; \
+         a named type is one program-wide name, so one of the two would silently stand in for \
+         the other. Rename one of the two declarations."
+    )]
+    AmbiguousTypeName {
+        /// The type name both declarations carry.
+        name: String,
+        /// The first declaration's owner (`orbital 'X'` or `the program`).
+        first: String,
+        /// The second, differing declaration's owner.
+        second: String,
+        /// Source-tagged path to the second declaration.
+        path: String,
+    },
+
+    #[error(
         "Orbital import `listens` at {path} routes into '{target}', which is not a trait of the imported set (after omit/only)"
     )]
     OrbitalRefListenTargetUnknown {
@@ -275,6 +291,7 @@ impl InlineError {
             InlineError::LambdaStatefulTrait { path, .. } => path,
             InlineError::EmitMergeConflict { path, .. } => path,
             InlineError::ConflictingTypeAlias { path, .. } => path,
+            InlineError::AmbiguousTypeName { path, .. } => path,
             InlineError::DuplicateUseAlias { path, .. } => path,
             InlineError::OrbitalRefListenTargetUnknown { path, .. } => path,
             InlineError::LazyEagerRef { path, .. } => path,
@@ -297,6 +314,7 @@ impl InlineError {
             InlineError::LambdaStatefulTrait { .. } => "ORB_T_LAMBDA_STATEFUL_TRAIT",
             InlineError::EmitMergeConflict { .. } => "ORB_T_EMIT_MERGE_CONFLICT",
             InlineError::ConflictingTypeAlias { .. } => "ORB_T_CONFLICTING_TYPE_ALIAS",
+            InlineError::AmbiguousTypeName { .. } => "ORB_T_AMBIGUOUS_TYPE_NAME",
             InlineError::DuplicateUseAlias { .. } => "ORB_O_DUPLICATE_USE_ALIAS",
             InlineError::OrbitalRefListenTargetUnknown { .. } => "ORB_O_LISTEN_TARGET_UNKNOWN",
             InlineError::LazyEagerRef { .. } => "ORB_LAZY_EAGER_REF",
@@ -669,6 +687,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     if let Some(e) = first_error {
         return Err(e);
     }
+    reject_ambiguous_type_names(schema)?;
     address_imported_traits(&mut schema.orbitals, &imported_trait_names);
 
     // An entity another orbital owns as its primary is that entity: a copy pulled in as an
@@ -775,6 +794,40 @@ pub fn inline_schema_with_orbital_diagnostics(
         "orbital.reference must be cleared by inline_orbital's resolve_orbital_reference call"
     );
 
+    Ok(())
+}
+
+/// A named type is one program-wide name (`OirModule::named_types` keeps one entry per name), so two declarations of
+/// a name with different shapes across the composed program's orbitals are refused, never resolved by order.
+fn reject_ambiguous_type_names(schema: &OrbitalSchema) -> Result<(), InlineError> {
+    let mut seen: HashMap<&str, (String, &Vec<PayloadField>)> = HashMap::new();
+    let scopes = schema
+        .types
+        .iter()
+        .map(|types| ("the program".to_string(), "types".to_string(), types))
+        .chain(schema.orbitals.iter().filter_map(|o| {
+            o.types
+                .as_ref()
+                .map(|types| (format!("orbital '{}'", o.name), format!("orbitals[name={}]", o.name), types))
+        }));
+    for (owner, path, types) in scopes {
+        for (name, shape) in types {
+            match seen.get(name.as_str()) {
+                Some((first, existing)) if *existing != shape => {
+                    return Err(InlineError::AmbiguousTypeName {
+                        name: name.clone(),
+                        first: first.clone(),
+                        second: owner,
+                        path,
+                    });
+                }
+                Some(_) => {}
+                None => {
+                    seen.insert(name.as_str(), (owner.clone(), shape));
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -2482,6 +2535,9 @@ fn inline_orbital(
     // resolves in `trait_ids` — so no page-ref token rewrite is needed. The
     // former `rewrite_page_trait_refs` is deleted.
     orbital.pages = inline_pages(&orbital.pages, &ctx)?;
+    if is_top_level {
+        page::resolve_page_addresses(&mut orbital.pages, orbital.config.as_ref(), schema_config);
+    }
     mount_pulled_receivers(orbital, &receiver_mounts);
 
     // Inline services
@@ -2544,7 +2600,7 @@ fn mount_pulled_receivers(orbital: &mut Orbital, receiver_mounts: &[(String, Str
             });
             if mounts_owner && !mounts_receiver {
                 mounted.push(TraitReference::Reference {
-                    local: false,
+                    dispatch: None,
                     id: None,
                     reference: Some(receiver.clone()),
                     name: None,
@@ -3228,7 +3284,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
             shape,
             persistence,
             shared,
-            local,
+            browser,
             read_policy,
             create_policy,
             update_policy,
@@ -3241,7 +3297,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                 shape: existing_shape,
                 persistence: existing_persistence,
                 shared: existing_shared,
-                local: existing_local,
+                browser: existing_browser,
                 read_policy: existing_read,
                 create_policy: existing_create,
                 update_policy: existing_update,
@@ -3260,7 +3316,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                     *existing_persistence = persistence;
                 }
                 *existing_shared |= shared;
-                *existing_local |= local;
+                *existing_browser |= browser;
                 for (slot, incoming) in [
                     (existing_read, read_policy),
                     (existing_create, create_policy),
@@ -3761,15 +3817,12 @@ mod tests {
     fn make_trait(name: &str) -> TraitDefinition {
         use orbital_core_base::schema::StateMachine;
         TraitDefinition {
-            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: Some("ModalRecord".to_string()),
             emits: None,
@@ -3782,7 +3835,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -4104,8 +4156,7 @@ mod tests {
                 store: None,
                 shared: false,
                 identity: false,
-                local: false,
-                seed_mock: false,
+                browser: false,
                 locale_instances: None,
                 read_policy: None,
                 create_policy: None,
@@ -4150,7 +4201,7 @@ mod tests {
     /// `Modal.traits.ModalRecordModal` with optional overrides.
     fn modal_ref(name_override: Option<&str>, linked_entity: Option<&str>) -> TraitReference {
         TraitReference::Reference {
-            local: false,
+            dispatch: None,
             type_args: None,
             id: None,
             reference: Some("Modal.traits.ModalRecordModal".to_string()),
@@ -4167,15 +4218,14 @@ mod tests {
         }
     }
 
-    /// Call-site `[local]` (2026-09-24): the resolved trait dispatches
-    /// client-only whatever the atom declared; without it the atom's own
-    /// `local` stands.
+    /// Call-site `[client]`: the resolved trait dispatches client-only
+    /// whatever the atom declared; without it the atom's own `dispatch` stands.
     #[test]
-    fn a_call_site_local_rebind_resolves_local() {
+    fn a_call_site_client_rebind_resolves_client() {
         let ctx = make_modal_ctx();
         let mut local_ref = modal_ref(Some("LocalModal"), Some("CartItem"));
-        if let TraitReference::Reference { local, .. } = &mut local_ref {
-            *local = true;
+        if let TraitReference::Reference { dispatch, .. } = &mut local_ref {
+            *dispatch = Some(orbital_core_base::schema::DispatchMode::Client);
         }
         let traits = vec![local_ref, modal_ref(Some("PlainModal"), Some("CartItem"))];
         let result = inline_traits(
@@ -4189,14 +4239,17 @@ mod tests {
             &HashMap::new(),
         )
         .expect("inlines");
-        let local_of = |name: &str| {
+        let dispatch_of = |name: &str| {
             result.0.iter().find_map(|t| match t {
-                TraitReference::Inline(td) if td.name == name => Some(td.local),
+                TraitReference::Inline(td) if td.name == name => Some(td.dispatch),
                 _ => None,
             })
         };
-        assert_eq!(local_of("LocalModal"), Some(true));
-        assert_eq!(local_of("PlainModal"), Some(false));
+        assert_eq!(
+            dispatch_of("LocalModal"),
+            Some(Some(orbital_core_base::schema::DispatchMode::Client))
+        );
+        assert_eq!(dispatch_of("PlainModal"), Some(None));
     }
 
     #[test]
@@ -4395,8 +4448,7 @@ mod tests {
                 store: None,
                 shared: false,
                 identity: false,
-                local: false,
-                seed_mock: false,
+                browser: false,
                 locale_instances: None,
                 read_policy: None,
                 create_policy: None,
@@ -4616,8 +4668,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -5273,15 +5324,12 @@ mod tests {
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
         let mut trait_def = TraitDefinition {
-            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: "T".to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: None,
             emits: None,
@@ -5305,7 +5353,7 @@ mod tests {
                         tier: None,
                         payload_schema: None,
                         payload_entity: None,
-                        external: None,
+                        input: None,
                         listened: None,
                         inbound: None,
                     },
@@ -5318,7 +5366,7 @@ mod tests {
                         tier: None,
                         payload_schema: None,
                         payload_entity: None,
-                        external: None,
+                        input: None,
                         listened: None,
                         inbound: None,
                     },
@@ -5347,7 +5395,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -5392,15 +5439,12 @@ mod tests {
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
         let mut trait_def = TraitDefinition {
-            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: "ModalRecordModal".to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: Some("ModalRecord".to_string()),
             emits: None,
@@ -5423,7 +5467,7 @@ mod tests {
                     tier: None,
                     payload_schema: None,
                     payload_entity: None,
-                    external: None,
+                    input: None,
                     listened: None,
                     inbound: None,
                 }]),
@@ -5443,7 +5487,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -5664,15 +5707,12 @@ mod tests {
         use orbital_core_base::schema::{StateMachine, StringOrArray, TransitionDefinition};
 
         let mut trait_def = TraitDefinition {
-            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: "SourceSearchTrait".to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: Some("Source".to_string()),
             emits: None,
@@ -5709,7 +5749,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -6008,8 +6047,7 @@ mod tests {
                 store: None,
                 shared: false,
                 identity: false,
-                local: false,
-                seed_mock: false,
+                browser: false,
                 locale_instances: None,
                 read_policy: None,
                 create_policy: None,
@@ -6046,6 +6084,8 @@ mod tests {
             title: None,
             description: None,
             name: "ArcadeCanvasPage".to_string(),
+            protocol: None,
+            address: None,
             path: "/arcade/canvas".to_string(),
             view_type: None,
             primary_entity: None,
@@ -6075,8 +6115,7 @@ mod tests {
                 store: None,
                 shared: false,
                 identity: false,
-                local: false,
-                seed_mock: false,
+                browser: false,
                 locale_instances: None,
                 read_policy: None,
                 create_policy: None,
@@ -6177,8 +6216,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6205,8 +6243,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6256,8 +6293,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6284,8 +6320,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6329,8 +6364,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6361,8 +6395,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6429,8 +6462,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6454,8 +6486,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6483,8 +6514,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6548,8 +6578,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6594,8 +6623,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6627,8 +6655,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6695,8 +6722,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6723,8 +6749,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6788,8 +6813,7 @@ mod tests {
                 store: None,
                 shared: false,
                 identity: false,
-                local: false,
-                seed_mock: false,
+                browser: false,
                 locale_instances: None,
                 read_policy: None,
                 create_policy: None,
@@ -6835,8 +6859,7 @@ mod tests {
                 store: None,
                 shared: false,
                 identity: false,
-                local: false,
-                seed_mock: false,
+                browser: false,
                 locale_instances: None,
                 read_policy: None,
                 create_policy: None,
@@ -6961,8 +6984,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -6981,7 +7003,7 @@ mod tests {
             invariants: None,
         };
         let trait_ref = TraitReference::Reference {
-            local: false,
+            dispatch: None,
             type_args: None,
             id: None,
             reference: Some("Pickup.traits.Pickup".to_string()),
@@ -7688,7 +7710,7 @@ mod tests {
     /// `linked_entity` when given (`None` composes without a rebind).
     fn toolkit_trait_ref(name: &str, linked_entity: Option<&str>) -> TraitReference {
         TraitReference::Reference {
-            local: false,
+            dispatch: None,
             type_args: None,
             id: None,
             reference: Some(format!("Toolkit.traits.{name}")),
@@ -7724,8 +7746,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -8255,7 +8276,7 @@ mod tests {
 
     fn refs_trait_ref(name: &str, linked_entity: Option<&str>) -> TraitReference {
         TraitReference::Reference {
-            local: false,
+            dispatch: None,
             type_args: None,
             id: None,
             reference: Some(format!("Refs.traits.{name}")),
@@ -8891,5 +8912,58 @@ mod shadowed_auxiliary_tests {
             matches!(&o[0].entity, EntityRef::Inline(d) if d.name == "OrderRecord" && d.fields.len() == 3)
         );
         assert!(aux_names(&o[1]).contains(&"ExportPanel".to_string()));
+    }
+}
+
+#[cfg(test)]
+mod ambiguous_type_name_tests {
+    use super::*;
+
+    fn program(types: serde_json::Value) -> OrbitalSchema {
+        let mut orbitals = Vec::new();
+        for (name, declared) in types.as_object().expect("orbital map") {
+            orbitals.push(serde_json::json!({ "name": name, "types": declared,
+                "entity": { "name": format!("{name}Row"), "fields": [ { "name": "id", "type": "string" } ] }, "traits": [] }));
+        }
+        serde_json::from_value(serde_json::json!({ "name": "p", "orbitals": orbitals })).expect("program")
+    }
+
+    fn badge(fields: &[(&str, &str)]) -> serde_json::Value {
+        let fields: Vec<_> = fields.iter().map(|(n, t)| serde_json::json!({ "name": n, "type": t })).collect();
+        serde_json::json!({ "Badge": fields })
+    }
+
+    #[test]
+    fn two_orbitals_declaring_one_type_name_with_different_shapes_are_refused_naming_both() {
+        let schema = program(serde_json::json!({
+            "AtomA": badge(&[("id", "string"), ("active", "boolean")]),
+            "AtomB": badge(&[("code", "string"), ("score", "number")]),
+        }));
+        let err = reject_ambiguous_type_names(&schema).expect_err("ambiguous name must be refused");
+        assert_eq!(err.structured_code(), "ORB_T_AMBIGUOUS_TYPE_NAME");
+        let text = err.to_string();
+        assert!(text.contains("'Badge'") && text.contains("orbital 'AtomA'") && text.contains("orbital 'AtomB'"), "{text}");
+    }
+
+    #[test]
+    fn control_identical_redeclarations_and_distinct_names_pass() {
+        let same = program(serde_json::json!({
+            "AtomA": badge(&[("id", "string")]),
+            "AtomB": badge(&[("id", "string")]),
+        }));
+        assert!(reject_ambiguous_type_names(&same).is_ok());
+        let distinct = program(serde_json::json!({
+            "AtomA": badge(&[("id", "string")]),
+            "AtomB": { "ConnectionBadge": [ { "name": "code", "type": "string" } ] },
+        }));
+        assert!(reject_ambiguous_type_names(&distinct).is_ok());
+    }
+
+    #[test]
+    fn a_program_level_type_conflicting_with_an_orbital_type_is_refused() {
+        let mut schema = program(serde_json::json!({ "AtomA": badge(&[("id", "string")]) }));
+        schema.types = serde_json::from_value(badge(&[("code", "string")])).expect("program types");
+        let err = reject_ambiguous_type_names(&schema).expect_err("program vs orbital");
+        assert!(err.to_string().contains("the program"), "{err}");
     }
 }

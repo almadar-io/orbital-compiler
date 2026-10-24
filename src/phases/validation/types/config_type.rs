@@ -1868,6 +1868,7 @@ pub(crate) fn check_field_def_shape(
             let type_tag = match schema.field_type {
                 FieldType::String => "string",
                 FieldType::Number => "number",
+                FieldType::Int => "int",
                 FieldType::Boolean => "boolean",
                 FieldType::Date => "date",
                 FieldType::Datetime => "datetime",
@@ -3903,7 +3904,7 @@ mod effect_event_address_tests {
             "name": "TaskOrbitalTaskPersistor",
             "stateMachine": {{
               "states": [{{ "name": "idle", "isInitial": true }}],
-              "events": [{{ "key": "DO_CREATE", "external": true }}],
+              "events": [{{ "key": "DO_CREATE", "input": true }}],
               "transitions": [{{ "from": "idle", "to": "idle", "event": "DO_CREATE", "effects": [] }}]
             }}
           }}]
@@ -3997,7 +3998,7 @@ mod top_level_event_address_tests {
           "name": "FeedWatch",
           "stateMachine": {{
             "states": [{{ "name": "idle", "isInitial": true }}],
-            "events": [{{ "key": "INIT" }}, {{ "key": "ITEM_SEEN", "external": true }}],
+            "events": [{{ "key": "INIT" }}, {{ "key": "ITEM_SEEN", "input": true }}],
             "transitions": [
               {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [
                 ["call-service", "test-svc", "{action}", {{ "match": "https://example.com/*", "event": "{event}" }}]

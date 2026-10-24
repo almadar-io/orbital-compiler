@@ -27,7 +27,7 @@ fn program(local: bool, persistence: &str, effects: Value, ticks: Value) -> Orbi
                 "fields": [{ "name": "id", "type": "string", "required": true }]
             },
             "traits": [{
-                "name": "Loader", "linkedEntity": "Row", "category": "interaction", "local": local,
+                "name": "Loader", "linkedEntity": "Row", "category": "interaction", "dispatch": local.then_some("client"),
                 "config": { "key": { "type": "secret", "default": "API_KEY" } },
                 "ticks": ticks,
                 "stateMachine": {

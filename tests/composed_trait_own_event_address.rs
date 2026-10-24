@@ -28,7 +28,7 @@ fn atom(default_address: &str) -> String {
         "states": [ {{ "name": "idle", "isInitial": true }} ],
         "events": [
           {{ "key": "INIT" }},
-          {{ "key": "ITEM_FOUND", "external": true }}
+          {{ "key": "ITEM_FOUND", "input": true }}
         ],
         "transitions": [
           {{ "from": "idle", "to": "idle", "event": "INIT",

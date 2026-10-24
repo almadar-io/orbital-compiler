@@ -1,5 +1,5 @@
 //! A declared external input (`listens { EVENT -> external { … } }`, lowered as
-//! `stateMachine.events[].external`) is a complete command: the trait must accept it
+//! `stateMachine.events[].input`) is a complete command: the trait must accept it
 //! from its initial (resting) state. An input only valid mid-flow, or never handled,
 //! is `ORB_T_EXTERNAL_INPUT_NOT_RESTING`.
 
@@ -31,7 +31,7 @@ fn findings(transitions: Value) -> Vec<String> {
                     "events": [
                         { "key": "INIT", "name": "Init" },
                         { "key": "OPEN", "name": "Open" },
-                        { "key": "DO_CREATE", "name": "Do create", "external": true,
+                        { "key": "DO_CREATE", "name": "Do create", "input": true,
                           "payloadSchema": [{ "name": "title", "type": "string", "required": true }] }
                     ],
                     "transitions": transitions

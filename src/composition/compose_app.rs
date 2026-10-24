@@ -115,6 +115,10 @@ fn is_page_reference(page: &Value) -> bool {
     }
 }
 
+fn is_route_page(page: &Value) -> bool {
+    !is_page_reference(page) && page.get("protocol").is_none()
+}
+
 fn strip_orbital_suffix(name: &str) -> &str {
     name.strip_suffix("Orbital").unwrap_or(name)
 }
@@ -270,7 +274,9 @@ fn rewrite_own_route(node: &mut Value, old: &str, new: &str) {
             if o.get("path").and_then(Value::as_str) == Some(old) {
                 o.insert("path".to_string(), Value::String(new.to_string()));
             }
-            o.values_mut().for_each(|v| rewrite_own_route(v, old, new));
+            o.iter_mut()
+                .filter(|(k, _)| k.as_str() != "address")
+                .for_each(|(_, v)| rewrite_own_route(v, old, new));
         }
         _ => {}
     }
@@ -334,7 +340,7 @@ pub fn dedupe_composed_surface(orbitals: &mut [Value]) -> Value {
             .iter()
             .filter_map(|p| {
                 str_of(p, "path")
-                    .filter(|_| p.is_object())
+                    .filter(|_| p.is_object() && is_route_page(p))
                     .map(str::to_string)
             })
             .collect();
@@ -1149,6 +1155,7 @@ fn collect_owned_surface(
             {
                 if let Some(path) = p
                     .as_object()
+                    .filter(|_| is_route_page(p))
                     .and_then(|po| po.get("path"))
                     .and_then(Value::as_str)
                 {
@@ -1232,7 +1239,7 @@ fn imported_page_paths(
     };
     let mut paths: Vec<String> = arr_of(&upstream, "pages")
         .iter()
-        .filter(|p| !is_page_reference(p))
+        .filter(|p| is_route_page(p))
         .filter_map(|p| str_of(p, "path").map(str::to_string))
         .collect();
     paths.extend(imported_page_paths(&upstream, lookup, seen));
@@ -1326,7 +1333,7 @@ fn collect_linked_paths(node: &Value, out: &mut HashSet<String>) {
 fn first_inline_page(orbital: &Value) -> Option<(String, String)> {
     arr_of(orbital, "pages")
         .iter()
-        .filter(|p| !is_page_reference(p))
+        .filter(|p| is_route_page(p))
         .find_map(|p| {
             Some((
                 str_of(p, "name")?.to_string(),
@@ -1360,7 +1367,7 @@ fn link_landing_pages(
     let mut owner_index: HashMap<String, usize> = HashMap::new();
     for (i, orbital) in orbitals.iter().enumerate() {
         for page in arr_of(orbital, "pages") {
-            if is_page_reference(page) {
+            if !is_route_page(page) {
                 continue;
             }
             if let Some(path) = str_of(page, "path") {
@@ -1496,7 +1503,7 @@ fn page_paths(file: &Value) -> Vec<String> {
         .flat_map(|o| {
             arr_of(o, "pages")
                 .iter()
-                .filter(|p| !is_page_reference(p))
+                .filter(|p| is_route_page(p))
                 .filter_map(|p| str_of(p, "path").map(str::to_string))
                 .collect::<Vec<_>>()
         })
@@ -2447,7 +2454,7 @@ pub fn compose_orbital_surface(
                 .flat_map(|o| {
                     arr_of(o, "pages")
                         .iter()
-                        .filter(|p| !is_page_reference(p))
+                        .filter(|p| is_route_page(p))
                         .filter_map(|p| str_of(p, "path").map(str::to_string))
                         .collect::<Vec<_>>()
                 })
@@ -3162,6 +3169,52 @@ mod tests {
             failures.len(),
             failures.join("\n\n")
         );
+    }
+
+    fn orbital_with_pages(name: &str, pages: Value) -> Value {
+        json!({ "name": name, "entity": { "name": "E" }, "traits": [], "pages": pages })
+    }
+
+    #[test]
+    fn dedupe_does_not_rename_an_http_path_equal_to_a_route_path() {
+        let mut orbitals = vec![
+            orbital_with_pages("WebOrbital", json!([{ "name": "Home", "path": "/", "traits": [] }])),
+            orbital_with_pages(
+                "ApiOrbital",
+                json!([{ "name": "Api", "path": "", "protocol": "http",
+                    "address": { "host": "0.0.0.0", "port": 80, "path": "/" }, "traits": [] }]),
+            ),
+        ];
+        let renames = dedupe_composed_surface(&mut orbitals);
+        assert_eq!(renames["routes"], json!([]), "{renames}");
+        assert_eq!(orbitals[1]["pages"][0]["address"]["path"], "/");
+        assert_eq!(orbitals[1]["pages"][0]["path"], "");
+    }
+
+    #[test]
+    fn control_dedupe_still_renames_a_second_route_with_the_same_path() {
+        let mut orbitals = vec![
+            orbital_with_pages("WebOrbital", json!([{ "name": "Home", "path": "/", "traits": [] }])),
+            orbital_with_pages("DocsOrbital", json!([{ "name": "Docs", "path": "/", "traits": [] }])),
+        ];
+        let renames = dedupe_composed_surface(&mut orbitals);
+        assert_eq!(renames["routes"].as_array().map(Vec::len), Some(1), "{renames}");
+    }
+
+    #[test]
+    fn dedupe_renaming_a_route_leaves_an_http_address_path_alone() {
+        let mut orbitals = vec![
+            orbital_with_pages("WebOrbital", json!([{ "name": "Home", "path": "/", "traits": [] }])),
+            json!({ "name": "DocsOrbital", "entity": { "name": "E" }, "traits": [],
+                "pages": [
+                    { "name": "Docs", "path": "/", "traits": [] },
+                    { "name": "Api", "path": "", "protocol": "http",
+                      "address": { "host": "h", "port": 1, "path": "/" }, "traits": [] }
+                ] }),
+        ];
+        dedupe_composed_surface(&mut orbitals);
+        assert_ne!(orbitals[1]["pages"][0]["path"], "/");
+        assert_eq!(orbitals[1]["pages"][1]["address"]["path"], "/");
     }
 
     #[test]

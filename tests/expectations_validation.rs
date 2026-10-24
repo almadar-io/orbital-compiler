@@ -1833,7 +1833,7 @@ fn an_entity_expectation_checks_the_storage_mode_shared_and_local() {
         expecting(shared, flow_provider(json!({ "shared": true }), false)),
         Vec::<String>::new()
     );
-    let local = json!({ "kind": "entity", "name": "OrderRecord", "local": true });
+    let local = json!({ "kind": "entity", "name": "OrderRecord", "browser": true });
     assert_eq!(
         expecting(local, flow_provider(json!({}), false)),
         vec![MISMATCH.to_string()]

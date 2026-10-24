@@ -516,8 +516,7 @@ mod tests {
             instances: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -530,7 +529,7 @@ mod tests {
 
     fn reference_trait(reference: &str) -> TraitReference {
         TraitReference::Reference {
-            local: false,
+            dispatch: None,
             type_args: None,
             id: None,
             reference: Some(reference.to_string()),

@@ -824,6 +824,7 @@ fn field_type_str(ft: &FieldType) -> std::borrow::Cow<'static, str> {
     match ft {
         FieldType::String => "string".into(),
         FieldType::Number => "number".into(),
+        FieldType::Int => "int".into(),
         FieldType::Boolean => "boolean".into(),
         FieldType::Date => "date".into(),
         FieldType::Datetime => "datetime".into(),

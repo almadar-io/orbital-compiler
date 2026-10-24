@@ -1694,7 +1694,7 @@ mod tab_effects_validation {
                     ],
                     "stateMachine": {
                         "states": [{ "name": "idle", "isInitial": true }],
-                        "events": [{ "key": "INIT" }, { "key": "ITEM_FOUND", "external": true }, { "key": "CANCEL" }],
+                        "events": [{ "key": "INIT" }, { "key": "ITEM_FOUND", "input": true }, { "key": "CANCEL" }],
                         "transitions": [
                             { "from": "idle", "to": "idle", "event": "INIT", "effects": effects },
                             { "from": "idle", "to": "idle", "event": "ITEM_FOUND" },

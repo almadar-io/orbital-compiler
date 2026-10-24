@@ -347,3 +347,116 @@ fn a_page_reference_declares_its_nav_entry() {
     assert_eq!(team.roles, Some(vec!["staff".to_string()]));
     assert_eq!(team.icon, None);
 }
+
+const API_PAGE: &str = r#""pages": [
+        { "name": "Api", "path": "", "protocol": "http",
+          "address": { "host": "0.0.0.0", "port": 8080, "path": "/" },
+          "traits": [ { "ref": "AccountView" } ] },"#;
+
+fn inline_with_http_upstream(orbital: &str) -> Result<OrbitalSchema, InlineError> {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("upstream.orb"), UPSTREAM.replace(r#""pages": ["#, API_PAGE))
+        .expect("write upstream");
+    let path = dir.path().join("consumer.orb");
+    std::fs::write(
+        &path,
+        format!(r#"{{ "name": "modifiers-consumer", "version": "1.0.0", "orbitals": [ {orbital} ] }}"#),
+    )
+    .expect("write consumer");
+    let mut schema = parse_file(&path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&path))?;
+    Ok(schema)
+}
+
+fn page_named<'a>(schema: &'a OrbitalSchema, name: &str) -> &'a PageDefinition {
+    schema
+        .orbitals
+        .iter()
+        .flat_map(|o| o.pages.iter().flatten())
+        .find_map(|p| match p {
+            PageRef::Inline(p) if p.name == name => Some(p),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("page {name}"))
+}
+
+fn address_of(page: &PageDefinition) -> serde_json::Value {
+    serde_json::to_value(page.address.as_ref().expect("address")).expect("address json")
+}
+
+#[test]
+fn a_page_reference_to_a_protocol_page_carries_its_protocol_and_address() {
+    let schema = inline_with_http_upstream(&page_import(r#"{ "ref": "Up.pages.Api" }"#)).expect("inline");
+    let api = page_named(&schema, "Api");
+    assert_eq!(api.protocol.as_deref(), Some("http"));
+    assert!(!api.is_route());
+    assert_eq!(address_of(api), serde_json::json!({ "host": "0.0.0.0", "port": 8080, "path": "/" }));
+}
+
+#[test]
+fn the_reference_form_overrides_the_address_and_keeps_the_protocol() {
+    let schema = inline_with_http_upstream(&page_import(
+        r#"{ "ref": "Up.pages.Api", "address": { "host": "127.0.0.1", "port": 9, "path": "/v1" } }"#,
+    ))
+    .expect("inline");
+    let api = page_named(&schema, "Api");
+    assert_eq!(api.protocol.as_deref(), Some("http"));
+    assert_eq!(address_of(api), serde_json::json!({ "host": "127.0.0.1", "port": 9, "path": "/v1" }));
+}
+
+#[test]
+fn control_a_route_reference_carries_no_protocol_or_address() {
+    let schema = inline_with_http_upstream(&page_import(r#"{ "ref": "Up.pages.AboutPage" }"#)).expect("inline");
+    let about = page(&schema, "/about");
+    assert!(about.is_route() && about.address.is_none());
+}
+
+fn app_with_address(app_config: &str, orbital_config: &str, port: &str) -> String {
+    format!(
+        r#"{{ "name": "addr-app", "version": "1.0.0", {app_config}
+          "orbitals": [ {{
+            "name": "Local", {orbital_config}
+            "entity": {{ "name": "Account", "persistence": "persistent", "fields": [ {{ "name": "id", "type": "string", "required": true }} ] }},
+            "traits": [ {{ "name": "View", "linkedEntity": "Account",
+              "stateMachine": {{ "states": [ {{ "name": "idle", "isInitial": true }} ], "events": [ {{ "key": "INIT" }} ],
+                "transitions": [ {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [] }} ] }} }} ],
+            "pages": [ {{ "name": "Api", "path": "", "protocol": "http",
+              "address": {{ "host": "0.0.0.0", "port": "{port}", "path": "/" }}, "traits": [ {{ "ref": "View" }} ] }} ]
+          }} ] }}"#
+    )
+}
+
+fn inline_app(source: &str) -> OrbitalSchema {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let path = dir.path().join("app.orb");
+    std::fs::write(&path, source).expect("write app");
+    let mut schema = parse_file(&path).expect("app parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&path)).expect("inline");
+    schema
+}
+
+#[test]
+fn a_page_address_reading_an_app_config_knob_resolves_to_its_value() {
+    let schema = inline_app(&app_with_address(
+        r#""config": { "port": { "type": "number", "default": 8081 } },"#,
+        "",
+        "@config.port",
+    ));
+    assert_eq!(address_of(page_named(&schema, "Api"))["port"], serde_json::json!(8081.0));
+}
+
+#[test]
+fn the_orbital_config_wins_over_the_app_config_for_a_page_address() {
+    let schema = inline_app(&app_with_address(
+        r#""config": { "port": { "type": "number", "default": 8081 } },"#,
+        r#""config": { "port": { "type": "number", "default": 9090 } },"#,
+        "@config.port",
+    ));
+    assert_eq!(address_of(page_named(&schema, "Api"))["port"], serde_json::json!(9090.0));
+}
+
+#[test]
+fn control_a_page_address_knob_no_config_supplies_stays_a_live_read() {
+    let schema = inline_app(&app_with_address("", "", "@config.port"));
+    assert_eq!(address_of(page_named(&schema, "Api"))["port"], serde_json::json!("@config.port"));
+}

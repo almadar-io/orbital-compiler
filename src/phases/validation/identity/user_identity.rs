@@ -1037,7 +1037,7 @@ mod tests {
             "entity": { "name": "Doc", "persistence": "persistent", "collection": "docs",
                         "fields": [{ "name": "id", "type": "string", "required": true }] },
             "traits": [{
-                "name": "DocView", "linkedEntity": "Doc", "category": "interaction",
+                "name": "DocView", "linkedEntity": "Doc",
                 "stateMachine": { "events": [], "states": [], "transitions": [{
                     "from": "idle", "event": "OPEN", "to": "idle",
                     "guard": ["=", user_field, "x"]

@@ -503,7 +503,7 @@ mod tests {
                     "name": "Watcher", "linkedEntity": "Row", "category": "interaction",
                     "stateMachine": {
                         "states": [{ "name": "idle", "isInitial": true }],
-                        "events": [{ "key": "INIT" }, { "key": "SEEN", "external": true }],
+                        "events": [{ "key": "INIT" }, { "key": "SEEN", "input": true }],
                         "transitions": [
                             { "from": "idle", "to": "idle", "event": "INIT",
                               "effects": [["browser/tab-watch",

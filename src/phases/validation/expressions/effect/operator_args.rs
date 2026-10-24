@@ -136,7 +136,7 @@ fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut 
                     ),
                 )
                 .with_suggestion(
-                    "Give the value a real type: read it from a declared payload or entity shape, or declare a named union alias for a list of differently-shaped items. There is no untyped escape",
+                    "Give the value a real type: read it from a declared payload or entity shape, declare a named union alias for a list of differently-shaped items, or annotate the binding with the declared type (`(let ((rows : [Shape] [...])) ...)`). There is no untyped escape",
                 ),
             );
             continue;
@@ -178,7 +178,7 @@ fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut 
             ),
             Mismatch::Conflict { expected, actual } => (
                 format!("`({function} …)` argument {position} is a {actual}, but the arguments of one type variable must share a type and an earlier argument is a {expected}: {call}"),
-                "Make the arguments one type: convert one of them, or compare/combine only values of the same type".to_string(),
+                "Make the arguments one type: convert one of them, or compare/combine only values of the same type; lists of differently-shaped items are one list only under a declared type (a `set` of a declared field, or `(let ((rows : [Shape] ...)) ...)`)".to_string(),
             ),
             Mismatch::Undetermined { .. } | Mismatch::MaybeAbsent { .. } | Mismatch::NullOperand { .. } => continue,
             Mismatch::NoField { path: field, record } => (

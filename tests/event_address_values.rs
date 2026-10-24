@@ -19,7 +19,7 @@ fn persistor(name: &str, input: &str) -> Value {
             "events": [
                 { "key": "INIT", "name": "Init" },
                 { "key": "OPEN", "name": "Open" },
-                { "key": input, "name": input, "external": true,
+                { "key": input, "name": input, "input": true,
                   "payloadSchema": [{ "name": "title", "type": "string", "required": true }] }
             ],
             "transitions": [

@@ -600,9 +600,14 @@ pub(crate) fn apply_overrides_to_trait(
             })
             .unwrap_or_default();
         coerce_trait_knob_conditions(trait_def, &trait_knobs, &effective_config);
+        let secret = |knob: &str| {
+            trait_def.config.as_ref().and_then(|c| c.get(knob)).is_some_and(|f| {
+                f.field_type == crate::phases::inline::rewrite::SECRET_KNOB_TYPE
+            })
+        };
         let subst_config: orbital_core_base::schema::SObject = effective_config
             .iter()
-            .filter(|(_, v)| !orbital_core_base::schema::contains_callsite_payload(v))
+            .filter(|(k, v)| !secret(k) && !orbital_core_base::schema::contains_callsite_payload(v))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         let declared = crate::phases::inline::rewrite::declared_list_types(trait_def.config.as_ref(), &subst_config);
@@ -1254,6 +1259,29 @@ impl<'a> ForwardRungs<'a> {
     }
 }
 
+/// `expr` with every `@config.<knob>` leaf the orbital's or the app's config
+/// supplies replaced by its value; `None` when nothing changed.
+pub(super) fn forwarded_expression(
+    expr: &SExpression,
+    orbital_config: Option<&HashMap<String, ConfigField>>,
+    schema_config: Option<&HashMap<String, ConfigField>>,
+) -> Option<SExpression> {
+    let rungs = ForwardRungs {
+        embedder_chain: &[],
+        orbital_config,
+        upstream_orbital_config: None,
+        upstream_schema_config: None,
+        schema_config,
+    };
+    substitute_nested_forwards(
+        expr,
+        &HashMap::new(),
+        &rungs,
+        &mut Vec::new(),
+        &mut false,
+    )
+}
+
 /// Every `@config.<knob>` leaf in `expr`, whole-string or nested.
 fn collect_config_forward_knobs(expr: &SExpression, out: &mut Vec<String>) {
     match expr {
@@ -1820,7 +1848,7 @@ pub(crate) fn inline_traits(
                 listens: listens_override,
                 emits_scope: emits_scope_override,
                 type_args: type_args_override,
-                local: call_site_local,
+                dispatch: call_site_dispatch,
                 ..
             } => {
                 if let Some(ref_str) = reference {
@@ -2310,8 +2338,8 @@ pub(crate) fn inline_traits(
                                     // already relies on. That pass clears this
                                     // field after consuming it.
                                     trait_def.type_args = type_args_override.clone();
-                                    // Call-site `[local]`: client-only whatever the atom declared.
-                                    trait_def.local = trait_def.local || *call_site_local;
+                                    // Call-site `[client]`/`[optimistic]` overrides the atom's declared dispatch.
+                                    trait_def.dispatch = (*call_site_dispatch).or(trait_def.dispatch);
                                     owner_subs
                                         .entry(trait_def.name.clone())
                                         .or_default()
@@ -2988,21 +3016,18 @@ mod entity_id_reader_tests {
                 tier: None,
                 payload_schema: Some(vec![payload_field(f)]),
                 payload_entity: None,
-                external: None,
+                input: None,
                 listened: None,
                 inbound: None,
             }]
         });
         TraitDefinition {
-            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: "Body".to_string(),
             entity_rebindable: Some(true),
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: None,
             emits: None,
@@ -3034,7 +3059,6 @@ mod entity_id_reader_tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -3064,7 +3088,7 @@ mod entity_id_reader_tests {
                     tier: None,
                     payload_schema: Some(fields.iter().map(|f| payload_field(f)).collect()),
                     payload_entity: None,
-                    external: None,
+                    input: None,
                     listened: None,
                     inbound: None,
                 });
@@ -3167,15 +3191,12 @@ mod entity_id_reader_tests {
     /// caller so the two scenarios (renamed vs not) can be expressed.
     fn trait_with_entity_token(token: &str) -> TraitDefinition {
         TraitDefinition {
-            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: "Feed".to_string(),
             entity_rebindable: Some(true),
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: None,
             emits: None,
@@ -3221,7 +3242,6 @@ mod entity_id_reader_tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,

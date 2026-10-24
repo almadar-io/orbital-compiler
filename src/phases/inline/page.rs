@@ -4,7 +4,7 @@ use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::rewrite::{rewrite_identifiers, stale_entity_rebind_subs};
 use super::InlineError;
 use orbital_core_base::schema::{
-    PageAccess, PageDefinition, PageModifiers, PageRef, PageRefObject, TraitReference,
+    ConfigField, PageAccess, PageDefinition, PageModifiers, PageRef, PageRefObject, TraitReference,
 };
 use std::collections::HashMap;
 
@@ -58,6 +58,7 @@ pub(crate) fn apply_page_modifiers(
 /// Argument handling:
 ///
 /// - **`path`** — direct assignment to `page_def.path`. Phase A behavior.
+/// - **`address`** — replaces the protocol page's address record at the call site.
 /// - **`linked_entity`** — rebinds `page_def.primary_entity` and walks any
 ///   inline `TraitReference::Inline` entries in `page_def.traits` so their
 ///   own `linked_entity` and embedded SExpression bindings are rewritten
@@ -85,6 +86,9 @@ fn apply_overrides_to_page(
     apply_page_modifiers(page_def, &mods, &obj.reference, &path)?;
     if let Some(path_override) = &obj.path {
         page_def.path = path_override.clone();
+    }
+    if let Some(address_override) = &obj.address {
+        page_def.address = Some(address_override.clone());
     }
 
     if let Some(new_entity) = &obj.linked_entity {
@@ -230,6 +234,29 @@ pub(crate) fn inline_pages(
             }
 
             Ok(Some(result))
+        }
+    }
+}
+
+/// Fold every `@config.<knob>` read inside a page's `address` to the value the
+/// orbital's or the app's `config {}` supplies, along the same rungs a trait's
+/// forwarded config walks. A knob no rung supplies stays a live `@config` read.
+pub(crate) fn resolve_page_addresses(
+    pages: &mut Option<Vec<PageRef>>,
+    orbital_config: Option<&HashMap<String, ConfigField>>,
+    schema_config: Option<&HashMap<String, ConfigField>>,
+) {
+    for page_ref in pages.iter_mut().flatten() {
+        let PageRef::Inline(page_def) = page_ref else {
+            continue;
+        };
+        let Some(address) = page_def.address.as_ref() else {
+            continue;
+        };
+        if let Some(folded) =
+            super::r#trait::forwarded_expression(address, orbital_config, schema_config)
+        {
+            page_def.address = Some(folded);
         }
     }
 }

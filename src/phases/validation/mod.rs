@@ -66,6 +66,8 @@ pub mod user_identity;
 // traits
 #[path = "traits/client_tick_locality.rs"]
 pub(crate) mod client_tick_locality;
+#[path = "traits/mounts.rs"]
+pub(crate) mod mounts;
 #[path = "traits/sigil_context.rs"]
 pub mod sigil_context;
 #[path = "traits/trait_id_uniqueness.rs"]
@@ -421,6 +423,7 @@ pub const VALID_SLOTS: &[&str] = &[
 pub const VALID_FIELD_TYPES: &[&str] = &[
     "string",
     "number",
+    "int",
     "boolean",
     "date",
     "datetime",
@@ -959,7 +962,7 @@ mod valid_field_types_tests {
 
     #[test]
     fn the_behavior_value_types_are_valid_field_types() {
-        for ty in [FieldType::Trait, FieldType::Orbital, FieldType::Behavior, FieldType::CallKey] {
+        for ty in [FieldType::Trait, FieldType::Orbital, FieldType::Behavior, FieldType::CallKey, FieldType::Int] {
             let name = serde_json::to_value(&ty).expect("serializes");
             let name = name.as_str().expect("a string tag");
             assert!(

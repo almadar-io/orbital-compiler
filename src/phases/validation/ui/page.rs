@@ -6,10 +6,11 @@
 use super::{
     is_std_trait, ErrorCode, ValidationContext, ValidationError, ValidationResult, VALID_VIEW_TYPES,
 };
-use orbital_core_base::effect_row::EffectSite;
 use orbital_core_base::schema::{
-    OrbitalSchema, PageDefinition, SExpression, TraitCategory, TraitDefinition, TraitReference,
+    OrbitalSchema, PageDefinition, SExpression, TraitReference,
 };
+use super::effect::{expr_return_incompatible_in_ctx, BindingTypes, ExprReturnCtx};
+use orbital_core_base::protocols;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -20,150 +21,13 @@ static PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^/[a-zA-Z0-9\
 /// Regex for valid page names (PascalCase)
 static NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][a-zA-Z0-9]*$").unwrap());
 
-pub(super) fn requires_page(trait_def: &TraitDefinition) -> bool {
-    if !matches!(
-        trait_def.category,
-        Some(TraitCategory::Integration | TraitCategory::Lifecycle)
-    ) {
-        return true;
-    }
-    let mut effects = Vec::new();
-    for transition in &trait_def.state_machine.transitions {
-        for effect in transition.effects.iter().flatten() {
-            effect.collect_effect_uses(EffectSite::Transition, &mut effects);
-        }
-    }
-    for tick in trait_def.ticks.iter().flatten() {
-        for effect in &tick.effects {
-            effect.collect_effect_uses(EffectSite::Tick, &mut effects);
-        }
-    }
-    effects.iter().any(|effect| effect.kind == "render-ui")
-}
-
-#[cfg(test)]
-mod category_page_tests {
-    use super::*;
-    use crate::phases::validation::slot::validate_all_slots;
-    use serde_json::{json, Value};
-
-    fn diagnostics(category: Value, page: bool, effects: Value, ticks: Value) -> Vec<ErrorCode> {
-        let mut orbital = json!({
-            "name": "Worker",
-            "entity": {"name": "Work", "persistence": "runtime", "fields": [{"name": "id", "type": "string"}]},
-            "traits": [{"name": "Run", "category": category, "ticks": ticks, "stateMachine": {
-                "states": [{"name": "ready", "isInitial": true}],
-                "transitions": [{"from": "ready", "to": "ready", "event": "INIT", "effects": effects}]
-            }}]
-        });
-        if page {
-            orbital["pages"] = json!([{"name": "WorkerPage", "path": "/worker", "traits": [orbital["traits"][0].clone()]}]);
-        }
-        let schema: OrbitalSchema =
-            serde_json::from_value(json!({"name": "worker", "orbitals": [orbital]})).unwrap();
-        let mut ctx = ValidationContext::new();
-        validate_all_pages(&schema, &mut ctx);
-        validate_all_slots(&schema, &mut ctx);
-        ctx.result
-            .errors
-            .into_iter()
-            .map(|error| error.code)
-            .collect()
-    }
-
-    #[test]
-    fn explicit_computational_categories_need_neither_page_nor_main_slot() {
-        for category in ["integration", "lifecycle"] {
-            for page in [false, true] {
-                assert!(
-                    diagnostics(json!(category), page, json!([]), Value::Null).is_empty(),
-                    "{category}, page={page}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn default_and_ui_categories_keep_page_and_main_requirements() {
-        for category in [
-            Value::Null,
-            json!("interaction"),
-            json!("game-core"),
-            json!("game-entity"),
-            json!("game-ui"),
-        ] {
-            assert!(
-                diagnostics(category.clone(), false, json!([]), Value::Null)
-                    .contains(&ErrorCode::OrbitalMissingPages),
-                "{category}"
-            );
-            assert!(
-                diagnostics(category.clone(), true, json!([]), Value::Null)
-                    .contains(&ErrorCode::SlotMainNotCovered),
-                "{category}"
-            );
-        }
-    }
-
-    #[test]
-    fn computational_category_cannot_hide_declared_render_effects() {
-        for category in ["integration", "lifecycle"] {
-            for effects in [
-                json!([["render-ui", "sidebar", {"type": "card"}]]),
-                json!([["if", true, ["render-ui", "sidebar", {"type": "card"}]]]),
-            ] {
-                assert!(
-                    diagnostics(json!(category), false, effects.clone(), Value::Null)
-                        .contains(&ErrorCode::OrbitalMissingPages)
-                );
-                assert!(diagnostics(json!(category), true, effects, Value::Null)
-                    .contains(&ErrorCode::SlotMainNotCovered));
-            }
-            let ticks = json!([{"name": "paint", "interval": "1s", "effects": [["render-ui", "sidebar", {"type": "card"}]]}]);
-            assert!(
-                diagnostics(json!(category), false, json!([]), ticks.clone())
-                    .contains(&ErrorCode::OrbitalMissingPages)
-            );
-            assert!(diagnostics(json!(category), true, json!([]), ticks)
-                .contains(&ErrorCode::SlotMainNotCovered));
-        }
-    }
-}
-
+@@TESTS_PLACEHOLDER@@
 /// Validate all pages in a schema
 pub fn validate_all_pages(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         if orbital.is_spec() {
             continue;
         }
-        // Check if orbital has pages defined
-        let has_pages = orbital
-            .pages
-            .as_ref()
-            .map(|p| !p.is_empty())
-            .unwrap_or(false);
-
-        let needs_page = orbital.traits.is_empty()
-            || orbital.traits.iter().any(|trait_ref| match trait_ref {
-                TraitReference::Inline(trait_def) => requires_page(trait_def),
-                TraitReference::Reference { .. } => true,
-            });
-        if !has_pages && needs_page {
-            ctx.add_error(
-                ValidationError::error(
-                    ErrorCode::OrbitalMissingPages,
-                    format!("orbitals[{}]", i),
-                    format!(
-                        "Orbital '{}' has no pages defined - traits won't be accessible",
-                        orbital.name
-                    ),
-                )
-                .with_suggestion(
-                    "Add a pages array with at least one page to expose the orbital's traits",
-                ),
-            );
-        }
-
         if let Some(pages) = &orbital.pages {
             for (j, page_ref) in pages.iter().enumerate() {
                 let path = format!("orbitals[{}].pages[{}]", i, j);
@@ -178,6 +42,7 @@ pub fn validate_all_pages(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
         }
     }
 
+    ctx.merge(validate_protocol_pages(schema));
     ctx.merge(validate_page_path_uniqueness(schema));
     ctx.merge(validate_page_reachability(schema));
     ctx.merge(validate_page_modifiers(schema));
@@ -189,6 +54,7 @@ fn inline_pages_of(schema: &OrbitalSchema) -> Vec<&PageDefinition> {
         .iter()
         .flat_map(|o| o.pages.iter().flatten())
         .filter_map(|p| p.as_inline())
+        .filter(|p| p.is_route())
         .collect()
 }
 
@@ -274,6 +140,7 @@ pub fn validate_page_modifiers(schema: &OrbitalSchema) -> ValidationResult {
                 .enumerate()
                 .filter_map(move |(j, p)| {
                     p.as_inline()
+                        .filter(|p| p.is_route())
                         .map(|p| (format!("orbitals[{i}].pages[{j}]"), p))
                 })
         })
@@ -519,7 +386,13 @@ fn collect_reachability_signals(schema: &OrbitalSchema) -> ReachabilitySignals {
     // sigil links each of them.
     if schema_uses_pages_sigil(schema) {
         for orbital in &schema.orbitals {
-            for page in orbital.pages.iter().flatten().filter_map(|p| p.as_inline()) {
+            for page in orbital
+                .pages
+                .iter()
+                .flatten()
+                .filter_map(|p| p.as_inline())
+                .filter(|p| p.is_route())
+            {
                 if page.label.is_some() {
                     hrefs.insert(page.path.clone());
                 }
@@ -573,7 +446,8 @@ fn schema_uses_pages_sigil(schema: &OrbitalSchema) -> bool {
 /// ever route a viewer to. Generalises the JS wiring lint's
 /// `page-absent-from-nav`, which only read `href` inside object-array
 /// entries and only ran when some navItems-shaped array existed anywhere.
-/// Here reachable = the schema's BOOT page (the first inline page in
+/// Routes only (a protocol endpoint is reached by its address, not a link).
+/// Here reachable = the schema's BOOT page (the first inline route page in
 /// declaration order — what both shipped routers mount at the index route
 /// when nothing else is requested; see `boot_position` below, never a bare
 /// `path == "/"` special case), a parameterized page (any `:name` segment),
@@ -605,7 +479,7 @@ pub(crate) fn validate_page_reachability(schema: &OrbitalSchema) -> ValidationRe
                 .pages
                 .iter()
                 .flatten()
-                .position(|p| p.as_inline().is_some())
+                .position(|p| p.as_inline().is_some_and(|p| p.is_route()))
                 .map(|j| (i, j))
         });
 
@@ -613,7 +487,7 @@ pub(crate) fn validate_page_reachability(schema: &OrbitalSchema) -> ValidationRe
 
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         for (j, page_ref) in orbital.pages.iter().flatten().enumerate() {
-            let Some(page) = page_ref.as_inline() else {
+            let Some(page) = page_ref.as_inline().filter(|p| p.is_route()) else {
                 continue;
             };
             if boot_position == Some((i, j)) {
@@ -706,6 +580,213 @@ pub(crate) fn validate_page_reachability(schema: &OrbitalSchema) -> ValidationRe
     result
 }
 
+/// The literal a `@config.<knob>` address value stands for at this orbital: the knob's declared default,
+/// read orbital-first then app, as trait config resolves.
+fn literal_of<'a>(
+    value: &'a SExpression,
+    schema: &'a OrbitalSchema,
+    orbital: &'a orbital_core_base::schema::Orbital,
+) -> Option<&'a SExpression> {
+    match value {
+        SExpression::String(text) => match text.strip_prefix("@config.") {
+            Some(knob) if !knob.contains('.') => orbital
+                .config
+                .as_ref()
+                .and_then(|c| c.get(knob))
+                .or_else(|| schema.config.as_ref().and_then(|c| c.get(knob)))
+                .and_then(|field| field.default.as_ref())
+                .filter(|default| {
+                    !matches!(default, SExpression::String(t) if t.starts_with('@'))
+                }),
+            Some(_) => None,
+            None if text.starts_with('@') => None,
+            None => Some(value),
+        },
+        SExpression::Number(_) => Some(value),
+        _ => None,
+    }
+}
+
+fn config_types(
+    schema: &OrbitalSchema,
+    orbital: &orbital_core_base::schema::Orbital,
+) -> BindingTypes {
+    let knobs = schema
+        .config
+        .iter()
+        .flatten()
+        .chain(orbital.config.iter().flatten())
+        .map(|(name, field)| {
+            (
+                name.clone(),
+                crate::phases::resolve::config_field_oir_type(field, schema),
+            )
+        })
+        .collect();
+    BindingTypes {
+        payload: HashMap::new(),
+        user: orbital_core_base::ir::OirType::Struct {
+            additional: None,
+            fields: Vec::new(),
+        },
+        config: knobs,
+        prev_payload: None,
+        optional_payload: HashSet::new(),
+    }
+}
+
+fn address_problems(
+    spec: &protocols::ProtocolSpec,
+    page: &PageDefinition,
+    schema: &OrbitalSchema,
+    orbital: &orbital_core_base::schema::Orbital,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    let Some(fields) = spec.address else {
+        if page.address.is_some() {
+            problems.push(format!("protocol '{}' takes no address", spec.name));
+        }
+        return problems;
+    };
+    let Some(address) = page.address.as_ref() else {
+        problems.push(format!(
+            "protocol '{}' needs an address record {{ {} }}",
+            spec.name,
+            fields
+                .iter()
+                .map(|f| format!("{}: {}", f.name, f.ty))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        return problems;
+    };
+    let SExpression::Object(record) = address else {
+        problems.push(format!("the address of '{}' must be a record", spec.name));
+        return problems;
+    };
+    for key in record.keys() {
+        if !fields.iter().any(|f| f.name == key) {
+            problems.push(format!("'{key}' is no field of the '{}' address", spec.name));
+        }
+    }
+    let types = config_types(schema, orbital);
+    let entity = HashMap::new();
+    let payload = HashMap::new();
+    let ctx = ExprReturnCtx {
+        entity: &entity,
+        payload: &payload,
+        types: Some(&types),
+        schema: Some(schema),
+    };
+    for field in fields {
+        let Some(value) = record.get(field.name) else {
+            if field.required {
+                problems.push(format!("the '{}' address needs '{}'", spec.name, field.name));
+            }
+            continue;
+        };
+        let declared = orbital_core_base::type_compat::compat_kind_oir(field.ty);
+        if let Some(found) = expr_return_incompatible_in_ctx(value, &declared, &ctx) {
+            problems.push(format!(
+                "'{}' of the '{}' address is {} where {} is declared",
+                field.name,
+                spec.name,
+                orbital_core_base::type_compat::oir_type_kind(&found),
+                field.ty
+            ));
+        }
+    }
+    problems
+}
+
+fn grant_problem(
+    spec: &protocols::ProtocolSpec,
+    page: &PageDefinition,
+    schema: &OrbitalSchema,
+    orbital: &orbital_core_base::schema::Orbital,
+) -> Option<String> {
+    use orbital_core_base::os_grants::NetKind;
+    let grants = schema.orbital_os_grants(orbital);
+    match spec.grant? {
+        protocols::GrantKind::Stdio => grants
+            .stdio
+            .is_empty()
+            .then(|| format!("'{}' endpoints need a `stdio` grant", spec.name)),
+        protocols::GrantKind::NetListen => {
+            let record = match page.address.as_ref() {
+                Some(SExpression::Object(record)) => Some(record),
+                _ => None,
+            };
+            let host = record
+                .and_then(|r| r.get("host"))
+                .and_then(|v| literal_of(v, schema, orbital));
+            let port = record
+                .and_then(|r| r.get("port"))
+                .and_then(|v| literal_of(v, schema, orbital));
+            match (host, port) {
+                (Some(SExpression::String(host)), Some(SExpression::Number(port)))
+                    if port.fract() == 0.0 && (0.0..=65535.0).contains(port) =>
+                {
+                    (!grants.net_allows(host, *port as u16, NetKind::Listen)).then(|| {
+                        format!(
+                            "'{}' endpoint {host}:{} has no covering `net` listen grant",
+                            spec.name, *port as u16
+                        )
+                    })
+                }
+                _ => (!grants.net.iter().any(|g| g.kinds.contains(&NetKind::Listen)))
+                    .then(|| format!("'{}' endpoints need a `net` listen grant", spec.name)),
+            }
+        }
+    }
+}
+
+/// Protocol pages (EXEC-ENDPOINT-1/2): the protocol is a row of the table, the address is a record typed
+/// against the row's address, and the row's grant covers it.
+pub fn validate_protocol_pages(schema: &OrbitalSchema) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+        if orbital.is_spec() {
+            continue;
+        }
+        for (j, page_ref) in orbital.pages.iter().flatten().enumerate() {
+            let Some(page) = page_ref.as_inline().filter(|p| !p.is_route()) else {
+                continue;
+            };
+            let location = format!("orbitals[{i}].pages[{j}]");
+            let Some(spec) = protocols::protocol(page.protocol_name()) else {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::PageUnknownProtocol,
+                        format!("{location}.protocol"),
+                        format!("page '{}' names unknown protocol '{}'", page.name, page.protocol_name()),
+                    )
+                    .with_valid_values(protocols::PROTOCOLS.iter().map(|p| p.name.to_string()).collect()),
+                );
+                continue;
+            };
+            for problem in address_problems(spec, page, schema, orbital) {
+                result.add_error(ValidationError::error(
+                    ErrorCode::PageAddressInvalid,
+                    format!("{location}.address"),
+                    format!("page '{}': {problem}", page.name),
+                ));
+            }
+            if let Some(problem) = grant_problem(spec, page, schema, orbital) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::PageEndpointGrantMissing,
+                        location,
+                        format!("page '{}': {problem}", page.name),
+                    )
+                    .with_suggestion("Declare the grant in the app header, e.g. `net: { \"host:port\": [listen] }`"),
+                );
+            }
+        }
+    }
+    result
+}
+
 /// Validate a single page definition
 pub fn validate_page(
     page: &PageDefinition,
@@ -741,7 +822,7 @@ pub fn validate_page(
     }
 
     // Page must have a path
-    if page.path.is_empty() {
+    if page.is_route() && page.path.is_empty() {
         result.add_error(
             ValidationError::error(
                 ErrorCode::PageMissingPath,
@@ -750,7 +831,7 @@ pub fn validate_page(
             )
             .with_suggestion("Add a path starting with / (e.g., '/tasks', '/users/:id')"),
         );
-    } else {
+    } else if page.is_route() {
         // Path must start with /
         if !page.path.starts_with('/') {
             result.add_error(
@@ -929,6 +1010,32 @@ pub fn normalize_page_path(path: &str) -> String {
         .join("/")
 }
 
+/// What two pages of one protocol collide on: a route's param-shape path; an addressed endpoint's address
+/// (its `path` literal param-shaped); an address-less endpoint has nothing to collide on.
+fn collision_key(page: &PageDefinition) -> Option<String> {
+    if page.is_route() {
+        return Some(format!("route {}", normalize_page_path(&page.path)));
+    }
+    let address = page.address.as_ref()?;
+    let canonical = match address {
+        SExpression::Object(map) => {
+            let mut entries: Vec<String> = map
+                .iter()
+                .map(|(key, value)| match (key.as_str(), value) {
+                    ("path", SExpression::String(path)) if !path.starts_with('@') => {
+                        format!("{key}={}", normalize_page_path(path))
+                    }
+                    _ => format!("{key}={}", serde_json::to_string(value).unwrap_or_default()),
+                })
+                .collect();
+            entries.sort();
+            entries.join(",")
+        }
+        other => serde_json::to_string(other).unwrap_or_default(),
+    };
+    Some(format!("{} {canonical}", page.protocol_name()))
+}
+
 /// Check for duplicate page paths across all orbitals, keyed on the
 /// PARAM-SHAPE-normalized path (`normalize_page_path`) — an exact string
 /// collision is one instance of a param-shape collision, so one check
@@ -944,8 +1051,11 @@ pub fn validate_page_path_uniqueness(schema: &OrbitalSchema) -> ValidationResult
                 let location = format!("orbitals[{}].pages[{}]", i, j);
                 // Only check inline pages for path uniqueness
                 if let Some(page) = page_ref.as_inline() {
+                    let Some(key) = collision_key(page) else {
+                        continue;
+                    };
                     normalized_to_pages
-                        .entry(normalize_page_path(&page.path))
+                        .entry(key)
                         .or_default()
                         .push((location, page.path.clone()));
                 }
@@ -991,7 +1101,7 @@ mod tests {
             name: "TaskList".to_string(),
             path: "/tasks".to_string(),
             traits: Some(vec![TraitReference::Reference {
-                local: false,
+                dispatch: None,
                 type_args: None,
                 id: None,
                 reference: Some("std/List".to_string()),
@@ -1022,7 +1132,7 @@ mod tests {
     fn page_with_ref(reference: &str, ref_id: Option<&str>) -> PageDefinition {
         let mut p = create_valid_page();
         p.traits = Some(vec![TraitReference::Reference {
-            local: false,
+            dispatch: None,
             type_args: None,
             id: None,
             reference: Some(reference.to_string()),
@@ -1202,7 +1312,7 @@ mod tests {
     fn test_page_invalid_trait_ref() {
         let mut page = create_valid_page();
         page.traits = Some(vec![TraitReference::Reference {
-            local: false,
+            dispatch: None,
             type_args: None,
             id: None,
             reference: Some("NonExistentTrait".to_string()),
@@ -1271,7 +1381,6 @@ mod tests {
                         {
                             "name": "WidgetView",
                             "linkedEntity": "Widget",
-                            "category": "interaction",
                             "stateMachine": {
                                 "states": [ { "name": "idle", "isInitial": true } ],
                                 "events": [ { "key": "OPEN" } ],
@@ -1539,7 +1648,6 @@ mod tests {
         serde_json::json!([{
             "name": "AppLayout",
             "linkedEntity": "Widget",
-            "category": "interaction",
             "config": { "navItems": { "type": "array", "default": items } },
             "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] }
         }])
@@ -1553,7 +1661,6 @@ mod tests {
         serde_json::json!([{
             "name": "AppLayout",
             "linkedEntity": "Widget",
-            "category": "interaction",
             "config": { "navItems": { "type": "array", "default": "@pages" } },
             "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] }
         }])
@@ -1662,7 +1769,6 @@ mod tests {
         let traits = serde_json::json!([{
             "name": "Directory",
             "linkedEntity": "Widget",
-            "category": "interaction",
             "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] }
         }]);
         let schema = schema_for_reachability(
@@ -1688,7 +1794,6 @@ mod tests {
         let traits = serde_json::json!([{
             "name": "FeatureCard",
             "linkedEntity": "Widget",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
                 "events": [],
@@ -1716,7 +1821,6 @@ mod tests {
         serde_json::json!([{
             "name": "AppLayout",
             "linkedEntity": "Widget",
-            "category": "interaction",
             "config": { "userMenuItems": { "type": "array", "default": items } },
             "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] }
         }])
@@ -1751,7 +1855,6 @@ mod tests {
         let traits = serde_json::json!([{
             "name": "ReportsButton",
             "linkedEntity": "Widget",
-            "category": "interaction",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
                 "events": [{ "key": "OPEN_REPORTS" }],
@@ -1786,7 +1889,6 @@ mod tests {
         let traits = serde_json::json!([{
             "name": "Directory",
             "linkedEntity": "Widget",
-            "category": "interaction",
             "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] }
         }]);
         let schema = schema_for_reachability(

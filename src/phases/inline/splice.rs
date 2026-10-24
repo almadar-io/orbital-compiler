@@ -441,15 +441,12 @@ mod tests {
 
     fn render_only_trait(name: &str, pattern: SExpression) -> TraitDefinition {
         TraitDefinition {
-            local: false,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: Some("Item".to_string()),
             emits: None,
@@ -477,7 +474,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -538,8 +534,7 @@ mod tests {
                 store: None,
                 shared: false,
                 identity: false,
-                local: false,
-                seed_mock: false,
+                browser: false,
                 locale_instances: None,
                 read_policy: None,
                 create_policy: None,

@@ -166,10 +166,10 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// Get page definition from PageRef
+    /// The route page a PageRef declares; protocol pages (http, stdio, boot) are endpoints, not routes, and stay in the schema
     fn get_page_from_ref<'b>(&'b self, page_ref: &'a PageRef) -> Option<&'a PageDefinition> {
         match page_ref {
-            PageRef::Inline(page) => Some(page),
+            PageRef::Inline(page) => page.is_route().then_some(page),
             PageRef::Reference(_) | PageRef::Object(_) => {
                 // References would be resolved by pre-processing step
                 None
@@ -631,8 +631,7 @@ impl<'a> Resolver<'a> {
 
         oir_entity.shared = entity.shared;
         oir_entity.identity = entity.identity;
-        oir_entity.local = entity.local;
-        oir_entity.seed_mock = entity.seed_mock;
+        oir_entity.browser = entity.browser;
 
         oir_entity.read_policy = entity
             .read_policy
@@ -1041,11 +1040,7 @@ impl<'a> Resolver<'a> {
         oir_trait.entity_ref_ids = trait_def.entity_ref_ids.as_ref().map(sorted_id_map);
         oir_trait.trait_embed_ids = trait_def.trait_embed_ids.as_ref().map(sorted_id_map);
         oir_trait.source = OirTraitSource::Schema;
-        oir_trait.local = trait_def.local;
-
-        if let Some(category) = &trait_def.category {
-            oir_trait.category = Some(format!("{:?}", category).to_lowercase());
-        }
+        oir_trait.dispatch = trait_def.dispatch;
 
         // Find initial state from states with is_initial = true
         let sm = &trait_def.state_machine;
@@ -1731,6 +1726,7 @@ fn parse_payload_field_type(field_type: &str) -> OirType {
 mod tests {
     use super::*;
     use orbital_core_base::ir::{OirBinaryOp, OirBinding};
+    use orbital_core_base::schema::DispatchMode;
 
     #[test]
     fn native_contract_nested_explicit_entity_markers_keep_nominal_identity() {
@@ -3288,18 +3284,18 @@ mod tests {
         assert!(!oir_field.intrinsic);
     }
 
-    /// `TraitDefinition.local` must survive `resolve_trait` into
-    /// `OirTrait.local` — `OirTrait::dispatch_mode` reads it directly, so a
+    /// `TraitDefinition.dispatch` must survive `resolve_trait` into
+    /// `OirTrait.dispatch` — `OirTrait::dispatch_mode` reads it directly, so a
     /// dropped flag would silently flip a client-only trait back to
     /// server-gated dispatch.
     #[test]
-    fn resolve_trait_carries_local_true() {
+    fn resolve_trait_carries_dispatch_client() {
         let schema = empty_schema();
         let resolver = Resolver::new(&schema);
         let trait_def: orbital_core_base::schema::TraitDefinition =
             serde_json::from_value(serde_json::json!({
                 "name": "DraftEditor",
-                "local": true,
+                "dispatch": "client",
                 "stateMachine": {
                     "states": [{"name": "idle", "isInitial": true}],
                     "transitions": []
@@ -3307,11 +3303,11 @@ mod tests {
             }))
             .expect("valid trait definition");
         let oir_trait = resolver.resolve_trait(&trait_def).expect("resolves");
-        assert!(oir_trait.local, "local must survive resolve_trait");
+        assert_eq!(oir_trait.dispatch, Some(DispatchMode::Client), "dispatch must survive resolve_trait");
     }
 
     #[test]
-    fn resolve_trait_defaults_local_false_when_absent() {
+    fn resolve_trait_defaults_dispatch_none_when_absent() {
         let schema = empty_schema();
         let resolver = Resolver::new(&schema);
         let trait_def: orbital_core_base::schema::TraitDefinition =
@@ -3324,7 +3320,28 @@ mod tests {
             }))
             .expect("valid trait definition");
         let oir_trait = resolver.resolve_trait(&trait_def).expect("resolves");
-        assert!(!oir_trait.local);
+        assert_eq!(oir_trait.dispatch, None);
+    }
+
+    #[test]
+    fn only_route_pages_become_oir_pages() {
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "app", "version": "1.0.0",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "E", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                "traits": [],
+                "pages": [
+                    { "name": "Home", "path": "/", "label": "Home", "traits": [] },
+                    { "name": "Api", "path": "", "protocol": "http", "label": "Api",
+                      "address": { "host": "h", "port": 1, "path": "/" }, "traits": [] }
+                ]
+            }]
+        }))
+        .expect("schema");
+        let module = resolve_to_oir(&schema).expect("resolves");
+        let paths: Vec<&str> = module.pages.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(paths, vec!["/"]);
     }
 
     fn resolve_json(value: serde_json::Value) -> OirExpr {

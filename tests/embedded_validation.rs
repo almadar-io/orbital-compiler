@@ -31,9 +31,6 @@ fn make_trait_with_transition(
         name: "TestTrait".to_string(),
         entity_rebindable: None,
         entity_contract: None,
-        category: None,
-        capabilities: vec![],
-        local: false,
         linked_entity: Some("Task".to_string()),
         description: None,
         state_machine: StateMachine {
@@ -61,7 +58,6 @@ fn make_trait_with_transition(
         ticks: None,
         config: None,
         data_entities: None,
-        scope: None,
         source_declaration: None,
         source_behavior: None,
         source_entity_definition: None,

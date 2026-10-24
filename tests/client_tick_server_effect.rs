@@ -17,7 +17,7 @@ fn schema(traits: Vec<Value>) -> OrbitalSchema {
             "entity": { "name": "Draft", "persistence": "runtime", "fields": [{ "name": "id", "type": "string", "required": true }] },
             "auxiliaryEntities": [
                 { "name": "Ledger", "persistence": "persistent", "collection": "ledgers", "fields": [{ "name": "id", "type": "string", "required": true }] },
-                { "name": "Notes", "persistence": "persistent", "collection": "notes", "local": true, "fields": [{ "name": "id", "type": "string", "required": true }] },
+                { "name": "Notes", "persistence": "persistent", "collection": "notes", "browser": true, "fields": [{ "name": "id", "type": "string", "required": true }] },
                 { "name": "Doc", "persistence": "persistent", "collection": "docs", "fields": [{ "name": "id", "type": "string", "required": true }] }
             ],
             "traits": traits,

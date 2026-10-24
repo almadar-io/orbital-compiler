@@ -63,7 +63,7 @@ pub(crate) use r#ref::validate_ref;
 pub(crate) use set::{
     entity_field_type_map, expr_return_incompatible_in_ctx, validate_set, validate_set_enum_value,
     validate_set_object, validate_set_required_field_from_optional_knob, validate_set_return_type,
-    validate_set_value_type, EntityFieldMeta, ExprReturnCtx,
+    validate_set_value_type, BindingTypes, EntityFieldMeta, ExprReturnCtx,
 };
 pub use typed_args::record_declared_list_types;
 pub(crate) use typed_args::needs_declaration;

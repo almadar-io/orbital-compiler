@@ -27,7 +27,7 @@ fn invoice(extra: Value) -> Value {
         "name": "Invoice",
         "persistence": "persistent",
         "collection": "invoices",
-        "local": true,
+        "browser": true,
         "fields": [
             { "name": "id", "type": "string", "required": true },
             { "name": "amount", "type": "number" }
@@ -46,7 +46,7 @@ fn ledger() -> Value {
 
 fn browse(linked: &str, local: bool, effects: Value) -> Value {
     json!({
-        "name": "Browse", "linkedEntity": linked, "category": "interaction", "local": local,
+        "name": "Browse", "linkedEntity": linked, "category": "interaction", "dispatch": local.then_some("client"),
         "stateMachine": {
             "states": [{ "name": "idle", "isInitial": true }],
             "events": [{ "key": "INIT" }],
@@ -65,7 +65,7 @@ fn has(result: &ValidationResult, code: ErrorCode) -> bool {
 
 #[test]
 fn local_on_a_runtime_entity_is_rejected() {
-    let e = json!({ "name": "Scene", "persistence": "runtime", "local": true,
+    let e = json!({ "name": "Scene", "persistence": "runtime", "browser": true,
         "fields": [{ "name": "id", "type": "string", "required": true }] });
     let r = validate_comprehensive_without_services(&schema(vec![e], vec![]));
     assert!(has(&r, ErrorCode::EntityLocalRequiresPersistent), "{:?}", codes(&r));
@@ -186,7 +186,7 @@ fn locale_rows_for_every_declared_locale_are_accepted() {
 #[test]
 fn locale_rows_need_a_browser_stored_entity() {
     let mut e = invoice(json!({ "instances": [row("A")], "localeInstances": { "ar": [row("A")], "sl": [row("A")] } }));
-    e["local"] = json!(false);
+    e["browser"] = json!(false);
     assert!(has(&validate_comprehensive_without_services(&localized(json!(["en", "ar", "sl"]), e)), ErrorCode::EntityLocaleInstancesNotLocal));
 }
 

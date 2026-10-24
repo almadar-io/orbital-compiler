@@ -5,11 +5,12 @@
 
 use super::{
     is_std_trait, render_ui::is_render_ui_effect, trait_path, ErrorCode, ValidationContext,
-    ValidationError, ValidationResult, VALID_TRAIT_CATEGORIES,
+    ValidationError, ValidationResult,
 };
+use super::mounts::{renders_ui, Mounts};
 use orbital_core_base::schema::{
     EntityDefinition, Orbital, OrbitalSchema, Persistence, SExpression, StateMachine,
-    StringOrArray, TraitCategory, TraitDefinition, TraitReference, TransitionDefinition,
+    StringOrArray, TraitDefinition, TraitReference, TransitionDefinition,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -18,12 +19,20 @@ pub fn validate_all_traits(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
     // Validate trait references in orbitals
     // Note: Traits are now only defined inline within orbitals, not at schema level.
     for (i, orbital) in schema.orbitals.iter().enumerate() {
+        let mounts = Mounts::of_orbital(orbital);
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             let path = trait_path(i, &orbital.name, j, trait_ref);
-            let result =
-                validate_trait_reference(trait_ref, &path, &ctx.trait_names, &ctx.entity_names);
+            let route = matches!(trait_ref, TraitReference::Inline(def) if mounts.on_route(def));
+            let result = validate_trait_reference(
+                trait_ref,
+                &path,
+                &ctx.trait_names,
+                &ctx.entity_names,
+                route,
+            );
             ctx.merge(result);
         }
+        ctx.merge(validate_endpoint_mounts(orbital, i, &mounts));
     }
 
     // Validate `events` rename maps on surviving trait references against the
@@ -46,7 +55,8 @@ pub fn validate_all_traits(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
     // datasource idiom loads an entity once; sibling render traits are pure
     // consumers and must not each carry a duplicate fetch).
     for (i, orbital) in schema.orbitals.iter().enumerate() {
-        let result = validate_orbital_init_fetch(orbital, i, &ctx.entity_definitions);
+        let mounts = Mounts::of_orbital(orbital);
+        let result = validate_orbital_init_fetch(orbital, i, &ctx.entity_definitions, &mounts);
         ctx.merge(result);
     }
 
@@ -201,13 +211,14 @@ pub fn validate_trait_reference(
     path: &str,
     known_traits: &HashSet<String>,
     known_entities: &HashSet<String>,
+    route: bool,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
     match trait_ref {
         TraitReference::Inline(trait_def) => {
             // Validate inline trait definition
-            result.merge(validate_trait_definition(trait_def, path, known_entities));
+            result.merge(validate_trait_definition(trait_def, path, known_entities, route));
         }
         TraitReference::Reference {
             reference,
@@ -362,6 +373,142 @@ pub fn validate_trait_definition(
     trait_def: &TraitDefinition,
     path: &str,
     known_entities: &HashSet<String>,
+    route: bool,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+
+    // Trait must have a name
+    if trait_def.name.is_empty() {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::TraitUndefined,
+                format!("{}.name", path),
+                "Trait name is required",
+            )
+            .with_suggestion("Add a descriptive name for the trait"),
+        );
+    }
+
+    // Validate linked entity if specified
+            if let Some(linked) = linked_entity {
+                if !known_entities.contains(linked) {
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::EntityInvalidRelation,
+                            format!("{}.linkedEntity", path),
+                            format!("Linked entity '{}' does not exist", linked),
+                        )
+                        .with_suggestion("Ensure the linked entity is defined in the schema"),
+                    );
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Build a `trait name -> declared event-key set` map from every INLINE trait in
+/// the schema. The event set is the union of declared `emits`, transition
+/// triggers, and `state_machine.events[].key` — the same union the inline phase
+/// validates rename source keys against.
+fn build_trait_event_sets(schema: &OrbitalSchema) -> HashMap<String, HashSet<String>> {
+    let mut map: HashMap<String, HashSet<String>> = HashMap::new();
+    for orbital in &schema.orbitals {
+        for trait_ref in &orbital.traits {
+            if let TraitReference::Inline(trait_def) = trait_ref {
+                let entry = map.entry(trait_def.name.clone()).or_default();
+                if let Some(emits) = &trait_def.emits {
+                    for e in emits {
+                        entry.insert(e.event.clone());
+                    }
+                }
+                for t in &trait_def.state_machine.transitions {
+                    entry.insert(t.event.clone());
+                }
+                if let Some(events) = &trait_def.state_machine.events {
+                    for e in events {
+                        entry.insert(e.key.clone());
+                    }
+                }
+                // Effect emit-maps + render-ui event props — the same union the
+                // inline phase's RULE 3 checks rename source keys against, so
+                // the two checks can never disagree on what counts as known.
+                entry.extend(super::cross_orbital::collect_effect_produced_events(
+                    trait_def,
+                ));
+            }
+        }
+    }
+    map
+}
+
+/// Validate the `events` rename map on a `TraitReference::Reference` against the
+/// referenced trait's known event set. Each `from` key that names no declared
+/// event silently no-ops the rename at runtime — surface it as
+/// `ORB_T_EVENT_RENAME_UNKNOWN_KEY` instead. Skips silently when the referenced
+/// trait's event set is unknown (external / std trait not present inline in this
+/// schema) — those are covered by the inline phase when resolved.
+fn validate_event_renames(
+    trait_ref: &TraitReference,
+    path: &str,
+    trait_events: &HashMap<String, HashSet<String>>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let TraitReference::Reference {
+        reference,
+        name,
+        events: Some(events),
+        ..
+    } = trait_ref
+    else {
+        return result;
+    };
+
+    // Resolve the referenced trait name: the `ref:`'s trailing `.Member`
+    // segment, else the `name` field.
+    let target_name = reference
+        .as_deref()
+        .and_then(|r| r.rsplit('.').next())
+        .or(name.as_deref());
+    let Some(target_name) = target_name else {
+        return result;
+    };
+    let Some(known) = trait_events.get(target_name) else {
+        // Unknown target event set (external/std) — defer to the inline phase.
+        return result;
+    };
+
+    for from in events.keys() {
+        if from.is_empty() {
+            continue;
+        }
+        if !known.contains(from) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::EventRenameUnknownKey,
+                    path,
+                    format!(
+                        "events rename key '{}' does not name any event declared by trait '{}';                          the rename silently no-ops.",
+                        from, target_name
+                    ),
+                )
+                .with_suggestion(
+                    "Use an event key the referenced trait declares (an emit, a transition                      trigger, or a stateMachine.events entry).",
+                ),
+            );
+        }
+    }
+
+    result
+}
+
+/// Validate a full trait definition
+pub fn validate_trait_definition(
+    trait_def: &TraitDefinition,
+    path: &str,
+    known_entities: &HashSet<String>,
+    route: bool,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -412,11 +559,11 @@ pub fn validate_trait_definition(
     }
 
     // Validate state machine
-    let sm_result = validate_state_machine(&trait_def.state_machine, path, trait_def);
+    let sm_result = validate_state_machine(&trait_def.state_machine, path, trait_def, route);
     result.merge(sm_result);
 
-    // Validate render_ui effects for interaction traits
-    if is_interaction_trait(trait_def) {
+    // A trait on a route page paints it
+    if route {
         let has_render_ui = has_render_ui_effects(&trait_def.state_machine);
         if !has_render_ui {
             result.add_error(
@@ -424,7 +571,7 @@ pub fn validate_trait_definition(
                     ErrorCode::TraitMissingRenderUI,
                     path,
                     format!(
-                        "Interaction trait '{}' should have render_ui effects",
+                        "Route trait '{}' should have render_ui effects",
                         trait_def.name
                     ),
                 )
@@ -844,6 +991,7 @@ pub fn validate_state_machine(
     sm: &StateMachine,
     path: &str,
     trait_def: &TraitDefinition,
+    route: bool,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     let sm_path = format!("{}.stateMachine", path);
@@ -957,7 +1105,7 @@ pub fn validate_state_machine(
     result.merge(transitions_result);
 
     // Check for INIT transition on initial state (for interaction traits)
-    if is_interaction_trait(trait_def) && !initial_states.is_empty() {
+    if route && !initial_states.is_empty() {
         let has_init = sm
             .transitions
             .iter()
@@ -969,7 +1117,7 @@ pub fn validate_state_machine(
                     ErrorCode::TraitMissingInitTransition,
                     format!("{}.transitions", sm_path),
                     format!(
-                        "Interaction trait should have INIT transition on initial state '{}'",
+                        "Route trait should have INIT transition on initial state '{}'",
                         initial_states[0]
                     ),
                 )
@@ -978,12 +1126,12 @@ pub fn validate_state_machine(
         }
     }
 
-    // A declared external input is a complete command: the trait accepts it
+    // A declared input is a complete command: the trait accepts it
     // from its initial (resting) state, so an outside client never has to
     // drive a UI-shaped flow to reach it.
     if let (Some(events), Some(initial)) = (sm.events.as_ref(), initial_states.first()) {
         for (i, ev) in events.iter().enumerate() {
-            if ev.external != Some(true) {
+            if ev.input != Some(true) {
                 continue;
             }
             let handled = sm
@@ -996,12 +1144,12 @@ pub fn validate_state_machine(
                         ErrorCode::TraitExternalInputNotResting,
                         format!("{}.events[{}]", sm_path, i),
                         format!(
-                            "External input '{}' is not accepted from the initial state '{}'",
+                            "Input '{}' is not accepted from the initial state '{}'",
                             ev.key, initial
                         ),
                     )
                     .with_suggestion(
-                        "Declare as external only a complete command the trait handles from its initial state (e.g. a persistor's DO_CREATE), or add that transition",
+                        "Declare as an input only a complete command the trait handles from its initial state (e.g. a persistor's DO_CREATE), or add that transition",
                     ),
                 );
             }
@@ -1203,6 +1351,53 @@ pub fn validate_transitions(
     result
 }
 
+/// ORB_T_ENDPOINT_TRAIT_RENDERS / ORB_T_TRAIT_ON_ROUTE_AND_ENDPOINT: a trait mounted on protocol
+/// endpoints has no viewer, and one trait is listed on a route or on endpoints, never both.
+fn validate_endpoint_mounts(
+    orbital: &Orbital,
+    orbital_index: usize,
+    mounts: &Mounts,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    for (j, trait_ref) in orbital.traits.iter().enumerate() {
+        let TraitReference::Inline(trait_def) = trait_ref else {
+            continue;
+        };
+        if !mounts.on_endpoint(trait_def) {
+            continue;
+        }
+        let path = trait_path(orbital_index, &orbital.name, j, trait_ref);
+        if mounts.on_route(trait_def) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::TraitOnRouteAndEndpoint,
+                    path,
+                    format!(
+                        "Trait '{}' is listed on a route page and on a protocol endpoint",
+                        trait_def.name
+                    ),
+                )
+                .with_suggestion(
+                    "A route trait paints for a viewer and an endpoint trait has none; split it into two traits",
+                ),
+            );
+        } else if renders_ui(trait_def) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::TraitEndpointRenders,
+                    path,
+                    format!(
+                        "Trait '{}' is mounted only on protocol endpoints but renders UI; an endpoint has no viewer",
+                        trait_def.name
+                    ),
+                )
+                .with_suggestion("Remove the render-ui effects, or list the trait on a route page"),
+            );
+        }
+    }
+    result
+}
+
 /// Validate trait uniqueness across orbitals
 pub fn validate_trait_uniqueness(schema: &OrbitalSchema) -> ValidationResult {
     let mut result = ValidationResult::new();
@@ -1240,15 +1435,6 @@ pub fn validate_trait_uniqueness(schema: &OrbitalSchema) -> ValidationResult {
     }
 
     result
-}
-
-/// Check if a trait is an interaction trait
-fn is_interaction_trait(trait_def: &TraitDefinition) -> bool {
-    match &trait_def.category {
-        Some(TraitCategory::Interaction) => true,
-        None => true, // Default is interaction
-        _ => false,
-    }
 }
 
 /// Check if state machine has render_ui effects. Looks through `if`
@@ -1348,6 +1534,7 @@ fn validate_orbital_init_fetch(
     orbital: &Orbital,
     orbital_index: usize,
     entity_definitions: &HashMap<String, EntityDefinition>,
+    mounts: &Mounts,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     let mut fetched: HashSet<&str> = HashSet::new();
@@ -1362,7 +1549,7 @@ fn validate_orbital_init_fetch(
         for target in init_fetch_targets(&trait_def.state_machine) {
             fetched.insert(target);
         }
-        if !is_interaction_trait(trait_def) {
+        if !mounts.on_route(trait_def) {
             continue;
         }
         let Some(linked) = &trait_def.linked_entity else {
@@ -1426,18 +1613,6 @@ fn matches_state(from: &StringOrArray, state: &str) -> bool {
     }
 }
 
-/// Convert TraitCategory to string
-fn category_to_string(category: &TraitCategory) -> String {
-    match category {
-        TraitCategory::Interaction => "interaction".to_string(),
-        TraitCategory::Integration => "integration".to_string(),
-        TraitCategory::Lifecycle => "lifecycle".to_string(),
-        TraitCategory::GameCore => "game-core".to_string(),
-        TraitCategory::GameEntity => "game-entity".to_string(),
-        TraitCategory::GameUi => "game-ui".to_string(),
-    }
-}
-
 #[cfg(test)]
 mod empty_event_name_tests {
     use super::*;
@@ -1456,7 +1631,7 @@ mod empty_event_name_tests {
     }
 
     fn codes(td: &TraitDefinition) -> Vec<String> {
-        validate_state_machine(&td.state_machine, "traits[0]", td)
+        validate_state_machine(&td.state_machine, "traits[0]", td, true)
             .errors
             .iter()
             .filter(|e| e.code == ErrorCode::TraitEmptyEventName)
@@ -1527,7 +1702,7 @@ mod tests {
                     tier: None,
                     payload_schema: None,
                     payload_entity: None,
-                    external: None,
+                    input: None,
                     listened: None,
                     inbound: None,
                 },
@@ -1540,7 +1715,7 @@ mod tests {
                     tier: None,
                     payload_schema: None,
                     payload_entity: None,
-                    external: None,
+                    input: None,
                     listened: None,
                     inbound: None,
                 },
@@ -1584,15 +1759,13 @@ mod tests {
 
     fn create_valid_trait() -> TraitDefinition {
         TraitDefinition {
-            local: false,
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: "TestTrait".to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: Some(TraitCategory::Interaction),
-            capabilities: vec![],
             description: None,
             linked_entity: None,
             emits: None,
@@ -1601,7 +1774,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -1615,7 +1787,7 @@ mod tests {
     #[test]
     fn test_valid_trait() {
         let trait_def = create_valid_trait();
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
         // May have warnings but no errors
         assert!(
             result.errors.iter().all(|e| e.is_warning()),
@@ -1689,7 +1861,7 @@ mod tests {
         #[test]
         fn null_default_is_a_valid_trait_typed_default() {
             let trait_def = trait_with_uitrait(SExpression::Null, uitrait_render_effect());
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
             assert!(
                 !has_code(&result, ErrorCode::BindingTraitInvalidFormat),
                 "Null must be accepted as the unbound sentinel: {:?}",
@@ -1702,7 +1874,7 @@ mod tests {
         #[test]
         fn unguarded_embed_of_unbound_knob_errors() {
             let trait_def = trait_with_uitrait(SExpression::Null, uitrait_render_effect());
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
             assert!(
                 has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "an unguarded embed of an unbound trait knob must error: {:?}",
@@ -1717,7 +1889,7 @@ mod tests {
             let guarded =
                 SExpression::Array(vec![s("if"), s("@config.uiTrait"), uitrait_render_effect()]);
             let trait_def = trait_with_uitrait(SExpression::Null, guarded);
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
             assert!(
                 !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "a guarded embed must not error: {:?}",
@@ -1749,7 +1921,7 @@ mod tests {
         fn an_in_payload_condition_on_the_knob_is_silent() {
             let cond = SExpression::Array(vec![s("if"), s("@config.uiTrait"), s("Edit"), s("New")]);
             let trait_def = trait_with_uitrait(SExpression::Null, render_with_prop(cond));
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
             assert!(
                 !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "{:?}",
@@ -1762,7 +1934,7 @@ mod tests {
             let cmp = SExpression::Array(vec![s("="), s("@config.uiTrait"), SExpression::Null]);
             let cond = SExpression::Array(vec![s("if"), cmp, s("New"), s("Edit")]);
             let trait_def = trait_with_uitrait(SExpression::Null, render_with_prop(cond));
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
             assert!(
                 !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "{:?}",
@@ -1779,7 +1951,7 @@ mod tests {
                 SExpression::Null,
             ]);
             let trait_def = trait_with_uitrait(SExpression::Null, render_with_children(guarded));
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
             assert!(
                 !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "{:?}",
@@ -1796,7 +1968,7 @@ mod tests {
                 s("@config.uiTrait"),
             ]);
             let trait_def = trait_with_uitrait(SExpression::Null, render_with_children(inverted));
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
             assert!(
                 has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "{:?}",
@@ -1813,7 +1985,7 @@ mod tests {
                 SExpression::Null,
             ]);
             let trait_def = trait_with_uitrait(SExpression::Null, render_with_children(other));
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
             assert!(
                 has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "{:?}",
@@ -1827,7 +1999,7 @@ mod tests {
         #[test]
         fn bound_knob_embed_is_never_flagged() {
             let trait_def = trait_with_uitrait(s("@trait.DefaultForm"), uitrait_render_effect());
-            let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+            let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
             assert!(
                 !has_code(&result, ErrorCode::RenderUnboundTraitKnobEmbedded),
                 "a bound knob's embed must never be flagged: {:?}",
@@ -1841,7 +2013,7 @@ mod tests {
         let mut trait_def = create_valid_trait();
         trait_def.state_machine.states[0].is_initial = None;
 
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
         assert!(result
             .errors
             .iter()
@@ -1853,7 +2025,7 @@ mod tests {
         let mut trait_def = create_valid_trait();
         trait_def.state_machine.states[1].is_initial = Some(true);
 
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
         assert!(result
             .errors
             .iter()
@@ -1874,7 +2046,7 @@ mod tests {
             holds: None,
         });
 
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
         assert!(
             result
                 .errors
@@ -1890,7 +2062,7 @@ mod tests {
     fn test_trait_state_all_reachable_no_fire() {
         // idle (initial) -> active is fully reachable; no unreachable state.
         let trait_def = create_valid_trait();
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
         assert!(
             !result
                 .errors
@@ -1913,8 +2085,7 @@ mod tests {
             store: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -2077,7 +2248,7 @@ mod tests {
             holds: None,
         });
 
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
         assert!(result
             .errors
             .iter()
@@ -2089,7 +2260,7 @@ mod tests {
         let mut trait_def = create_valid_trait();
         trait_def.state_machine.transitions[0].to = "nonexistent".to_string();
 
-        let result = validate_trait_definition(&trait_def, "test", &HashSet::new());
+        let result = validate_trait_definition(&trait_def, "test", &HashSet::new(), true);
         assert!(result
             .errors
             .iter()
@@ -2099,7 +2270,7 @@ mod tests {
     #[test]
     fn test_trait_undefined_reference() {
         let trait_ref = TraitReference::Reference {
-            local: false,
+            dispatch: None,
             type_args: None,
             id: None,
             reference: Some("NonExistentTrait".to_string()),
@@ -2125,7 +2296,7 @@ mod tests {
     #[test]
     fn test_std_trait_reference() {
         let trait_ref = TraitReference::Reference {
-            local: false,
+            dispatch: None,
             type_args: None,
             id: None,
             reference: Some("std/Form".to_string()),
@@ -2155,7 +2326,7 @@ mod tests {
             events.insert(k.to_string(), v.to_string());
         }
         TraitReference::Reference {
-            local: false,
+            dispatch: None,
             type_args: None,
             id: None,
             reference: reference.map(str::to_string),
@@ -2228,6 +2399,14 @@ mod tests {
     // ---- entity-scoped INIT fetch (validate_orbital_init_fetch) ----
 
     fn make_orbital(traits: Vec<TraitDefinition>) -> Orbital {
+        let route_traits: Vec<serde_json::Value> = traits
+            .iter()
+            .map(|t| serde_json::json!({ "ref": t.name }))
+            .collect();
+        let pages = serde_json::from_value(serde_json::json!([
+            { "name": "Home", "path": "/", "traits": route_traits }
+        ]))
+        .unwrap();
         Orbital {
             spec: false,
             types: None,
@@ -2239,7 +2418,7 @@ mod tests {
             entity: orbital_core_base::schema::EntityRef::Inline(make_entity("Item", &["id"])),
             auxiliary_entities: None,
             traits: traits.into_iter().map(TraitReference::Inline).collect(),
-            pages: None,
+            pages: Some(pages),
             emits: None,
             listens: None,
             exposes: None,
@@ -2278,7 +2457,7 @@ mod tests {
     }
 
     fn init_fetch_errors(orbital: &Orbital) -> usize {
-        validate_orbital_init_fetch(orbital, 0, &entity_defs())
+        validate_orbital_init_fetch(orbital, 0, &entity_defs(), &Mounts::of_orbital(orbital))
             .errors
             .iter()
             .filter(|e| e.code == ErrorCode::TraitInitMissingFetch)
@@ -2308,7 +2487,6 @@ mod tests {
     fn make_datasource(name: &str) -> TraitDefinition {
         let mut t = create_valid_trait();
         t.name = name.to_string();
-        t.category = Some(TraitCategory::Lifecycle);
         t.linked_entity = Some("Item".to_string());
         t.state_machine.transitions[0]
             .effects
@@ -2329,7 +2507,7 @@ mod tests {
     #[test]
     fn test_init_fetch_fires_once_per_entity_when_nothing_fetches() {
         let orbital = make_orbital(vec![make_consumer("ViewA"), make_consumer("ViewB")]);
-        let result = validate_orbital_init_fetch(&orbital, 0, &entity_defs());
+        let result = validate_orbital_init_fetch(&orbital, 0, &entity_defs(), &Mounts::of_orbital(&orbital));
         let fetch_errors: Vec<_> = result
             .errors
             .iter()
@@ -2351,7 +2529,7 @@ mod tests {
             make_consumer("ViewB"),
             make_datasource("DataSource"),
         ]);
-        let result = validate_orbital_init_fetch(&orbital, 0, &entity_defs());
+        let result = validate_orbital_init_fetch(&orbital, 0, &entity_defs(), &Mounts::of_orbital(&orbital));
         assert!(
             !result
                 .errors
@@ -2367,7 +2545,7 @@ mod tests {
         let mut defs = entity_defs();
         defs.get_mut("Item").unwrap().persistence = Some(Persistence::Runtime);
         let orbital = make_orbital(vec![make_consumer("ViewA")]);
-        let result = validate_orbital_init_fetch(&orbital, 0, &defs);
+        let result = validate_orbital_init_fetch(&orbital, 0, &defs, &Mounts::of_orbital(&orbital));
         assert!(result
             .errors
             .iter()
@@ -2496,7 +2674,7 @@ mod trait_field_embed_tests {
             .expect("default"),
         );
         t.config = Some(HashMap::from([("view".to_string(), cf)]));
-        let r = validate_trait_definition(&t, "t", &HashSet::new());
+        let r = validate_trait_definition(&t, "t", &HashSet::new(), true);
         assert!(
             !r.errors
                 .iter()
@@ -2514,7 +2692,7 @@ mod trait_field_embed_tests {
         cf.default =
             Some(serde_json::from_value(serde_json::json!({ "label": "x" })).expect("default"));
         t.config = Some(HashMap::from([("view".to_string(), cf)]));
-        let r = validate_trait_definition(&t, "t", &HashSet::new());
+        let r = validate_trait_definition(&t, "t", &HashSet::new(), true);
         assert!(r
             .errors
             .iter()

@@ -450,7 +450,7 @@ mod tests {
     fn module_with_local_entity() -> OirModule {
         let mut module = OirModule::new("Test", "0.1.0");
         let mut invoice = orbital_core_base::ir::OirEntity::new("Invoice");
-        invoice.local = true;
+        invoice.browser = true;
         module.entities.push(invoice);
         module
     }

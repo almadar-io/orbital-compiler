@@ -63,8 +63,12 @@ fn check_fields(fields: &[PayloadField], where_: &str, ctx: &mut ValidationConte
                 ),
             );
         }
-        // `properties`/`entity` alongside bare `"array"` already declares the element type.
-        if field.field_type == "array" && field.properties.is_none() && field.entity.is_none() {
+        // `items`/`properties`/`entity` alongside bare `"array"` already declares the element type.
+        if field.field_type == "array"
+            && field.items.is_none()
+            && field.properties.is_none()
+            && field.entity.is_none()
+        {
             ctx.add_error(super::error::untyped_array_field(
                 &format!("{}.{}", where_, field.name),
                 &field.name,
@@ -118,10 +122,14 @@ mod tests {
         let mut array_of_objects = payload_field("attachments", "array");
         array_of_objects.properties = Some(vec![payload_field("url", "string")]);
 
+        let mut array_of_union = payload_field("steps", "array");
+        array_of_union.items = Some(Box::new(payload_field("item", "union")));
+
         let fields = vec![
             payload_field("photos", "array"),
             payload_field("tags", "[string]"),
             array_of_objects,
+            array_of_union,
         ];
         let mut ctx = ValidationContext::new();
         check_fields(&fields, "Trait.emits(UPLOAD)", &mut ctx);

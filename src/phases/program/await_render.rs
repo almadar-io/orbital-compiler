@@ -468,7 +468,7 @@ mod tests {
             serde_json::json!([])
         )]));
         if let orbital_core_base::schema::EntityRef::Inline(item) = &mut s.orbitals[0].entity {
-            item.local = true;
+            item.browser = true;
             item.collection = Some("items".into());
         }
         assert!(predict_await_renders(&s)

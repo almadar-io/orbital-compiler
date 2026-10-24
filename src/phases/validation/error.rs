@@ -85,8 +85,6 @@ pub enum ErrorCode {
     TraitUndefined,
     /// Trait has invalid format
     TraitInvalidFormat,
-    /// Trait category is not valid
-    TraitInvalidCategory,
     /// State machine has no initial state
     TraitNoInitialState,
     /// State machine has multiple initial states
@@ -113,6 +111,12 @@ pub enum ErrorCode {
     TraitInitMissingFetch,
     /// Interaction trait missing render_ui effects
     TraitMissingRenderUI,
+    /// A trait mounted only on protocol endpoints renders
+    TraitEndpointRenders,
+    /// One trait is listed on both a route page and a protocol endpoint
+    TraitOnRouteAndEndpoint,
+    /// A program trait is listed on no page
+    TraitUnmounted,
     /// Deprecated ui property used
     TraitDeprecatedUI,
     /// Duplicate trait name across orbitals
@@ -290,14 +294,18 @@ pub enum ErrorCode {
     PageSignInUnknownRoute,
     /// A page is declared on the host's own sign-in route (`/login`)
     PageHostReservedRoute,
+    /// A page names a protocol that is no row of the protocol table
+    PageUnknownProtocol,
+    /// An `http` endpoint has no covering `net` listen grant
+    PageEndpointGrantMissing,
+    /// A protocol page's address does not type-check against the protocol's address record
+    PageAddressInvalid,
     /// One locale holds two pages of the same `translationOf` group
     PageTranslationDuplicateLocale,
     /// Page is missing traits array
     PageMissingTraits,
     /// Page traits array is empty
     PageEmptyTraits,
-    /// Orbital has no pages defined
-    OrbitalMissingPages,
     /// Two orbitals of one program share a name
     OrbitalDuplicateName,
     /// An `orbital X = Alias.orbitals.Y { config { … } } }` call-site
@@ -1224,13 +1232,6 @@ pub enum ErrorCode {
     /// neither is a self-emit whose target state has no same-event arm (a
     /// dead-end broadcast). Error severity.
     CircuitSelfEmitLoop,
-    /// An inline trait owns a non-empty `stateMachine.transitions` but is
-    /// absent from `client_bound_traits(orbital)` — no page declares it and
-    /// no page's `@trait.X` embed closure reaches it, so the client never
-    /// mounts a state machine for it and it can never handle an event in the
-    /// shipped app. Ported from the JS wiring lint's
-    /// `client-unbound-state-machine`. Error severity.
-    CircuitClientUnboundStateMachine,
     /// A page trait that initializes on `INIT` has a reachable state with no `INIT` arm: trait
     /// state survives unmount, so revisiting the page from that state does nothing (G-ORB-186).
     CircuitInitUncoveredState,
@@ -1541,7 +1542,6 @@ impl ErrorCode {
             // Trait
             ErrorCode::TraitUndefined => "ORB_T_UNDEFINED_TRAIT",
             ErrorCode::TraitInvalidFormat => "ORB_T_INVALID_FORMAT",
-            ErrorCode::TraitInvalidCategory => "ORB_T_INVALID_CATEGORY",
             ErrorCode::TraitNoInitialState => "ORB_T_NO_INITIAL_STATE",
             ErrorCode::TraitMultipleInitialStates => "ORB_T_MULTIPLE_INITIAL_STATES",
             ErrorCode::TraitDuplicateState => "ORB_T_DUPLICATE_STATE",
@@ -1552,6 +1552,9 @@ impl ErrorCode {
             ErrorCode::TraitStateUnreachable => "ORB_T_STATE_UNREACHABLE",
             ErrorCode::TraitInitMissingFetch => "ORB_T_INIT_MISSING_FETCH",
             ErrorCode::TraitMissingRenderUI => "ORB_T_MISSING_RENDER_UI",
+            ErrorCode::TraitEndpointRenders => "ORB_T_ENDPOINT_TRAIT_RENDERS",
+            ErrorCode::TraitOnRouteAndEndpoint => "ORB_T_TRAIT_ON_ROUTE_AND_ENDPOINT",
+            ErrorCode::TraitUnmounted => "ORB_T_TRAIT_UNMOUNTED",
             ErrorCode::TraitDeprecatedUI => "ORB_T_DEPRECATED_UI",
             ErrorCode::TraitDuplicateName => "ORB_T_DUPLICATE_NAME",
             ErrorCode::TraitUndefinedEvent => "ORB_T_UNDEFINED_EVENT",
@@ -1601,10 +1604,12 @@ impl ErrorCode {
             ErrorCode::PageAuthNoSignIn => "ORB_P_AUTH_NO_SIGN_IN",
             ErrorCode::PageSignInUnknownRoute => "ORB_P_SIGN_IN_UNKNOWN_ROUTE",
             ErrorCode::PageHostReservedRoute => "ORB_P_HOST_RESERVED_ROUTE",
+            ErrorCode::PageUnknownProtocol => "ORB_P_UNKNOWN_PROTOCOL",
+            ErrorCode::PageEndpointGrantMissing => "ORB_P_ENDPOINT_GRANT_MISSING",
+            ErrorCode::PageAddressInvalid => "ORB_P_ADDRESS_INVALID",
             ErrorCode::PageTranslationDuplicateLocale => "ORB_P_TRANSLATION_DUPLICATE_LOCALE",
             ErrorCode::PageMissingTraits => "ORB_P_MISSING_TRAITS",
             ErrorCode::PageEmptyTraits => "ORB_P_EMPTY_TRAITS",
-            ErrorCode::OrbitalMissingPages => "ORB_O_MISSING_PAGES",
             ErrorCode::OrbitalDuplicateName => "ORB_O_DUPLICATE_NAME",
             ErrorCode::OrbitalRefConfigUnknownKey => "ORB_O_CONFIG_UNKNOWN_KEY",
             ErrorCode::OrbitalRefOmitEmbeddedTrait => "ORB_O_OMIT_EMBEDDED_TRAIT",
@@ -1887,9 +1892,6 @@ impl ErrorCode {
             ErrorCode::CircuitSelfOverlayInShell => "ORB_CIRCUIT_SELF_OVERLAY_IN_SHELL",
             ErrorCode::CircuitLifecycleEmitUndelivered => "ORB_CIRCUIT_LIFECYCLE_EMIT_UNDELIVERED",
             ErrorCode::CircuitSelfEmitLoop => "ORB_CIRCUIT_SELF_EMIT_LOOP",
-            ErrorCode::CircuitClientUnboundStateMachine => {
-                "ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE"
-            }
             ErrorCode::CircuitInitUncoveredState => "ORB_CIRCUIT_INIT_UNCOVERED_STATE",
             ErrorCode::CircuitDeadBodilessAction => "ORB_CIRCUIT_DEAD_BODILESS_ACTION",
             ErrorCode::CircuitAsyncResultDeafTarget => "ORB_CIRCUIT_ASYNC_RESULT_DEAF_TARGET",
@@ -2006,7 +2008,9 @@ impl ErrorCode {
 
             ErrorCode::TraitUndefined
             | ErrorCode::TraitInvalidFormat
-            | ErrorCode::TraitInvalidCategory
+            | ErrorCode::TraitEndpointRenders
+            | ErrorCode::TraitOnRouteAndEndpoint
+            | ErrorCode::TraitUnmounted
             | ErrorCode::TraitNoInitialState
             | ErrorCode::TraitMultipleInitialStates
             | ErrorCode::TraitDuplicateState
@@ -2068,10 +2072,12 @@ impl ErrorCode {
             | ErrorCode::PageAuthNoSignIn
             | ErrorCode::PageSignInUnknownRoute
             | ErrorCode::PageHostReservedRoute
+            | ErrorCode::PageUnknownProtocol
+            | ErrorCode::PageEndpointGrantMissing
+            | ErrorCode::PageAddressInvalid
             | ErrorCode::PageTranslationDuplicateLocale
             | ErrorCode::PageMissingTraits
             | ErrorCode::PageEmptyTraits
-            | ErrorCode::OrbitalMissingPages
             | ErrorCode::OrbitalDuplicateName
             | ErrorCode::OrbitalRefConfigUnknownKey
             | ErrorCode::OrbitalRefOmitEmbeddedTrait
@@ -2331,7 +2337,6 @@ impl ErrorCode {
             | ErrorCode::CircuitSelfOverlayInShell
             | ErrorCode::CircuitLifecycleEmitUndelivered
             | ErrorCode::CircuitSelfEmitLoop
-            | ErrorCode::CircuitClientUnboundStateMachine
             | ErrorCode::CircuitInitUncoveredState
             | ErrorCode::CircuitDeadBodilessAction
             | ErrorCode::CircuitAsyncResultDeafTarget

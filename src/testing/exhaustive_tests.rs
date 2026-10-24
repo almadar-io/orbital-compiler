@@ -1000,8 +1000,6 @@ mod tests {
             orbital_name: String::new(),
             description: None,
             source: Default::default(),
-            category: None,
-            capabilities: vec![],
             linked_entity: None,
             linked_entity_id: None,
             entity_ref_ids: None,
@@ -1054,7 +1052,7 @@ mod tests {
             host_trait: None,
             declared_config_schema: None,
             declared_config_defaults: None,
-            local: false,
+            dispatch: None,
         }
     }
 

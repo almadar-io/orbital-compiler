@@ -393,7 +393,7 @@ fn resolve_config_field(field: &str, ctx: &BindingContext) -> BindingType {
 fn field_type_to_binding(ft: &FieldType) -> BindingType {
     match ft {
         FieldType::String => BindingType::String,
-        FieldType::Number => BindingType::Number,
+        FieldType::Number | FieldType::Int => BindingType::Number,
         FieldType::Boolean => BindingType::Boolean,
         FieldType::Date | FieldType::Datetime | FieldType::Timestamp => BindingType::Datetime,
         // Semantic domains bind as strings — a render slot treats them as text.
@@ -634,15 +634,13 @@ mod tests {
 
     fn empty_trait(name: &str, linked: Option<&str>) -> TraitDefinition {
         TraitDefinition {
-            local: false,
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: linked.map(|s| s.to_string()),
             emits: None,
@@ -655,7 +653,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -743,8 +740,7 @@ mod tests {
                 store: None,
                 shared: false,
                 identity: false,
-                local: false,
-                seed_mock: false,
+                browser: false,
                 locale_instances: None,
                 read_policy: None,
                 create_policy: None,
@@ -830,8 +826,7 @@ mod tests {
                 store: None,
                 shared: false,
                 identity: true,
-                local: false,
-                seed_mock: false,
+                browser: false,
                 locale_instances: None,
                 read_policy: None,
                 create_policy: None,

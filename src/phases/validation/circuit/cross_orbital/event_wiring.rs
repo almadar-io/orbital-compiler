@@ -963,8 +963,7 @@ mod tests {
                     store: None,
                     shared: false,
                     identity: false,
-                    local: false,
-                    seed_mock: false,
+                    browser: false,
                     locale_instances: None,
                     read_policy: None,
                     create_policy: None,
@@ -1017,15 +1016,13 @@ mod tests {
     fn test_external_listen_not_reported_as_orphan() {
         let mut schema = create_minimal_schema();
         schema.orbitals[0].traits = vec![TraitReference::Inline(TraitDefinition {
-            local: false,
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: "OrderTrait".to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: Some("Order".to_string()),
             emits: None,
@@ -1050,7 +1047,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -1080,15 +1076,13 @@ mod tests {
     fn test_internal_listen_still_reports_orphan() {
         let mut schema = create_minimal_schema();
         schema.orbitals[0].traits = vec![TraitReference::Inline(TraitDefinition {
-            local: false,
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: "OrderTrait".to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: Some("Order".to_string()),
             emits: None,
@@ -1113,7 +1107,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -1142,15 +1135,13 @@ mod tests {
 
     fn bare_trait(name: &str) -> TraitDefinition {
         TraitDefinition {
-            local: false,
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: Some("Task".to_string()),
             emits: None,
@@ -1163,7 +1154,6 @@ mod tests {
             ticks: None,
             config: None,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -1717,15 +1707,13 @@ mod tests {
 
     fn externally_emitting_trait(name: &str, event: &str, imported: bool) -> TraitReference {
         TraitReference::Inline(TraitDefinition {
-            local: false,
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: Some("Task".to_string()),
             emits: Some(vec![orbital_core_base::schema::EmitDefinition {
@@ -1780,7 +1768,6 @@ mod tests {
                 .collect(),
             ),
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: if imported {
                 Some(orbital_core_base::schema::SourceBehaviorMetadata {

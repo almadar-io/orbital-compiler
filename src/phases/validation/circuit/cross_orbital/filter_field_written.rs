@@ -525,15 +525,13 @@ mod tests {
         transitions: Vec<orbital_core_base::schema::TransitionDefinition>,
     ) -> TraitReference {
         TraitReference::Inline(TraitDefinition {
-            local: false,
+            dispatch: None,
             effect_row: None,
             type_params: None,
             type_args: None,
             name: name.to_string(),
             entity_rebindable: None,
             entity_contract: None,
-            category: None,
-            capabilities: vec![],
             description: None,
             linked_entity: None,
             emits: None,
@@ -546,7 +544,6 @@ mod tests {
             ticks: None,
             config,
             data_entities: None,
-            scope: None,
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,
@@ -600,8 +597,7 @@ mod tests {
             instances: None,
             shared: false,
             identity: false,
-            local: false,
-            seed_mock: false,
+            browser: false,
             locale_instances: None,
             read_policy: None,
             create_policy: None,
@@ -624,7 +620,7 @@ mod tests {
             .iter()
             .filter_map(|t| match t {
                 TraitReference::Inline(td) => Some(TraitReference::Reference {
-                    local: false,
+                    dispatch: None,
                     reference: Some(td.name.clone()),
                     ref_id: None,
                     id: None,

@@ -129,7 +129,7 @@ mod tests {
 
     fn host(embeds: &str, listens: serde_json::Value, handles: &str) -> serde_json::Value {
         serde_json::json!({
-            "name": "Host", "linkedEntity": "Row", "category": "interaction",
+            "name": "Host", "linkedEntity": "Row",
             "config": { "body": { "type": "string", "default": format!("@trait.{embeds}") } },
             "listens": listens,
             "stateMachine": machine(handles, vec![]),
@@ -142,7 +142,7 @@ mod tests {
         embeds: Option<&str>,
     ) -> serde_json::Value {
         let mut t = serde_json::json!({
-            "name": name, "linkedEntity": "Row", "category": "interaction",
+            "name": name, "linkedEntity": "Row",
             "stateMachine": machine("INIT", effects),
         });
         if let Some(inner) = embeds {

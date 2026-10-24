@@ -26,7 +26,7 @@ const THINGS: &str = r#"{
         "states": [ { "name": "idle", "isInitial": true } ],
         "events": [
           { "key": "INIT" },
-          { "key": "DO_SAVE", "external": true, "payloadSchema": [ { "name": "title", "type": "string", "required": true } ] }
+          { "key": "DO_SAVE", "input": true, "payloadSchema": [ { "name": "title", "type": "string", "required": true } ] }
         ],
         "transitions": [
           { "from": "idle", "to": "idle", "event": "INIT" },

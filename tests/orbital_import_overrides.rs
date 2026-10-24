@@ -171,12 +171,12 @@ fn entity_override_changes_persistence_and_collection() {
 #[test]
 fn entity_override_collection_alone_and_flags() {
     let (schema, codes) =
-        inline(r#", "collection": "only_collection", "local": true, "shared": true"#);
+        inline(r#", "collection": "only_collection", "browser": true, "shared": true"#);
     assert!(codes.is_empty(), "{codes:?}");
     let e = entity(&schema);
     assert_eq!(e.collection.as_deref(), Some("only_collection"));
     assert_eq!(e.persistence, Some(Persistence::Persistent));
-    assert!(e.local && e.shared && !e.identity && !e.seed_mock);
+    assert!(e.browser && e.shared && !e.identity);
 }
 
 #[test]
@@ -186,7 +186,7 @@ fn control_without_entity_override_the_upstream_persistence_and_collection_stay(
     let e = entity(&schema);
     assert_eq!(e.persistence, Some(Persistence::Persistent));
     assert_eq!(e.collection.as_deref(), Some("upstream_notes"));
-    assert!(!e.local && !e.shared && !e.identity && !e.seed_mock);
+    assert!(!e.browser && !e.shared && !e.identity);
 }
 
 #[test]

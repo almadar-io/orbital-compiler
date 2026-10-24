@@ -31,7 +31,7 @@ const UPSTREAM: &str = r#"{
           "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
-            "events": [ { "key": "INIT" }, { "key": "PROPOSE", "external": true } ],
+            "events": [ { "key": "INIT" }, { "key": "PROPOSE", "input": true } ],
             "transitions": [ { "from": "idle", "to": "idle", "event": "INIT" }, { "from": "idle", "to": "idle", "event": "PROPOSE" } ]
           }
         },
