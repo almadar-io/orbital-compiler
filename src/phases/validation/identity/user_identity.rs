@@ -1,6 +1,6 @@
 //! Validators for the `[identity]` entity — the declared shape of `@user`.
 //!
-//! Named `user_identity` rather than `identity` because `identity`/`id_integrity`
+//! Named `user_identity` rather than `identity` because `identity`/id-integrity
 //! already mean the Rabit V4 dual-carry NODE ids in this crate.
 //!
 //! `@user` is the `Viewer` (the installed language's program type) plus the

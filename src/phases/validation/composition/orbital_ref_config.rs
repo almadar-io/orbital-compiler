@@ -460,7 +460,7 @@ fn local_orbital_index(diag_path: &str, schema: &OrbitalSchema) -> Option<usize>
 
 /// Does `path` address orbital `index`, in either the bare (`orbitals[3]…`,
 /// `entity.rs`/`relations.rs`/`page.rs`) or named (`orbitals[3 (Local)]…`,
-/// `id_integrity.rs`/`config_type.rs`/`mod.rs`/`expectations.rs`) spelling
+/// `config_type.rs`/`mod.rs`/`expectations.rs`) spelling
 /// every validator uses? Both are followed by `.` or `[` or end-of-string in
 /// practice, never by another digit, so a plain prefix check cannot collide
 /// `orbitals[1]` with `orbitals[10]` — `]` and `0` differ at that position.

@@ -2623,7 +2623,7 @@ fn rewrite_role_literals_in_trait(
 /// longer resolves to an `[identity]` entity). `entity_ids` (final entity name
 /// → its OWN freshly materialized id) resets `entityId` to the RENAMED
 /// target's own id rather than leaving it pointing at upstream's id — the
-/// id-integrity dual-carry check (`id_integrity.rs`) reads `entityId` against
+/// id-integrity dual-carry check (the std `id-refs` lint) reads `entityId` against
 /// the ORIGINAL schema's ledger, and a stale upstream id there resolves to
 /// upstream's un-prefixed `curName`, tripping `ORB_ID_NAME_MISMATCH` against
 /// the just-renamed `.entity`. A target missing from `entity_ids` (should not

@@ -16,7 +16,7 @@ mod scope;
 
 pub(crate) use cycles::validate_circular_dependencies;
 pub(crate) use event_wiring::{
-    collect_async_result_events, collect_effect_produced_events, collect_failure_events,
+    collect_async_result_events, collect_failure_events,
     extract_emit_event, transition_can_propagate, validate_event_wiring,
 };
 pub(crate) use filter_field_written::validate_filter_field_never_written;
