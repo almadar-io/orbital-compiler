@@ -6,7 +6,6 @@
 use orbital_compiler::phases::inline::{inline_schema_with_orbital_diagnostics, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::orbital_ref_config::validate_orbital_ref_diagnostics;
-use orbital_compiler::phases::validation::orbital_ref_extend::validate_orbital_ref_extend_diagnostics;
 use orbital_core_base::schema::{
     EntityDefinition, EntityRef, EventScope, FieldDefinition, FieldType, OrbitalSchema,
     Persistence, SExpression, TraitDefinition, TraitReference,
@@ -89,12 +88,11 @@ fn inline_with(persistence: &str, reference_extra: &str) -> (OrbitalSchema, Vec<
     let consumer_path = dir.path().join("consumer.orb");
     std::fs::write(&consumer_path, consumer(reference_extra)).expect("write consumer");
     let mut schema = parse_file(&consumer_path).expect("consumer parses");
-    let (mut trait_ref, mut orbital_ref, mut uses_config) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut orbital_ref, mut uses_config) = (Vec::new(), Vec::new());
     inline_schema_with_orbital_diagnostics(
         &mut schema,
         &InlineConfig::default(),
         Some(&consumer_path),
-        &mut trait_ref,
         &mut orbital_ref,
         &mut uses_config,
     )
@@ -102,11 +100,6 @@ fn inline_with(persistence: &str, reference_extra: &str) -> (OrbitalSchema, Vec<
     let codes = validate_orbital_ref_diagnostics(&orbital_ref, &schema)
         .errors
         .iter()
-        .chain(
-            validate_orbital_ref_extend_diagnostics(&orbital_ref)
-                .errors
-                .iter(),
-        )
         .map(|e| e.code.as_str().to_string())
         .collect();
     (schema, codes)
@@ -304,9 +297,8 @@ fn a_field_retyped_twice_is_an_error() {
 }
 
 #[test]
-fn extend_still_collides_with_an_existing_field_unchanged() {
+fn extend_of_an_existing_field_leaves_the_upstream_field_unchanged() {
     let (schema, codes) = inline(r#", "extend": [ { "name": "count", "type": "string" } ]"#);
-    assert!(fires(&codes, "ORB_O_EXTEND_FIELD_COLLISION"), "{codes:?}");
     assert!(!fires(&codes, "ORB_O_RETYPE_FIELD_CONFLICT"), "{codes:?}");
     assert_eq!(
         field(&schema, "count").field_type,
@@ -548,8 +540,8 @@ fn imported_obligations(reference_extra: &str) -> (OrbitalSchema, Vec<serde_json
     let path = dir.path().join("consumer.orb");
     std::fs::write(&path, consumer).expect("write consumer");
     let mut schema = parse_file(&path).expect("consumer parses");
-    let (mut a, mut b, mut c) = (Vec::new(), Vec::new(), Vec::new());
-    inline_schema_with_orbital_diagnostics(&mut schema, &InlineConfig::default(), Some(&path), &mut a, &mut b, &mut c)
+    let (mut b, mut c) = (Vec::new(), Vec::new());
+    inline_schema_with_orbital_diagnostics(&mut schema, &InlineConfig::default(), Some(&path), &mut b, &mut c)
         .expect("inline succeeds");
     let expects = schema.orbitals[0].expects.iter().flatten().map(|e| serde_json::to_value(e).unwrap()).collect();
     (schema, expects)

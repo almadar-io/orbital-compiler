@@ -10,12 +10,8 @@
 //! `path` overrides.
 
 use orbital_compiler::loader::LoaderConfig;
-use orbital_compiler::phases::inline::{
-    inline_schema, inline_schema_with_config_diagnostics, InlineConfig, InlineError,
-};
+use orbital_compiler::phases::inline::{inline_schema, InlineConfig, InlineError};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::error::ErrorCode;
-use orbital_compiler::phases::validation::trait_ref_config::validate_trait_ref_config_diagnostics;
 use orbital_compiler::{compile_file, CompilerError, CompilerOptions};
 use orbital_core_base::schema::types::{EntityRef, PageRef, TraitReference};
 use std::path::PathBuf;
@@ -129,7 +125,7 @@ fn cart_effects_override_fixture_path() -> PathBuf {
 /// `ACTION` to `UPGRADE_WIDGET` via `events`. Before the fix, the
 /// events-rename source-key check ran against the trait's RAW declared emits
 /// (still carrying the literal token `@config.action`), so this legitimate
-/// rename of the RESOLVED name was rejected with `EventRenameUnknownKey`.
+/// rename of the RESOLVED name was rejected as an unknown rename source key.
 fn button_config_ref_events_fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../test-schemas/use-std-behavior/button-config-ref-events.orb")
@@ -137,8 +133,7 @@ fn button_config_ref_events_fixture_path() -> PathBuf {
 
 /// Companion fixture — same shape, but the rename's `from` key
 /// (`NOPE_NOT_A_REAL_EVENT`) names nothing the trait declares (not even
-/// after config-ref resolution). Must still be rejected with
-/// `EventRenameUnknownKey`, proving the fix didn't neuter the check.
+/// after config-ref resolution). The rename no-ops without aborting inlining.
 fn button_config_ref_events_unknown_key_fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../test-schemas/use-std-behavior/button-config-ref-events-unknown-key.orb")
@@ -455,51 +450,17 @@ fn button_config_ref_events_rename_of_resolved_default_name_succeeds() {
 }
 
 #[test]
-fn button_config_ref_events_rename_of_truly_unknown_key_diagnoses_without_abort() {
-    // New contract: an unknown rename source key must NOT abort inlining
-    // (the abort left every later orbital un-inlined and cascaded spurious
+fn button_config_ref_events_rename_of_truly_unknown_key_does_not_abort() {
+    // An unknown rename source key must NOT abort inlining (the abort left
+    // every later orbital un-inlined and cascaded spurious
     // ORB_T_UNDEFINED_TRAIT / ORB_X_LISTEN_SOURCE_UNRESOLVED findings).
-    // Composition proceeds — the rename no-ops — and the offense surfaces as
-    // an ORB_T_EVENT_RENAME_UNKNOWN_KEY validation error via the
-    // TraitRefConfigDiagnostic channel.
+    // Composition proceeds and the rename no-ops.
     let path = button_config_ref_events_unknown_key_fixture_path();
 
     let mut schema = parse_file(&path).expect("fixture must parse");
-    let mut diagnostics = Vec::new();
-    inline_schema_with_config_diagnostics(
-        &mut schema,
-        &std_inline_config(),
-        Some(&path),
-        &mut diagnostics,
-    )
-    .expect("inlining must survive an unknown rename source key");
+    inline_schema(&mut schema, &std_inline_config(), Some(&path))
+        .expect("inlining must survive an unknown rename source key");
 
-    let diag = diagnostics
-        .iter()
-        .find(|d| !d.unknown_event_rename_keys.is_empty())
-        .expect("an unknown-event-rename diagnostic must be collected");
-    assert_eq!(
-        diag.unknown_event_rename_keys,
-        vec!["NOPE_NOT_A_REAL_EVENT".to_string()],
-        "the diagnostic must carry the offending source key"
-    );
-    assert!(
-        !diag.known_events.is_empty(),
-        "the diagnostic must carry the trait's known event set for the message"
-    );
-
-    let result = validate_trait_ref_config_diagnostics(&diagnostics);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::EventRenameUnknownKey
-                && e.message.contains("NOPE_NOT_A_REAL_EVENT")),
-        "validation must convert the diagnostic to ORB_T_EVENT_RENAME_UNKNOWN_KEY; got {:?}",
-        result.errors
-    );
-
-    // And the compile path proceeds end-to-end on the same fixture.
     compile_file(&path, &lowered_oir_options())
         .expect("compile_file must succeed — the bad rename no-ops instead of aborting");
 }
@@ -515,14 +476,8 @@ fn bad_event_rename_does_not_uninline_sibling_orbitals() {
     );
 
     let mut schema = parse_file(&path).expect("fixture must parse");
-    let mut diagnostics = Vec::new();
-    inline_schema_with_config_diagnostics(
-        &mut schema,
-        &std_inline_config(),
-        Some(&path),
-        &mut diagnostics,
-    )
-    .expect("inlining must survive the bad rename in the first orbital");
+    inline_schema(&mut schema, &std_inline_config(), Some(&path))
+        .expect("inlining must survive the bad rename in the first orbital");
 
     let gadget = schema
         .orbitals
@@ -537,12 +492,6 @@ fn bad_event_rename_does_not_uninline_sibling_orbitals() {
         "the healthy sibling orbital's trait must be fully inlined despite the \
          bad rename in the preceding orbital; got {:?}",
         gadget.traits
-    );
-    assert!(
-        diagnostics.iter().any(|d| d
-            .unknown_event_rename_keys
-            .contains(&"NOPE_NOT_A_REAL_EVENT".to_string())),
-        "the bad rename must still be diagnosed"
     );
 }
 

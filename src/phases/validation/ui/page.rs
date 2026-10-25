@@ -1002,98 +1002,6 @@ pub fn validate_protocol_pages(schema: &OrbitalSchema) -> ValidationResult {
     result
 }
 
-/// Collapse a page path to its PARAM SHAPE: every `:name` segment becomes a
-/// bare `:`, so `/x/:id` and `/x/:slug` normalize to the same key — a router
-/// can't tell them apart at dispatch time regardless of the param's name.
-pub fn normalize_page_path(path: &str) -> String {
-    path.split('/')
-        .map(|segment| {
-            if segment.starts_with(':') {
-                ":"
-            } else {
-                segment
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
-/// What two pages of one protocol collide on: a route's param-shape path; an addressed endpoint's address
-/// (its `path` literal param-shaped); an address-less endpoint has nothing to collide on.
-fn collision_key(page: &PageDefinition) -> Option<String> {
-    if page.is_route() {
-        return Some(format!("route {}", normalize_page_path(&page.path)));
-    }
-    let address = page.address.as_ref()?;
-    let canonical = match address {
-        SExpression::Object(map) => {
-            let mut entries: Vec<String> = map
-                .iter()
-                .map(|(key, value)| match (key.as_str(), value) {
-                    ("path", SExpression::String(path)) if !path.starts_with('@') => {
-                        format!("{key}={}", normalize_page_path(path))
-                    }
-                    _ => format!("{key}={}", serde_json::to_string(value).unwrap_or_default()),
-                })
-                .collect();
-            entries.sort();
-            entries.join(",")
-        }
-        other => serde_json::to_string(other).unwrap_or_default(),
-    };
-    Some(format!("{} {canonical}", page.protocol_name()))
-}
-
-/// Check for duplicate page paths across all orbitals, keyed on the
-/// PARAM-SHAPE-normalized path (`normalize_page_path`) — an exact string
-/// collision is one instance of a param-shape collision, so one check
-/// covers both instead of the OIR layer separately re-flagging exact dups.
-pub fn validate_page_path_uniqueness(schema: &OrbitalSchema) -> ValidationResult {
-    let mut result = ValidationResult::new();
-    let mut normalized_to_pages: std::collections::HashMap<String, Vec<(String, String)>> =
-        std::collections::HashMap::new();
-
-    for (i, orbital) in schema.orbitals.iter().enumerate() {
-        if let Some(pages) = &orbital.pages {
-            for (j, page_ref) in pages.iter().enumerate() {
-                let location = format!("orbitals[{}].pages[{}]", i, j);
-                // Only check inline pages for path uniqueness
-                if let Some(page) = page_ref.as_inline() {
-                    let Some(key) = collision_key(page) else {
-                        continue;
-                    };
-                    normalized_to_pages
-                        .entry(key)
-                        .or_default()
-                        .push((location, page.path.clone()));
-                }
-            }
-        }
-    }
-
-    for (normalized, entries) in normalized_to_pages {
-        if entries.len() > 1 {
-            let locations: Vec<&str> = entries.iter().map(|(l, _)| l.as_str()).collect();
-            let paths: Vec<&str> = entries.iter().map(|(_, p)| p.as_str()).collect();
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::PageDuplicatePath,
-                    locations[0].to_string(),
-                    format!(
-                        "Duplicate page path (normalized to '{}'): {:?} found at: {:?}",
-                        normalized, paths, locations
-                    ),
-                )
-                .with_suggestion(
-                    "Each page must have a unique path — two routes that only differ by a param NAME still collide at dispatch",
-                ),
-            );
-        }
-    }
-
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1205,10 +1113,8 @@ mod tests {
     #[test]
     fn oir_layer_no_longer_emits_its_own_duplicate_path_error() {
         let schema = schema_with_two_page_paths("/tasks", "/tasks");
-        // `phases/validate.rs`'s own compile-time gate now calls this SAME
-        // `validate_page_path_uniqueness` owner (converged — no more second
-        // copy), so `compile_schema` correctly refuses this schema outright;
-        // going through it would never reach OIR at all. `resolve_to_oir` is
+        // Page-path uniqueness is the std lint `std-orb-lint-page-path-uniqueness`
+        // (the `orb validate` program), not a compiler pass. `resolve_to_oir` is
         // Phase 5 alone (no validation gate) — the direct route to an
         // `OirModule` for what's actually under test here: `OirValidator`
         // must emit NOTHING about the path (that block was deleted; only

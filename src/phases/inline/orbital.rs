@@ -74,17 +74,6 @@ pub struct OrbitalRefDiagnostic {
     /// Stage B: an `obj.pages` or `obj.mounts` key naming no upstream page
     /// path. B3-R: `ORB_O_PAGE_UNKNOWN_PATH`.
     pub page_unknown_path: Vec<String>,
-    /// Stage C: (added field name, reason) — an `extend {}` field whose name
-    /// is already on the upstream primary entity (after `fields {}`
-    /// renames), or equals a `fields {}` rename TARGET. C1-L-R:
-    /// `ORB_O_EXTEND_FIELD_COLLISION`.
-    pub extend_collision: Vec<(String, String)>,
-    /// Stage C: `extend {}` field names no kept trait reads/sets/renders
-    /// (guard, effect, tick, listen, or trait config default) and no
-    /// orbital-level config knob value (a `browseColumns`/`formFields`-style
-    /// entry keyed by `key`/`name`) forwards. C1-L-R (warning, rung 2):
-    /// `ORB_O_EXTEND_FIELD_UNREAD`.
-    pub extend_unread: Vec<String>,
     /// `mock {}` keys naming no field of the materialized primary entity
     /// (after `fields {}` renames and `extend {}`). `ORB_O_MOCK_UNKNOWN_FIELD`.
     pub mock_unknown_field: Vec<String>,
@@ -558,6 +547,16 @@ pub(crate) fn resolve_orbital_reference(
         return Err(InlineError::InvalidReference(obj.reference.clone()));
     };
     let upstream = ctx.get_orbital(&alias, &name)?;
+    if ctx.collect_references {
+        ctx.reference_pairs.borrow_mut().push(super::ReferencePair {
+            kind: super::ReferenceKind::Orbital,
+            alias: alias.clone(),
+            name: name.clone(),
+            path: diag_path.clone(),
+            call_site: super::ReferenceCallSite::Orbital(obj.clone()),
+            declaration: super::ReferenceDeclaration::Orbital(upstream.clone()),
+        });
+    }
     let schema_config = alias_schema_configs.get(&alias);
 
     let EntityRef::Inline(upstream_entity) = upstream.entity.clone() else {
@@ -1732,8 +1731,6 @@ pub(crate) fn resolve_orbital_reference(
     // `entity_ids`, which only cover upstream-renamed names): `Workspace!`
     // means the CONSUMER's `Workspace`, never an upstream entity of the
     // same name.
-    let mut extend_collision: Vec<(String, String)> = Vec::new();
-    let mut extend_unread: Vec<String> = Vec::new();
     if let Some(extend_fields) = obj.extend.as_ref() {
         let existing_names: HashSet<String> = primary_entity
             .fields
@@ -1741,99 +1738,13 @@ pub(crate) fn resolve_orbital_reference(
             .filter_map(|f| f.name.clone())
             .collect();
         let rename_targets: HashSet<&str> = field_subs.values().map(String::as_str).collect();
-        let extend_names: HashSet<String> = extend_fields
-            .iter()
-            .filter_map(|f| f.name.clone())
-            .collect();
-
-        // `ORB_O_EXTEND_FIELD_UNREAD`: an added field is "used" when a kept
-        // trait OR a reference-body sibling reads/sets it (`@entity.<f>`,
-        // `(object/get @entity "<f>")`, a render/form entry keyed on it) or
-        // the orbital's own folded config knob VALUES name it.
-        let mut read_slots: HashSet<String> = HashSet::new();
-        let sibling_defs: Vec<&TraitDefinition> = orbital
-            .traits
-            .iter()
-            .filter_map(|tr| match tr {
-                TraitReference::Inline(td) => Some(td),
-                _ => None,
-            })
-            .collect();
-        for td in kept.iter().chain(sibling_defs.into_iter()) {
-            for t in &td.state_machine.transitions {
-                if let Some(g) = t.guard.as_ref() {
-                    collect_extend_field_reads(g, &extend_names, &mut read_slots);
-                }
-                if let Some(effs) = t.effects.as_ref() {
-                    for e in effs {
-                        collect_extend_field_reads(e, &extend_names, &mut read_slots);
-                    }
-                }
-            }
-            if let Some(ticks) = td.ticks.as_ref() {
-                for tick in ticks {
-                    if let Some(g) = tick.guard.as_ref() {
-                        collect_extend_field_reads(g, &extend_names, &mut read_slots);
-                    }
-                    for e in &tick.effects {
-                        collect_extend_field_reads(e, &extend_names, &mut read_slots);
-                    }
-                }
-            }
-            if let Some(listens) = td.listens.as_ref() {
-                for l in listens {
-                    if let Some(g) = l.guard.as_ref() {
-                        collect_extend_field_reads(g, &extend_names, &mut read_slots);
-                    }
-                    if let Some(pm) = l.payload_mapping.as_ref() {
-                        for v in pm.values() {
-                            collect_extend_field_reads(v, &extend_names, &mut read_slots);
-                        }
-                    }
-                }
-            }
-            if let Some(cfg) = td.config.as_ref() {
-                for f in cfg.values() {
-                    if let Some(d) = f.default.as_ref() {
-                        collect_extend_field_reads(d, &extend_names, &mut read_slots);
-                    }
-                }
-            }
-        }
-        let mut config_named: HashSet<String> = HashSet::new();
-        if let Some(cfg) = folded_config.as_ref() {
-            for f in cfg.values() {
-                if let Some(d) = f.default.as_ref() {
-                    for name in &extend_names {
-                        if config_value_names_field(d, name) {
-                            config_named.insert(name.clone());
-                        }
-                    }
-                }
-            }
-        }
 
         for ef in extend_fields {
             let Some(name) = ef.name.clone() else {
                 continue;
             };
-            if existing_names.contains(&name) {
-                extend_collision.push((
-                    name.clone(),
-                    "already declared on the upstream primary entity (after `fields {}` renames)"
-                        .to_string(),
-                ));
+            if existing_names.contains(&name) || rename_targets.contains(name.as_str()) {
                 continue;
-            }
-            if rename_targets.contains(name.as_str()) {
-                extend_collision.push((
-                    name.clone(),
-                    "equals a `fields {}` rename target".to_string(),
-                ));
-                continue;
-            }
-            if !read_slots.contains(&name) && !config_named.contains(&name) {
-                extend_unread.push(name.clone());
             }
             let mut field = ef.clone();
             if let Some(rel) = field.relation.as_mut() {
@@ -2177,8 +2088,6 @@ pub(crate) fn resolve_orbital_reference(
         role_unknown_upstream,
         role_targets,
         page_unknown_path,
-        extend_collision,
-        extend_unread,
         mock_unknown_field,
         retype_unknown_field,
         retype_conflict,
@@ -2752,76 +2661,6 @@ fn rename_relation_targets_in_fields(
     }
 }
 
-/// `ORB_O_EXTEND_FIELD_UNREAD`'s read/set detector over an effect, guard,
-/// payload mapping or config default: `@entity.<f>` (any trailing path),
-/// `(object/get @entity "<f>")`, or an object entry `key`/`name`/`field`
-/// equal to the added field (a column/form entry rendered inline).
-fn collect_extend_field_reads(
-    expr: &SExpression,
-    candidates: &HashSet<String>,
-    out: &mut HashSet<String>,
-) {
-    match expr {
-        SExpression::String(s) => {
-            if let Some(rest) = s.strip_prefix("@entity.") {
-                let head = rest.split(['.', '[']).next().unwrap_or(rest);
-                if candidates.contains(head) {
-                    out.insert(head.to_string());
-                }
-            }
-        }
-        SExpression::Array(items) => {
-            if let [SExpression::String(op), SExpression::String(root), SExpression::String(f), ..] =
-                items.as_slice()
-            {
-                if op == "object/get" && root == "@entity" && candidates.contains(f) {
-                    out.insert(f.clone());
-                }
-            }
-            for item in items {
-                collect_extend_field_reads(item, candidates, out);
-            }
-        }
-        SExpression::Object(map) => {
-            for key in ["key", "name", "field"] {
-                if let Some(SExpression::String(v)) = map.get(key) {
-                    if candidates.contains(v) {
-                        out.insert(v.clone());
-                    }
-                }
-            }
-            for v in map.values() {
-                collect_extend_field_reads(v, candidates, out);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Stage C `ORB_O_EXTEND_FIELD_UNREAD`: does a config knob's VALUE name
-/// `field` — the shape a `browseColumns`/`formFields`-style list entry uses
-/// (a bare string equal to the field name, or an object with `key`/`name`
-/// equal to it), recursing through arrays/objects. Sibling of
-/// `collect_entity_slots` (which catches `@entity.<field>` reads/sets) for
-/// the other way a field is "used": named by a knob that renders/forwards
-/// it without a literal `@entity.` binding.
-fn config_value_names_field(expr: &SExpression, field: &str) -> bool {
-    match expr {
-        SExpression::String(s) => s == field,
-        SExpression::Array(items) => items.iter().any(|i| config_value_names_field(i, field)),
-        SExpression::Object(map) => {
-            if matches!(map.get("key"), Some(SExpression::String(k)) if k == field) {
-                return true;
-            }
-            if matches!(map.get("name"), Some(SExpression::String(n)) if n == field) {
-                return true;
-            }
-            map.values().any(|v| config_value_names_field(v, field))
-        }
-        _ => false,
-    }
-}
-
 /// Stage B `entities {}`: record `(site, name)` when `name` is a member of
 /// `upstream_universe` — the out-of-orbital candidate set — deduping
 /// identical pairs. One tiny shared guard so every `referenced`-collection
@@ -3379,8 +3218,6 @@ mod tests {
                 && d.role_unknown_upstream.is_empty()
                 && d.role_targets.is_empty()
                 && d.page_unknown_path.is_empty()
-                && d.extend_collision.is_empty()
-                && d.extend_unread.is_empty()
                 && d.mock_unknown_field.is_empty()
                 && d.retype_unknown_field.is_empty()
                 && d.retype_conflict.is_empty()
@@ -5450,14 +5287,6 @@ mod tests {
             &mut Vec::new(),
         )
         .expect("resolves");
-        // `overtimeHours` is unread on this fixture (no trait/config on
-        // `stage_b_main_orbital` forwards it) — expected, asserted below;
-        // `workspaceId` is read via the SAME dead-config-forward rule this
-        // fixture already exercises is not what's under test here, so only
-        // check the SHAPE — the unread finding is covered by the dedicated
-        // `extend_field_*` unit tests above.
-        assert!(diagnostics.iter().all(|d| d.extend_collision.is_empty()));
-
         let EntityRef::Inline(entity) = &orbital.entity else {
             panic!("primary must be inline")
         };
@@ -6367,182 +6196,10 @@ mod tests {
             .find(|f| f.name.as_deref() == Some("overtimeHours"))
             .expect("extend field appended");
         assert_eq!(field.field_type, orbital_core_base::schema::FieldType::Number);
-
-        // Unread: no trait/config on the tiny `upstream_orbital` fixture
-        // reads/forwards `overtimeHours`.
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(
-            diagnostics[0].extend_unread,
-            vec!["overtimeHours".to_string()]
-        );
-        assert!(diagnostics[0].extend_collision.is_empty());
     }
 
     #[test]
-    fn extend_field_set_by_a_reference_body_sibling_is_not_flagged_unread() {
-        // The consumer's OWN sibling trait (`trait X -> Local`
-        // inside the reference body) stamps the added field — a read/set
-        // site the kept-traits-only scan used to miss (Project Friday's
-        // `TimesheetApproval.OPEN_SHEET` `(set @entity.workspaceId ?workspaceId)`).
-        let upstream: Orbital = serde_json::from_value(json!({
-            "name": "UpOrbital",
-            "id": "orb_UPSTREAMTESTORBITAL000000",
-            "entity": {
-                "name": "Widget",
-                "persistence": "persistent",
-                "fields": [ { "name": "id", "type": "string", "required": true } ]
-            },
-            "traits": [
-                {
-                    "name": "Grid",
-                    "linkedEntity": "Widget",
-                    "category": "interaction",
-                    "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
-                }
-            ]
-        }))
-        .expect("upstream fixture must deserialize");
-        let mut ctx = InlineContext::new();
-        ctx.add_alias("Up", &upstream);
-        let mut orbital = consumer_orbital("Local");
-        let sibling: TraitDefinition = serde_json::from_value(json!({
-            "name": "Stamper",
-            "linkedEntity": "Widget",
-            "category": "lifecycle",
-            "stateMachine": {
-                "states": [ { "name": "open", "isInitial": true } ],
-                "transitions": [ { "from": "open", "to": "open", "event": "OPEN",
-                    "effects": [ ["set", "@entity.workspaceId", "?workspaceId"] ] } ]
-            }
-        }))
-        .expect("sibling fixture must deserialize");
-        orbital.traits = vec![TraitReference::Inline(sibling)];
-        let obj = OrbitalRefObject {
-            page_modifiers: None,
-            reference: "Up.orbitals.UpOrbital".to_string(),
-            ref_id: None,
-            entity: None,
-            fields: None,
-            pages: None,
-            omit: None,
-            only: None,
-            config: None,
-            events: None,
-            roles: None,
-            entities: None,
-            mounts: None,
-            extend: Some(vec![
-                extend_field("workspaceId", json!("string"), None),
-                extend_field("orphan", json!("string"), None),
-            ]),
-            listens: None,
-            mock: None,
-            ..Default::default()
-        };
-        let mut diagnostics = Vec::new();
-        resolve_orbital_reference(
-            &mut orbital,
-            &obj,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            &HashMap::new(),
-            None,
-            &mut diagnostics,
-            None,
-            &mut Vec::new(),
-        )
-        .expect("resolves");
-        let unread: Vec<String> = diagnostics
-            .iter()
-            .flat_map(|d| d.extend_unread.clone())
-            .collect();
-        assert_eq!(unread, vec!["orphan".to_string()], "{diagnostics:?}");
-    }
-
-    #[test]
-    fn extend_field_read_via_config_knob_value_is_not_flagged_unread() {
-        // `browseColumns`'s default list names `overtimeHours` by `key` —
-        // the `browseColumns`/`formFields`-style knob-value forwarding rule.
-        // A knob only survives onto the materialized orbital (`folded_config`'s
-        // dead-knob filter, `ORB_O_CONFIG_DEAD_KNOB`'s twin rule) if some
-        // KEPT trait forwards it via `@config.<key>` — so this fixture's
-        // trait does exactly that (same shape `stage_b_main_orbital`'s
-        // `AppLayoutTrait` uses for `navItems`).
-        let upstream: Orbital = serde_json::from_value(json!({
-            "name": "UpOrbital",
-            "id": "orb_UPSTREAMTESTORBITAL000000",
-            "config": {
-                "browseColumns": {
-                    "type": "array",
-                    "default": [ { "key": "overtimeHours", "label": "Overtime" } ]
-                }
-            },
-            "entity": {
-                "name": "Widget",
-                "persistence": "persistent",
-                "fields": [ { "name": "id", "type": "string", "required": true } ]
-            },
-            "traits": [
-                {
-                    "name": "Grid",
-                    "linkedEntity": "Widget",
-                    "category": "interaction",
-                    "config": { "browseColumns": { "type": "array", "default": "@config.browseColumns" } },
-                    "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
-                }
-            ]
-        }))
-        .expect("upstream fixture must deserialize");
-        let mut ctx = InlineContext::new();
-        ctx.add_alias("Up", &upstream);
-        let mut orbital = consumer_orbital("Local");
-        let obj = OrbitalRefObject {
-            page_modifiers: None,
-            reference: "Up.orbitals.UpOrbital".to_string(),
-            ref_id: None,
-            entity: None,
-            fields: None,
-            pages: None,
-            omit: None,
-            only: None,
-            config: None,
-            events: None,
-            roles: None,
-            entities: None,
-            mounts: None,
-            extend: Some(vec![extend_field(
-                "overtimeHours",
-                json!("number"),
-                Some(json!(0)),
-            )]),
-            listens: None,
-            mock: None,
-            ..Default::default()
-        };
-        let mut diagnostics = Vec::new();
-        resolve_orbital_reference(
-            &mut orbital,
-            &obj,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            &HashMap::new(),
-            None,
-            &mut diagnostics,
-            None,
-            &mut Vec::new(),
-        )
-        .expect("resolves");
-
-        assert!(
-            findings_free(&diagnostics),
-            "a field a config knob value names must not be flagged unread: {diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn extend_field_colliding_with_upstream_primary_field_is_a_collision() {
+    fn extend_field_colliding_with_upstream_primary_field_is_not_appended() {
         let ctx = ctx_with_upstream(None);
         let mut orbital = consumer_orbital("Local");
         let obj = OrbitalRefObject {
@@ -6581,11 +6238,6 @@ mod tests {
         )
         .expect("resolves");
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].extend_collision.len(), 1);
-        assert_eq!(diagnostics[0].extend_collision[0].0, "id");
-        assert!(diagnostics[0].extend_unread.is_empty());
-
         // The colliding field is NOT appended a second time.
         let EntityRef::Inline(entity) = &orbital.entity else {
             panic!("expected inline entity");
@@ -6599,7 +6251,7 @@ mod tests {
     }
 
     #[test]
-    fn extend_field_colliding_with_a_fields_rename_target_is_a_collision() {
+    fn extend_field_colliding_with_a_fields_rename_target_is_not_appended() {
         let ctx = ctx_with_upstream(None);
         let mut orbital = consumer_orbital("Local");
         let mut fields = HashMap::new();
@@ -6639,9 +6291,15 @@ mod tests {
         )
         .expect("resolves");
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].extend_collision.len(), 1);
-        assert_eq!(diagnostics[0].extend_collision[0].0, "widgetId");
+        let EntityRef::Inline(entity) = &orbital.entity else {
+            panic!("expected inline entity");
+        };
+        let renamed: Vec<_> = entity
+            .fields
+            .iter()
+            .filter(|f| f.name.as_deref() == Some("widgetId"))
+            .collect();
+        assert_eq!(renamed.len(), 1, "collision must not duplicate the field");
     }
 
     #[test]

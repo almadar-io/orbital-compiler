@@ -1011,11 +1011,9 @@ fn rewrite_identifiers_inner(
                             }
                         }
                         SExpression::Object(emit_map) => {
+                            let slots = orbital_core_base::language::registry::emit_slots();
                             for (slot, slot_v) in emit_map.iter_mut() {
-                                if matches!(
-                                    slot.as_str(),
-                                    "success" | "failure" | "onMessage" | "onChange" | "cancelled"
-                                ) {
+                                if slots.contains(slot) {
                                     if let SExpression::String(ev) = slot_v {
                                         if let Some(to) = event_subs.get(ev) {
                                             *ev = to.clone();
@@ -3069,7 +3067,7 @@ fn entity_fields_to_payload_fields(entity: &EntityDefinition) -> Vec<PayloadFiel
 /// orbital's own (post-inline) entity set — the primary `entity` plus
 /// `auxiliary_entities` (imported atom entities surfaced by the inline
 /// phase). Called once per orbital, after `inline_orbital` fully resolves
-/// it — see `inline_schema_with_config_diagnostics`.
+/// it — see `inline_schema_with_orbital_diagnostics`.
 pub(crate) fn resolve_orbital_type_param_sentinels(orbital: &mut Orbital) {
     let mut entities: HashMap<String, EntityDefinition> = HashMap::new();
     if let EntityRef::Inline(def) = &orbital.entity {

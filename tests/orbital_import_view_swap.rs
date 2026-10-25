@@ -496,12 +496,11 @@ fn edge_omitting_an_unknown_page_path_is_reported() {
     let consumer_path = dir.path().join("consumer.orb");
     std::fs::write(&consumer_path, consumer(r#""/nope""#)).expect("write consumer");
     let mut schema = parse_file(&consumer_path).expect("consumer parses");
-    let (mut trait_ref, mut orbital_ref, mut uses_config) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut orbital_ref, mut uses_config) = (Vec::new(), Vec::new());
     orbital_compiler::phases::inline::inline_schema_with_orbital_diagnostics(
         &mut schema,
         &InlineConfig::default(),
         Some(&consumer_path),
-        &mut trait_ref,
         &mut orbital_ref,
         &mut uses_config,
     )

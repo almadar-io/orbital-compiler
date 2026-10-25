@@ -980,14 +980,12 @@ fn inline_stage_b_consumer() -> (
     std::fs::write(&consumer_path, STAGE_B_CONSUMER).expect("write consumer");
 
     let mut schema = parse_file(&consumer_path).expect("consumer parses");
-    let mut trait_diags = Vec::new();
     let mut orbital_diags = Vec::new();
     let mut uses_diags = Vec::new();
     orbital_compiler::phases::inline::inline_schema_with_orbital_diagnostics(
         &mut schema,
         &InlineConfig::default(),
         Some(&consumer_path),
-        &mut trait_diags,
         &mut orbital_diags,
         &mut uses_diags,
     )

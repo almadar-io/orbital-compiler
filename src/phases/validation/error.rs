@@ -1184,7 +1184,7 @@ pub enum ErrorCode {
     CircuitDeadHandler,
     /// A rendered affordance's event-bearing prop (`action`, `itemActions[].event`,
     /// `submitEvent`, `onChange`, …) targets a lifecycle event
-    /// (`orbital_core::events::BUS_EXCLUDED_EVENTS`). The bus never
+    /// (the operator table's `emit` `busExcluded`). The bus never
     /// re-delivers `INIT`/`LOAD`/`$MOUNT`, so the control is dead on click.
     RenderActionLifecycleEvent,
     /// A transition's effects (`fetch`/`persist`/`call-service`) declare an
@@ -1214,7 +1214,7 @@ pub enum ErrorCode {
     /// Ported from `self-overlay-inside-modal-shell`. Error severity.
     CircuitSelfOverlayInShell,
     /// A transition's own effects list contains a top-level `(emit <event>)`
-    /// naming a lifecycle event (`orbital_core::events::BUS_EXCLUDED_EVENTS`)
+    /// naming a lifecycle event (the operator table's `emit` `busExcluded`)
     /// — the bus never re-delivers it, so this half of the closed circuit is
     /// written but can never run. Sibling production site to
     /// [`RenderActionLifecycleEvent`](ErrorCode::RenderActionLifecycleEvent)

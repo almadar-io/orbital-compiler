@@ -1527,35 +1527,6 @@ pub(crate) fn sibling_trait_refs_of(
     sorted
 }
 
-/// One trait Reference whose call-site `config` doesn't exactly match the
-/// referenced trait's declared config knobs. Collected during inlining (the
-/// only point where both the raw call-site key set and the atom's untouched
-/// declaration — including cross-orbital `std/behaviors/*` atoms resolved
-/// via the embedded phf registry — are visible together) and converted into
-/// `ORB_T_CONFIG_UNKNOWN_CALL_SITE_KEY` / `ORB_T_CONFIG_MISSING_REQUIRED_KEY`
-/// validation errors by `phases::validation::trait_ref_config`.
-#[derive(Debug, Clone)]
-pub struct TraitRefConfigDiagnostic {
-    pub path: String,
-    pub reference: String,
-    pub unknown_keys: Vec<String>,
-    pub missing_required_keys: Vec<String>,
-    pub declared_keys: Vec<String>,
-    /// `events { FROM: TO }` source keys that name no event the referenced
-    /// trait declares or produces (emits ∪ transition triggers ∪
-    /// `stateMachine.events[].key` ∪ effect emit-maps / render-ui event props).
-    /// Collected here instead of aborting inlining: a bad rename key must not
-    /// un-resolve the rest of the schema (the abort left later orbitals
-    /// un-inlined and cascaded spurious ORB_T_UNDEFINED_TRAIT /
-    /// ORB_X_LISTEN_SOURCE_UNRESOLVED findings). Converted to
-    /// `ORB_T_EVENT_RENAME_UNKNOWN_KEY` errors by
-    /// `phases::validation::trait_ref_config`.
-    pub unknown_event_rename_keys: Vec<String>,
-    /// The referenced trait's known event set at check time — carried so the
-    /// validation error can name the valid keys.
-    pub known_events: Vec<String>,
-}
-
 pub(crate) type InlinedTraits = (
     Vec<TraitReference>,
     HashMap<String, String>,
@@ -1565,7 +1536,6 @@ pub(crate) type InlinedTraits = (
     // the `@trait` ref resolves, but identical pulls in two orbitals collide
     // app-wide; `inline_schema` uniquifies those after all orbitals resolve.
     Vec<String>,
-    Vec<TraitRefConfigDiagnostic>,
     // (owner final name, pulled event receiver final name)
     Vec<(String, String)>,
 );
@@ -1650,7 +1620,6 @@ pub(crate) fn inline_traits(
     alias_schema_configs: &HashMap<String, HashMap<String, ConfigField>>,
 ) -> Result<InlinedTraits, InlineError> {
     let mut result = Vec::new();
-    let mut config_diagnostics: Vec<TraitRefConfigDiagnostic> = Vec::new();
     // Auxiliary entities surfaced by no-rebind sibling-pulls (see the pull loop).
     let mut pulled_aux_entities: Vec<EntityDefinition> = Vec::new();
     // Track every trait NAME that has already been pushed to `result`.
@@ -1909,6 +1878,16 @@ pub(crate) fn inline_traits(
                             };
                             match inlined {
                                 TraitReference::Inline(mut trait_def) => {
+                                    if ctx.collect_references {
+                                        ctx.reference_pairs.borrow_mut().push(super::ReferencePair {
+                                            kind: super::ReferenceKind::Trait,
+                                            alias: alias.clone(),
+                                            name: name.clone(),
+                                            path: trait_path.clone(),
+                                            call_site: super::ReferenceCallSite::Trait(trait_ref.clone()),
+                                            declaration: super::ReferenceDeclaration::Trait(trait_def.clone()),
+                                        });
+                                    }
                                     // Carry the CONSUMER's declaration id onto
                                     // the resolved trait. `Reference.id` is the
                                     // "V4 LOCAL DECLARATION id — the identity of
@@ -1942,198 +1921,6 @@ pub(crate) fn inline_traits(
                                     // before/after pair when a `name:`
                                     // override is supplied.
                                     let original_name = trait_def.name.clone();
-                                    // RULE 3: validate the events-rename SOURCE
-                                    // keys against the imported trait's event
-                                    // set BEFORE the override is applied (after
-                                    // it, the original keys are gone). A `from`
-                                    // key that names nothing silently no-ops —
-                                    // surface it instead. The event set is the
-                                    // union of declared emits and transition
-                                    // triggers (`ORB_T_EVENT_RENAME_UNKNOWN_KEY`).
-                                    if let Some(map) = events_override.as_ref() {
-                                        // Build the same effective per-instance
-                                        // config `apply_overrides_to_trait` will
-                                        // use below (declared defaults, then
-                                        // call-site overrides — but only when
-                                        // this isn't a deferred import load,
-                                        // where the consumer's own override
-                                        // pass hasn't run yet) so a rename's
-                                        // source key is checked against the
-                                        // RESOLVED `@config.<knob>` emit name,
-                                        // not the raw unresolved token.
-                                        let mut effective_config: orbital_core_base::schema::SObject =
-                                            orbital_core_base::schema::SObject::new();
-                                        if let Some(declared) = trait_def.config.as_ref() {
-                                            for (k, field) in declared.iter() {
-                                                if let Some(default) = field.default.as_ref() {
-                                                    effective_config
-                                                        .insert(k.clone(), default.clone());
-                                                }
-                                            }
-                                        }
-                                        if !ctx.defer_config_subst {
-                                            if let Some(cfg) = config.as_ref() {
-                                                for (k, cf) in cfg.iter() {
-                                                    if let Some(v) = cf.default.as_ref() {
-                                                        effective_config
-                                                            .insert(k.clone(), v.clone());
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        // The known set matches what the rename
-                                        // actually rewrites (`rewrite_identifiers`
-                                        // covers emit arrays, emit-option maps and
-                                        // render-ui event props; `rewrite_trait_event_fields`
-                                        // covers the structured fields) and the
-                                        // validator's `build_trait_event_sets` —
-                                        // three sites, one definition. A source key
-                                        // outside it is a genuine no-op rename.
-                                        let mut known: HashSet<String> = HashSet::new();
-                                        if let Some(events) = &trait_def.state_machine.events {
-                                            for ev in events {
-                                                known.insert(ev.key.clone());
-                                            }
-                                        }
-                                        known.extend(
-                                            crate::phases::validation::cross_orbital::collect_effect_produced_events(&trait_def),
-                                        );
-                                        if let Some(emits) = &trait_def.emits {
-                                            for e in emits {
-                                                if orbital_core_base::schema::config_ref_event_knob(
-                                                    &e.event,
-                                                )
-                                                .is_some()
-                                                {
-                                                    match orbital_core_base::schema::resolve_config_ref_event_name(
-                                                        &e.event,
-                                                        &effective_config,
-                                                        trait_def.config.as_ref(),
-                                                    ) {
-                                                        Ok(resolved) => {
-                                                            known.insert(resolved);
-                                                        }
-                                                        // Unresolvable ref (unknown knob /
-                                                        // non-string / no default): keep the
-                                                        // raw token so the EmitConfigRefInvalid
-                                                        // validation check (not this one)
-                                                        // reports the real cause, and a rename
-                                                        // targeting a genuinely different key
-                                                        // still errors here.
-                                                        Err(_) => {
-                                                            known.insert(e.event.clone());
-                                                        }
-                                                    }
-                                                } else {
-                                                    known.insert(e.event.clone());
-                                                }
-                                            }
-                                        }
-                                        for t in &trait_def.state_machine.transitions {
-                                            known.insert(t.event.clone());
-                                        }
-                                        // Collect — never abort. An unknown key
-                                        // no-ops in the substitution walk, so
-                                        // composition of this trait (and every
-                                        // later orbital) stays sound; the
-                                        // validator reports it as
-                                        // ORB_T_EVENT_RENAME_UNKNOWN_KEY.
-                                        let mut unknown_event_rename_keys: Vec<String> = map
-                                            .keys()
-                                            .filter(|from| {
-                                                !from.is_empty() && !known.contains(from.as_str())
-                                            })
-                                            .cloned()
-                                            .collect();
-                                        if !unknown_event_rename_keys.is_empty() {
-                                            unknown_event_rename_keys.sort();
-                                            let mut known_events: Vec<String> =
-                                                known.into_iter().collect();
-                                            known_events.sort();
-                                            config_diagnostics.push(TraitRefConfigDiagnostic {
-                                                path: trait_path.clone(),
-                                                reference: original_name.clone(),
-                                                unknown_keys: Vec::new(),
-                                                missing_required_keys: Vec::new(),
-                                                declared_keys: Vec::new(),
-                                                unknown_event_rename_keys,
-                                                known_events,
-                                            });
-                                        }
-                                    }
-                                    // E1/E2: check the call-site `config`
-                                    // keys against the referenced trait's
-                                    // DECLARED config BEFORE
-                                    // `apply_overrides_to_trait` folds
-                                    // matched keys into `trait_def.config`
-                                    // and silently drops unmatched ones —
-                                    // this is the only point where both the
-                                    // raw call-site key set and the atom's
-                                    // untouched declaration are visible
-                                    // together, even for cross-orbital
-                                    // std/behaviors refs (resolved above via
-                                    // `ctx.get_trait`, which reaches the
-                                    // embedded phf registry).
-                                    {
-                                        let empty_cfg: HashMap<String, ConfigField> =
-                                            std::collections::HashMap::new();
-                                        let cfg = config.as_ref().unwrap_or(&empty_cfg);
-                                        let mut declared_keys: std::collections::BTreeSet<String> =
-                                            trait_def
-                                                .config
-                                                .as_ref()
-                                                .map(|m| m.keys().cloned().collect())
-                                                .unwrap_or_default();
-                                        // A `.lolo` alias trait can declare its OWN typed
-                                        // knobs inside the reference's config block (e.g.
-                                        // `trait Alias = Wrapped -> X { config { steps :
-                                        // [StepSpec] = [...] @label "Steps" } }`) — those
-                                        // are NEW knobs on the alias, not overrides of
-                                        // `Wrapped`'s declared config, so they must not be
-                                        // flagged unknown. `is_declaration_form` is the
-                                        // structural signal the lowerer already uses to
-                                        // distinguish a re-declaration from a plain wiring
-                                        // override (`field_type == "unknown"`, no
-                                        // annotations) — no key-name or value sniffing.
-                                        declared_keys.extend(
-                                            cfg.iter()
-                                                .filter(|(_, f)| f.is_declaration_form())
-                                                .map(|(k, _)| k.clone()),
-                                        );
-                                        let mut unknown_keys: Vec<String> = cfg
-                                            .keys()
-                                            .filter(|k| !declared_keys.contains(*k))
-                                            .cloned()
-                                            .collect();
-                                        unknown_keys.sort();
-                                        let mut missing_required_keys: Vec<String> = trait_def
-                                            .config
-                                            .as_ref()
-                                            .map(|m| {
-                                                m.iter()
-                                                    .filter(|(k, f)| {
-                                                        f.required.unwrap_or(false)
-                                                            && !cfg.contains_key(k.as_str())
-                                                    })
-                                                    .map(|(k, _)| k.clone())
-                                                    .collect()
-                                            })
-                                            .unwrap_or_default();
-                                        missing_required_keys.sort();
-                                        if !unknown_keys.is_empty()
-                                            || !missing_required_keys.is_empty()
-                                        {
-                                            config_diagnostics.push(TraitRefConfigDiagnostic {
-                                                path: trait_path.clone(),
-                                                reference: original_name.clone(),
-                                                unknown_keys,
-                                                missing_required_keys,
-                                                declared_keys: declared_keys.into_iter().collect(),
-                                                unknown_event_rename_keys: Vec::new(),
-                                                known_events: Vec::new(),
-                                            });
-                                        }
-                                    }
                                     // §B4-R2 (C-CONFIG-DANGLING-REF-NO-VALIDATE's
                                     // third composition shape): this entry's
                                     // OWN call-site `config` may itself be a
@@ -2916,7 +2703,6 @@ pub(crate) fn inline_traits(
         rename_map,
         pulled_aux_entities,
         pulled_names,
-        config_diagnostics,
         receiver_mounts,
     ))
 }

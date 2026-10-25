@@ -9,12 +9,6 @@
 //! - `ORB_U_CONFIG_UNKNOWN_KEY`: converted from
 //!   [`orbital_compiler::phases::inline::UsesConfigDiagnostic`]s collected in
 //!   the `uses` loop.
-//! - `ORB_O_CONFIG_DEAD_KNOB`: a post-inline whole-schema walk
-//!   (`validate_orbital_config_forwarding`), exercised directly via
-//!   hand-built schemas (no loader needed — single-file, no `uses`).
-//! - Page-path collision: no new code — `validate_page_path_uniqueness`
-//!   already covers it; this is the regression proof for the orbital-import
-//!   case (two bare imports of one upstream, no `pages {}` remap).
 //! - `ORB_O_ROLE_TARGET_NOT_MEMBER` / `ORB_O_ROLE_UNKNOWN_UPSTREAM` /
 //!   `ORB_O_ENTITY_UNMAPPED` / `ORB_O_ENTITY_UNKNOWN_KEY` /
 //!   `ORB_O_ENTITY_TARGET_UNKNOWN` / `ORB_O_PAGE_UNKNOWN_PATH` (B3-R): the
@@ -30,7 +24,6 @@ use orbital_compiler::phases::validation::error::ErrorCode;
 use orbital_compiler::phases::validation::orbital_ref_config::{
     validate_orbital_ref_diagnostics, validate_uses_config_diagnostics,
 };
-use orbital_compiler::phases::validation::page::validate_page_path_uniqueness;
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
@@ -130,14 +123,12 @@ struct Collected {
 fn collect_with(upstream_source: &str, consumer_source: &str) -> Collected {
     let (_dir, consumer_path) = materialize_with(upstream_source, consumer_source);
     let mut schema = parse_file(&consumer_path).expect("consumer must parse");
-    let mut trait_ref_config_diagnostics = Vec::new();
     let mut orbital_ref = Vec::new();
     let mut uses_config = Vec::new();
     inline_schema_with_orbital_diagnostics(
         &mut schema,
         &InlineConfig::default(),
         Some(&consumer_path),
-        &mut trait_ref_config_diagnostics,
         &mut orbital_ref,
         &mut uses_config,
     )
@@ -442,59 +433,6 @@ fn uses_config_unknown_key_still_fires_alongside_a_resolving_orbital_ref() {
 }
 
 // ============================================================================
-// Page-path collision regression (no new code — validate_page_path_uniqueness
-// already covers it post-flatten; two bare imports of one upstream, neither
-// remapping `pages {}`, collide on every one of the upstream's paths since
-// only NAMES get the unconditional prefix — paths are untouched unless
-// `pages {}` remaps them).
-// ============================================================================
-
-const DOUBLE_IMPORT_CONSUMER: &str = r#"{
-  "name": "test-orbital-import-page-collision",
-  "version": "1.0.0",
-  "orbitals": [
-    {
-      "name": "FirstImport",
-      "uses": [ { "from": "./upstream.orb", "as": "Up" } ],
-      "entity": "Up.orbitals.WidgetOrbital.entity",
-      "traits": [],
-      "reference": { "ref": "Up.orbitals.WidgetOrbital" }
-    },
-    {
-      "name": "SecondImport",
-      "uses": [ { "from": "./upstream.orb", "as": "Up" } ],
-      "entity": "Up.orbitals.WidgetOrbital.entity",
-      "traits": [],
-      "reference": { "ref": "Up.orbitals.WidgetOrbital" }
-    }
-  ]
-}"#;
-
-#[test]
-fn double_import_with_no_page_remap_collides_on_every_path() {
-    let (_dir, consumer_path) = materialize(DOUBLE_IMPORT_CONSUMER);
-    let mut schema = parse_file(&consumer_path).expect("consumer must parse");
-    inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path))
-        .expect("orbital-import inline must succeed");
-
-    let result = validate_page_path_uniqueness(&schema);
-    assert_eq!(
-        result.errors.len(),
-        3,
-        "all three upstream page paths (/widgets, /widgets/:id, /widgets/extra) must collide: {:#?}",
-        result.errors
-    );
-    assert!(
-        result
-            .errors
-            .iter()
-            .all(|e| e.code == ErrorCode::PageDuplicatePath),
-        "{:#?}",
-        result.errors
-    );
-}
-
-// ============================================================================
 // (B) order-free `entities {}` mapping across TWO sibling reference-form
 // orbitals in the SAME consumer file: import 1's `entities {}` names an
 // out-of-orbital primary onto import 2's OWN materialized entity — legal
@@ -641,10 +579,10 @@ fn entities_map_onto_a_sibling_reference_form_orbitals_materialized_entity_is_or
 }
 
 // ============================================================================
-// ORB_O_CONFIG_DEAD_KNOB — single-file, no `uses`; hand-built schemas.
+// Orbital config codes — single-file, no `uses`; hand-built schemas (ORB_O_CONFIG_DEAD_KNOB is the std lint
+// `std-orb-lint-orbital-config-dead-knob`).
 // ============================================================================
 
-const DEAD_KNOB: &str = "ORB_O_CONFIG_DEAD_KNOB";
 
 fn codes(schema: &OrbitalSchema) -> Vec<String> {
     validate_comprehensive_without_services(schema)
@@ -703,168 +641,12 @@ fn schema_with(
     serde_json::from_value(value).expect("schema fixture must deserialize")
 }
 
-#[test]
-fn app_level_unforwarded_knob_fires_dead_knob() {
-    let schema = schema_with(
-        Some(json!({ "appName": { "type": "string", "default": "App" } })),
-        None,
-        None,
-    );
-    assert!(
-        codes(&schema).contains(&DEAD_KNOB.to_string()),
-        "declared app-level 'appName' with no forwarder must fire {DEAD_KNOB}"
-    );
-}
 
 #[test]
-fn app_level_forwarded_knob_does_not_fire_dead_knob() {
-    let schema = schema_with(
-        Some(json!({ "appName": { "type": "string", "default": "App" } })),
-        None,
-        Some(json!({ "title": { "type": "string", "default": "@config.appName" } })),
-    );
-    assert!(
-        !codes(&schema).contains(&DEAD_KNOB.to_string()),
-        "'appName' is forwarded by WidgetView's 'title' — must not fire {DEAD_KNOB}"
-    );
-}
-
-/// G-CROSS-024: an app knob read NESTED in a trait's config value
-/// (`metrics[].target`) publishes the knob — both once the inline phase has
-/// folded it (provenance in `nestedForwardedFrom`) and while the token is
-/// still in place.
-#[test]
-fn app_knob_read_nested_in_a_trait_config_value_does_not_fire_dead_knob() {
-    let app = json!({ "weeklyWinTarget": { "type": "number", "default": 2 } });
-    let resolved = schema_with(
-        Some(app.clone()),
-        None,
-        Some(json!({ "metrics": {
-            "type": "array",
-            "default": [ { "label": "Wins", "target": 2 } ],
-            "nestedForwardedFrom": [ "@config.weeklyWinTarget" ]
-        } })),
-    );
-    assert!(
-        !codes(&resolved).contains(&DEAD_KNOB.to_string()),
-        "the folded nested read must publish 'weeklyWinTarget'"
-    );
-    let unresolved = schema_with(
-        Some(app),
-        None,
-        Some(json!({ "metrics": {
-            "type": "array",
-            "default": [ { "label": "Wins", "target": "@config.weeklyWinTarget" } ]
-        } })),
-    );
-    assert!(
-        !codes(&unresolved).contains(&DEAD_KNOB.to_string()),
-        "an unfolded nested token must publish 'weeklyWinTarget' too"
-    );
-}
-
-/// Control: nested provenance naming a DIFFERENT knob publishes only that one.
-#[test]
-fn nested_provenance_for_another_knob_still_fires_dead_knob() {
-    let schema = schema_with(
-        Some(json!({ "weeklyWinTarget": { "type": "number", "default": 2 } })),
-        None,
-        Some(json!({ "metrics": {
-            "type": "array",
-            "default": [ { "target": 5 } ],
-            "nestedForwardedFrom": [ "@config.weeklyLeadTarget" ]
-        } })),
-    );
-    assert!(
-        codes(&schema).contains(&DEAD_KNOB.to_string()),
-        "'weeklyWinTarget' is read nowhere — must fire {DEAD_KNOB}"
-    );
-}
-
-#[test]
-fn app_knob_forwarded_through_an_imported_orbital_knob_does_not_fire_dead_knob() {
-    // §107: the consumer folded its app knob into the imported orbital's knob
-    // (`forwarded_from` on the ORBITAL field) and a trait forwards THAT knob —
-    // the app knob is published through the chain, never dead.
-    let schema = schema_with(
-        Some(json!({ "googleCalendarId": { "type": "string", "default": "" } })),
-        Some(
-            json!({ "calendarId": { "type": "string", "default": "", "forwardedFrom": "@config.googleCalendarId" } }),
-        ),
-        Some(
-            json!({ "calendarId": { "type": "string", "default": "", "forwardedFrom": "@config.calendarId" } }),
-        ),
-    );
-    assert!(
-        !codes(&schema).contains(&DEAD_KNOB.to_string()),
-        "'googleCalendarId' reaches WidgetView through the orbital knob 'calendarId' — must not fire {DEAD_KNOB}"
-    );
-}
-
-#[test]
-fn app_knob_chained_to_an_orbital_knob_no_trait_forwards_fires_dead_knob_twice() {
-    let schema = schema_with(
-        Some(json!({ "googleCalendarId": { "type": "string", "default": "" } })),
-        Some(
-            json!({ "calendarId": { "type": "string", "default": "", "forwardedFrom": "@config.googleCalendarId" } }),
-        ),
-        None,
-    );
-    assert_eq!(
-        codes(&schema)
-            .iter()
-            .filter(|c| c.as_str() == DEAD_KNOB)
-            .count(),
-        2,
-        "a chain nobody forwards leaves BOTH knobs dead"
-    );
-}
-
-#[test]
-fn orbital_level_unforwarded_knob_fires_dead_knob() {
-    let schema = schema_with(
-        None,
-        Some(json!({ "pageSize": { "type": "number", "default": 10 } })),
-        None,
-    );
-    assert!(
-        codes(&schema).contains(&DEAD_KNOB.to_string()),
-        "declared orbital-level 'pageSize' with no forwarder must fire {DEAD_KNOB}"
-    );
-}
-
-#[test]
-fn orbital_level_forwarded_knob_does_not_fire_dead_knob() {
-    let schema = schema_with(
-        None,
-        Some(json!({ "pageSize": { "type": "number", "default": 10 } })),
-        Some(json!({ "limit": { "type": "number", "default": "@config.pageSize" } })),
-    );
-    assert!(
-        !codes(&schema).contains(&DEAD_KNOB.to_string()),
-        "'pageSize' is forwarded by WidgetView's 'limit' — must not fire {DEAD_KNOB}"
-    );
-}
-
-#[test]
-fn dotted_tail_forward_does_not_count_and_still_fires_dead_knob() {
-    let schema = schema_with(
-        Some(json!({ "appName": { "type": "string", "default": "App" } })),
-        None,
-        Some(json!({ "title": { "type": "string", "default": "@config.appName.sub" } })),
-    );
-    assert!(
-        codes(&schema).contains(&DEAD_KNOB.to_string()),
-        "'@config.appName.sub' has a dotted tail — must NOT count as forwarding 'appName', so {DEAD_KNOB} still fires"
-    );
-}
-
-#[test]
-fn no_config_anywhere_produces_none_of_the_four_new_codes() {
+fn no_config_anywhere_produces_none_of_the_three_config_codes() {
     let schema = schema_with(None, None, None);
     let cs = codes(&schema);
     for code in [
-        DEAD_KNOB,
         "ORB_O_CONFIG_UNKNOWN_KEY",
         "ORB_O_OMIT_EMBEDDED_TRAIT",
         "ORB_U_CONFIG_UNKNOWN_KEY",
@@ -877,7 +659,7 @@ fn no_config_anywhere_produces_none_of_the_four_new_codes() {
 }
 
 // ============================================================================
-// ORB_O_CONFIG_DEAD_KNOB regression (§B4-R2): the ref-entry call-site forward
+// Ref-entry call-site forward (§B4-R2; the dead-knob half is the std lint `std-orb-lint-orbital-config-dead-knob`): the ref-entry call-site forward
 // resolver (`inline/trait.rs`'s `TraitReference::Reference` arm, via
 // `EmbedGraph`) COLLAPSES a `@config.<knob>` forward supplied as a
 // `ref:` entry's own call-site config override into its resolved literal —
@@ -961,85 +743,6 @@ const REF_FORWARD_CONSUMER: &str = r#"{
   ]
 }"#;
 
-#[test]
-fn ref_entry_forwarded_app_and_orbital_knobs_do_not_fire_dead_knob() {
-    let collected = collect_with(REF_FORWARD_UPSTREAM, REF_FORWARD_CONSUMER);
-    let result = validate_comprehensive_without_services(&collected.schema);
-    assert!(
-        !result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalConfigDeadKnob),
-        "'appName' and 'pageSize' are both forwarded through TitleView's \
-         call-site config — must not fire {DEAD_KNOB}: {:#?}",
-        result.errors
-    );
-
-    // "orb resolve shows the collapsed literal": the ref entry's own
-    // override values must be the resolved literals, not the raw tokens,
-    // AND each carries `forwarded_from` naming the original token — the
-    // provenance the dead-knob check reads once the literal itself is gone.
-    let title_view = collected
-        .schema
-        .orbitals
-        .iter()
-        .find_map(|o| {
-            o.traits.iter().find_map(|t| match t {
-                orbital_core_base::schema::TraitReference::Inline(td) if td.name == "TitleView" => {
-                    Some(td)
-                }
-                _ => None,
-            })
-        })
-        .expect("TitleView must be inlined");
-    let cfg = title_view.config.as_ref().expect("config carried");
-    let title_field = cfg.get("title").expect("title carried");
-    assert_eq!(
-        title_field.default,
-        Some(orbital_core_base::schema::SExpression::String(
-            "Time Tracking".to_string()
-        )),
-        "title must resolve to the app-level appName literal"
-    );
-    assert_eq!(
-        title_field.forwarded_from.as_deref(),
-        Some("@config.appName"),
-        "title's forwarded_from must name the original app-level token"
-    );
-    let limit_field = cfg.get("limit").expect("limit carried");
-    assert_eq!(
-        limit_field.default,
-        Some(orbital_core_base::schema::SExpression::Number(25.0)),
-        "limit must resolve to the orbital-level pageSize literal"
-    );
-    assert_eq!(
-        limit_field.forwarded_from.as_deref(),
-        Some("@config.pageSize"),
-        "limit's forwarded_from must name the original orbital-level token"
-    );
-}
-
-#[test]
-fn ref_entry_with_an_unforwarded_orbital_knob_still_fires_dead_knob() {
-    // Same shape, but `Local` declares a SECOND orbital-level knob
-    // (`unused`) nothing forwards — the fix must not blanket-suppress
-    // ORB_O_CONFIG_DEAD_KNOB, only silence it for knobs actually forwarded.
-    let consumer = REF_FORWARD_CONSUMER.replacen(
-        r#""config": { "pageSize": { "type": "number", "default": 25 } },"#,
-        r#""config": { "pageSize": { "type": "number", "default": 25 }, "unused": { "type": "string", "default": "x" } },"#,
-        1,
-    );
-    let collected = collect_with(REF_FORWARD_UPSTREAM, &consumer);
-    let result = validate_comprehensive_without_services(&collected.schema);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalConfigDeadKnob && e.message.contains("unused")),
-        "'unused' is declared but forwarded by nothing — must still fire {DEAD_KNOB}: {:#?}",
-        result.errors
-    );
-}
 
 // ============================================================================
 // B3-R: the six Stage-B `ORB_O_*` codes — `roles {}` / `entities {}` /
@@ -1539,4 +1242,43 @@ fn pages_key_naming_a_real_upstream_path_does_not_fire_page_unknown_path() {
         "'/main' is a real upstream page path — must not fire: {:#?}",
         result.errors
     );
+}
+
+
+fn orbital_references_of(consumer_source: &str) -> Vec<Value> {
+    let (_dir, consumer_path) = materialize(consumer_source);
+    let session = orbital_compiler::phases::inline::InlineSession::default();
+    session.collect_references();
+    let config = InlineConfig { session: Some(session.clone()), ..InlineConfig::default() };
+    let mut schema = parse_file(&consumer_path).expect("consumer must parse");
+    inline_schema(&mut schema, &config, Some(&consumer_path)).expect("inline must succeed");
+    serde_json::to_value(session.take_references())
+        .expect("serializes")
+        .as_array()
+        .cloned()
+        .expect("a list")
+}
+
+#[test]
+fn an_orbital_reference_with_extend_is_paired_with_its_upstream_orbital() {
+    let references = orbital_references_of(&orbital_ref_consumer(
+        r#", "extend": [ { "name": "tier", "type": "string" } ]"#,
+    ));
+    assert_eq!(references.len(), 1, "{references:#?}");
+    let pair = &references[0];
+    assert_eq!(pair["kind"], "orbital");
+    assert_eq!(pair["alias"], "Up");
+    assert_eq!(pair["name"], "WidgetOrbital");
+    assert_eq!(pair["path"], "orbitals[0]");
+    assert_eq!(pair["callSite"]["ref"], "Up.orbitals.WidgetOrbital");
+    assert_eq!(pair["callSite"]["extend"][0]["name"], "tier");
+    assert_eq!(pair["declaration"]["name"], "WidgetOrbital");
+    assert_eq!(pair["declaration"]["entity"]["name"], "Widget");
+}
+
+#[test]
+fn control_an_orbital_reference_without_extend_carries_none_in_its_call_site() {
+    let references = orbital_references_of(&orbital_ref_consumer(""));
+    assert_eq!(references.len(), 1, "{references:#?}");
+    assert!(references[0]["callSite"].get("extend").is_none(), "{}", references[0]["callSite"]);
 }

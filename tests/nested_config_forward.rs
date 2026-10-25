@@ -1,12 +1,11 @@
 //! G-CROSS-024: an app knob read NESTED in a composed `{ref}` trait's call-site
 //! config value (`metrics[].target`) folds to its value through inline, keeps
 //! its provenance on the inlined trait's declared field (the override fold in
-//! `apply_overrides_to_trait`), and so publishes the app knob to
-//! `ORB_O_CONFIG_DEAD_KNOB`.
+//! `apply_overrides_to_trait`), and so publishes the app knob to the std lint
+//! `std-orb-lint-orbital-config-dead-knob`.
 
 use orbital_compiler::phases::inline::inline_schema;
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::orbital_config::validate_orbital_config_forwarding;
 use orbital_compiler::phases::InlineConfig;
 use orbital_core_base::schema::{SExpression, TraitReference};
 
@@ -84,25 +83,8 @@ fn nested_app_knob_folds_and_publishes() {
         Some(serde_json::from_value::<SExpression>(serde_json::json!([{ "label": "Wins", "target": 2 }])).expect("sexpr")),
     );
     assert_eq!(metrics.nested_forwarded_from, vec!["@config.weeklyWinTarget".to_string()]);
-    let codes: Vec<String> = validate_orbital_config_forwarding(&schema)
-        .errors
-        .iter()
-        .map(|e| e.code.as_str().to_string())
-        .collect();
-    assert!(!codes.contains(&"ORB_O_CONFIG_DEAD_KNOB".to_string()), "{codes:?}");
 }
 
-#[test]
-fn control_an_override_that_never_reads_the_app_knob_leaves_it_dead() {
-    let schema = inlined(r#"[ { "label": "Wins", "target": 5 } ]"#);
-    assert!(metrics_field(&schema).nested_forwarded_from.is_empty());
-    let codes: Vec<String> = validate_orbital_config_forwarding(&schema)
-        .errors
-        .iter()
-        .map(|e| e.code.as_str().to_string())
-        .collect();
-    assert!(codes.contains(&"ORB_O_CONFIG_DEAD_KNOB".to_string()), "{codes:?}");
-}
 
 fn inlined_with_knobs(metrics: &str) -> orbital_core_base::schema::OrbitalSchema {
     let dir = tempfile::TempDir::new().expect("temp dir");

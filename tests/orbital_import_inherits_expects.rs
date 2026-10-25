@@ -564,12 +564,11 @@ fn node_program_with_diagnostics(
     );
     std::fs::write(&path, program).expect("write program");
     let mut schema = parse_file(&path).expect("program parses");
-    let (mut trait_cfg, mut orbital_ref, mut uses_cfg) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut orbital_ref, mut uses_cfg) = (Vec::new(), Vec::new());
     orbital_compiler::phases::inline::inline_schema_with_orbital_diagnostics(
         &mut schema,
         &InlineConfig::default(),
         Some(&path),
-        &mut trait_cfg,
         &mut orbital_ref,
         &mut uses_cfg,
     )

@@ -9,7 +9,6 @@ use orbital_core_base::schema::{
 use std::collections::HashSet;
 use thiserror::Error;
 
-use super::validation::page::validate_page_path_uniqueness;
 
 /// Validation error
 #[derive(Debug, Error)]
@@ -116,16 +115,6 @@ pub fn validate_schema(schema: &OrbitalSchema) -> Result<(), ValidationError> {
         validate_orbital(orbital, i, &mut ctx);
     }
 
-    // Page-path uniqueness has ONE owner — `validation::page::validate_page_path_uniqueness`
-    // (param-shape normalized, `ORB_P_DUPLICATE_PATH`) — so this compile-time gate calls it
-    // too instead of keeping its own exact-string duplicate set.
-    for err in validate_page_path_uniqueness(schema).errors {
-        ctx.add_error(ValidationError::duplicate(
-            err.path,
-            format!("[{}] {}", err.code, err.message),
-        ));
-    }
-
     ctx.into_result()
 }
 
@@ -203,7 +192,7 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     // "duplicate" — a bug that depended only on orbital array order
     // (SCAN-DUP-ENTITY-COMPOSE-1). NAMES ONLY: nothing is synthesized, and
     // nothing here can ever error. `expects page` needs no entry here —
-    // page-path uniqueness (`validate_page_path_uniqueness`) never
+    // page-path uniqueness (the std lint `std-orb-lint-page-path-uniqueness`) never
     // considers `expects` declarations at all, only real `pages {}` entries.
     for orbital in &schema.orbitals {
         for expectation in orbital.expects.iter().flatten() {
@@ -987,51 +976,6 @@ mod tests {
         );
     }
 
-    /// B3-R convergence: this compile-time gate no longer keeps its own
-    /// exact-string page-path set — it calls the SAME
-    /// `validate_page_path_uniqueness` owner `orb validate` uses. Proof: a
-    /// PARAM-SHAPE collision (`/x/:id` vs `/x/:slug`, no exact string match)
-    /// — which the old exact-only check would have missed entirely — must
-    /// still fail `validate_schema`, and the error text must carry the
-    /// shared owner's code.
-    #[test]
-    fn duplicate_page_path_is_caught_via_the_shared_page_path_owner() {
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
-            "name": "test-validate-page-path",
-            "version": "1.0.0",
-            "orbitals": [{
-                "name": "WidgetOrbital",
-                "entity": {
-                    "name": "Widget",
-                    "persistence": "persistent",
-                    "fields": [{ "name": "id", "type": "string", "required": true }]
-                },
-                "traits": [{
-                    "name": "WidgetView",
-                    "linkedEntity": "Widget",
-                    "category": "interaction",
-                    "stateMachine": {
-                        "states": [{ "name": "idle", "isInitial": true }],
-                        "events": [{ "key": "OPEN" }],
-                        "transitions": [{ "from": "idle", "to": "idle", "event": "OPEN", "effects": [] }]
-                    }
-                }],
-                "pages": [
-                    { "name": "ByIdPage", "path": "/x/:id", "traits": [{ "ref": "WidgetView" }] },
-                    { "name": "BySlugPage", "path": "/x/:slug", "traits": [{ "ref": "WidgetView" }] }
-                ]
-            }]
-        }))
-        .expect("fixture must deserialize");
-
-        let err =
-            validate_schema(&schema).expect_err("param-shape collision must fail validate_schema");
-        let message = err.to_string();
-        assert!(
-            message.contains("ORB_P_DUPLICATE_PATH"),
-            "compile-time gate must surface the shared owner's code, got: {message}"
-        );
-    }
     #[test]
     fn only_a_route_page_needs_a_path() {
         let page = |value: serde_json::Value| -> Vec<String> {

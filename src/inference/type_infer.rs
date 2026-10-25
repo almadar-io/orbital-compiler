@@ -125,9 +125,13 @@ struct Inferer<'c> {
     /// What a condition on the way in has shown of pure expressions, compared structurally: a call present
     /// (`(!= (op …) null)`) or a value nonzero (`(> n 0)`).
     present_calls: RefCell<Vec<CallFact>>,
-    /// The `let` locals in scope with their initializers (written out through earlier locals), so a fact a guard's own
-    /// `let` shows of `(op @x)` is the fact an effect's `let` binding the same `x` reads.
+    /// The `let` locals in scope with their initializers, as written: a local an initializer reads stands for the
+    /// binding before it. A fact a guard's own `let` shows of `(op @x)` is the fact an effect's `let` binding the same
+    /// `x` reads; initializers are compared in place, never expanded, so a let chain stays linear.
     let_inits: RefCell<Vec<(String, OirExpr)>>,
+    /// Facts a callback's element parameter carries (`k` over `(object/keys m)` reads `(object/get m k)` present), taken
+    /// by the scope the callback's parameters open.
+    element_facts: RefCell<Vec<CallFact>>,
     /// The `let` locals bound to an operand that can be missing.
     absent_locals: RefCell<Vec<String>>,
     /// The `let` locals bound to a failable operator's maybe-missing result, with that operator.
@@ -165,6 +169,7 @@ impl<'c> Inferer<'c> {
             present: RefCell::new(Vec::new()),
             present_calls: RefCell::new(Vec::new()),
             let_inits: RefCell::new(Vec::new()),
+            element_facts: RefCell::new(Vec::new()),
             absent_locals: RefCell::new(Vec::new()),
             missing_results: RefCell::new(Vec::new()),
             refinements: RefCell::new(Vec::new()),
@@ -612,9 +617,10 @@ impl<'c> Inferer<'c> {
             !matches!(&binding.root, OirBindingRoot::Local(name) if names.iter().any(|(local, _)| local == name))
         }).cloned().collect();
         let previous_presence = self.present.replace(visible);
-        let visible = self.present_calls.borrow().iter().filter(|fact| {
+        let mut visible: Vec<CallFact> = self.present_calls.borrow().iter().filter(|fact| {
             !names.iter().any(|(name, _)| mentions_local(fact.expr(), name))
         }).cloned().collect();
+        visible.extend(self.element_facts.take());
         let previous_calls = self.present_calls.replace(visible);
         let visible = self.children.borrow().iter().filter(|dependency| {
             ![&dependency.node, &dependency.children].into_iter().any(|binding|
@@ -713,9 +719,8 @@ impl<'c> Inferer<'c> {
                     let sign = [Sign::Positive, Sign::NonNegative, Sign::NonZero]
                         .into_iter()
                         .find(|sign| self.shows_sign(value, *sign));
-                    let written = self.written_out(value);
                     scopes.push(self.enter_scope(&[(name.clone(), ty)]));
-                    self.let_inits.borrow_mut().push((name.clone(), written));
+                    self.let_inits.borrow_mut().push((name.clone(), value.clone()));
                     inits += 1;
                     if let Some(sign) = sign {
                         let local = OirExpr::Binding {
@@ -1057,7 +1062,9 @@ impl<'c> Inferer<'c> {
                 CallFact::Present(call) => as_call(call).is_some_and(|(shown, shown_args)| {
                     shown == name
                         && shown_args.len() == args.len()
-                        && shown_args.iter().zip(args).all(|(a, b)| *a == *b || **a == self.written_out(b))
+                        && shown_args.iter().zip(args).all(|(a, b)| {
+                            *a == *b || stands_for(a, b, &self.let_inits.borrow())
+                        })
                 }),
                 CallFact::Signed(..) => false,
             })
@@ -1074,10 +1081,15 @@ impl<'c> Inferer<'c> {
 
     /// Whether a fact on the way in shows the initializer a local stands for present.
     fn local_shown_present(&self, name: &str) -> bool {
-        let Some(init) = self.let_inits.borrow().iter().rev().find(|(n, _)| n == name).map(|(_, e)| e.clone()) else {
+        let inits = self.let_inits.borrow();
+        let Some(at) = inits.iter().rposition(|(n, _)| n == name) else {
             return false;
         };
-        self.present_calls.borrow().iter().any(|fact| matches!(fact, CallFact::Present(shown) if *shown == init))
+        let (earlier, bound) = (&inits[..at], &inits[at].1);
+        self.present_calls
+            .borrow()
+            .iter()
+            .any(|fact| matches!(fact, CallFact::Present(shown) if stands_for(shown, bound, earlier)))
     }
 
     /// Whether `expr` has `sign`, by construction (the operator table's result signs) or because a condition on the
@@ -1377,9 +1389,15 @@ impl<'c> Inferer<'c> {
                 OirExpr::Lambda { params, body } => {
                     // A callback the operator also hands the element's index: that parameter is a number.
                     let index_at = orbital_core_eval::evaluator::callback_index_position(name);
+                    let shown = element_parameter(signature, index)
+                        .and_then(|at| params.get(at))
+                        .zip(args.first())
+                        .map(|(param, source)| facts_of_elements(source, param))
+                        .unwrap_or_default();
                     let dependencies = signature.lambda_child_parameters(index);
                     let provisional = std::cell::Cell::new(signature.reads_lambda_twice(index));
                     let run = |types: &[Option<OirType>]| {
+                        self.element_facts.replace(shown.clone());
                         let dropped = provisional
                             .replace(false)
                             .then(|| self.diagnostics.borrow().len());
@@ -2150,6 +2168,14 @@ fn present_calls(expr: &OirExpr, truth: bool) -> Vec<CallFact> {
         "and" => intersection_of(args.iter().map(|a| present_calls(a, false))),
         "or" if truth => intersection_of(args.iter().map(|a| present_calls(a, true))),
         "or" => union_of(args.iter().map(|a| present_calls(a, false))),
+        // `(object/has m k)` holds: `(object/get m k)` reads a value.
+        "object/has" if truth => match args.as_slice() {
+            [record, key] => vec![CallFact::Present(OirExpr::Call {
+                function: "object/get".to_string(),
+                args: vec![(*record).clone(), (*key).clone()],
+            })],
+            _ => Vec::new(),
+        },
         "!=" if truth => match args.as_slice() {
             [OirExpr::Number { value }, other] | [other, OirExpr::Number { value }] if *value == 0.0 => {
                 signed(other, Sign::NonZero).into_iter().collect()
@@ -2233,17 +2259,48 @@ fn call_guards_for(name: &str, args: &[&OirExpr], index: usize) -> Vec<CallFact>
     }
 }
 
+/// Whether `shown` (written out, no locals) is what `expr` stands for, reading each local `expr` names through its
+/// initializer in `inits` (the latest binding of a name wins; an initializer reads the bindings before it). Walks both
+/// trees once, without building the written-out form.
+fn stands_for(shown: &OirExpr, expr: &OirExpr, inits: &[(String, OirExpr)]) -> bool {
+    if let OirExpr::Binding { binding } = expr {
+        if let (OirBindingRoot::Local(name), true) = (&binding.root, binding.path.is_empty()) {
+            if let Some(at) = inits.iter().rposition(|(n, _)| n == name) {
+                return stands_for(shown, &inits[at].1, &inits[..at]);
+            }
+        }
+        return shown == expr;
+    }
+    let each = |a: &[&OirExpr], b: &[&OirExpr]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| stands_for(x, y, inits));
+    match (shown, expr) {
+        (OirExpr::Call { function: f, args: a }, OirExpr::Call { function: g, args: b }) if f == g && f != "let" && f != "quote" => {
+            each(&a.iter().collect::<Vec<_>>(), &b.iter().collect::<Vec<_>>())
+        }
+        (OirExpr::BinaryOp { op: o, left: l, right: r }, OirExpr::BinaryOp { op: p, left: m, right: q }) if o == p => {
+            stands_for(l, m, inits) && stands_for(r, q, inits)
+        }
+        (OirExpr::UnaryOp { op: o, operand: a }, OirExpr::UnaryOp { op: p, operand: b }) if o == p => stands_for(a, b, inits),
+        (
+            OirExpr::Conditional { condition: c, then_branch: t, else_branch: e },
+            OirExpr::Conditional { condition: d, then_branch: u, else_branch: f },
+        ) => stands_for(c, d, inits) && stands_for(t, u, inits) && stands_for(e, f, inits),
+        (OirExpr::Array { items: a }, OirExpr::Array { items: b }) => each(&a.iter().collect::<Vec<_>>(), &b.iter().collect::<Vec<_>>()),
+        (OirExpr::Object { fields: a }, OirExpr::Object { fields: b }) => {
+            a.len() == b.len() && a.iter().all(|(k, v)| b.get(k).is_some_and(|w| stands_for(v, w, inits)))
+        }
+        _ => shown == expr,
+    }
+}
+
 /// `expr` with each local named in `inits` (the latest binding of a name wins) replaced by its initializer.
 fn write_out(expr: &OirExpr, inits: &[(String, OirExpr)]) -> OirExpr {
     let each = |e: &OirExpr| write_out(e, inits);
     match expr {
         OirExpr::Binding { binding } => match &binding.root {
-            OirBindingRoot::Local(name) if binding.path.is_empty() => inits
-                .iter()
-                .rev()
-                .find(|(n, _)| n == name)
-                .map(|(_, init)| init.clone())
-                .unwrap_or_else(|| expr.clone()),
+            OirBindingRoot::Local(name) if binding.path.is_empty() => match inits.iter().rposition(|(n, _)| n == name) {
+                Some(at) => write_out(&inits[at].1, &inits[..at]),
+                None => expr.clone(),
+            },
             _ => expr.clone(),
         },
         OirExpr::Call { function, args } if function != "let" && function != "quote" => {
@@ -2272,6 +2329,44 @@ fn shape_return(returns: &OperatorTypeRef) -> &OperatorTypeRef {
             .find(|member| !matches!(member, OperatorTypeRef::Tagged(OperatorTypeRefKind::Literal { value }) if value.is_null()))
             .unwrap_or(returns),
         other => other,
+    }
+}
+
+/// The callback parameter a call hands each element of its first argument: the one the signature types as that list's
+/// element.
+fn element_parameter(signature: &Signature<'_>, index: usize) -> Option<usize> {
+    let OperatorTypeRef::Tagged(OperatorTypeRefKind::Fn { params, .. }) = signature.formal(index)? else {
+        return None;
+    };
+    let OperatorTypeRef::Tagged(OperatorTypeRefKind::Array { of }) = signature.formal(0)? else {
+        return None;
+    };
+    params.iter().position(|param| param == of.as_ref())
+}
+
+/// What every element of `source` shows, said of `param`: a key of `(object/keys m)` is one `m` holds, and an element
+/// `(array/filter s (fn k …))` kept is one its test held for (and one of `s`).
+fn facts_of_elements(source: &OirExpr, param: &str) -> Vec<CallFact> {
+    let element = OirExpr::Binding { binding: OirBinding { root: OirBindingRoot::Local(param.to_string()), path: Vec::new() } };
+    match as_call(source) {
+        Some(("object/keys", args)) => match args.as_slice() {
+            [record] => vec![CallFact::Present(OirExpr::Call {
+                function: "object/get".to_string(),
+                args: vec![(*record).clone(), element],
+            })],
+            _ => Vec::new(),
+        },
+        Some(("array/filter", args)) => match args.as_slice() {
+            [list, OirExpr::Lambda { params, body }] => {
+                let renamed: Vec<(String, OirExpr)> = params.first().map(|k| (k.clone(), element.clone())).into_iter().collect();
+                let mut facts: Vec<CallFact> =
+                    present_calls(body, true).into_iter().map(|fact| fact.map(|e| write_out(e, &renamed))).collect();
+                facts.extend(facts_of_elements(list, param));
+                facts
+            }
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
     }
 }
 
@@ -3537,6 +3632,23 @@ mod tests {
         let parse = |shape: &str| call("json/parse", vec![checked_local(text("{}"), OirType::String), text(shape)]);
         assert!(!check_oir_expr(&parse("Nope"), &Declared).is_empty(), "a shape no type declares");
         assert!(check_oir_expr(&parse("Pt"), &Declared).is_empty(), "control: a declared shape");
+    }
+
+    #[test]
+    fn a_key_the_record_is_shown_to_hold_reads_a_value() {
+        let m = || checked_local(OirExpr::Object { fields: Default::default() }, OirType::map(OirType::String, OirType::Number));
+        let keys = || checked_local(list_of(vec![]), OirType::array(OirType::String));
+        let read = || call("object/get", vec![m(), local("k")]);
+        let over = |source: OirExpr| infer_oir_expr_type(&call("array/map", vec![source, OirExpr::Lambda { params: vec!["k".into()], body: Box::new(read()) }]), &NoCtx);
+        assert_eq!(over(call("object/keys", vec![m()])), Some(OirType::array(OirType::Number)), "a key of the map itself");
+        let held = call("array/filter", vec![keys(), OirExpr::Lambda { params: vec!["j".into()], body: Box::new(call("object/has", vec![m(), local("j")])) }]);
+        assert_eq!(over(held), Some(OirType::array(OirType::Number)), "a key a filter kept because the map has it");
+        assert_eq!(
+            infer_oir_expr_type(&call("if", vec![call("object/has", vec![m(), local("k")]), read(), num(0.0)]), &NoCtx).map(|t| t.is_optional()),
+            Some(false),
+            "a key an `object/has` test shows"
+        );
+        assert_eq!(over(keys()), Some(OirType::array(OirType::optional(OirType::Number))), "control: any string may be missing");
     }
 
     #[test]

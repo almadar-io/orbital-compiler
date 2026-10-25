@@ -60,11 +60,6 @@ use r#trait::inline_traits;
 // private `r#trait` submodule as `pub(crate)`; without this re-export the path
 // is E0425 (latent — surfaces whenever orbital-compiler recompiles).
 pub(crate) use r#trait::{collect_sibling_trait_refs, sibling_trait_refs_of};
-// Re-exported so `phases::validation::trait_ref_config` (and
-// `inline_schema_with_config_diagnostics`'s public signature above) can name
-// the type as `crate::phases::inline::TraitRefConfigDiagnostic` without
-// reaching into the private `r#trait` submodule directly.
-pub use r#trait::TraitRefConfigDiagnostic;
 // Diagnostics collected while resolving `orbital X = Alias.orbitals.Y { … }`
 // references — re-exported so `phases::validation` (W4-R) can name them.
 use orbital::{
@@ -403,6 +398,62 @@ impl std::fmt::Debug for InlineSession {
 struct InlineSessionState {
     loader: Option<ExternalOrbitalLoader>,
     imports: ImportMemo,
+    references: ReferenceSink,
+}
+
+impl InlineSession {
+    /// Records, from now on, every trait and orbital reference this session resolves.
+    pub fn collect_references(&self) {
+        self.0.borrow_mut().references.enabled = true;
+    }
+
+    /// The references recorded so far, in resolution order; the record is emptied.
+    pub fn take_references(&self) -> Vec<ReferencePair> {
+        std::mem::take(&mut self.0.borrow_mut().references.pairs)
+    }
+}
+
+#[derive(Default)]
+struct ReferenceSink {
+    enabled: bool,
+    pairs: Vec<ReferencePair>,
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReferenceKind {
+    Trait,
+    Orbital,
+}
+
+/// The reference node as the author wrote it, before any override is applied.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(untagged)]
+pub enum ReferenceCallSite {
+    Trait(TraitReference),
+    Orbital(orbital_core_base::schema::OrbitalRefObject),
+}
+
+/// The upstream declaration a reference resolves to, as the inliner holds it:
+/// loaded as an import, with `@config.X` still deferred.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(untagged)]
+pub enum ReferenceDeclaration {
+    Trait(TraitDefinition),
+    Orbital(Orbital),
+}
+
+/// One reference paired with the declaration it resolves to; `path` is the
+/// call-site path the reference diagnostics use.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferencePair {
+    pub kind: ReferenceKind,
+    pub alias: String,
+    pub name: String,
+    pub path: String,
+    pub call_site: ReferenceCallSite,
+    pub declaration: ReferenceDeclaration,
 }
 
 /// An imported behavior inlined once (keyed by its canonical file): its
@@ -412,7 +463,6 @@ struct InlineSessionState {
 struct InlinedImport {
     orbitals: std::rc::Rc<Vec<Orbital>>,
     provenance: Vec<ConfigProvenanceRecord>,
-    config_diagnostics: Vec<r#trait::TraitRefConfigDiagnostic>,
     orbital_ref_diagnostics: Vec<orbital::OrbitalRefDiagnostic>,
     uses_config_diagnostics: Vec<orbital::UsesConfigDiagnostic>,
     deferred_merges: Vec<DeferredMerge>,
@@ -427,38 +477,18 @@ pub fn inline_schema(
     config: &InlineConfig,
     source_path: Option<&Path>,
 ) -> Result<(), InlineError> {
-    let mut diagnostics = Vec::new();
-    inline_schema_with_config_diagnostics(schema, config, source_path, &mut diagnostics)
-}
-
-/// Same as [`inline_schema`], but also collects every trait Reference whose
-/// call-site `config` doesn't exactly match the referenced trait's declared
-/// config knobs (unknown keys / missing `!`-required keys). Consumed by
-/// `orb validate`'s call-site config rules
-/// (`ORB_T_CONFIG_UNKNOWN_CALL_SITE_KEY` / `ORB_T_CONFIG_MISSING_REQUIRED_KEY`)
-/// — collection has to happen during inlining because
-/// `apply_overrides_to_trait` folds matched keys into the resolved trait and
-/// silently drops unmatched ones, so the raw call-site key set is gone by
-/// the time `validate_comprehensive_full` runs.
-pub fn inline_schema_with_config_diagnostics(
-    schema: &mut OrbitalSchema,
-    config: &InlineConfig,
-    source_path: Option<&Path>,
-    diagnostics: &mut Vec<r#trait::TraitRefConfigDiagnostic>,
-) -> Result<(), InlineError> {
     let mut orbital_ref_diagnostics = Vec::new();
     let mut uses_config_diagnostics = Vec::new();
     inline_schema_with_orbital_diagnostics(
         schema,
         config,
         source_path,
-        diagnostics,
         &mut orbital_ref_diagnostics,
         &mut uses_config_diagnostics,
     )
 }
 
-/// Same as [`inline_schema_with_config_diagnostics`], additionally collecting
+/// Same as [`inline_schema`], additionally collecting
 /// the two orbital-import diagnostic classes (Almadar_Orbital_Import.md §4.5,
 /// §8): a call-site `config {}` override on an `orbital X = Alias.orbitals.Y
 /// { … }` reference (or on the `uses … { config }` that feeds it) naming a
@@ -466,17 +496,10 @@ pub fn inline_schema_with_config_diagnostics(
 /// surviving trait still embeds via `@trait.<X>`. W4-R's validators turn
 /// these into `ORB_O_CONFIG_UNKNOWN_KEY` / `ORB_O_OMIT_EMBEDDED_TRAIT` /
 /// `ORB_U_CONFIG_UNKNOWN_KEY`.
-///
-/// A separate entry point — rather than adding params directly to
-/// [`inline_schema_with_config_diagnostics`] — because that function's
-/// production callers in `orbital-cli` are outside this crate (W3-R's scope
-/// is `orbital-compiler` only); this keeps their call sites untouched while
-/// still surfacing the new diagnostics to whichever caller wants them.
 pub fn inline_schema_with_orbital_diagnostics(
     schema: &mut OrbitalSchema,
     config: &InlineConfig,
     source_path: Option<&Path>,
-    diagnostics: &mut Vec<r#trait::TraitRefConfigDiagnostic>,
     orbital_ref_diagnostics: &mut Vec<orbital::OrbitalRefDiagnostic>,
     uses_config_diagnostics: &mut Vec<orbital::UsesConfigDiagnostic>,
 ) -> Result<(), InlineError> {
@@ -517,7 +540,7 @@ pub fn inline_schema_with_orbital_diagnostics(
 
     let session = config.session.clone().unwrap_or_default();
     let mut session_state = session.0.borrow_mut();
-    let InlineSessionState { loader, imports } = &mut *session_state;
+    let InlineSessionState { loader, imports, references } = &mut *session_state;
     let loader =
         loader.get_or_insert_with(|| ExternalOrbitalLoader::new(config.loader_config.clone()));
     loader.begin_schema();
@@ -609,7 +632,6 @@ pub fn inline_schema_with_orbital_diagnostics(
             true,
             Some(&mut pulled),
             &mut provenance,
-            diagnostics,
             schema_config.as_ref(),
             &consumer_entity_ids,
             &listen_source_targets,
@@ -618,6 +640,7 @@ pub fn inline_schema_with_orbital_diagnostics(
             Some(idx),
             &mut deferred_merges,
             imports,
+            references,
         ) {
             let e = match e {
                 InlineError::UnknownAlias(alias) if lazy_aliases.contains(&alias) => {
@@ -793,6 +816,8 @@ pub fn inline_schema_with_orbital_diagnostics(
                     source: None,
                     updated_at: None,
                     config_provenance: Some(all_provenance),
+                    operator_sites: None,
+                    dispatch_facts: None,
                 });
             }
         }
@@ -1539,7 +1564,6 @@ fn inline_orbital(
     // the auto-pull loop so `inline_schema` can uniquify cross-orbital collisions.
     pulled_names_sink: Option<&mut Vec<String>>,
     recorder: &mut Vec<ConfigProvenanceRecord>,
-    config_diagnostics: &mut Vec<r#trait::TraitRefConfigDiagnostic>,
     // Schema-level (app) declared `config {}` — the outermost §4.5 rung, for
     // both `resolve_orbital_reference`'s config fold and (further down) the
     // sibling-pull chain's fallback.
@@ -1574,6 +1598,7 @@ fn inline_orbital(
     // top-level orbital's own. See `DeferredMerge`.
     deferred_merges: &mut Vec<DeferredMerge>,
     imports: &mut ImportMemo,
+    references: &mut ReferenceSink,
 ) -> Result<(), InlineError> {
     for reference in &mut orbital.traits {
         if let TraitReference::Inline(definition) = reference {
@@ -1653,6 +1678,8 @@ fn inline_orbital(
     // import's own defaults would bake the value in and clobber the consumer's
     // override surface (the variation → base → consumer config-override path).
     ctx.defer_config_subst = !is_top_level;
+    // Only the compiled file's own references are answered; an import's are the import's business.
+    ctx.collect_references = references.enabled && is_top_level;
 
     // (A) fix: per-alias schema (app-level) config rung for `orbital X =
     // Alias.orbitals.Y { … }` — the ALIAS's own loaded `config {}`, folded
@@ -1767,7 +1794,6 @@ fn inline_orbital(
         let inlined_orbitals: std::rc::Rc<Vec<Orbital>> =
             if let Some(done) = imports.get(&import_key) {
                 recorder.extend(done.provenance.iter().cloned());
-                config_diagnostics.extend(done.config_diagnostics.iter().cloned());
                 orbital_ref_diagnostics.extend(done.orbital_ref_diagnostics.iter().cloned());
                 uses_config_diagnostics.extend(done.uses_config_diagnostics.iter().cloned());
                 deferred_merges.extend(done.deferred_merges.iter().cloned());
@@ -1781,7 +1807,6 @@ fn inline_orbital(
                     .clone();
                 let marks = (
                     recorder.len(),
-                    config_diagnostics.len(),
                     orbital_ref_diagnostics.len(),
                     uses_config_diagnostics.len(),
                     deferred_merges.len(),
@@ -1820,7 +1845,6 @@ fn inline_orbital(
                             false,
                             Some(&mut pulled),
                             recorder,
-                            config_diagnostics,
                             alias_config.as_ref(),
                             &nested_entity_ids,
                             &nested_listen_source_targets,
@@ -1829,6 +1853,7 @@ fn inline_orbital(
                             None,
                             deferred_merges,
                             imports,
+                            references,
                         )?;
                         // As at the top level: an orbital's final entities (an import's
                         // materialized auxiliaries included) are targets the alias's later
@@ -1853,7 +1878,7 @@ fn inline_orbital(
                 // fields. Only a merge whose target the alias does not declare travels on to the
                 // importing program; a landed one reaches it through the imports that use it.
                 let unlanded: Vec<DeferredMerge> = deferred_merges
-                    .split_off(marks.4)
+                    .split_off(marks.3)
                     .into_iter()
                     .filter(|dm| {
                         !merge_into_named_entity(
@@ -1875,10 +1900,9 @@ fn inline_orbital(
                     InlinedImport {
                         orbitals: std::rc::Rc::clone(&inlined_orbitals),
                         provenance: recorder[marks.0..].to_vec(),
-                        config_diagnostics: config_diagnostics[marks.1..].to_vec(),
-                        orbital_ref_diagnostics: orbital_ref_diagnostics[marks.2..].to_vec(),
-                        uses_config_diagnostics: uses_config_diagnostics[marks.3..].to_vec(),
-                        deferred_merges: deferred_merges[marks.4..].to_vec(),
+                        orbital_ref_diagnostics: orbital_ref_diagnostics[marks.1..].to_vec(),
+                        uses_config_diagnostics: uses_config_diagnostics[marks.2..].to_vec(),
+                        deferred_merges: deferred_merges[marks.3..].to_vec(),
                         loaded_files,
                     },
                 );
@@ -1915,6 +1939,7 @@ fn inline_orbital(
             orbital_index,
             deferred_merges,
         )?;
+        references.pairs.append(ctx.reference_pairs.get_mut());
     }
 
     // ----------------------------------------------------------------
@@ -2543,7 +2568,6 @@ fn inline_orbital(
         _trait_rename_map,
         pulled_aux_entities,
         pulled_sibling_names,
-        trait_config_diagnostics,
         receiver_mounts,
     ) = inline_traits(
         &orbital.traits,
@@ -2556,7 +2580,7 @@ fn inline_orbital(
         &alias_schema_configs,
     )?;
     orbital.traits = inlined_traits;
-    config_diagnostics.extend(trait_config_diagnostics);
+    references.pairs.append(ctx.reference_pairs.get_mut());
     if let Some(sink) = pulled_names_sink {
         *sink = pulled_sibling_names;
     }
@@ -4414,7 +4438,7 @@ mod tests {
             modal_ref(Some("CartItemEditItem"), Some("CartItem")),
         ];
 
-        let (result, _rename_map, _aux, _pulled, _cfg_diags, _receivers) = inline_traits(
+        let (result, _rename_map, _aux, _pulled, _receivers) = inline_traits(
             &traits,
             &ctx,
             "<test>",
@@ -4464,7 +4488,7 @@ mod tests {
             modal_ref(None, Some("CartItem")),
         ];
 
-        let (result, _rename_map, _aux, _pulled, _cfg_diags, _receivers) = inline_traits(
+        let (result, _rename_map, _aux, _pulled, _receivers) = inline_traits(
             &traits,
             &ctx,
             "<test>",
@@ -7336,7 +7360,6 @@ mod tests {
             schema,
             &config,
             None,
-            &mut Vec::new(),
             &mut orbital_ref,
             &mut Vec::new(),
         )

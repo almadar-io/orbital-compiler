@@ -69,12 +69,11 @@ fn inline(expects: bool) -> (OrbitalSchema, Vec<(String, String)>) {
     let path = dir.path().join("slice.orb");
     std::fs::write(&path, slice(expects)).expect("write slice");
     let mut schema = parse_file(&path).expect("slice parses");
-    let (mut trait_cfg, mut orbital_ref, mut uses_cfg) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut orbital_ref, mut uses_cfg) = (Vec::new(), Vec::new());
     inline_schema_with_orbital_diagnostics(
         &mut schema,
         &InlineConfig::default(),
         Some(&path),
-        &mut trait_cfg,
         &mut orbital_ref,
         &mut uses_cfg,
     )

@@ -1,6 +1,6 @@
 //! Call-site rules for `orbital X = Alias.orbitals.Y { … }` references and
 //! their feeding `uses A from "…" { config { … } }` overrides
-//! (`docs/Almadar_Orbital_Import.md` §4.5). Mirrors `trait_ref_config.rs`:
+//! (`docs/Almadar_Orbital_Import.md` §4.5). Like trait call-site config:
 //! the raw call-site keys are gone once inline folds/drops them into the
 //! resolved schema, so these convert the [`OrbitalRefDiagnostic`]s /
 //! [`UsesConfigDiagnostic`]s collected DURING inlining

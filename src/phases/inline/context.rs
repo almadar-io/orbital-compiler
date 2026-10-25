@@ -134,6 +134,10 @@ pub(crate) struct InlineContext {
     /// variation's own default at import-load time. See the long note on
     /// `inline_orbital`'s `is_top_level` param.
     pub(crate) defer_config_subst: bool,
+    /// When true, every resolved reference is recorded in `reference_pairs`
+    /// with the upstream declaration as this context holds it.
+    pub(crate) collect_references: bool,
+    pub(crate) reference_pairs: std::cell::RefCell<Vec<super::ReferencePair>>,
 }
 
 impl InlineContext {
@@ -143,6 +147,8 @@ impl InlineContext {
             trait_origins: Default::default(),
             aliases: HashMap::new(),
             defer_config_subst: false,
+            collect_references: false,
+            reference_pairs: Default::default(),
         }
     }
 

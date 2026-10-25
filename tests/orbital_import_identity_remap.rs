@@ -133,14 +133,12 @@ fn inline(entities: &str, use_entities: &str) -> (OrbitalSchema, Vec<String>) {
     let consumer_path = dir.path().join("consumer.orb");
     std::fs::write(&consumer_path, consumer(entities, use_entities)).expect("write consumer");
     let mut schema = parse_file(&consumer_path).expect("consumer parses");
-    let mut trait_ref = Vec::new();
     let mut orbital_ref = Vec::new();
     let mut uses_config = Vec::new();
     inline_schema_with_orbital_diagnostics(
         &mut schema,
         &InlineConfig::default(),
         Some(&consumer_path),
-        &mut trait_ref,
         &mut orbital_ref,
         &mut uses_config,
     )
@@ -297,12 +295,11 @@ fn an_identity_from_a_later_import_of_an_import_is_a_valid_remap_target() {
     let consumer_path = dir.path().join("consumer.orb");
     std::fs::write(&consumer_path, NESTED_CONSUMER).expect("write consumer");
     let mut schema = parse_file(&consumer_path).expect("consumer parses");
-    let (mut trait_ref, mut orbital_ref, mut uses_config) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut orbital_ref, mut uses_config) = (Vec::new(), Vec::new());
     inline_schema_with_orbital_diagnostics(
         &mut schema,
         &InlineConfig::default(),
         Some(&consumer_path),
-        &mut trait_ref,
         &mut orbital_ref,
         &mut uses_config,
     )

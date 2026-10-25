@@ -580,7 +580,7 @@ pub(crate) fn collect_trait_events(
 
 /// Events a trait can PRODUCE beyond `emits` declarations and literal
 /// `["emit", X]` arrays:
-/// - effect emit-option maps — `emit: {success|failure|on_message|on_change|cancelled}`
+/// - effect emit-option maps — `emit: { <slot> }`, every slot the operator table's emit options declare
 ///   on fetch / persist / call-service / ref / os-watch / set effects (the
 ///   slot-key universe of every `validate_emit_config` call site), plus the
 ///   string form `emit: "X"`. A `[lifecycle]` fetcher whose only production
@@ -615,11 +615,9 @@ pub(crate) fn collect_effect_produced_events(trait_def: &TraitDefinition) -> Has
             SExpression::Object(map) => {
                 match map.get("emit") {
                     Some(SExpression::Object(emit_map)) => {
+                        let slots = orbital_core_base::language::registry::emit_slots();
                         for (slot, slot_v) in emit_map {
-                            if matches!(
-                                slot.as_str(),
-                                "success" | "failure" | "onMessage" | "onChange" | "cancelled"
-                            ) {
+                            if slots.contains(slot) {
                                 credit(slot_v, out);
                             }
                         }

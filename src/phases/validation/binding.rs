@@ -7,7 +7,7 @@ use super::canonical_operators::get_canonical_operator;
 use super::entity_mutation::collect_entity_mutators;
 use super::render_ui::is_render_ui_effect;
 use super::{trait_path, ErrorCode, ValidationContext, ValidationError, ValidationResult};
-use orbital_core_base::events::BUS_EXCLUDED_EVENTS;
+use orbital_core_base::events::is_bus_excluded_event;
 use orbital_core_base::schema::{
     EntityDefinition, Orbital, OrbitalSchema, PayloadField, Persistence, SExpression,
     TraitDefinition, TraitReference,
@@ -497,7 +497,7 @@ fn validate_embed_reads_arm_writes(
             def.state_machine
                 .transitions
                 .iter()
-                .all(|t| BUS_EXCLUDED_EVENTS.contains(&t.event.as_str()))
+                .all(|t| is_bus_excluded_event(&t.event))
         })
     };
     for tr in &orbital.traits {
@@ -545,7 +545,7 @@ fn validate_embed_reads_arm_writes(
         for i in composing {
             let site = &embed_sites[i];
             if !reported.insert(i)
-                || BUS_EXCLUDED_EVENTS.contains(&site.event.as_str())
+                || is_bus_excluded_event(&site.event)
                 || site.parent_linked_entity.as_deref() != Some(entity)
             {
                 continue;

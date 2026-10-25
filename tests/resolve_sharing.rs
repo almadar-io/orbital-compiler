@@ -176,12 +176,11 @@ fn control_the_first_user_of_an_import_is_unchanged_too() {
 
 fn uses_config_diagnostic_count(p: &Program) -> usize {
     let mut schema = parse_file(&p.path).expect("parses");
-    let (mut trait_diags, mut orbital_diags, mut uses_diags) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut orbital_diags, mut uses_diags) = (Vec::new(), Vec::new());
     inline_schema_with_orbital_diagnostics(
         &mut schema,
         &InlineConfig::default(),
         Some(&p.path),
-        &mut trait_diags,
         &mut orbital_diags,
         &mut uses_diags,
     )

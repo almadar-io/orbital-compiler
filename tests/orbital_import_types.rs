@@ -48,8 +48,8 @@ fn inlined(own_types: &str) -> OrbitalSchema {
     let path = dir.path().join("consumer.orb");
     std::fs::write(&path, consumer(own_types)).unwrap();
     let mut schema = parse_file(&path).expect("consumer parses");
-    let (mut a, mut b, mut c) = (Vec::new(), Vec::new(), Vec::new());
-    inline_schema_with_orbital_diagnostics(&mut schema, &InlineConfig::default(), Some(&path), &mut a, &mut b, &mut c)
+    let (mut b, mut c) = (Vec::new(), Vec::new());
+    inline_schema_with_orbital_diagnostics(&mut schema, &InlineConfig::default(), Some(&path), &mut b, &mut c)
         .expect("inline succeeds");
     schema
 }
@@ -90,8 +90,8 @@ fn a_trait_mounted_from_an_import_brings_the_aliases_its_file_declares() {
     )
     .unwrap();
     let mut schema = parse_file(&path).expect("consumer parses");
-    let (mut a, mut b, mut c) = (Vec::new(), Vec::new(), Vec::new());
-    inline_schema_with_orbital_diagnostics(&mut schema, &InlineConfig::default(), Some(&path), &mut a, &mut b, &mut c)
+    let (mut b, mut c) = (Vec::new(), Vec::new());
+    inline_schema_with_orbital_diagnostics(&mut schema, &InlineConfig::default(), Some(&path), &mut b, &mut c)
         .expect("inline succeeds");
     let types = schema.orbitals[0].types.as_ref().expect("the trait's file's aliases arrive");
     assert!(types.contains_key("Point") && types.contains_key("Row"), "{:?}", types.keys().collect::<Vec<_>>());

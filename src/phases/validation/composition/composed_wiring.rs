@@ -176,11 +176,7 @@ fn unreachable_states(
 /// lifecycle, its listens' triggers, its declared inputs and the portal shell's dismiss events.
 fn trait_inputs(td: &TraitDefinition, produced: &HashSet<String>) -> HashSet<String> {
     let mut inputs: HashSet<String> = produced.clone();
-    inputs.extend(
-        orbital_core_base::events::BUS_EXCLUDED_EVENTS
-            .iter()
-            .map(|e| e.to_string()),
-    );
+    inputs.extend(orbital_core_base::events::bus_excluded_events().iter().cloned());
     for l in td.listens.iter().flatten() {
         inputs.insert(l.triggers.clone().unwrap_or_else(|| l.event.clone()));
     }

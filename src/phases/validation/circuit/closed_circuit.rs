@@ -15,7 +15,6 @@
 //!
 //! Ported from `builder/packages/shared/src/orbitals/validation/closed-circuit.ts`.
 
-use super::async_results::validate_async_result_deaf_target;
 use super::cross_orbital::{collect_async_result_events, collect_failure_events};
 use super::fired_events::{collect_schema_fired_events, ui_event_prop_names, FiredEvents};
 use super::sync::content::is_content_body_pattern_type;
@@ -228,14 +227,6 @@ pub fn validate_closed_circuit(
 
     // Dead-end states are warnings, not errors
     result.merge(validate_dead_end_states(state_machine, path));
-
-    // Ported wiring-lint kind (sub-wave L2) — NOT client-bound gated, the
-    // JS predicate has no `bound.has` check in this block (unlike its
-    // `failure-arm-missing` sibling below).
-    result.merge(validate_async_result_deaf_target(state_machine, path));
-    result.merge(super::fetch_by_id_payload::validate_fetch_by_id_payload(
-        trait_def, path,
-    ));
 
     // Ported wiring-lint kinds (sub-wave L1) — a trait the client never
     // mounts (not reachable from any page's `@trait.X` embed closure) can't
@@ -1579,7 +1570,7 @@ fn validate_state_appropriate_actions(
 
 /// ORB_RENDER_ACTION_LIFECYCLE_EVENT: a rendered affordance's event-bearing
 /// prop names a lifecycle event (`INIT`/`LOAD`/`$MOUNT`). The bus never
-/// re-delivers these (`orbital_core::events::BUS_EXCLUDED_EVENTS`), so the
+/// re-delivers these (the operator table's `emit` `busExcluded`), so the
 /// control does nothing when operated — dead on click.
 ///
 /// Walks every render-ui effect's whole props tree (covers a top-level

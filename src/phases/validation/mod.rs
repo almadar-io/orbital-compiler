@@ -42,16 +42,11 @@
 pub mod binding;
 pub mod error;
 pub mod final_program;
-pub mod id_integrity;
 pub(crate) mod value_walk;
 
 // entities — entity shape, mutation and the row store
-#[path = "entities/entity.rs"]
-pub mod entity;
 #[path = "entities/entity_mutation.rs"]
 pub mod entity_mutation;
-#[path = "entities/fetch_by_id_payload.rs"]
-mod fetch_by_id_payload;
 #[path = "entities/fetch_deliver.rs"]
 mod fetch_deliver;
 
@@ -62,8 +57,6 @@ pub mod entity_access;
 pub mod user_identity;
 
 // traits
-#[path = "traits/client_tick_locality.rs"]
-pub(crate) mod client_tick_locality;
 #[path = "traits/mounts.rs"]
 pub(crate) mod mounts;
 #[path = "traits/sigil_context.rs"]
@@ -72,8 +65,6 @@ pub mod sigil_context;
 pub mod trait_validator;
 
 // circuit — Event → Guard → Transition → Effects → UI → Event, and the payloads it carries
-#[path = "circuit/async_results.rs"]
-pub(crate) mod async_results;
 #[path = "circuit/closed_circuit.rs"]
 pub mod closed_circuit;
 #[path = "circuit/cross_emitter.rs"]
@@ -130,14 +121,8 @@ pub mod cross_registry;
 pub mod embed_bridge;
 #[path = "composition/expectations.rs"]
 pub mod expectations;
-#[path = "composition/orbital_config.rs"]
-pub mod orbital_config;
 #[path = "composition/orbital_ref_config.rs"]
 pub mod orbital_ref_config;
-#[path = "composition/orbital_ref_extend.rs"]
-pub mod orbital_ref_extend;
-#[path = "composition/trait_ref_config.rs"]
-pub mod trait_ref_config;
 
 pub use orbital_core_base::language::canonical_operators;
 
@@ -486,7 +471,6 @@ pub fn validate_comprehensive_full(
     collect_names(schema, &mut ctx);
 
     // Phase 2: Entity validation
-    entity::validate_all_entities(schema, &mut ctx);
 
     // Phase 3: Trait validation
     trait_validator::validate_all_traits(schema, &mut ctx);
@@ -526,7 +510,6 @@ pub fn validate_comprehensive_full(
 
     // Phase 5e': a bridged embed (`behavior/apply` with `bridge`) whose events the
     // host never sends or never handles is a dead wire.
-    embed_bridge::validate_embed_bridges(schema, &mut ctx);
 
     // Phase 5f: increment 3-I defensive sweep — a `$`-prefixed payload
     // sentinel surviving the inline phase means the carrying trait had no
@@ -619,10 +602,8 @@ pub fn validate_comprehensive_full(
     // Phase 15: orbital-import declared config forwarding (ORB_O_CONFIG_DEAD_KNOB,
     // Almadar_Orbital_Import.md §4.5). Post-inline so every trait in the
     // flattened schema is visible as a candidate forwarder.
-    ctx.merge(orbital_config::validate_orbital_config_forwarding(schema));
 
     // Rung 2 (2026-09-24): client-ticked `[runtime]` frames need `[client]` traits.
-    ctx.merge(client_tick_locality::validate_client_tick_locality(schema));
 
     ctx.into_result()
 }
