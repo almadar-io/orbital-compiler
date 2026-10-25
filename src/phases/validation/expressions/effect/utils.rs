@@ -35,12 +35,6 @@ const EFFECT_POSITION_EXTRA: &[&str] = &[
     "swap",   // Atomic CAS read-modify-write
     "watch",  // Entity change callback
     "atomic", // Transaction group
-    // ML effect operators (Gap 4: forward/train/evaluate/checkpoint)
-    "forward",
-    "train",
-    "evaluate",
-    "checkpoint/save",
-    "checkpoint/load",
     // Agent operators (Phase 1: agent/* namespace)
     "agent/memorize",
     "agent/forget",

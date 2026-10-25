@@ -261,6 +261,7 @@ pub(crate) fn validate_effect(
         payload_field_types,
         &HashMap::new(),
         None,
+        None,
     )
 }
 
@@ -283,6 +284,7 @@ pub(crate) fn validate_effect_in(
     payload_field_types: &HashMap<String, String>,
     payload_shapes: &HashMap<String, orbital_core_base::ir::OirType>,
     schema: Option<&OrbitalSchema>,
+    types: Option<&super::set::BindingTypes>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     let head = match effect {
@@ -304,6 +306,7 @@ pub(crate) fn validate_effect_in(
             payload_field_types,
             payload_shapes,
             schema,
+            types,
         ));
         if let Some(declared) = declared_emits {
             result.merge(validate_emit_against_declaration(effect, path, declared));
@@ -344,6 +347,7 @@ pub(crate) fn validate_effect_in(
                 payload_field_types,
                 payload_shapes,
                 schema,
+                types,
             ));
         }
     };
@@ -409,6 +413,7 @@ fn validate_leaf_effect(
     payload_field_types: &HashMap<String, String>,
     payload_shapes: &HashMap<String, orbital_core_base::ir::OirType>,
     schema: Option<&OrbitalSchema>,
+    types: Option<&super::set::BindingTypes>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -450,6 +455,7 @@ fn validate_leaf_effect(
                             entity_field_types,
                             payload_field_types,
                             schema,
+                            types,
                         ));
                     }
                     "fetch" => {

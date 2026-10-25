@@ -52,7 +52,7 @@ pub(crate) use keyed_call::{
     validate_effect_options_carry_their_key,
 };
 use keyed_call::CallKeyFacts;
-pub(crate) use operator_args::validate_operator_arg_types;
+pub(crate) use operator_args::{validate_operator_arg_types, validate_operator_arg_types_under};
 pub(crate) use os_grants::{validate_final_os_targets, validate_os_grants, validate_placement};
 pub(crate) use os_watch::{validate_os_effect, validate_os_watch};
 pub(crate) use persist::{persist_entity_index, validate_persist};
@@ -230,6 +230,7 @@ pub fn validate_trait_effects(
                     &scoped_payload,
                     &scoped_shapes.payload,
                     Some(schema),
+                    Some(&scoped_shapes),
                 );
                 result.merge(effect_result);
 
@@ -239,8 +240,9 @@ pub fn validate_trait_effects(
                     &entity_field_types,
                     &scoped_payload,
                 ));
-                result.merge(validate_operator_arg_types(
+                result.merge(validate_operator_arg_types_under(
                     effect,
+                    transition.guard.as_ref(),
                     &effect_path,
                     &entity_field_types,
                     &scoped_payload,
@@ -286,6 +288,7 @@ pub fn validate_trait_effects(
                     &payload_field_types,
                     &tick_types.payload,
                     Some(schema),
+                    Some(&tick_types),
                 );
                 result.merge(effect_result);
 
@@ -295,8 +298,9 @@ pub fn validate_trait_effects(
                     &entity_field_types,
                     &payload_field_types,
                 ));
-                result.merge(validate_operator_arg_types(
+                result.merge(validate_operator_arg_types_under(
                     effect,
+                    tick.guard.as_ref(),
                     &effect_path,
                     &entity_field_types,
                     &payload_field_types,

@@ -952,45 +952,10 @@ mod tests {
     }
 
     #[test]
-    fn test_nn_forward_valid() {
-        // ["nn/forward", "@entity.architecture", "@entity.sensors"]
+    fn test_math_clamp_valid() {
+        // ["math/clamp", "@entity.output", 0.0, 1.0]
         let expr = SExpression::Array(vec![
-            SExpression::String("nn/forward".to_string()),
-            SExpression::String("@entity.architecture".to_string()),
-            SExpression::String("@entity.sensors".to_string()),
-        ]);
-
-        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
-        assert!(result.is_valid(), "Errors: {:?}", result.errors);
-    }
-
-    #[test]
-    fn test_nn_sequential_valid() {
-        // ["nn/sequential", ["nn/linear", 16, 64], ["nn/relu"], ["nn/linear", 64, 4]]
-        let expr = SExpression::Array(vec![
-            SExpression::String("nn/sequential".to_string()),
-            SExpression::Array(vec![
-                SExpression::String("nn/linear".to_string()),
-                SExpression::Number(16.0),
-                SExpression::Number(64.0),
-            ]),
-            SExpression::Array(vec![SExpression::String("nn/relu".to_string())]),
-            SExpression::Array(vec![
-                SExpression::String("nn/linear".to_string()),
-                SExpression::Number(64.0),
-                SExpression::Number(4.0),
-            ]),
-        ]);
-
-        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
-        assert!(result.is_valid(), "Errors: {:?}", result.errors);
-    }
-
-    #[test]
-    fn test_tensor_clamp_valid() {
-        // ["tensor/clamp", "@entity.output", 0.0, 1.0]
-        let expr = SExpression::Array(vec![
-            SExpression::String("tensor/clamp".to_string()),
+            SExpression::String("math/clamp".to_string()),
             SExpression::String("@entity.output".to_string()),
             SExpression::Number(0.0),
             SExpression::Number(1.0),
@@ -1001,25 +966,11 @@ mod tests {
     }
 
     #[test]
-    fn test_train_loop_valid() {
-        // ["train/loop", "@entity.architecture", "@entity.buffer", "@entity.config"]
+    fn test_math_pow_arity_error() {
+        // math/pow requires exactly 2 arguments
         let expr = SExpression::Array(vec![
-            SExpression::String("train/loop".to_string()),
-            SExpression::String("@entity.architecture".to_string()),
-            SExpression::String("@entity.buffer".to_string()),
-            SExpression::String("@entity.config".to_string()),
-        ]);
-
-        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
-        assert!(result.is_valid(), "Errors: {:?}", result.errors);
-    }
-
-    #[test]
-    fn test_nn_forward_arity_error() {
-        // nn/forward requires exactly 2 arguments
-        let expr = SExpression::Array(vec![
-            SExpression::String("nn/forward".to_string()),
-            SExpression::String("@entity.architecture".to_string()),
+            SExpression::String("math/pow".to_string()),
+            SExpression::String("@entity.base".to_string()),
             // Missing second argument
         ]);
 
@@ -1041,18 +992,9 @@ mod tests {
         assert!(is_known_operator("set"));
         assert!(is_known_operator("fetch"));
 
-        // NN operators
-        assert!(is_known_operator("nn/forward"));
-        assert!(is_known_operator("nn/sequential"));
-        assert!(is_known_operator("nn/linear"));
-
-        // Tensor operators
-        assert!(is_known_operator("tensor/from"));
-        assert!(is_known_operator("tensor/clamp"));
-
-        // Train operators
-        assert!(is_known_operator("train/loop"));
-        assert!(is_known_operator("train/mse"));
+        // Math operators
+        assert!(is_known_operator("math/clamp"));
+        assert!(is_known_operator("math/pow"));
 
         // Unknown
         assert!(!is_known_operator("unknown/op"));

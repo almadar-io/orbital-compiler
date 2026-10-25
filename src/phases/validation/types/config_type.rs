@@ -857,11 +857,11 @@ fn validate_config_field(
         }
     }
 
+    if let (Some(bctx), Some(default)) = (binding_ctx, &field.default) {
+        let knob = event_ctx.map_or(path, |(_, name)| name);
+        result.merge(check_field_ref_knob(field, knob, default, path, bctx));
+    }
     if matches!(ft, "field" | "[field]") {
-        if let (Some(bctx), Some(default)) = (binding_ctx, &field.default) {
-            let knob = event_ctx.map_or(path, |(_, name)| name);
-            result.merge(check_field_ref_knob(field, knob, default, path, bctx));
-        }
         return result;
     }
 
@@ -1187,7 +1187,32 @@ fn check_field_ref_knob(
                 _ => None,
             })
             .collect(),
-        _ => return result,
+        _ => {
+            let mut nested = Vec::new();
+            if let (Some(item), SExpression::Array(entries)) = (field.items.as_deref(), value) {
+                for (i, entry) in entries.iter().enumerate() {
+                    nested_field_refs(item, entry, &format!("{path}[{i}]"), &mut nested);
+                }
+            }
+            for (member, def) in field.properties.iter().flat_map(|p| p.iter()) {
+                if let SExpression::Object(entries) = value {
+                    if let Some(entry) = entries.get(member) {
+                        nested_field_refs(def, entry, &format!("{path}.{member}"), &mut nested);
+                    }
+                }
+            }
+            for (at, name, def) in nested {
+                result.merge(check_field_ref_names(
+                    knob,
+                    vec![(at, name)],
+                    def.record.as_deref(),
+                    def.properties.as_ref(),
+                    def.items.as_deref(),
+                    bctx,
+                ));
+            }
+            return result;
+        }
     };
     let (record, properties, element) = if field.field_type == "[field]" {
         let item = field.items.as_deref();
@@ -1203,6 +1228,48 @@ fn check_field_ref_knob(
             field.items.as_deref(),
         )
     };
+    result.merge(check_field_ref_names(knob, named, record, properties, element, bctx));
+    result
+}
+
+/// Every `field R T` value inside a list or record value, with the definition that types it.
+fn nested_field_refs<'a>(
+    def: &'a FieldDefinition,
+    value: &'a SExpression,
+    path: &str,
+    out: &mut Vec<(String, &'a str, &'a FieldDefinition)>,
+) {
+    match value {
+        SExpression::String(name) if def.field_type == FieldType::Field => {
+            out.push((path.to_string(), name.as_str(), def));
+        }
+        SExpression::Array(items) => {
+            if let Some(item) = def.items.as_deref() {
+                for (i, entry) in items.iter().enumerate() {
+                    nested_field_refs(item, entry, &format!("{path}[{i}]"), out);
+                }
+            }
+        }
+        SExpression::Object(entries) => {
+            for (member, member_def) in def.properties.iter().flat_map(|p| p.iter()) {
+                if let Some(entry) = entries.get(member) {
+                    nested_field_refs(member_def, entry, &format!("{path}.{member}"), out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn check_field_ref_names(
+    knob: &str,
+    named: Vec<(String, &str)>,
+    record: Option<&str>,
+    properties: Option<&HashMap<String, FieldDefinition>>,
+    element: Option<&FieldDefinition>,
+    bctx: &ReferenceBindingCtx,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
     let Some((label, fields)) = field_ref_record_fields(record, properties, bctx) else {
         return result;
     };
@@ -1331,7 +1398,6 @@ fn check_config_default_shape(
                     &format!("{}.{}", path, key),
                     orbital_events,
                     &ancestors,
-                    false,
                 ));
             }
             for e in probe.errors {
@@ -1350,7 +1416,6 @@ fn check_config_default_shape(
             path,
             orbital_events,
             &HashMap::new(),
-            false,
         );
     }
     // Array slot — `field_type` is `[T]` (string tag) and `items` carries
@@ -1384,7 +1449,6 @@ fn check_config_default_shape(
                     &elem_path,
                     orbital_events,
                     &ancestors,
-                    false,
                 ));
             }
         }
@@ -1461,7 +1525,6 @@ fn check_config_default_shape(
                         &format!("{}.{}", path, key),
                         orbital_events,
                         &ancestors,
-                        false,
                     ));
                 }
             }
@@ -1533,13 +1596,6 @@ fn root_ancestor_map<'a>(
 /// string is the only wire-format position a struct alias's OWN name
 /// survives to); a back-reference to any other name still falls back to
 /// "nothing to check", never panics.
-/// `skip_required_members`: entity defaults are an INITIAL state, not a
-/// complete value — `!` on a struct/alias member is enforced at PERSIST
-/// time (lifecycle ruling), so the entity adapter (`entity.rs`) passes
-/// `true` to skip the "required member missing on object literal" check
-/// below while still checking every member's KIND. Trait config keeps the
-/// full literal (`false`) — a config default has no later persist step to
-/// defer completeness to.
 /// A tuple value: an array of exactly the tuple's arity, each element checked against
 /// its own slot.
 fn check_tuple_shape(
@@ -1548,7 +1604,6 @@ fn check_tuple_shape(
     path: &str,
     orbital_events: &EventScope<'_>,
     ancestors: &HashMap<String, &FieldDefinition>,
-    skip_required_members: bool,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     let SExpression::Array(items) = value else {
@@ -1591,7 +1646,6 @@ fn check_tuple_shape(
             &format!("{}[{}]", path, i),
             orbital_events,
             ancestors,
-            skip_required_members,
         ));
     }
     result
@@ -1603,7 +1657,6 @@ pub(crate) fn check_field_def_shape(
     path: &str,
     orbital_events: &EventScope<'_>,
     ancestors: &HashMap<String, &FieldDefinition>,
-    skip_required_members: bool,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     // Same computed-value deferral as the top-level default: a per-element
@@ -1635,7 +1688,6 @@ pub(crate) fn check_field_def_shape(
                     path,
                     orbital_events,
                     ancestors,
-                    skip_required_members,
                 );
             };
             let SExpression::Object(map) = value else {
@@ -1650,7 +1702,6 @@ pub(crate) fn check_field_def_shape(
                             path,
                             orbital_events,
                             ancestors,
-                            skip_required_members,
                         );
                         fit.is_valid()
                     });
@@ -1681,7 +1732,6 @@ pub(crate) fn check_field_def_shape(
                         path,
                         orbital_events,
                         ancestors,
-                        skip_required_members,
                     ));
                     // A union variant is a CLOSED shape — that is the whole
                     // point of discriminating. Elsewhere an undeclared key is
@@ -1748,7 +1798,6 @@ pub(crate) fn check_field_def_shape(
                 path,
                 orbital_events,
                 ancestors,
-                skip_required_members,
             );
         }
         FieldType::Array => {
@@ -1775,7 +1824,6 @@ pub(crate) fn check_field_def_shape(
                         &elem_path,
                         orbital_events,
                         ancestors,
-                        skip_required_members,
                     ));
                 }
             }
@@ -1820,10 +1868,9 @@ pub(crate) fn check_field_def_shape(
                                 &prop_path,
                                 orbital_events,
                                 ancestors,
-                                skip_required_members,
                             ));
                         }
-                        None if !skip_required_members && prop_schema.required.unwrap_or(false) => {
+                        None if prop_schema.required.unwrap_or(false) => {
                             result.add_error(ValidationError::error(
                                 ErrorCode::TraitConfigShapeMismatch,
                                 &prop_path,
@@ -4085,12 +4132,9 @@ mod recursive_type_literal_tests {
     }
 }
 
-/// `skip_required_members`: trait config keeps the strict (`false`) mode,
-/// the entity adapter (`entity.rs`) uses the lenient (`true`) mode — a
-/// struct/alias member's `!` is enforced at PERSIST time for an entity
-/// default (lifecycle ruling), never at config-default time.
+/// A config default is a complete value: a struct/alias member's `!` is enforced on it.
 #[cfg(test)]
-mod skip_required_members_tests {
+mod required_member_tests {
     use super::*;
 
     /// `type Alias = { id : string!, kind : string! }` — a struct alias
@@ -4156,7 +4200,6 @@ mod skip_required_members_tests {
             "t.config.source",
             &EventScope::default(),
             &HashMap::new(),
-            false,
         );
         assert!(
             !result.errors.is_empty(),
@@ -4187,7 +4230,6 @@ mod skip_required_members_tests {
                 "t.config.commands[0]",
                 &EventScope::default(),
                 &HashMap::new(),
-                false,
             )
         };
         let text = check(SExpression::String("ls".to_string()));
@@ -4199,51 +4241,6 @@ mod skip_required_members_tests {
         assert!(
             !check(SExpression::Number(3.0)).errors.is_empty(),
             "control: a number fits no variant"
-        );
-    }
-
-    #[test]
-    fn partial_entity_defaults_keep_known_fields_without_requiring_later_members() {
-        let schema = alias_with_required_members();
-        let check = |kind, skip_required_members| {
-            let mut fields = orbital_core_base::schema::SObject::new();
-            fields.insert("kind".to_string(), kind);
-            check_field_def_shape(
-                &schema,
-                &SExpression::Object(fields),
-                "orbitals[0].entity.fields[1].default",
-                &EventScope::default(),
-                &HashMap::new(),
-                skip_required_members,
-            )
-        };
-        let partial = check(SExpression::String("text".to_string()), true);
-        assert!(partial.errors.is_empty(), "partial entity default: {:?}", partial.errors);
-        let strict = check(SExpression::String("text".to_string()), false);
-        assert!(!strict.errors.is_empty(), "complete assignments still require id");
-        let malformed = check(SExpression::Number(3.0), true);
-        assert!(!malformed.errors.is_empty(), "partial defaults still check present fields");
-    }
-
-    /// The same `source : Alias = {}` shape, checked the way the entity
-    /// adapter calls it: an entity default is an initial state, not a
-    /// complete value, so `!` on a struct member is not enforced here.
-    #[test]
-    fn lenient_mode_accepts_incomplete_object_literal_for_entity_defaults() {
-        let schema = alias_with_required_members();
-        let empty = SExpression::Object(orbital_core_base::schema::SObject::new());
-        let result = check_field_def_shape(
-            &schema,
-            &empty,
-            "orbitals[0].entity.fields[1].default",
-            &EventScope::default(),
-            &HashMap::new(),
-            true,
-        );
-        assert!(
-            result.errors.is_empty(),
-            "an entity default must not enforce struct-member completeness: {:?}",
-            result.errors
         );
     }
 }
@@ -4455,7 +4452,6 @@ mod tuple_shape_tests {
                 "p",
                 &EventScope::default(),
                 &HashMap::new(),
-                false,
             )
         };
         assert!(check(&nums(&[1.0, 2.0, 3.0])).errors.is_empty());

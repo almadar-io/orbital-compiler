@@ -365,6 +365,7 @@ pub(crate) fn validate_set_return_type(
     entity_field_types: &HashMap<String, EntityFieldMeta>,
     payload_field_types: &HashMap<String, String>,
     schema: Option<&orbital_core_base::schema::OrbitalSchema>,
+    types: Option<&BindingTypes>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -377,13 +378,16 @@ pub(crate) fn validate_set_return_type(
     let Some(meta) = entity_field_types.get(entity_field) else {
         return result;
     };
-    if let Some(inferred) = expr_return_incompatible(
-        &arr[2],
-        &meta.shape,
-        entity_field_types,
-        payload_field_types,
+    if !matches!(&arr[2], SExpression::Array(_)) {
+        return result;
+    }
+    let ctx = ExprReturnCtx {
+        entity: entity_field_types,
+        payload: payload_field_types,
+        types,
         schema,
-    ) {
+    };
+    if let Some(inferred) = expr_return_incompatible_in_ctx(&arr[2], &meta.shape, &ctx) {
         result.add_error(
             ValidationError::error(
                 ErrorCode::SetReturnTypeMismatch,
@@ -392,8 +396,8 @@ pub(crate) fn validate_set_return_type(
                     "set @entity.{} (type '{}') is assigned a value that evaluates to \
                      '{}'; the declared types are incompatible.",
                     entity_field,
-                    meta.field_type,
-                    orbital_core_base::type_compat::oir_type_kind(&inferred)
+                    orbital_core_base::signature::describe_type(&meta.shape),
+                    orbital_core_base::signature::describe_type(&inferred)
                 ),
             )
             .with_suggestion(if meta.field_type == "relation" {
@@ -468,8 +472,12 @@ pub(crate) fn expr_return_incompatible_given<C: crate::type_infer::TypeCtx>(
     guard: Option<&SExpression>,
 ) -> Option<orbital_core_base::ir::OirType> {
     let oir_value = crate::phases::resolve::resolve_sexpr_standalone(value).ok()?;
-    let inferred = match guard.and_then(|g| crate::phases::resolve::resolve_sexpr_standalone(g).ok()) {
-        Some(condition) => crate::type_infer::infer_under_condition(&condition, &oir_value, ctx)?,
+    let condition = guard.and_then(|g| crate::phases::resolve::resolve_sexpr_standalone(g).ok());
+    if crate::type_infer::admits(&oir_value, declared, condition.as_ref(), ctx) {
+        return None;
+    }
+    let inferred = match &condition {
+        Some(condition) => crate::type_infer::infer_under_condition(condition, &oir_value, ctx)?,
         None => crate::type_infer::infer_oir_expr_type(&oir_value, ctx)?,
     };
     if orbital_core_base::type_compat::is_unknowable(&inferred)
@@ -1044,7 +1052,7 @@ mod return_type_tests {
     fn json_parse_over_a_list_alias_into_a_list_field_is_not_an_error() {
         let schema = typed_schema();
         let arr = set_call("rows", "json/parse", &["[]", "Points"]);
-        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema));
+        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema), None);
         assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
     }
 
@@ -1052,14 +1060,14 @@ mod return_type_tests {
     fn control_json_parse_over_a_struct_alias_into_a_list_field_is_an_error() {
         let schema = typed_schema();
         let arr = set_call("rows", "json/parse", &["{}", "Point"]);
-        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema));
+        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema), None);
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
     }
 
     #[test]
     fn control_a_string_op_into_a_list_field_is_still_an_error() {
         let arr = set_call("rows", "str/concat", &["a", "b"]);
-        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), None);
+        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), None, None);
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
     }
 
@@ -1067,7 +1075,7 @@ mod return_type_tests {
     fn string_op_into_number_field_errors() {
         // `(set @entity.count (str/concat "a" "b"))` — str/concat returns string.
         let arr = set_call("count", "str/concat", &["a", "b"]);
-        let r = validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None);
+        let r = validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None, None);
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
         assert_eq!(r.errors[0].code, ErrorCode::SetReturnTypeMismatch);
     }
@@ -1075,7 +1083,7 @@ mod return_type_tests {
     #[test]
     fn bytes_op_into_string_field_errors() {
         let arr = set_call("title", "bytes/from-string", &["hi"]);
-        let r = validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None);
+        let r = validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None, None);
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
         assert_eq!(r.errors[0].code, ErrorCode::SetReturnTypeMismatch);
     }
@@ -1083,14 +1091,14 @@ mod return_type_tests {
     #[test]
     fn bytes_op_into_bytes_field_passes() {
         let arr = set_call("blob", "bytes/from-string", &["hi"]);
-        let r = validate_set_return_type(&arr, "p", &field("blob", "bytes"), &HashMap::new(), None);
+        let r = validate_set_return_type(&arr, "p", &field("blob", "bytes"), &HashMap::new(), None, None);
         assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
     }
 
     #[test]
     fn bytes_to_string_into_string_field_passes() {
         let arr = set_call("title", "bytes/to-string", &["AAEC"]);
-        let r = validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None);
+        let r = validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None, None);
         assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
     }
 
@@ -1098,7 +1106,7 @@ mod return_type_tests {
     fn string_op_into_string_field_passes() {
         let arr = set_call("title", "str/concat", &["a", "b"]);
         assert!(
-            validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None)
+            validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None, None)
                 .errors
                 .is_empty()
         );
@@ -1109,7 +1117,7 @@ mod return_type_tests {
         // object/get is input-dependent (object-key-lookup → Json); never rejects.
         let arr = set_call("count", "object/get", &["@entity.data", "k"]);
         assert!(
-            validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None)
+            validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None, None)
                 .errors
                 .is_empty()
         );
@@ -1124,7 +1132,7 @@ mod return_type_tests {
             SExpression::String("5".into()),
         ];
         assert!(
-            validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None)
+            validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None, None)
                 .errors
                 .is_empty()
         );

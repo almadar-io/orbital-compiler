@@ -8,13 +8,27 @@
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::set::{BindingTypes, EntityFieldMeta, ExprReturnCtx};
-use crate::type_infer::{check_oir_expr, is_effect, is_value_operator};
+use crate::type_infer::{check_oir_expr_under, is_effect, is_value_operator};
+use orbital_core_base::ir::OirExpr;
 use orbital_core_base::schema::SExpression;
 use orbital_core_base::signature::Mismatch;
 use std::collections::HashMap;
 
 pub(crate) fn validate_operator_arg_types(
     expr: &SExpression,
+    path: &str,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+    payload_field_types: &HashMap<String, String>,
+    types: &BindingTypes,
+    schema: Option<&orbital_core_base::schema::OrbitalSchema>,
+) -> ValidationResult {
+    validate_operator_arg_types_under(expr, None, path, entity_field_types, payload_field_types, types, schema)
+}
+
+/// The same check where `guard` (the transition's or tick's) holds, as it does for the effects it guards.
+pub(crate) fn validate_operator_arg_types_under(
+    expr: &SExpression,
+    guard: Option<&SExpression>,
     path: &str,
     entity_field_types: &HashMap<String, EntityFieldMeta>,
     payload_field_types: &HashMap<String, String>,
@@ -28,7 +42,8 @@ pub(crate) fn validate_operator_arg_types(
         types: Some(types),
         schema,
     };
-    collect(expr, path, &ctx, &mut result, false);
+    let condition = guard.and_then(|guard| orbital_core_eval::lower::lower_sexpr_keeping_typed(guard).ok());
+    collect(expr, path, &ctx, condition.as_ref(), &mut result, false);
     result
 }
 
@@ -38,16 +53,18 @@ fn collect(
     expr: &SExpression,
     path: &str,
     ctx: &ExprReturnCtx<'_>,
+    condition: Option<&OirExpr>,
     result: &mut ValidationResult,
     covered: bool,
 ) {
     match expr {
         SExpression::Object(fields) => {
             for value in fields.values() {
-                collect(value, path, ctx, result, covered);
+                collect(value, path, ctx, condition, result, covered);
             }
         }
         SExpression::Array(items) => {
+            result.merge(required_field_from_missing_result(items, path, ctx, condition));
             result.merge(super::keyed_call::check_key_expression_type(items, path, ctx));
             result.merge(super::keyed_call::check_cancel_call_arg(items, path, ctx));
             result.merge(super::cast::check_cast(items, path, ctx));
@@ -76,14 +93,14 @@ fn collect(
                                     ),
                                 );
                             }
-                            collect(body, path, ctx, result, covered);
+                            collect(body, path, ctx, condition, result, covered);
                         }
                         return;
                     }
                     // An effect is checked as one tree with the value expressions it is handed, so a `let` or lambda
                     // around them scopes their locals.
                     name if !covered && (is_effect(name) || is_value_operator(name)) => {
-                        report(expr, path, ctx, result);
+                        report(expr, path, ctx, condition, result);
                         covered = true;
                     }
                     _ => {}
@@ -91,11 +108,48 @@ fn collect(
                 children = &items[1..];
             }
             for item in children {
-                collect(item, path, ctx, result, covered);
+                collect(item, path, ctx, condition, result, covered);
             }
         }
         _ => {}
     }
+}
+
+/// `(set @entity.<field> value)` where the field is required and the value is a failable operator's maybe-missing
+/// result: the row would be written without the value the field promises.
+fn required_field_from_missing_result(
+    items: &[SExpression],
+    path: &str,
+    ctx: &ExprReturnCtx<'_>,
+    condition: Option<&OirExpr>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let (Some(SExpression::String(head)), Some(SExpression::String(target)), Some(value)) = (items.first(), items.get(1), items.get(2))
+    else {
+        return result;
+    };
+    let Some(field) = target.strip_prefix("@entity.").filter(|f| head == "set" && !f.contains('.')) else {
+        return result;
+    };
+    if !ctx.entity.get(field).is_some_and(|meta| meta.required) {
+        return result;
+    }
+    let Ok(oir) = orbital_core_eval::lower::lower_sexpr_keeping_typed(value) else {
+        return result;
+    };
+    if let Some(source) = crate::type_infer::missing_failable_result(&oir, condition, ctx) {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::OperatorNullOperand,
+                path,
+                format!("`{target}` is required, but the value set into it is missing when `{source}` fails on its value (it answers null then)"),
+            )
+            .with_suggestion(format!(
+                "Say what a missing value means: default it, `(set {target} (or … default))`, branch on its presence, or make the field optional (drop `!`)"
+            )),
+        );
+    }
+    result
 }
 
 /// The first effect in a lambda body, not looking into a nested lambda (it reports its own) or a quoted program.
@@ -116,12 +170,12 @@ fn effect_in(expr: &SExpression) -> Option<String> {
     }
 }
 
-fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut ValidationResult) {
+fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, condition: Option<&OirExpr>, result: &mut ValidationResult) {
     // A `typed` value is read as the type the program declared for it.
     let Ok(oir) = orbital_core_eval::lower::lower_sexpr_keeping_typed(expr) else {
         return;
     };
-    for found in check_oir_expr(&oir, ctx) {
+    for found in check_oir_expr_under(&oir, condition, ctx) {
         let position = found.index + 1;
         let function = &found.function;
         let call = &found.expression;
@@ -171,6 +225,21 @@ fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut 
             );
             continue;
         }
+        if let Mismatch::MissingResult { operator, operand, source } = &found.mismatch {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::OperatorNullOperand,
+                    path,
+                    format!(
+                        "`({operator} …)` argument {position}, `{operand}`, is missing when `{source}` fails on its value (it answers null then), and `{operator}` needs a value: {call}"
+                    ),
+                )
+                .with_suggestion(format!(
+                    "Say what a missing value means: default it, `(or {operand} …)` or `(str/default {operand} …)`, or bind it with `let` and branch on its presence, `(if (= x null) … …)`"
+                )),
+            );
+            continue;
+        }
         let (message, suggestion) = match &found.mismatch {
             Mismatch::Type { expected, actual } => (
                 format!("`({function} …)` argument {position} is a {actual}, but the operator declares {expected}: {call}"),
@@ -180,7 +249,10 @@ fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: &mut 
                 format!("`({function} …)` argument {position} is a {actual}, but the arguments of one type variable must share a type and an earlier argument is a {expected}: {call}"),
                 "Make the arguments one type: convert one of them, or compare/combine only values of the same type; lists of differently-shaped items are one list only under a declared type (a `set` of a declared field, or `(let ((rows : [Shape] ...)) ...)`)".to_string(),
             ),
-            Mismatch::Undetermined { .. } | Mismatch::MaybeAbsent { .. } | Mismatch::NullOperand { .. } => continue,
+            Mismatch::Undetermined { .. }
+            | Mismatch::MaybeAbsent { .. }
+            | Mismatch::NullOperand { .. }
+            | Mismatch::MissingResult { .. } => continue,
             Mismatch::NoField { path: field, record } => (
                 format!("`({function} …)` argument {position} names `{field}`, which is not a field of the {record} it reads: {call}"),
                 "Name a field the record declares, or read a record that has it".to_string(),

@@ -13,9 +13,9 @@ pub struct ArityRule {
 /// The canonical operator registry (`canonical-operators.json`, surfaced via
 /// `embedded::get_operator`) is the source of truth for arity wherever the
 /// operator is declared there. The match below is a fallback for operators not
-/// yet carried in the registry (legacy aliases, ML/tensor/graph/contract/data
-/// modules); every arm here is for an operator the registry does NOT define, so
-/// the registry lookup always wins when both have it.
+/// yet carried in the registry (legacy aliases); every arm here is for an
+/// operator the registry does NOT define, so the registry lookup always wins
+/// when both have it.
 pub(crate) fn get_arity_rule(operator: &str) -> Option<ArityRule> {
     // Substrate ops (llm/*, workspace/*, …) are async EFFECTS — like
     // fetch/persist (EFFECT_OPERATORS, below) they carry a trailing options

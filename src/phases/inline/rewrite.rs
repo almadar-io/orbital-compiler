@@ -1684,7 +1684,8 @@ fn literal_reads_narrower(ty: &orbital_core_base::ir::OirType) -> bool {
     }
     fn record(t: &OirType) -> bool {
         match peel(t) {
-            OirType::Map { .. } => true,
+            // A field name written as a string literal reads as a string, not as the field reference it is.
+            OirType::Map { .. } | OirType::FieldRef { .. } => true,
             OirType::Struct { fields, .. } => fields.iter().any(|f| !f.required || record(&f.field_type)),
             _ => false,
         }
@@ -1718,7 +1719,21 @@ pub(crate) fn declared_list_types(
         if !literal || sexpr_tree_contains_binding(value) {
             continue;
         }
-        let ty = crate::phases::resolve::config_field_carried_type(field);
+        let mut field = field.clone();
+        let named = |record: &Option<String>| -> Option<String> {
+            let knob = record.as_deref()?.strip_prefix("@entity(")?.strip_suffix(')')?;
+            match config_subs.get(knob)? {
+                SExpression::String(name) => Some(name.clone()),
+                _ => None,
+            }
+        };
+        if let Some(item) = field.items.as_deref_mut() {
+            super::sigil_types::name_knob_records(item, &named);
+        }
+        for member in field.properties.iter_mut().flat_map(|p| p.values_mut()) {
+            super::sigil_types::name_knob_records(member, &named);
+        }
+        let ty = crate::phases::resolve::config_field_carried_type(&field);
         let list_type = matches!(&ty, orbital_core_base::ir::OirType::Array { .. })
             || matches!(&ty, orbital_core_base::ir::OirType::Optional { inner } if matches!(**inner, orbital_core_base::ir::OirType::Array { .. }));
         if matches!(value, SExpression::Array(_)) != list_type

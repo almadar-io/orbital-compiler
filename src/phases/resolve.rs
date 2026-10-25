@@ -1018,7 +1018,7 @@ impl<'a> Resolver<'a> {
         if trimmed.starts_with("Map<") {
             return parse_payload_field_type(trimmed);
         }
-        match trimmed.to_lowercase().as_str() {
+        match trimmed {
             "string" => OirType::String,
             // Keep the numeric/collection arms converged with
             // `parse_payload_field_type` — a `float` config knob emitted
@@ -1039,7 +1039,7 @@ impl<'a> Resolver<'a> {
             // (the variant author supplies any tree; runtime substitutes).
             "render-ui" => OirType::Json,
             // `SExpr` brand config knob — emits the recursive `SExpr` TS type.
-            "sexpr" => OirType::SExpr,
+            "SExpr" => OirType::SExpr,
             _ => OirType::String, // Default to string for unknown types
         }
     }

@@ -168,6 +168,27 @@ fn knob_value(config: Option<&HashMap<String, ConfigField>>, knob: &str) -> Opti
     }
 }
 
+/// Names the entity in every `@entity(<knob>)` record and relation of a definition tree, through `named`.
+pub(crate) fn name_knob_records(def: &mut FieldDefinition, named: &dyn Fn(&Option<String>) -> Option<String>) {
+    if let Some(name) = named(&def.record) {
+        def.record = Some(name);
+    }
+    if let Some(relation) = def.relation.as_mut() {
+        if let Some(name) = named(&Some(relation.entity.clone())) {
+            relation.entity = name;
+        }
+    }
+    if let Some(item) = def.items.as_deref_mut() {
+        name_knob_records(item, named);
+    }
+    if let Some(additional) = def.additional_properties.as_deref_mut() {
+        name_knob_records(additional, named);
+    }
+    for member in def.properties.iter_mut().flat_map(|p| p.values_mut()) {
+        name_knob_records(member, named);
+    }
+}
+
 pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
     let payloads = build_payload_index(schema);
 
@@ -275,8 +296,9 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
         }
     }
 
-    // `field (@entity <knob>) T`: the record is the entity the knob names, so a read through the key and the row it
-    // reads (a payload typed `@entity <knob>`, resolved above) name the same entity.
+    // `field (@entity <knob>) T` and `field R (@entity <knob>)`: the record, or the relation the value is, names the
+    // entity the knob names, so a read through the key and the row it reads (a payload typed `@entity <knob>`,
+    // resolved above) name the same entity.
     for orbital in &mut schema.orbitals {
         for trait_ref in &mut orbital.traits {
             let TraitReference::Inline(td) = trait_ref else {
@@ -295,10 +317,11 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
                 if let Some(name) = named(&field.record) {
                     field.record = Some(name);
                 }
-                if let Some(item) = field.items.as_mut() {
-                    if let Some(name) = named(&item.record) {
-                        item.record = Some(name);
-                    }
+                if let Some(item) = field.items.as_deref_mut() {
+                    name_knob_records(item, &named);
+                }
+                for member in field.properties.iter_mut().flat_map(|p| p.values_mut()) {
+                    name_knob_records(member, &named);
                 }
             }
         }

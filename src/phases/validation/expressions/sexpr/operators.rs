@@ -310,11 +310,8 @@ pub const OS_OPERATORS: &[&str] = &[
 /// Check if an operator is known.
 ///
 /// The embedded canonical `operators.json` registry is the single source of
-/// truth for the ML operator families (`nn/`, `tensor/`, `train/`, `graph/`,
-/// `contract/`, `data/`, and the bare ML-effect aliases): those legacy
-/// hardcoded lists were retired once canonical became a verified superset. A
-/// few non-ML legacy lists remain (`core`/`effect`/`os`), plus the `agent/`
-/// namespace prefix.
+/// truth for every operator family but a few legacy lists (`core`/`effect`/`os`)
+/// and the `agent/` namespace prefix.
 pub(crate) fn is_known_operator(operator: &str) -> bool {
     if crate::embedded::is_known_operator(operator) {
         return true;

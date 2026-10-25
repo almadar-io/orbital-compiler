@@ -136,7 +136,7 @@ fn check_operator_reference(op: &str, path: &str, result: &mut ValidationResult)
     if op == "lambda" || op == "fn" {
         return;
     }
-    // Only flag namespaced operators (e.g. `nn/forward`, `tensor/from`) so we
+    // Only flag namespaced operators (e.g. `str/upper`, `math/pow`) so we
     // don't drown the validator in noise from data arrays whose first element
     // is a string (which the legacy validator already handles).
     if !op.contains('/') {
@@ -145,20 +145,7 @@ fn check_operator_reference(op: &str, path: &str, result: &mut ValidationResult)
     if embedded::is_known_operator(op) {
         return;
     }
-    // Legacy fallback: many ML operators are still in sexpr.rs constants.
-    // Don't report them here — sexpr.rs already handles them.
-    // Only flag operators that are completely unknown to BOTH systems.
-    // We check this with a conservative whitelist of legacy namespaces.
-    if op.starts_with("nn/")
-        || op.starts_with("tensor/")
-        || op.starts_with("train/")
-        || op.starts_with("graph/")
-        || op.starts_with("contract/")
-        || op.starts_with("data/")
-        || op.starts_with("agent/")
-        || op.starts_with("checkpoint/")
-        || op.starts_with("behavior/")
-    {
+    if op.starts_with("agent/") || op.starts_with("behavior/") {
         return;
     }
     let suggestion = super::sexpr::operators::suggest_operator(op).unwrap_or_else(|| {
@@ -225,8 +212,7 @@ mod tests {
     #[test]
     fn known_operator_passes() {
         let mut result = ValidationResult::new();
-        check_operator_reference("nn/forward", "test", &mut result);
-        // nn/forward is in legacy whitelist, so check passes silently.
+        check_operator_reference("math/pow", "test", &mut result);
         assert!(result.is_valid());
     }
 

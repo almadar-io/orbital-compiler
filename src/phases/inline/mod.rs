@@ -18,6 +18,7 @@ mod context;
 mod effect_row;
 mod entity;
 mod event_id_hygiene;
+mod trait_id_hygiene;
 mod host_entity;
 mod identity_normalize;
 mod orbital;
@@ -724,6 +725,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // dispatch). Re-derive per instance (deterministic, `derive_id`) and
     // reconcile the ledger; runs after the source-ledger merge so retired rows'
     // metadata is copyable onto the derived rows. No shared ids → no-op.
+    trait_id_hygiene::uniquify_instance_trait_ids(schema);
     event_id_hygiene::uniquify_instance_event_ids(schema);
 
     // G5 (`docs/Almadar_Compiler_Gaps.md` §82): an orbital reference's
