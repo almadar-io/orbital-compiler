@@ -295,6 +295,21 @@ fn validate_emit_literal(
                     );
                 }
                 Some(field) => {
+                    if let Some(source) = missing_into_non_null_field(field, value, type_ctx, guard) {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::OperatorNullOperand,
+                                path,
+                                format!(
+                                    "Emit '{event_name}' field '{key}' is never null, but its value is missing when `{source}` fails on its value (it answers null then)"
+                                ),
+                            )
+                            .with_suggestion(format!(
+                                "Say what a missing value means: default it (`(or … default)`), branch on its presence and emit a failure event, or declare the field `{}?`",
+                                field.field_type
+                            )),
+                        );
+                    }
                     let expected = field.field_type.as_str();
                     // An empty list has no element type of its own; it takes the slot's.
                     let empty_list_in_list_slot = matches!(value, SExpression::Array(items) if items.is_empty())
@@ -404,6 +419,21 @@ fn validate_emit_literal(
     }
 
     result
+}
+
+/// The failable operator whose maybe-missing result `value` is, when the payload field it fills may not be null.
+fn missing_into_non_null_field(
+    field: &PayloadField,
+    value: &SExpression,
+    type_ctx: &ExprReturnCtx<'_>,
+    guard: Option<&SExpression>,
+) -> Option<String> {
+    if field.nullable == Some(true) || field.field_type.ends_with('?') {
+        return None;
+    }
+    let oir = orbital_core_eval::lower::lower_sexpr_keeping_typed(value).ok()?;
+    let condition = guard.and_then(|guard| orbital_core_eval::lower::lower_sexpr_keeping_typed(guard).ok());
+    crate::type_infer::missing_failable_result(&oir, condition.as_ref(), type_ctx)
 }
 
 // The shallow literal-type classifier is `orbital_core::literal_value_type` —
@@ -602,6 +632,7 @@ fn produced_type_accepts(produced: &str, declared: &str) -> bool {
         // The element type lives only on the declared side.
         "array" => declared.starts_with('[') || declared == "array",
         "money" => matches!(declared, "number" | "money"),
+        "instant" => matches!(declared, "number" | "instant"),
         "date" | "datetime" | "timestamp" => matches!(
             declared,
             "string" | "number" | "date" | "datetime" | "timestamp"
@@ -906,6 +937,23 @@ mod tests {
             has_wrapped(&ctx, "ThreadPostCreated"),
             "an inline-restated row wrapper must warn just like the alias-only form"
         );
+    }
+
+    fn null_into_field(field_type: &str, nullable: bool, value: &str) -> usize {
+        let nullable = if nullable { r#", "nullable": true"# } else { "" };
+        let ctx = check(
+            &format!(r#"{{ "event": "Parsed", "payloadSchema": [{{ "name": "n", "type": "{field_type}"{nullable} }}] }}"#),
+            &format!(r#"["emit", "Parsed", {{ "n": {value} }}]"#),
+        );
+        ctx.result.errors.iter().filter(|e| e.code == ErrorCode::OperatorNullOperand && e.message.contains("never null")).count()
+    }
+
+    #[test]
+    fn a_failable_result_emitted_into_a_never_null_field_is_refused() {
+        let parsed = r#"["str/to-number", "@entity.content"]"#;
+        assert_eq!(null_into_field("number", false, parsed), 1, "the parse can answer null");
+        assert_eq!(null_into_field("number", true, parsed), 0, "control: a nullable field takes it");
+        assert_eq!(null_into_field("number", false, r#"["or", ["str/to-number", "@entity.content"], 0]"#), 0, "control: a default answers it");
     }
 
     const CREATE_FAILING: &str = r#"["persist", "create", "ThreadPost", { "content": "@entity.content" }, { "emit": { "failure": "ThreadPostFailed" } }]"#;

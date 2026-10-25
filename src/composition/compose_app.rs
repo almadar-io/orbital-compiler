@@ -2656,11 +2656,15 @@ pub fn union_os_grants(a: Option<&Value>, b: Option<&Value>) -> Value {
     let sets: Vec<&Value> = a.into_iter().chain(b).collect();
     let fs = keyed_in(&sets, "fs", &["glob"], "modes");
     let net = keyed_in(&sets, "net", &["target"], "kinds");
+    let dev = keyed_in(&sets, "dev", &["target"], "kinds");
     if !fs.is_empty() {
         out.insert("fs".to_string(), Value::Array(fs));
     }
     if !net.is_empty() {
         out.insert("net".to_string(), Value::Array(net));
+    }
+    if !dev.is_empty() {
+        out.insert("dev".to_string(), Value::Array(dev));
     }
     for key in ["exec", "env", "stdio", "sys", "desktop"] {
         let l = list(key);
@@ -2937,7 +2941,7 @@ pub fn compose_programs(
 }
 
 /// The composing caller's explicit overrides: `"<Trait>.<knob>": value` sets that composed trait's knob default (the
-/// value of the knob's own kind), and `grants` (an `osGrants` object) is unioned into the program's grants. Both land in
+/// value of the knob's own kind), `"<Orbital>.<knob>"` the orbital's own knob, and `grants` (an `osGrants` object) is unioned into the program's grants. Both land in
 /// the program itself, so they are visible in it; a key naming no trait or no knob of it is refused, as is a trait name
 /// more than one orbital uses.
 pub fn apply_compose_overrides(schema: &mut Value, overrides: &Value) -> Result<(), String> {
@@ -2955,22 +2959,37 @@ pub fn apply_compose_overrides(schema: &mut Value, overrides: &Value) -> Result<
         let Some((trait_name, knob)) = key.split_once('.').filter(|(t, k)| !t.is_empty() && !k.is_empty() && !k.contains('.')) else {
             return Err(format!("override \"{key}\" is not <Trait>.<knob> or grants"));
         };
-        let mut found: Vec<&mut Value> = Vec::new();
-        for orbital in schema.get_mut("orbitals").and_then(Value::as_array_mut).into_iter().flatten() {
-            for t in orbital.get_mut("traits").and_then(Value::as_array_mut).into_iter().flatten() {
+        // (orbital index, trait index): None names the orbital itself.
+        let mut found: Vec<(usize, Option<usize>)> = Vec::new();
+        for (oi, orbital) in schema.get("orbitals").and_then(Value::as_array).into_iter().flatten().enumerate() {
+            if str_of(orbital, "name") == Some(trait_name) {
+                found.push((oi, None));
+            }
+            for (ti, t) in orbital.get("traits").and_then(Value::as_array).into_iter().flatten().enumerate() {
                 if str_of(t, "name") == Some(trait_name) {
-                    found.push(t);
+                    found.push((oi, Some(ti)));
                 }
             }
         }
-        let t = match found.len() {
-            0 => return Err(format!("override \"{key}\" names no trait {trait_name} in the composed program")),
-            1 => found.pop().expect("one trait"),
-            n => return Err(format!("override \"{key}\" is ambiguous: {n} traits are named {trait_name}")),
+        let (oi, ti) = match found.as_slice() {
+            [] => return Err(format!("override \"{key}\" names no trait or orbital {trait_name} in the composed program")),
+            [one] => *one,
+            many => return Err(format!("override \"{key}\" is ambiguous: {} traits or orbitals are named {trait_name}", many.len())),
         };
-        let Some(field) = t.get_mut("config").and_then(|c| c.get_mut(knob)).filter(|f| f.is_object()) else {
-            return Err(format!("override \"{key}\" names no knob {knob} of trait {trait_name}"));
+        let owner = str_of(&schema["orbitals"][oi], "name").unwrap_or_default().to_string();
+        let orbital = &mut schema["orbitals"][oi];
+        let field = match ti {
+            None => orbital.get_mut("config").and_then(|c| c.get_mut(knob)),
+            Some(ti) => orbital["traits"][ti].get_mut("config").and_then(|c| c.get_mut(knob)),
         };
+        let Some(field) = field.filter(|f| f.is_object()) else {
+            return Err(format!("override \"{key}\" names no knob {knob} of {trait_name}"));
+        };
+        if let Some(forwarded) = field.get("forwardedFrom").and_then(Value::as_str).and_then(|f| f.strip_prefix("@config.")) {
+            return Err(format!(
+                "override \"{key}\" sets a knob {trait_name} reads from its orbital's {forwarded}; override \"{owner}.{forwarded}\" instead"
+            ));
+        }
         let kind = |v: &Value| match v {
             Value::Null => "null",
             Value::Bool(_) => "boolean",
@@ -2985,6 +3004,17 @@ pub fn apply_compose_overrides(schema: &mut Value, overrides: &Value) -> Result<
             }
         }
         field["default"] = value.clone();
+        // An orbital knob was folded into the trait knobs that forward it when the program resolved; they follow it.
+        if ti.is_none() {
+            let forward = format!("@config.{knob}");
+            for t in orbital.get_mut("traits").and_then(Value::as_array_mut).into_iter().flatten() {
+                for f in t.get_mut("config").and_then(Value::as_object_mut).into_iter().flat_map(|c| c.values_mut()) {
+                    if f.get("forwardedFrom").and_then(Value::as_str) == Some(forward.as_str()) {
+                        f["default"] = value.clone();
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -3344,10 +3374,35 @@ mod tests {
     }
 
     #[test]
+    fn an_override_can_name_an_orbitals_own_knob() {
+        let program = || json!({ "orbitals": [{
+            "name": "Api",
+            "config": { "port": { "type": "number", "default": 3000 } },
+            "traits": [{ "name": "ApiHttp1", "config": {
+                "backlog": { "type": "number", "default": 16 },
+                "port": { "type": "number", "default": 3000, "forwardedFrom": "@config.port" }
+            } }]
+        }] });
+        let mut schema = program();
+        apply_compose_overrides(&mut schema, &json!({ "Api.port": 4100, "ApiHttp1.backlog": 32 })).unwrap();
+        assert_eq!(schema["orbitals"][0]["config"]["port"]["default"], json!(4100), "{schema}");
+        assert_eq!(schema["orbitals"][0]["traits"][0]["config"]["backlog"]["default"], json!(32), "control: a trait knob still lands on the trait");
+        assert_eq!(schema["orbitals"][0]["traits"][0]["config"]["port"]["default"], json!(4100), "the trait knob forwarded from the orbital knob follows it");
+        let mut same = json!({ "orbitals": [{ "name": "Api", "config": { "port": { "type": "number", "default": 1 } },
+            "traits": [{ "name": "Api", "config": { "port": { "type": "number", "default": 2 } } }] }] });
+        let error = apply_compose_overrides(&mut same, &json!({ "Api.port": 9 })).unwrap_err();
+        assert!(error.contains("ambiguous"), "an orbital and a trait of one name are refused: {error}");
+        let error = apply_compose_overrides(&mut program(), &json!({ "Api.host": "x" })).unwrap_err();
+        assert!(error.contains("names no knob host"), "{error}");
+        let error = apply_compose_overrides(&mut program(), &json!({ "ApiHttp1.port": 4100 })).unwrap_err();
+        assert!(error.contains("override \"Api.port\" instead"), "a forwarded trait knob is set through its orbital knob: {error}");
+    }
+
+    #[test]
     fn an_override_naming_an_unknown_knob_or_trait_or_kind_is_refused() {
         for (overrides, expect) in [
             (json!({ "HttpTrait.prot": 1 }), "names no knob prot"),
-            (json!({ "Nope.port": 1 }), "names no trait Nope"),
+            (json!({ "Nope.port": 1 }), "names no trait or orbital Nope"),
             (json!({ "HttpTrait.port": "4100" }), "is a string, the knob holds a number"),
             (json!({ "port": 1 }), "is not <Trait>.<knob>"),
             (json!({ "grants": ["127.0.0.1:1"] }), "osGrants object"),

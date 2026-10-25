@@ -717,6 +717,7 @@ fn default_value_for_type(ty: &orbital_core_base::ir::OirType) -> &'static str {
         OirType::String => "'test'",
         OirType::Number => "0",
         OirType::Integer => "0",
+        OirType::Instant => "Date.now()",
         OirType::Boolean => "false",
         OirType::Date | OirType::DateTime => "new Date()",
         OirType::Email => "'test@example.com'",
@@ -753,7 +754,7 @@ fn rust_default_value(ty: &orbital_core_base::ir::OirType) -> &'static str {
     use orbital_core_base::ir::OirType;
     match ty {
         OirType::String => "String::new()",
-        OirType::Number => "0.0",
+        OirType::Number | OirType::Instant => "0.0",
         OirType::Integer => "0",
         OirType::Boolean => "false",
         OirType::Date | OirType::DateTime => "Default::default()",
@@ -789,6 +790,7 @@ fn python_default_value(ty: &orbital_core_base::ir::OirType) -> &'static str {
     match ty {
         OirType::String => "\"test\"",
         OirType::Number | OirType::Integer => "0",
+        OirType::Instant => "0.0",
         OirType::Boolean => "False",
         OirType::Date | OirType::DateTime => "datetime.now()",
         OirType::Email => "\"test@example.com\"",

@@ -1029,6 +1029,7 @@ impl<'a> Resolver<'a> {
             "boolean" | "bool" => OirType::Boolean,
             "date" => OirType::Date,
             "datetime" | "timestamp" => OirType::DateTime,
+            "instant" => OirType::Instant,
             "array" | "list" => OirType::array(OirType::Json),
             "object" | "json" | "tensor" => OirType::Json,
             // Renderable content — keeps its tag so codegen emits the
@@ -1760,8 +1761,8 @@ mod tests {
             let OirType::Optional { inner } = &fields[0].field_type else { panic!("nullable nested list must retain nullability") };
             let OirType::Array { inner } = inner.as_ref() else { panic!("nested rows must remain a list") };
             if entity == "Note" {
-                assert!(matches!(inner.as_ref(), OirType::Reference { entity } if entity == "Note"));
-                assert!(matches!(additional.as_ref(), OirType::Reference { entity } if entity == "Note"));
+                assert!(matches!(inner.as_ref(), OirType::Row { entity } if entity == "Note"));
+                assert!(matches!(additional.as_ref(), OirType::Row { entity } if entity == "Note"));
             } else {
                 assert!(matches!(inner.as_ref(), OirType::Struct { .. }));
                 assert!(matches!(additional.as_ref(), OirType::Struct { .. }));
@@ -2063,7 +2064,7 @@ mod tests {
     /// TS2322 against `readonly EntityRow[]` (C-COMPILED-PATH-RED, std-notes
     /// `NoteTagNotesOverlay`).
     #[test]
-    fn entity_marked_payload_field_resolves_to_reference_when_entity_is_declared() {
+    fn entity_marked_payload_field_resolves_to_its_row_when_entity_is_declared() {
         let field = orbital_core_base::schema::PayloadField {
             nullable: None,
             additional_properties: None,
@@ -2104,12 +2105,12 @@ mod tests {
         match payload_field_to_oir_type(&field, &ctx) {
             OirType::Array { inner } => {
                 assert!(
-                    matches!(inner.as_ref(), OirType::Reference { entity } if entity == "Note"),
-                    "expected Array<Reference(Note)>, got Array<{:?}>",
+                    matches!(inner.as_ref(), OirType::Row { entity } if entity == "Note"),
+                    "a payload field typed by an entity carries its rows: expected Array<Row(Note)>, got Array<{:?}>",
                     inner
                 );
             }
-            other => panic!("expected an array of Reference, got {other:?}"),
+            other => panic!("expected an array of Row, got {other:?}"),
         }
     }
 

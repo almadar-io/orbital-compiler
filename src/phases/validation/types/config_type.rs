@@ -2092,6 +2092,7 @@ pub(crate) fn check_field_def_shape(
                 FieldType::Date => "date",
                 FieldType::Datetime => "datetime",
                 FieldType::Timestamp => "timestamp",
+                FieldType::Instant => "instant",
                 _ => return result, // Other field types are opaque to the leaf check.
             };
             result.merge(check_primitive_shape(type_tag, value, path));
@@ -2150,6 +2151,8 @@ pub(crate) fn check_primitive_shape(
         // Note = {}` is exactly the shape this rejects.
         "relation" => actual == "string" || actual == "null",
         "date" | "datetime" | "timestamp" => actual == "string" || actual == "number",
+        // A literal moment (epoch milliseconds written in the program) is a valid instant; nothing computed widens into one.
+        "instant" => actual == "number",
         _ => true, // Unknown type tags pass — covered by other validators.
     };
     if !ok {

@@ -2095,3 +2095,116 @@ fn g3_field_rename_reaches_a_hoisted_renders_forwarded_columns() {
         "the forwarded columns[0].key must follow the rename, not stay pinned to 'hourlyRate'"
     );
 }
+
+/// One upstream orbital named like its import (so the import keeps unprefixed names) whose board embeds and
+/// listens to an atom-internal child named `LoadingSpinner`.
+fn desk_upstream(orbital: &str, board: &str) -> String {
+    format!(
+        r#"{{
+  "name": "test-desk-{orbital}",
+  "version": "1.0.0",
+  "orbitals": [
+    {{
+      "name": "{orbital}",
+      "entity": {{ "name": "{orbital}Row", "persistence": "runtime", "fields": [ {{ "name": "id", "type": "string", "required": true }} ] }},
+      "traits": [
+        {{
+          "name": "{board}",
+          "linkedEntity": "{orbital}Row",
+          "stateMachine": {{
+            "states": [ {{ "name": "idle", "isInitial": true }} ],
+            "events": [ {{ "key": "INIT" }}, {{ "key": "SPUN" }} ],
+            "transitions": [
+              {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [ ["render-ui", "main", {{ "type": "stack", "children": ["@trait.LoadingSpinner"] }}] ] }},
+              {{ "from": "idle", "to": "idle", "event": "SPUN", "effects": [] }}
+            ]
+          }},
+          "listens": [ {{ "event": "SPIN", "triggers": "SPUN", "source": {{ "kind": "trait", "trait": "LoadingSpinner" }} }} ]
+        }},
+        {{
+          "name": "LoadingSpinner",
+          "linkedEntity": "{orbital}Row",
+          "stateMachine": {{
+            "states": [ {{ "name": "idle", "isInitial": true }} ],
+            "events": [ {{ "key": "INIT" }} ],
+            "transitions": [ {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [ ["render-ui", "main", {{ "type": "spinner" }}] ] }} ]
+          }},
+          "emits": [ {{ "event": "SPIN" }} ]
+        }}
+      ],
+      "pages": [ {{ "name": "{orbital}Page", "path": "/{board}", "traits": [ {{ "ref": "{board}" }}, {{ "ref": "LoadingSpinner" }} ] }} ]
+    }}
+  ]
+}}"#
+    )
+}
+
+fn inline_desks(orbitals: &[(&str, &str)], watcher: bool) -> OrbitalSchema {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let mut consumers = Vec::new();
+    for (orbital, board) in orbitals {
+        std::fs::write(dir.path().join(format!("{orbital}.orb")), desk_upstream(orbital, board)).expect("write upstream");
+        consumers.push(format!(
+            r#"{{ "name": "{orbital}", "uses": [ {{ "from": "./{orbital}.orb", "as": "Desk{orbital}" }} ], "entity": "Desk{orbital}.orbitals.{orbital}.entity", "traits": [], "reference": {{ "ref": "Desk{orbital}.orbitals.{orbital}" }} }}"#
+        ));
+    }
+    if watcher {
+        consumers.push(r#"{ "name": "WatchOrbital", "entity": { "name": "Watch", "persistence": "runtime", "fields": [ { "name": "id", "type": "string", "required": true } ] }, "traits": [ { "name": "Watcher", "linkedEntity": "Watch", "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "events": [ { "key": "INIT" }, { "key": "SEEN" } ], "transitions": [ { "from": "idle", "to": "idle", "event": "INIT", "effects": [ ["render-ui", "main", { "type": "typography", "content": "watch" }] ] }, { "from": "idle", "to": "idle", "event": "SEEN", "effects": [] } ] }, "listens": [ { "event": "SPIN", "triggers": "SEEN", "source": { "kind": "orbital", "orbital": "PostOrbital", "trait": "LoadingSpinner" } } ] } ], "pages": [ { "name": "WatchPage", "path": "/watch", "traits": [ { "ref": "Watcher" } ] } ] }"#.to_string());
+    }
+    let consumer = format!(r#"{{ "name": "test-desks", "version": "1.0.0", "orbitals": [ {} ] }}"#, consumers.join(", "));
+    let consumer_path = dir.path().join("consumer.orb");
+    std::fs::write(&consumer_path, consumer).expect("write consumer");
+    let mut schema = parse_file(&consumer_path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path)).expect("desks inline");
+    schema
+}
+
+#[test]
+fn two_imports_carrying_one_atom_internal_child_name_get_one_name_each() {
+    let schema = inline_desks(&[("PostOrbital", "PostBoard"), ("CommentOrbital", "CommentBoard")], true);
+    let post = trait_names(&schema, 0);
+    let comment = trait_names(&schema, 1);
+    assert!(post.contains(&"PostOrbitalLoadingSpinner".to_string()), "{post:?}");
+    assert!(comment.contains(&"CommentOrbitalLoadingSpinner".to_string()), "{comment:?}");
+    assert!(post.contains(&"PostBoard".to_string()) && comment.contains(&"CommentBoard".to_string()), "a name only one orbital carries keeps it");
+    let board = serde_json::to_string(find_trait(&schema, 0, "PostBoard")).unwrap();
+    assert!(board.contains("@trait.PostOrbitalLoadingSpinner"), "the embed follows the rename: {board}");
+    let own_listen = find_trait(&schema, 0, "PostBoard").listens.as_ref().unwrap();
+    assert!(
+        own_listen.iter().any(|l| matches!(&l.source, Some(ListenSource::Trait { trait_name, .. }) if trait_name == "PostOrbitalLoadingSpinner")),
+        "the orbital's own listen follows the rename"
+    );
+    let watcher = find_trait(&schema, 2, "Watcher").listens.as_ref().unwrap();
+    assert!(
+        watcher.iter().any(|l| matches!(&l.source, Some(ListenSource::Orbital { orbital, trait_name, .. }) if orbital == "PostOrbital" && trait_name == "PostOrbitalLoadingSpinner")),
+        "another orbital's qualified listen follows the rename: {watcher:?}"
+    );
+    let page_refs: Vec<String> = schema.orbitals[0]
+        .pages
+        .iter()
+        .flatten()
+        .filter_map(|p| match p {
+            PageRef::Inline(pd) => Some(pd),
+            _ => None,
+        })
+        .flat_map(|pd| pd.traits.iter().flatten())
+        .filter_map(|t| match t {
+            TraitReference::Reference { reference, .. } => reference.clone(),
+            _ => None,
+        })
+        .collect();
+    assert!(page_refs.contains(&"PostOrbitalLoadingSpinner".to_string()), "the page mounts the renamed trait: {page_refs:?}");
+    let duplicates: Vec<_> = validate_comprehensive_without_services(&schema)
+        .errors
+        .into_iter()
+        .filter(|e| e.code.as_str() == "ORB_T_DUPLICATE_NAME")
+        .collect();
+    assert!(duplicates.is_empty(), "{duplicates:?}");
+}
+
+#[test]
+fn a_single_import_keeps_its_atom_internal_child_name() {
+    let schema = inline_desks(&[("PostOrbital", "PostBoard")], false);
+    let post = trait_names(&schema, 0);
+    assert!(post.contains(&"LoadingSpinner".to_string()), "{post:?}");
+}

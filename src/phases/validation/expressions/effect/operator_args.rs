@@ -276,6 +276,8 @@ mod tests {
             config: HashMap::new(),
             prev_payload: None,
             optional_payload: Default::default(),
+            locals: Default::default(),
+            type_params: Default::default(),
         }
     }
 
@@ -514,6 +516,8 @@ mod tests {
             config: [("limit".to_string(), OirType::Number)].into_iter().collect(),
             prev_payload: None,
             optional_payload: Default::default(),
+            locals: Default::default(),
+            type_params: Default::default(),
         };
         let run = |json: &str| {
             let r = validate_operator_arg_types(&parse(json), "p", &HashMap::new(), &HashMap::new(), &types, None);
@@ -658,7 +662,7 @@ mod tests {
         .unwrap();
         let types = BindingTypes {
             payload: [
-                ("row".to_string(), OirType::Reference { entity: "Note".into() }),
+                ("row".to_string(), OirType::row("Note")),
                 ("byKey".to_string(), OirType::map(OirType::String, OirType::row("Note"))),
             ]
             .into_iter()
@@ -1018,7 +1022,7 @@ mod tests {
         assert_eq!(unknown.len(), 1, "{unknown:?}");
         assert!(unknown[0].contains("`Nope`"), "{unknown:?}");
         // The parsed value is a Point: x is a number, so a string operator rejects it, and z is no field.
-        let got = with_types(r#"["str/upper", ["object/get", ["json/parse", "{}", "Point"], "x"]]"#);
+        let got = with_types(r#"["str/upper", ["object/get", ["json/parse", ["str/concat", "{", "}"], "Point"], "x", 0]]"#);
         assert_eq!(got.len(), 1, "{got:?}");
         let missing = with_types(r#"["object/get", ["json/parse", "{}", "Point"], "z"]"#);
         assert_eq!(missing.len(), 1, "{missing:?}");
@@ -1077,6 +1081,8 @@ mod tests {
             let types = BindingTypes {
                 payload,
                 optional_payload: optional_payload.iter().map(|n| n.to_string()).collect(),
+                locals: Default::default(),
+                type_params: Default::default(),
                 ..no_types()
             };
             validate_operator_arg_types(&parse(json), "p", &entity, &HashMap::new(), &types, None)
@@ -1099,12 +1105,12 @@ mod tests {
         }
 
         #[test]
-        fn an_optional_field_at_a_null_rejecting_position_is_an_error() {
+        fn a_divisor_that_can_be_missing_makes_the_result_missing_where_a_value_is_needed() {
             for json in [
-                r#"["/", 1, "@entity.p"]"#,
-                r#"["%", 7, "@entity.p"]"#,
-                r#"["math/mod", 7, "@entity.p"]"#,
-                r#"["math/randomInt", 1, "@entity.p"]"#,
+                r#"["+", ["/", 1, "@entity.p"], 1]"#,
+                r#"["+", ["%", 7, "@entity.p"], 1]"#,
+                r#"["+", ["math/mod", 7, "@entity.p"], 1]"#,
+                r#"["+", ["math/randomInt", 1, "@entity.p"], 1]"#,
             ] {
                 assert_eq!(null_findings(json, entity(false, false)), 1, "{json}");
             }

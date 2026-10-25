@@ -1469,6 +1469,7 @@ fn element_admits_string(shape: &FieldDefinition) -> bool {
         shape.field_type,
         FieldType::Number
             | FieldType::Int
+            | FieldType::Instant
             | FieldType::Boolean
             | FieldType::Money
             | FieldType::File
@@ -2852,6 +2853,7 @@ const PRIMITIVE_TYPE_ARG_NAMES: &[&str] = &[
     "date",
     "datetime",
     "timestamp",
+    "instant",
     "object",
     "sexpr",
 ];

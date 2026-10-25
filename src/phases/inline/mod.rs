@@ -597,6 +597,10 @@ pub fn inline_schema_with_orbital_diagnostics(
             .map(|u| u.alias.clone())
             .collect();
         let orbital_name = orbital.name.clone();
+        let authored: Option<HashSet<String>> = orbital
+            .reference
+            .as_ref()
+            .map(|_| orbital.traits.iter().filter_map(trait_ref_name).map(str::to_string).collect());
         if let Err(e) = inline_orbital(
             orbital,
             loader,
@@ -668,6 +672,17 @@ pub fn inline_schema_with_orbital_diagnostics(
         // from single-file knowledge is now re-derivable with real resources.
         effect_row::recompute_effect_rows(orbital);
 
+        // An import carries its upstream's atom-internal children under their source names; two imports can
+        // carry the same one, so they are uniquified like pulled siblings.
+        if let Some(authored) = authored {
+            for tr in &orbital.traits {
+                if let TraitReference::Inline(td) = tr {
+                    if !authored.contains(&td.name) && !pulled.contains(&td.name) {
+                        pulled.push(td.name.clone());
+                    }
+                }
+            }
+        }
         if !pulled.is_empty() {
             pulled_by_orbital.push((idx, pulled));
         }
@@ -957,9 +972,11 @@ fn uniquify_cross_orbital_pulled_siblings(
     // (`derive_id(source_id, orbital_name)` + a cloned ledger row) — one ledger
     // row cannot carry two curNames.
     let mut id_claimed: HashSet<String> = HashSet::new();
+    let mut qualified_renames: Vec<(String, HashMap<String, String>)> = Vec::new();
     for (orbital_idx, pulled) in pulled_by_orbital {
         let orbital_name = orbitals[*orbital_idx].name.clone();
         let mut renames: HashMap<String, String> = HashMap::new();
+        let mut id_renames: HashMap<String, String> = HashMap::new();
         // (source_id, new_name, derived_copy_id) — applied to the ledger after
         // the trait borrow ends.
         let mut ledger_ops: Vec<(String, String, Option<String>)> = Vec::new();
@@ -983,6 +1000,7 @@ fn uniquify_cross_orbital_pulled_siblings(
                                 let copy_id =
                                     orbital_core_base::identity::derive_id(&source_id, &orbital_name);
                                 td.id = Some(copy_id.clone());
+                                id_renames.insert(source_id.clone(), copy_id.clone());
                                 ledger_ops.push((source_id, new_name.clone(), Some(copy_id)));
                             }
                         }
@@ -1049,6 +1067,39 @@ fn uniquify_cross_orbital_pulled_siblings(
             for tr in orbitals[*orbital_idx].traits.iter_mut() {
                 if let TraitReference::Inline(td) = tr {
                     rewrite_trait_embed_tokens(td, &renames);
+                }
+            }
+            for page in orbitals[*orbital_idx].pages.iter_mut().flatten() {
+                let orbital_core_base::schema::PageRef::Inline(pd) = page else { continue };
+                for tr in pd.traits.iter_mut().flatten() {
+                    if let TraitReference::Reference { reference, ref_id, .. } = tr {
+                        if let Some(to) = reference.as_deref().and_then(|name| renames.get(name)) {
+                            *reference = Some(to.clone());
+                        }
+                        if let Some(to) = ref_id.as_deref().and_then(|id| id_renames.get(id)) {
+                            *ref_id = Some(to.clone());
+                        }
+                    }
+                }
+            }
+            qualified_renames.push((orbital_name, renames));
+        }
+    }
+    // A listen in any orbital that names a renamed trait by its orbital (`PostOrbital.LoadingSpinner`) follows it.
+    for orbital in orbitals.iter_mut() {
+        for tr in orbital.traits.iter_mut() {
+            let TraitReference::Inline(td) = tr else { continue };
+            for listen in td.listens.iter_mut().flatten() {
+                if let Some(orbital_core_base::schema::ListenSource::Orbital { orbital: source, trait_name, .. }) =
+                    listen.source.as_mut()
+                {
+                    if let Some(to) = qualified_renames
+                        .iter()
+                        .find(|(name, _)| name == source)
+                        .and_then(|(_, renames)| renames.get(trait_name.as_str()))
+                    {
+                        *trait_name = to.clone();
+                    }
                 }
             }
         }

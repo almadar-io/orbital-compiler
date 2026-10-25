@@ -393,7 +393,7 @@ fn resolve_config_field(field: &str, ctx: &BindingContext) -> BindingType {
 fn field_type_to_binding(ft: &FieldType) -> BindingType {
     match ft {
         FieldType::String => BindingType::String,
-        FieldType::Number | FieldType::Int => BindingType::Number,
+        FieldType::Number | FieldType::Int | FieldType::Instant => BindingType::Number,
         FieldType::Boolean => BindingType::Boolean,
         FieldType::Date | FieldType::Datetime | FieldType::Timestamp => BindingType::Datetime,
         // Semantic domains bind as strings — a render slot treats them as text.
@@ -460,7 +460,7 @@ fn field_definition_to_binding(
 fn config_field_to_binding(cf: &ConfigField) -> BindingType {
     match cf.field_type.as_str() {
         "string" => BindingType::String,
-        "number" => BindingType::Number,
+        "number" | "instant" => BindingType::Number,
         "boolean" => BindingType::Boolean,
         "array" | "[object]" | "[string]" | "[number]" => BindingType::Array,
         // A named-element array (`[FieldSpec]`) is still an array; its element
@@ -482,7 +482,7 @@ fn config_field_to_binding(cf: &ConfigField) -> BindingType {
 fn field_type_str_to_binding(s: &str) -> BindingType {
     match s {
         "string" | "string!" => BindingType::String,
-        "number" | "number!" => BindingType::Number,
+        "number" | "number!" | "instant" | "instant!" => BindingType::Number,
         "boolean" | "boolean!" => BindingType::Boolean,
         "array" | "[object]" | "[string]" | "[number]" => BindingType::Array,
         "object" | "object!" => BindingType::Object,

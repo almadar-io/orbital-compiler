@@ -828,6 +828,7 @@ fn primitive_event_compat(declared: &str, actual: &str) -> bool {
         // deprecates declaring them; compat must not double-punish).
         "json" | "object" => a == "object" || a == "json",
         "date" | "datetime" | "timestamp" => a == "string" || a == "number",
+        "number" => a == "instant",
         "entity" | "relation" => a == "object" || a == "string",
         s if s.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) => {
             a == "object" || a == "string"

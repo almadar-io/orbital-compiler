@@ -19,6 +19,7 @@ use orbital_core_base::ir::{
     OirBinaryOp, OirBinding, OirBindingRoot, OirExpr, OirField, OirModule, OirType, OirUnaryOp,
 };
 use orbital_core_base::language::registry::{get_operator, OperatorTypeRef, OperatorTypeRefKind};
+use orbital_core_base::language::registry::ResultSign;
 use orbital_core_base::signature::{
     type_at_path, Actual, CallBindings, Known, Mismatch, Mode, Signature,
 };
@@ -124,6 +125,9 @@ struct Inferer<'c> {
     /// What a condition on the way in has shown of pure expressions, compared structurally: a call present
     /// (`(!= (op …) null)`) or a value nonzero (`(> n 0)`).
     present_calls: RefCell<Vec<CallFact>>,
+    /// The `let` locals in scope with their initializers (written out through earlier locals), so a fact a guard's own
+    /// `let` shows of `(op @x)` is the fact an effect's `let` binding the same `x` reads.
+    let_inits: RefCell<Vec<(String, OirExpr)>>,
     /// The `let` locals bound to an operand that can be missing.
     absent_locals: RefCell<Vec<String>>,
     /// The `let` locals bound to a failable operator's maybe-missing result, with that operator.
@@ -160,6 +164,7 @@ impl<'c> Inferer<'c> {
             void: std::cell::Cell::new(false),
             present: RefCell::new(Vec::new()),
             present_calls: RefCell::new(Vec::new()),
+            let_inits: RefCell::new(Vec::new()),
             absent_locals: RefCell::new(Vec::new()),
             missing_results: RefCell::new(Vec::new()),
             refinements: RefCell::new(Vec::new()),
@@ -339,6 +344,13 @@ impl<'c> Inferer<'c> {
                 }
             }
         }
+        // A presence check on the way in shows the value set: it is the value, not its optional.
+        let local_present = matches!(&binding.root, OirBindingRoot::Local(name) if binding.path.is_empty() && self.local_shown_present(name));
+        if local_present || self.present.borrow().contains(binding) {
+            if let OirType::Optional { inner } = ty {
+                ty = *inner;
+            }
+        }
         Some(ty)
     }
 
@@ -376,7 +388,18 @@ impl<'c> Inferer<'c> {
         for segment in &binding.path[split..] {
             ty = type_at_path(&self.unfold_rows(ty), std::slice::from_ref(segment))?;
         }
-        Some(self.unfold_rows(ty))
+        Some(self.unfold_values(ty))
+    }
+
+    /// The type a read evaluates to: a relation to an entity is that row's id (owner ruling 2026-10-25), a row or an
+    /// alias reads as what it stands for. Reading through a relation (`@row.owner.name`) unfolds it in `unfold_rows`.
+    fn unfold_values(&self, ty: OirType) -> OirType {
+        match &ty {
+            OirType::Reference { entity } if self.ctx.entity_type(entity).is_some() => ty,
+            OirType::Array { inner } => OirType::array(self.unfold_values((**inner).clone())),
+            OirType::Optional { inner } => OirType::optional(self.unfold_values((**inner).clone())),
+            _ => self.unfold_rows(ty),
+        }
     }
 
     /// A reference to a row (or a list of them) as the row it stands for, one level deep.
@@ -395,7 +418,7 @@ impl<'c> Inferer<'c> {
     }
 
     fn infer(&self, expr: &OirExpr) -> Option<OirType> {
-        let mut inferred = self.unfold_rows(self.infer_bare(expr)?);
+        let mut inferred = self.unfold_values(self.infer_bare(expr)?);
         if let Some((operand, projection)) = guarded_operand(expr) {
             for fact in self
                 .refinements
@@ -673,6 +696,7 @@ impl<'c> Inferer<'c> {
         let mut scopes = Vec::new();
         let mut aliased = 0usize;
         let mut missed = 0usize;
+        let mut inits = 0usize;
         for pair in bindings {
             if let OirExpr::Array { items } = pair {
                 if let (Some(OirExpr::String { value: name }), Some(value)) =
@@ -686,7 +710,19 @@ impl<'c> Inferer<'c> {
                         let aliases = self.fact_aliases.borrow();
                         (type_facts(value, true, &aliases), type_facts(value, false, &aliases))
                     };
+                    let sign = [Sign::Positive, Sign::NonNegative, Sign::NonZero]
+                        .into_iter()
+                        .find(|sign| self.shows_sign(value, *sign));
+                    let written = self.written_out(value);
                     scopes.push(self.enter_scope(&[(name.clone(), ty)]));
+                    self.let_inits.borrow_mut().push((name.clone(), written));
+                    inits += 1;
+                    if let Some(sign) = sign {
+                        let local = OirExpr::Binding {
+                            binding: OirBinding { root: OirBindingRoot::Local(name.clone()), path: Vec::new() },
+                        };
+                        self.present_calls.borrow_mut().push(CallFact::Signed(local, sign));
+                    }
                     if !when_true.is_empty() || !when_false.is_empty() {
                         self.fact_aliases.borrow_mut().push(FactAlias { name: name.clone(), when_true, when_false });
                     }
@@ -705,6 +741,11 @@ impl<'c> Inferer<'c> {
             }
         }
         let out = f(body);
+        {
+            let mut written = self.let_inits.borrow_mut();
+            let kept = written.len() - inits;
+            written.truncate(kept);
+        }
         {
             let mut missing = self.missing_results.borrow_mut();
             let kept = missing.len() - missed;
@@ -980,11 +1021,24 @@ impl<'c> Inferer<'c> {
     /// local bound to one that no presence check has shown present).
     fn missing_result_source(&self, arg: &OirExpr, ty: Option<&OirType>) -> Option<String> {
         match arg {
-            OirExpr::Call { function, .. } => self.missing_from(function, ty),
+            OirExpr::Call { function, args } if function == "list" => {
+                args.iter().find_map(|item| self.missing_item_source(item))
+            }
+            OirExpr::Call { function, args } => self.missing_from(function, ty).or_else(|| {
+                // A read through a failable result that may be missing (`(object/get (json/parse …) "k")`) is missing
+                // with it, unless a default answers it.
+                let projection = signature_of(function)?.field_projection()?;
+                let source = args.get(projection.source_arg)?;
+                matches!(ty.cloned().map(|t| self.unfold(t)), Some(OirType::Optional { .. }))
+                    .then(|| self.missing_item_source(source))
+                    .flatten()
+            }),
             OirExpr::BinaryOp { op, .. } => self.missing_from(binary_name(op), ty),
+            // A list literal is missing a value when one of its items is.
+            OirExpr::Array { items } => items.iter().find_map(|item| self.missing_item_source(item)),
             OirExpr::Binding { binding } => {
                 let OirBindingRoot::Local(name) = &binding.root else { return None };
-                if !binding.path.is_empty() || self.present.borrow().contains(binding) {
+                if !binding.path.is_empty() || self.present.borrow().contains(binding) || self.local_shown_present(name) {
                     return None;
                 }
                 self.missing_results.borrow().iter().rev().find(|(local, _)| local == name).map(|(_, source)| source.clone())
@@ -1000,23 +1054,116 @@ impl<'c> Inferer<'c> {
             .borrow()
             .iter()
             .any(|fact| match fact {
-                CallFact::Present(call) => {
-                    as_call(call).is_some_and(|(shown, shown_args)| shown == name && shown_args.as_slice() == args)
-                }
-                CallFact::NonZero(_) => false,
+                CallFact::Present(call) => as_call(call).is_some_and(|(shown, shown_args)| {
+                    shown == name
+                        && shown_args.len() == args.len()
+                        && shown_args.iter().zip(args).all(|(a, b)| *a == *b || **a == self.written_out(b))
+                }),
+                CallFact::Signed(..) => false,
             })
     }
 
-    /// Whether `expr` is a nonzero number by construction or because a condition on the way in shows it.
-    fn nonzero(&self, expr: &OirExpr) -> bool {
-        if self.present_calls.borrow().iter().any(|fact| matches!(fact, CallFact::NonZero(shown) if shown == expr)) {
-            return true;
+    /// `expr` with every `let` local in scope written out as its initializer.
+    fn written_out(&self, expr: &OirExpr) -> OirExpr {
+        let inits = self.let_inits.borrow();
+        if inits.is_empty() {
+            return expr.clone();
         }
-        positive(expr)
+        write_out(expr, &inits)
+    }
+
+    /// Whether a fact on the way in shows the initializer a local stands for present.
+    fn local_shown_present(&self, name: &str) -> bool {
+        let Some(init) = self.let_inits.borrow().iter().rev().find(|(n, _)| n == name).map(|(_, e)| e.clone()) else {
+            return false;
+        };
+        self.present_calls.borrow().iter().any(|fact| matches!(fact, CallFact::Present(shown) if *shown == init))
+    }
+
+    /// Whether `expr` has `sign`, by construction (the operator table's result signs) or because a condition on the
+    /// way in shows it.
+    fn shows_sign(&self, expr: &OirExpr, sign: Sign) -> bool {
+        let shown = self.present_calls.borrow().iter().any(|fact| match fact {
+            CallFact::Signed(shown, held) => shown == expr && held.implies(sign),
+            CallFact::Present(_) => false,
+        });
+        shown || match sign {
+            Sign::Positive => self.positive(expr),
+            Sign::NonNegative => self.positive(expr) || self.non_negative(expr),
+            Sign::NonZero => matches!(expr, OirExpr::Number { value } if *value != 0.0) || self.positive(expr),
+        }
+    }
+
+    /// A number at least zero by construction: a non-negative literal, an operator whose result is, or a sum,
+    /// product, maximum or minimum of such numbers (and a number times itself).
+    fn non_negative(&self, expr: &OirExpr) -> bool {
+        if let OirExpr::Number { value } = expr {
+            return *value >= 0.0;
+        }
+        let Some((name, args)) = as_call(expr) else {
+            return self.shows_held(expr, Sign::NonNegative);
+        };
+        let each = |args: &[&OirExpr]| !args.is_empty() && args.iter().all(|arg| self.shows_sign(arg, Sign::NonNegative));
+        match result_sign(name) {
+            Some(ResultSign::NonNegative) => true,
+            Some(ResultSign::Sum | ResultSign::Min) => each(&args),
+            Some(ResultSign::Product) => each(&args) || matches!(args.as_slice(), [a, b] if a == b),
+            Some(ResultSign::Max) => args.iter().any(|arg| self.shows_sign(arg, Sign::NonNegative)),
+            None => false,
+        }
+    }
+
+    /// A number above zero by construction: a positive literal, a sum of non-negative numbers one of which is
+    /// positive, a product or minimum of positive numbers, or a maximum with a positive argument.
+    fn positive(&self, expr: &OirExpr) -> bool {
+        if let OirExpr::Number { value } = expr {
+            return *value > 0.0;
+        }
+        let Some((name, args)) = as_call(expr) else {
+            return self.shows_held(expr, Sign::Positive);
+        };
+        let each = |args: &[&OirExpr]| !args.is_empty() && args.iter().all(|arg| self.shows_sign(arg, Sign::Positive));
+        match result_sign(name) {
+            Some(ResultSign::Sum) => {
+                args.iter().all(|arg| self.shows_sign(arg, Sign::NonNegative))
+                    && args.iter().any(|arg| self.shows_sign(arg, Sign::Positive))
+            }
+            Some(ResultSign::Product | ResultSign::Min) => each(&args),
+            Some(ResultSign::Max) => args.iter().any(|arg| self.shows_sign(arg, Sign::Positive)),
+            Some(ResultSign::NonNegative) | None => false,
+        }
+    }
+
+    fn shows_held(&self, expr: &OirExpr, sign: Sign) -> bool {
+        self.present_calls
+            .borrow()
+            .iter()
+            .any(|fact| matches!(fact, CallFact::Signed(shown, held) if shown == expr && held.implies(sign)))
     }
 
     fn assume(&self, condition: Option<&OirExpr>) {
         let Some(condition) = condition else { return };
+        // A guard that binds locals (`(let ((t (op …))) (!= @t null))`) shows its facts of what the locals stand for.
+        if let OirExpr::Call { function, args } = condition {
+            if function == "let" {
+                let shown = self.in_let_scope(args, |body| {
+                    let mut facts: Vec<CallFact> =
+                        present_calls(body, true).into_iter().map(|fact| fact.map(|e| self.written_out(e))).collect();
+                    for binding in presence(body, true) {
+                        if let (OirBindingRoot::Local(_), true) = (&binding.root, binding.path.is_empty()) {
+                            let local = OirExpr::Binding { binding };
+                            let written = self.written_out(&local);
+                            if written != local {
+                                facts.push(CallFact::Present(written));
+                            }
+                        }
+                    }
+                    facts
+                });
+                self.present_calls.borrow_mut().extend(shown.unwrap_or_default());
+                return;
+            }
+        }
         let facts = {
             let aliases = self.fact_aliases.borrow();
             self.through_aliases(type_facts(condition, true, &aliases))
@@ -1024,6 +1171,14 @@ impl<'c> Inferer<'c> {
         self.refinements.borrow_mut().extend(facts);
         self.present.borrow_mut().extend(presence(condition, true));
         self.present_calls.borrow_mut().extend(present_calls(condition, true));
+    }
+
+    /// An item's missing result, typing the item again without reporting what its own check already reported.
+    fn missing_item_source(&self, item: &OirExpr) -> Option<String> {
+        let mark = self.diagnostics.borrow().len();
+        let ty = self.infer(item);
+        self.diagnostics.borrow_mut().truncate(mark);
+        self.missing_result_source(item, ty.as_ref())
     }
 
     fn missing_from(&self, function: &str, ty: Option<&OirType>) -> Option<String> {
@@ -1039,13 +1194,30 @@ impl<'c> Inferer<'c> {
         else {
             return false;
         };
-        let denominator = matches!(name, "/" | "%" | "math/mod");
-        let literal = |index: usize| match args.get(index) {
-            Some(OirExpr::Number { value }) => !(denominator && index == 1 && *value == 0.0),
-            Some(OirExpr::String { .. } | OirExpr::Bool { .. }) => true,
-            Some(arg) if denominator && index == 1 => self.nonzero(arg),
-            _ => false,
+        let literal = |index: usize| {
+            matches!(args.get(index), Some(OirExpr::Number { .. } | OirExpr::String { .. } | OirExpr::Bool { .. }))
         };
+        let signed = [
+            (&failable.unless_non_zero, Sign::NonZero),
+            (&failable.unless_non_negative, Sign::NonNegative),
+            (&failable.unless_positive, Sign::Positive),
+        ];
+        if signed.iter().any(|(positions, _)| !positions.is_empty())
+            && signed.iter().all(|(positions, sign)| {
+                positions.iter().all(|&index| args.get(index).is_some_and(|arg| self.shows_sign(arg, *sign)))
+            })
+        {
+            return true;
+        }
+        if !failable.unless_typed.is_empty()
+            && failable.unless_typed.iter().all(|proof| {
+                orbital_core_base::signature::concrete_type(&proof.ty).is_some_and(|wanted| {
+                    arg_types.get(proof.arg).cloned().flatten().map(|t| self.unfold(t)) == Some(wanted)
+                })
+            })
+        {
+            return true;
+        }
         if !failable.unless_literal.is_empty() {
             return failable.unless_literal.iter().all(|&index| literal(index));
         }
@@ -1447,8 +1619,13 @@ impl<'c> Inferer<'c> {
             }
             other => other,
         };
+        // A shape that answers null on a value not of that type (`json/parse`) is the optional of the named type.
+        let named = match &result {
+            OirType::Optional { inner } => inner.as_ref(),
+            other => other,
+        };
         if let (OperatorTypeRef::Tagged(OperatorTypeRefKind::Shape), OirType::TypeRef { name }) =
-            (signature.returns(), &result)
+            (shape_return(signature.returns()), named)
         {
             if self.ctx.declared_type(name) == Some(false) {
                 let index = signature.shape_position().unwrap_or_default();
@@ -1946,8 +2123,19 @@ fn present_calls(expr: &OirExpr, truth: bool) -> Vec<CallFact> {
     let call = |expr: &OirExpr| {
         matches!(expr, OirExpr::Call { .. } | OirExpr::BinaryOp { .. }).then(|| CallFact::Present(expr.clone()))
     };
-    let at_least = |expr: &OirExpr, floor: f64| matches!(expr, OirExpr::Number { value } if *value >= floor);
-    let nonzero = |value: &OirExpr| (!value.is_literal()).then(|| CallFact::NonZero(value.clone()));
+    let number = |expr: &OirExpr| match expr {
+        OirExpr::Number { value } => Some(*value),
+        _ => None,
+    };
+    let signed = |value: &OirExpr, sign: Sign| (!value.is_literal()).then(|| CallFact::Signed(value.clone(), sign));
+    // What `value > floor` (or `>=` when `inclusive`) shows of `value`.
+    let above = |value: &OirExpr, floor: Option<f64>, inclusive: bool| -> Vec<CallFact> {
+        match floor {
+            Some(floor) if floor > 0.0 || (floor == 0.0 && !inclusive) => signed(value, Sign::Positive).into_iter().collect(),
+            Some(floor) if floor == 0.0 => signed(value, Sign::NonNegative).into_iter().collect(),
+            _ => Vec::new(),
+        }
+    };
     let Some((name, args)) = as_call(expr) else {
         return Vec::new();
     };
@@ -1964,30 +2152,30 @@ fn present_calls(expr: &OirExpr, truth: bool) -> Vec<CallFact> {
         "or" => union_of(args.iter().map(|a| present_calls(a, false))),
         "!=" if truth => match args.as_slice() {
             [OirExpr::Number { value }, other] | [other, OirExpr::Number { value }] if *value == 0.0 => {
-                nonzero(other).into_iter().collect()
+                signed(other, Sign::NonZero).into_iter().collect()
             }
             _ => null_compared(&args).into_iter().collect(),
         },
         "=" | "==" if !truth => match args.as_slice() {
             [OirExpr::Number { value }, other] | [other, OirExpr::Number { value }] if *value == 0.0 => {
-                nonzero(other).into_iter().collect()
+                signed(other, Sign::NonZero).into_iter().collect()
             }
             _ => null_compared(&args).into_iter().collect(),
         },
         ">" if truth => match args.as_slice() {
-            [value, floor] if at_least(floor, 0.0) => nonzero(value).into_iter().collect(),
+            [value, floor] => above(value, number(floor), false),
             _ => Vec::new(),
         },
         "<" if truth => match args.as_slice() {
-            [floor, value] if at_least(floor, 0.0) => nonzero(value).into_iter().collect(),
+            [floor, value] => above(value, number(floor), false),
             _ => Vec::new(),
         },
         ">=" if truth => match args.as_slice() {
-            [value, floor] if matches!(floor, OirExpr::Number { value } if *value > 0.0) => nonzero(value).into_iter().collect(),
+            [value, floor] => above(value, number(floor), true),
             _ => Vec::new(),
         },
         "<=" if truth => match args.as_slice() {
-            [floor, value] if matches!(floor, OirExpr::Number { value } if *value > 0.0) => nonzero(value).into_iter().collect(),
+            [floor, value] => above(value, number(floor), true),
             _ => Vec::new(),
         },
         _ => Vec::new(),
@@ -1997,42 +2185,39 @@ fn present_calls(expr: &OirExpr, truth: bool) -> Vec<CallFact> {
 #[derive(Clone, PartialEq)]
 enum CallFact {
     Present(OirExpr),
-    NonZero(OirExpr),
+    Signed(OirExpr, Sign),
 }
 
 impl CallFact {
+    fn map(self, f: impl FnOnce(&OirExpr) -> OirExpr) -> CallFact {
+        match self {
+            CallFact::Present(expr) => CallFact::Present(f(&expr)),
+            CallFact::Signed(expr, sign) => CallFact::Signed(f(&expr), sign),
+        }
+    }
+
     fn expr(&self) -> &OirExpr {
         match self {
-            CallFact::Present(expr) | CallFact::NonZero(expr) => expr,
+            CallFact::Present(expr) | CallFact::Signed(expr, _) => expr,
         }
     }
 }
 
-/// A number that is at least zero by construction: a non-negative literal, a length or count, an absolute value,
-/// or a sum, product or maximum of such numbers.
-fn non_negative(expr: &OirExpr) -> bool {
-    if let OirExpr::Number { value } = expr {
-        return *value >= 0.0;
-    }
-    match as_call(expr) {
-        Some(("array/len" | "array/count" | "str/len" | "math/abs", _)) => true,
-        Some(("+" | "*" | "math/max", args)) => !args.is_empty() && args.iter().all(|arg| non_negative(arg)),
-        _ => false,
+#[derive(Clone, Copy, PartialEq)]
+enum Sign {
+    NonZero,
+    NonNegative,
+    Positive,
+}
+
+impl Sign {
+    fn implies(self, wanted: Sign) -> bool {
+        self == wanted || self == Sign::Positive
     }
 }
 
-/// A number that is above zero by construction: a positive literal, a sum of non-negative numbers one of which is
-/// positive, or a maximum with a positive argument.
-fn positive(expr: &OirExpr) -> bool {
-    if let OirExpr::Number { value } = expr {
-        return *value > 0.0;
-    }
-    match as_call(expr) {
-        Some(("+", args)) => args.iter().all(|arg| non_negative(arg)) && args.iter().any(|arg| positive(arg)),
-        Some(("*", args)) => !args.is_empty() && args.iter().all(|arg| positive(arg)),
-        Some(("math/max", args)) => args.iter().any(|arg| positive(arg)),
-        _ => false,
-    }
+fn result_sign(name: &str) -> Option<ResultSign> {
+    orbital_core_base::language::registry::get_operator(name).and_then(|op| op.sign)
 }
 
 /// The calls the earlier arguments of a call show present when argument `index` is evaluated.
@@ -2045,6 +2230,48 @@ fn call_guards_for(name: &str, args: &[&OirExpr], index: usize) -> Vec<CallFact>
             None => Vec::new(),
         },
         _ => Vec::new(),
+    }
+}
+
+/// `expr` with each local named in `inits` (the latest binding of a name wins) replaced by its initializer.
+fn write_out(expr: &OirExpr, inits: &[(String, OirExpr)]) -> OirExpr {
+    let each = |e: &OirExpr| write_out(e, inits);
+    match expr {
+        OirExpr::Binding { binding } => match &binding.root {
+            OirBindingRoot::Local(name) if binding.path.is_empty() => inits
+                .iter()
+                .rev()
+                .find(|(n, _)| n == name)
+                .map(|(_, init)| init.clone())
+                .unwrap_or_else(|| expr.clone()),
+            _ => expr.clone(),
+        },
+        OirExpr::Call { function, args } if function != "let" && function != "quote" => {
+            OirExpr::Call { function: function.clone(), args: args.iter().map(each).collect() }
+        }
+        OirExpr::BinaryOp { op, left, right } => {
+            OirExpr::BinaryOp { op: op.clone(), left: Box::new(each(left)), right: Box::new(each(right)) }
+        }
+        OirExpr::UnaryOp { op, operand } => OirExpr::UnaryOp { op: op.clone(), operand: Box::new(each(operand)) },
+        OirExpr::Conditional { condition, then_branch, else_branch } => OirExpr::Conditional {
+            condition: Box::new(each(condition)),
+            then_branch: Box::new(each(then_branch)),
+            else_branch: Box::new(each(else_branch)),
+        },
+        OirExpr::Array { items } => OirExpr::Array { items: items.iter().map(each).collect() },
+        OirExpr::Object { fields } => OirExpr::Object { fields: fields.iter().map(|(k, v)| (k.clone(), each(v))).collect() },
+        _ => expr.clone(),
+    }
+}
+
+/// The shape a result names, seen through the `nullable(...)` union a failable operator's result is declared as.
+fn shape_return(returns: &OperatorTypeRef) -> &OperatorTypeRef {
+    match returns {
+        OperatorTypeRef::Tagged(OperatorTypeRefKind::Union { of }) => of
+            .iter()
+            .find(|member| !matches!(member, OperatorTypeRef::Tagged(OperatorTypeRefKind::Literal { value }) if value.is_null()))
+            .unwrap_or(returns),
+        other => other,
     }
 }
 
@@ -2387,7 +2614,7 @@ fn handles_missing(name: &str) -> bool {
         name,
         "or" | "and" | "not" | "str/default" | "math/default" | "=" | "==" | "!=" | "eq" | "ne" | "if" | "when" | "let"
             | "do" | "list" | "quote" | "typed" | "validate/required" | "object/get"
-    )
+    ) || orbital_core_eval::evaluator::operators::get_operator(name).and_then(|op| op.type_predicate()).is_some()
 }
 
 fn is_ordering(name: &str) -> bool {
@@ -2492,6 +2719,12 @@ pub fn typed_slot_types<C: TypeCtx>(
         .collect()
 }
 
+/// The type a `let` binds its local to: an annotated initializer (`(x : T value)`) is its declared type when the value
+/// fits it, any other initializer its inferred type.
+pub fn local_initializer_type<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> Option<OirType> {
+    Inferer::new(ctx).infer_local_initializer(expr)
+}
+
 /// The failable operator whose maybe-missing result `expr` is (a direct call or arithmetic still typed optional),
 /// where `condition` (the transition's guard) holds.
 pub fn missing_failable_result<C: TypeCtx>(expr: &OirExpr, condition: Option<&OirExpr>, ctx: &C) -> Option<String> {
@@ -2531,7 +2764,7 @@ impl TypeCtx for NoBindingCtx {
 pub fn collect_guard_type_warnings(module: &OirModule) -> Vec<String> {
     fn check_guard(guard: &OirExpr, trait_name: &str, site: &str, out: &mut Vec<String>) {
         match infer_oir_expr_type(guard, &NoBindingCtx) {
-            Some(OirType::Number | OirType::Integer | OirType::String | OirType::Array { .. }) => out.push(format!(
+            Some(OirType::Number | OirType::Integer | OirType::Instant | OirType::String | OirType::Array { .. }) => out.push(format!(
                 "{trait_name}: {site} guard does not return boolean \
                  (resolves to a non-boolean type) — it will run with JS truthiness coercion"
             )),
@@ -3054,7 +3287,8 @@ mod tests {
         );
         assert_eq!(
             infer_oir_expr_type(&call("bytes/to-string", vec![blob.clone()]), &NoCtx),
-            Some(OirType::String)
+            Some(OirType::optional(OirType::String)),
+            "bytes that are not UTF-8 answer null"
         );
         assert_eq!(
             infer_oir_expr_type(
@@ -3227,6 +3461,144 @@ mod tests {
         assert_eq!(over(n(), Some(call(">=", vec![n(), num(0.0)]))), 1, "control: at least zero can be zero");
         let else_branch = call("if", vec![call(">", vec![n(), num(0.0)]), num(0.0), call("+", vec![call("/", vec![num(1.0), n()]), num(1.0)])]);
         assert_eq!(missing_results(&else_branch), 1, "control: the else-branch of a positive test shows nothing");
+    }
+
+    #[test]
+    fn a_sign_carries_through_a_let_and_proves_roots_and_logarithms() {
+        let n = || checked_local(num(3.0), OirType::Number);
+        let xs = || checked_local(list_of(vec![]), OirType::array(OirType::Number));
+        let missing = |expr: OirExpr, guard: Option<OirExpr>| {
+            check_oir_expr_under(&expr, guard.as_ref(), &NoCtx).iter().filter(|d| matches!(d.mismatch, Mismatch::MissingResult { .. })).count()
+        };
+        let plus_one = |e: OirExpr| call("+", vec![e, num(1.0)]);
+        let bound = call("let", vec![list_of(vec![list_of(vec![text("d"), plus_one(call("array/len", vec![xs()]))])]), plus_one(call("/", vec![n(), local("d")]))]);
+        assert_eq!(missing(bound, None), 0, "a local bound to a positive sum is a positive divisor");
+        let squares = call("+", vec![call("*", vec![n(), n()]), call("*", vec![n(), n()])]);
+        assert_eq!(missing(plus_one(call("math/sqrt", vec![squares])), None), 0, "a sum of squares has a root");
+        assert_eq!(missing(plus_one(call("math/sqrt", vec![n()])), Some(call(">=", vec![n(), num(0.0)]))), 0, "a guard shows it at least zero");
+        assert_eq!(missing(plus_one(call("math/ln", vec![n()])), Some(call(">", vec![n(), num(0.0)]))), 0, "a guard shows it above zero");
+        assert_eq!(missing(plus_one(call("/", vec![n(), num(-2.0)])), None), 0, "a negative literal divisor is nonzero");
+        assert_eq!(missing(plus_one(call("math/sqrt", vec![n()])), None), 1, "control: a number of unknown sign");
+        assert_eq!(missing(plus_one(call("math/ln", vec![n()])), Some(call(">=", vec![n(), num(0.0)]))), 1, "control: zero has no logarithm");
+        assert_eq!(missing(plus_one(call("/", vec![n(), num(0.0)])), None), 1, "edge: a literal zero divisor always fails");
+    }
+
+    #[test]
+    fn a_read_through_a_failable_result_is_missing_with_it() {
+        let parsed = || call("json/parse", vec![checked_local(text("{}"), OirType::String), text("Pt")]);
+        let read = |default: Option<OirExpr>| {
+            let mut args = vec![parsed(), text("x")];
+            args.extend(default);
+            call("+", vec![call("object/get", args), num(1.0)])
+        };
+        struct Named;
+        impl TypeCtx for Named {
+            fn binding_type(&self, _: &OirBinding) -> Option<OirType> {
+                None
+            }
+            fn named_type(&self, name: &str) -> Option<OirType> {
+                (name == "Pt").then(|| OirType::Struct { fields: vec![OirField::new("x", OirType::Number)], additional: None })
+            }
+        }
+        let count = |expr: OirExpr| check_oir_expr(&expr, &Named).iter().filter(|d| matches!(d.mismatch, Mismatch::MissingResult { .. })).count();
+        assert_eq!(count(read(None)), 1, "the parse can answer null, and so the read");
+        assert_eq!(count(read(Some(num(0.0)))), 0, "control: a default answers the read");
+    }
+
+    #[test]
+    fn a_guard_whose_let_binds_the_same_local_as_the_effects_shows_its_call_present() {
+        let n = || checked_local(num(3.0), OirType::Number);
+        let m = || checked_local(num(5.0), OirType::Number);
+        let bind = |init: OirExpr, body: OirExpr| call("let", vec![list_of(vec![list_of(vec![text("d"), init])]), body]);
+        let guard = bind(n(), call("!=", vec![call("/", vec![num(8.0), local("d")]), OirExpr::Null]));
+        let missing = |effect: OirExpr| {
+            check_oir_expr_under(&effect, Some(&guard), &NoCtx).iter().filter(|d| matches!(d.mismatch, Mismatch::MissingResult { .. })).count()
+        };
+        assert_eq!(missing(bind(n(), call("+", vec![call("/", vec![num(8.0), local("d")]), num(1.0)]))), 0, "the effect's d stands for the guard's d");
+        assert_eq!(missing(bind(m(), call("+", vec![call("/", vec![num(8.0), local("d")]), num(1.0)]))), 1, "control: a d bound to something else");
+        let quotient = bind(n(), call("let", vec![list_of(vec![list_of(vec![text("q"), call("/", vec![num(8.0), local("d")])])]), call("+", vec![local("q"), num(1.0)])]));
+        assert_eq!(missing(quotient), 0, "a local bound to the shown call is a value");
+    }
+
+    #[test]
+    fn a_parse_naming_an_undeclared_shape_is_refused_whether_or_not_its_result_is_optional() {
+        struct Declared;
+        impl TypeCtx for Declared {
+            fn binding_type(&self, _: &OirBinding) -> Option<OirType> {
+                None
+            }
+            fn named_type(&self, name: &str) -> Option<OirType> {
+                (name == "Pt").then(|| OirType::Struct { fields: vec![OirField::new("x", OirType::Number)], additional: None })
+            }
+            fn declared_type(&self, name: &str) -> Option<bool> {
+                Some(name == "Pt")
+            }
+        }
+        let parse = |shape: &str| call("json/parse", vec![checked_local(text("{}"), OirType::String), text(shape)]);
+        assert!(!check_oir_expr(&parse("Nope"), &Declared).is_empty(), "a shape no type declares");
+        assert!(check_oir_expr(&parse("Pt"), &Declared).is_empty(), "control: a declared shape");
+    }
+
+    #[test]
+    fn a_type_test_takes_a_value_that_may_be_missing() {
+        let ratio = || call("/", vec![checked_local(num(8.0), OirType::Number), checked_local(num(4.0), OirType::Number)]);
+        assert_eq!(missing_results(&call("validate/number", vec![ratio()])), 0, "a type test answers false for null");
+        assert_eq!(missing_results(&call("math/abs", vec![ratio()])), 1, "control: arithmetic needs the value");
+    }
+
+    #[test]
+    fn a_list_literal_holding_a_failable_result_is_missing_a_value() {
+        let ratio = || call("/", vec![checked_local(num(8.0), OirType::Number), checked_local(num(4.0), OirType::Number)]);
+        assert_eq!(missing_results(&call("array/sum", vec![list_of(vec![num(1.0), ratio()])])), 1, "an item can be missing");
+        assert_eq!(missing_results(&call("array/sum", vec![list_of(vec![num(1.0), call("or", vec![ratio(), num(0.0)])])])), 0, "control: a defaulted item is a value");
+    }
+
+    #[test]
+    fn a_null_test_on_a_let_local_narrows_a_field_read_in_a_record_member() {
+        let pol = OirType::Struct {
+            additional: None,
+            fields: vec![OirField::new("name", OirType::String), OirField::new("hasRead", OirType::Boolean)],
+        };
+        let bound = |body: OirExpr| {
+            call("let", vec![list_of(vec![list_of(vec![text("po"), checked_local(OirExpr::Null, OirType::optional(pol.clone()))])]), body])
+        };
+        let read = call("object/get", vec![local("po"), text("hasRead")]);
+        let record = |value: OirExpr| OirExpr::Object { fields: [("hasRead".to_string(), value)].into_iter().collect() };
+        let in_record = bound(record(call("if", vec![call("=", vec![local("po"), OirExpr::Null]), OirExpr::Bool { value: false }, read.clone()])));
+        assert_eq!(infer_oir_expr_type(&bound(call("if", vec![call("=", vec![local("po"), OirExpr::Null]), OirExpr::Bool { value: false }, read.clone()])), &NoCtx), Some(OirType::Boolean), "the else branch reads the field of a present record");
+        let reg = OirType::optional(OirType::Struct { additional: None, fields: vec![OirField::new("hasRead", OirType::Boolean)] });
+        assert!(admits(&in_record, &reg, None, &NoCtx), "and so does a record member built there");
+        let unguarded = bound(record(read.clone()));
+        assert!(!admits(&unguarded, &reg, None, &NoCtx), "control: unchecked the field may be missing");
+        struct Named(OirType);
+        impl TypeCtx for Named {
+            fn binding_type(&self, _: &OirBinding) -> Option<OirType> {
+                None
+            }
+            fn named_type(&self, name: &str) -> Option<OirType> {
+                (name == "Pol").then(|| self.0.clone())
+            }
+        }
+        let named = Named(pol.clone());
+        let pols = checked_local(OirExpr::Object { fields: Default::default() }, OirType::map(OirType::String, OirType::TypeRef { name: "Pol".into() }));
+        let looked_up = |body: OirExpr| {
+            call("let", vec![list_of(vec![list_of(vec![text("pols"), pols.clone()])]),
+                call("let", vec![list_of(vec![list_of(vec![text("po"), call("object/get", vec![local("pols"), text("k"), OirExpr::Null])])]), body])])
+        };
+        let in_named = looked_up(record(call("if", vec![call("=", vec![local("po"), OirExpr::Null]), OirExpr::Bool { value: false }, read.clone()])));
+        assert!(admits(&in_named, &reg, None, &named), "a map lookup of a named record narrows the same way: {:?}", infer_oir_expr_type(&in_named, &named));
+    }
+
+    #[test]
+    fn a_presence_check_types_the_value_it_shows_set() {
+        let maybe = || checked_local(OirExpr::Null, OirType::optional(OirType::Number));
+        let bound = |body: OirExpr| call("let", vec![list_of(vec![list_of(vec![text("c"), maybe()])]), body]);
+        let guarded = bound(call("if", vec![call("=", vec![local("c"), OirExpr::Null]), num(0.0), local("c")]));
+        assert_eq!(infer_oir_expr_type(&guarded, &NoCtx), Some(OirType::Number), "the else branch reads it present");
+        let listed = bound(call("if", vec![call("!=", vec![local("c"), OirExpr::Null]), list_of(vec![local("c")]), list_of(vec![])]));
+        assert_eq!(infer_oir_expr_type(&listed, &NoCtx), Some(OirType::array(OirType::Number)), "and so does a literal built there");
+        let unguarded = bound(list_of(vec![local("c")]));
+        assert_eq!(infer_oir_expr_type(&unguarded, &NoCtx), Some(OirType::array(OirType::optional(OirType::Number))), "control: unchecked it stays optional");
     }
 
     #[test]
@@ -3606,7 +3978,8 @@ mod tests {
         for name in ["+", "-", "*", "%", "math/min", "math/max"] {
             assert_eq!(ty(name, vec![steps(), num(1.0)]), Some(OirType::Integer), "{name}");
             assert_eq!(ty(name, vec![steps(), num(1.5)]), Some(OirType::Number), "{name}: a fractional literal");
-            assert_eq!(ty(name, vec![steps(), ratio()]), Some(OirType::Number), "{name}: a number operand");
+            let widened = if name == "%" { OirType::optional(OirType::Number) } else { OirType::Number };
+            assert_eq!(ty(name, vec![steps(), ratio()]), Some(widened), "{name}: a number operand (a computed divisor can be zero)");
         }
         assert_eq!(ty("math/abs", vec![steps()]), Some(OirType::Integer));
         assert_eq!(ty("math/abs", vec![ratio()]), Some(OirType::Number));
@@ -3772,7 +4145,7 @@ mod tests {
             assert!(found.is_empty(), "{shape}: {found:?}");
             assert_eq!(
                 infer_oir_expr_type(&fold, &DeclaredFold),
-                Some(OirType::Number)
+                Some(OirType::optional(OirType::Number))
             );
         }
     }
@@ -4213,7 +4586,7 @@ mod tests {
             Vec::<String>::new(),
             "the provisional reading's findings are dropped"
         );
-        assert_eq!(infer_oir_expr_type(&sum, &ctx), Some(OirType::Number));
+        assert_eq!(infer_oir_expr_type(&sum, &ctx), Some(OirType::optional(OirType::Number)), "a fold of a malformed node answers null");
         let joined = lowered(fold_over_tree(serde_json::json!([
             "str/concat",
             "@n.label",
@@ -4224,7 +4597,7 @@ mod tests {
             Vec::<String>::new(),
             "control: string children of a string step"
         );
-        assert_eq!(infer_oir_expr_type(&joined, &ctx), Some(OirType::String));
+        assert_eq!(infer_oir_expr_type(&joined, &ctx), Some(OirType::optional(OirType::String)));
     }
 
     #[test]
@@ -4316,16 +4689,17 @@ mod tests {
         let parse = call("json/parse", vec![text("{}"), text("Point")]);
         assert_eq!(
             infer_oir_expr_type(&parse, &Named),
-            Some(OirType::Struct {
+            Some(OirType::optional(OirType::Struct {
                 additional: None,
                 fields: vec![OirField::new("x".to_string(), OirType::Number)]
-            })
+            })),
+            "text that is not that shape answers null"
         );
         assert_eq!(
             infer_oir_expr_type(&parse, &NoCtx),
-            Some(OirType::TypeRef {
+            Some(OirType::optional(OirType::TypeRef {
                 name: "Point".into()
-            }),
+            })),
             "control: a context that does not know the name keeps the by-name reference"
         );
     }

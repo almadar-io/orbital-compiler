@@ -155,7 +155,8 @@ impl TraitScopes {
     ) -> set::BindingTypes {
         match self.per_event_shapes.get(event) {
             Some(shapes) => {
-                let mut types = binding_types(trait_def, schema, shapes.clone(), &self.per_event_shapes);
+                let shapes = hydrate_included_relations(schema, trait_def, event, shapes.clone());
+                let mut types = binding_types(trait_def, schema, shapes, &self.per_event_shapes);
                 types.optional_payload = optional_payload_fields(trait_def, Some(event));
                 types
             }
@@ -399,6 +400,133 @@ pub(crate) fn collect_per_event_payload_shapes(
     map
 }
 
+/// A relation every fetch answering `event` lists in `include` reads as the related row in that transition's payload;
+/// otherwise it stays the related row's id (G-CROSS-314).
+fn hydrate_included_relations(
+    schema: &OrbitalSchema,
+    trait_def: &TraitDefinition,
+    event: &str,
+    mut shapes: HashMap<String, orbital_core_base::ir::OirType>,
+) -> HashMap<String, orbital_core_base::ir::OirType> {
+    use orbital_core_base::schema::SExpression;
+    fn fetches<'a>(expr: &'a SExpression, out: &mut Vec<(&'a str, &'a orbital_core_base::schema::SObject)>) {
+        match expr {
+            SExpression::Array(items) => {
+                if let [SExpression::String(op), SExpression::String(entity), SExpression::Object(options), ..] =
+                    items.as_slice()
+                {
+                    if op == "fetch" {
+                        out.push((entity.as_str(), options));
+                    }
+                }
+                for item in items {
+                    fetches(item, out);
+                }
+            }
+            SExpression::Object(map) => {
+                for value in map.values() {
+                    fetches(value, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    for transition in &trait_def.state_machine.transitions {
+        for effect in transition.effects.iter().flatten() {
+            fetches(effect, &mut found);
+        }
+    }
+    let answering: Vec<_> = found
+        .into_iter()
+        .filter(|(_, options)| {
+            matches!(options.get("emit"), Some(SExpression::Object(emit))
+                if matches!(emit.get("success"), Some(SExpression::String(success)) if success == event))
+        })
+        .collect();
+    let Some((entity, _)) = answering.first().copied() else {
+        return shapes;
+    };
+    if answering.iter().any(|(other, _)| *other != entity) {
+        return shapes;
+    }
+    let Some(def) = schema.orbitals.iter().find_map(|o| {
+        std::iter::once(&o.entity).chain(o.auxiliary_entities.iter().flatten()).find_map(|e| match e {
+            orbital_core_base::schema::EntityRef::Inline(def) if def.name == entity => Some(def),
+            _ => None,
+        })
+    }) else {
+        return shapes;
+    };
+    let included_by = |options: &orbital_core_base::schema::SObject| -> HashSet<String> {
+        let include = match options.get("include") {
+            Some(SExpression::String(knob)) => knob
+                .strip_prefix("@config.")
+                .and_then(|knob| trait_def.config.as_ref()?.get(knob)?.default.as_ref()),
+            other => other,
+        };
+        include
+            .and_then(fetch::parse_fetch_include_literals)
+            .into_iter()
+            .flatten()
+            .filter_map(|name| fetch::resolve_fetch_include_field(def, &name))
+            .collect()
+    };
+    let mut included = included_by(answering[0].1);
+    for (_, options) in &answering[1..] {
+        let other = included_by(options);
+        included.retain(|field| other.contains(field));
+    }
+    if included.is_empty() {
+        return shapes;
+    }
+    fn as_row(ty: orbital_core_base::ir::OirType) -> orbital_core_base::ir::OirType {
+        use orbital_core_base::ir::OirType;
+        match ty {
+            OirType::Reference { entity } => OirType::Row { entity },
+            OirType::Optional { inner } => OirType::optional(as_row(*inner)),
+            OirType::Array { inner } => OirType::array(as_row(*inner)),
+            other => other,
+        }
+    }
+    let mut fields: Vec<orbital_core_base::ir::OirField> = def
+        .fields
+        .iter()
+        .filter_map(|f| {
+            let name = f.name.clone()?;
+            let shape = orbital_core_base::ir::types::field_shape(f);
+            let shape = if included.contains(&name) { as_row(shape) } else { shape };
+            Some(orbital_core_base::ir::OirField::new(name, shape))
+        })
+        .collect();
+    for (system, ty) in [
+        ("id", orbital_core_base::ir::OirType::String),
+        ("createdAt", orbital_core_base::ir::OirType::DateTime),
+        ("updatedAt", orbital_core_base::ir::OirType::DateTime),
+    ] {
+        if !fields.iter().any(|f| f.name == system) {
+            fields.push(orbital_core_base::ir::OirField::new(system.to_string(), ty));
+        }
+    }
+    let hydrated = orbital_core_base::ir::OirType::Struct { additional: None, fields };
+    fn replace(
+        ty: &mut orbital_core_base::ir::OirType,
+        entity: &str,
+        hydrated: &orbital_core_base::ir::OirType,
+    ) {
+        use orbital_core_base::ir::OirType;
+        match ty {
+            OirType::Row { entity: row } | OirType::Reference { entity: row } if row.as_str() == entity => *ty = hydrated.clone(),
+            OirType::Optional { inner } | OirType::Array { inner } => replace(inner, entity, hydrated),
+            _ => {}
+        }
+    }
+    for ty in shapes.values_mut() {
+        replace(ty, entity, &hydrated);
+    }
+    shapes
+}
+
 /// The full declared types of the bindings one transition (or tick) of `trait_def` reads.
 fn binding_types(
     trait_def: &orbital_core_base::schema::TraitDefinition,
@@ -450,6 +578,8 @@ fn binding_types(
         payload,
         prev_payload,
         optional_payload: Default::default(),
+        locals: Default::default(),
+        type_params: trait_def.type_params.iter().flatten().map(|param| param.name.clone()).collect(),
         user: super::user_identity::identity_type(schema, &trait_def.name),
         config: trait_def
             .config

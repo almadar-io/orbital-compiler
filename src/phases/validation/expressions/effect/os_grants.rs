@@ -6,7 +6,7 @@
 use super::super::{trait_path, ErrorCode, Severity, ValidationError, ValidationResult};
 use orbital_core_base::os::{split_envelope, OsOp};
 use orbital_core_base::os_grants::{
-    concat_static_prefix, os_requirements_deferring, OsGrants, OsRequirement,
+    concat_static_prefix, os_requirements_deferring, DevResource, OsGrants, OsRequirement,
 };
 use orbital_core_base::schema::{
     ConfigField, OrbitalSchema, SExpression, TraitDefinition, TraitReference,
@@ -97,6 +97,7 @@ fn describe(need: &OsRequirement) -> String {
         OsRequirement::Sys { kind } => format!("sys {}", kind.name()),
         OsRequirement::Desktop { kind } => format!("desktop {}", kind.name()),
         OsRequirement::Kv { store, mode } => format!("kv {store:?} {}", mode.name()),
+        OsRequirement::Dev { resource, kind } => format!("dev {} {}", dev_resource_label(resource), kind.name()),
     }
 }
 
@@ -145,6 +146,11 @@ fn suggestion(need: &OsRequirement) -> String {
         OsRequirement::Desktop { kind } => {
             format!("Add `desktop: [{}]` to the orbital's bracket", kind.name())
         }
+        OsRequirement::Dev { resource, kind } => format!(
+            "Add `dev: {{ \"{}\": [{}] }}` to the orbital's bracket (`orbital Name [ … ]`) or the app's",
+            dev_grant_target(resource),
+            kind.name()
+        ),
         OsRequirement::Kv { store, mode } => format!(
             "Add `kv: {{ {store:?}: [{}] }}` to the orbital's bracket (`orbital Name [ … ]`) or the app's",
             mode.name()
@@ -562,5 +568,19 @@ mod tests {
         assert!(codes(&clean).is_empty(), "{:?}", clean.errors);
         let literal = validate_os_grants(&program(grant, json!(["os/tcp-listen", "0.0.0.0", 8080, {"emit": {"success": "GO"}}])));
         assert!(codes(&literal).contains(&ErrorCode::OsGrantMissing), "control: a literal target needs a literal grant");
+    }
+}
+
+fn dev_resource_label(resource: &DevResource) -> String {
+    match resource {
+        DevResource::Mmio { base, offset, width } => format!("mmio {base:#x}+{offset:#x} ({width} bytes)"),
+        DevResource::Irq { line } => format!("irq {line}"),
+    }
+}
+
+fn dev_grant_target(resource: &DevResource) -> String {
+    match resource {
+        DevResource::Mmio { base, offset, width } => format!("mmio:{base:#x}+{:#x}", offset + width),
+        DevResource::Irq { line } => format!("irq:{line}"),
     }
 }

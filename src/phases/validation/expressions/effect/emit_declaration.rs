@@ -378,17 +378,65 @@ pub(crate) fn validate_effect_in(
             }
         }
         _ => {
+            // The effects in the body read the locals the `let` binds, each typed as it is bound (later bindings see
+            // earlier ones).
+            let mut scoped = types.cloned();
             if let Some(SExpression::Array(bindings)) = arr.get(1) {
                 for binding in bindings {
                     if let SExpression::Array(pair) = binding {
                         if let Some(bound) = pair.get(1) {
                             value(bound, &mut result);
                         }
+                        if let (Some(SExpression::String(name)), Some(bound), Some(scope)) =
+                            (pair.first(), pair.get(1), scoped.as_mut())
+                        {
+                            let ctx = super::set::ExprReturnCtx {
+                                entity: entity_field_types,
+                                payload: payload_field_types,
+                                types: Some(&*scope),
+                                schema,
+                            };
+                            let ty = orbital_core_eval::lower::lower_sexpr_keeping_typed(bound)
+                                .ok()
+                                .and_then(|oir| crate::type_infer::local_initializer_type(&oir, &ctx));
+                            match ty {
+                                Some(ty) => {
+                                    scope.locals.insert(name.clone(), ty);
+                                }
+                                None => {
+                                    scope.locals.remove(name);
+                                }
+                            }
+                        }
                     }
                 }
             }
             for (i, body) in arr.iter().enumerate().skip(2) {
-                child(body, format!("{}.body[{}]", path, i - 2), &mut result);
+                let member_path = format!("{}.body[{}]", path, i - 2);
+                let sequence = matches!(body, SExpression::Array(items) if matches!(items.first(), Some(SExpression::Array(_))));
+                let members: Vec<(&SExpression, String)> = match (sequence, body) {
+                    (true, SExpression::Array(items)) => {
+                        items.iter().enumerate().map(|(k, e)| (e, format!("{}[{}]", member_path, k))).collect()
+                    }
+                    _ => vec![(body, member_path)],
+                };
+                for (member, at) in members {
+                    result.merge(validate_effect_in(
+                        member,
+                        &at,
+                        known_entities,
+                        entity_definitions,
+                        known_services,
+                        page_init_payloads,
+                        service_registry,
+                        declared_emits,
+                        entity_field_types,
+                        payload_field_types,
+                        payload_shapes,
+                        schema,
+                        scoped.as_ref().or(types),
+                    ));
+                }
             }
         }
     }

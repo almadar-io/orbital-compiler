@@ -396,6 +396,7 @@ pub const VALID_FIELD_TYPES: &[&str] = &[
     "date",
     "datetime",
     "timestamp",
+    "instant",
     // Semantic string domains.
     "email",
     "url",

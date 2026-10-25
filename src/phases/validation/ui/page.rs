@@ -818,6 +818,8 @@ fn config_types(
         config: knobs,
         prev_payload: None,
         optional_payload: HashSet::new(),
+        locals: HashMap::new(),
+        type_params: HashSet::new(),
     }
 }
 

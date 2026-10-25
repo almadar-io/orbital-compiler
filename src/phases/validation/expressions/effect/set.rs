@@ -435,6 +435,7 @@ pub(crate) fn validate_set_return_type(
 /// **Never false-positives**: a non-array value (scalar/binding — covered by the
 /// literal/enum checks), an unresolvable shape, or an unknowable `Json` inferred
 /// type all yield `None`.
+#[cfg(test)]
 pub(crate) fn expr_return_incompatible(
     value: &SExpression,
     declared: &orbital_core_base::ir::OirType,
@@ -471,8 +472,9 @@ pub(crate) fn expr_return_incompatible_given<C: crate::type_infer::TypeCtx>(
     ctx: &C,
     guard: Option<&SExpression>,
 ) -> Option<orbital_core_base::ir::OirType> {
-    let oir_value = crate::phases::resolve::resolve_sexpr_standalone(value).ok()?;
-    let condition = guard.and_then(|g| crate::phases::resolve::resolve_sexpr_standalone(g).ok());
+    // A `typed` value (an annotated `let` local) is read as the type the program declared for it.
+    let oir_value = orbital_core_eval::lower::lower_sexpr_keeping_typed(value).ok()?;
+    let condition = guard.and_then(|g| orbital_core_eval::lower::lower_sexpr_keeping_typed(g).ok());
     if crate::type_infer::admits(&oir_value, declared, condition.as_ref(), ctx) {
         return None;
     }
@@ -558,7 +560,7 @@ fn operand_kind(operand: &SExpression, ctx: &ExprReturnCtx<'_>) -> Option<&'stat
         }
     };
     match ty {
-        OirType::Number | OirType::Integer => Some("number"),
+        OirType::Number | OirType::Integer | OirType::Instant => Some("number"),
         OirType::String | OirType::Email | OirType::Url | OirType::Phone | OirType::Uuid => {
             Some("string")
         }
@@ -592,6 +594,9 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
         match (&binding.root, self.types) {
             (OirBindingRoot::User, Some(types)) => return orbital_core_base::signature::type_at_path(&types.user, &binding.path),
             (OirBindingRoot::Config, Some(types)) => return orbital_core_base::signature::type_at_path(&types.config_struct(), &binding.path),
+            (OirBindingRoot::Local(name), Some(types)) => {
+                return types.locals.get(name).and_then(|ty| orbital_core_base::signature::type_at_path(ty, &binding.path))
+            }
             _ => {}
         }
         let whole = match binding.root {
@@ -628,8 +633,8 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
             _ => {
                 // Only a payload field of a primitive kind has a type here: a struct-, list- or entity-typed one is
                 // carried as a bare kind string, which says nothing of its shape.
-                const PRIMITIVE_KINDS: [&str; 15] = [
-                    "string", "number", "boolean", "date", "datetime", "timestamp", "email", "url", "phone",
+                const PRIMITIVE_KINDS: [&str; 16] = [
+                    "string", "number", "boolean", "date", "datetime", "timestamp", "instant", "email", "url", "phone",
                     "uuid", "image", "money", "bytes", "int", "float",
                 ];
                 let mut names: Vec<&String> = self
@@ -723,7 +728,8 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
     fn declared_type(&self, name: &str) -> Option<bool> {
         let schema = self.schema?;
         Some(
-            schema.types.as_ref().is_some_and(|types| types.contains_key(name))
+            self.types.is_some_and(|types| types.type_params.contains(name))
+                || schema.types.as_ref().is_some_and(|types| types.contains_key(name))
                 || schema
                 .orbitals
                 .iter()
@@ -744,6 +750,10 @@ pub(crate) struct BindingTypes {
     pub prev_payload: Option<orbital_core_base::ir::OirType>,
     /// The payload fields of the delivery the declaration does not require: an emitter may omit them.
     pub optional_payload: std::collections::HashSet<String>,
+    /// The locals an enclosing effect-level `let` binds, by name: an effect nested in its body reads them.
+    pub locals: HashMap<String, orbital_core_base::ir::OirType>,
+    /// The trait's type parameters (`(p : Entity)`): each names the type a call site binds, so it is a declared type.
+    pub type_params: std::collections::HashSet<String>,
 }
 
 impl BindingTypes {
@@ -852,6 +862,7 @@ fn field_type_str(ft: &FieldType) -> std::borrow::Cow<'static, str> {
         FieldType::Date => "date".into(),
         FieldType::Datetime => "datetime".into(),
         FieldType::Timestamp => "timestamp".into(),
+        FieldType::Instant => "instant".into(),
         FieldType::Email => "email".into(),
         FieldType::Url => "url".into(),
         FieldType::Phone => "phone".into(),
