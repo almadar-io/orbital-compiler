@@ -299,9 +299,10 @@ pub(crate) fn client_bound_traits(orbital: &Orbital) -> HashSet<String> {
     reached_from(orbital, declared_traits(orbital, |page| page.is_route()))
 }
 
-/// Every trait some page of any protocol mounts, directly or through `@trait` embeds.
-pub(crate) fn mounted_traits(orbital: &Orbital) -> HashSet<String> {
-    reached_from(orbital, page_declared_traits(orbital))
+/// Every trait of `orbital` some page of any protocol mounts, directly or through `@trait` embeds. A page of any
+/// orbital in `program` may list it, as the kernel mounts by trait name across the program (`mounts_of`).
+pub(crate) fn mounted_traits(program: &[Orbital], orbital: &Orbital) -> HashSet<String> {
+    reached_from(orbital, program.iter().flat_map(page_declared_traits).collect())
 }
 
 fn reached_from(orbital: &Orbital, seeds: HashSet<String>) -> HashSet<String> {

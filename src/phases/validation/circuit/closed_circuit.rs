@@ -120,7 +120,7 @@ pub fn validate_all_circuits(schema: &OrbitalSchema, ctx: &mut ValidationContext
             ctx.merge(validate_client_bound_state_machines(
                 i,
                 orbital,
-                &crate::phases::embed_graph::mounted_traits(orbital),
+                &crate::phases::embed_graph::mounted_traits(&schema.orbitals, orbital),
             ));
         }
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
@@ -4306,6 +4306,28 @@ mod tests {
         let mut sibling = orbital_json(vec![], serde_json::json!([]));
         sibling.name = "Sibling".to_string();
         assert!(unmounted_in(vec![atom, sibling]));
+    }
+
+    #[test]
+    fn a_trait_another_orbitals_page_lists_is_mounted() {
+        let mut front = orbital_json(vec![inline_trait_with_a_transition("Front")], serde_json::json!([]));
+        front.name = "FrontOrbital".to_string();
+        let app = orbital_json(
+            vec![inline_trait_with_a_transition("Home")],
+            serde_json::json!([{ "name": "H", "path": "/h", "traits": [{ "ref": "Home" }, { "ref": "Front" }] }]),
+        );
+        assert!(!unmounted_in(vec![front, app]));
+    }
+
+    #[test]
+    fn control_a_trait_no_orbitals_page_lists_is_unmounted() {
+        let mut front = orbital_json(vec![inline_trait_with_a_transition("Front")], serde_json::json!([]));
+        front.name = "FrontOrbital".to_string();
+        let app = orbital_json(
+            vec![inline_trait_with_a_transition("Home")],
+            serde_json::json!([{ "name": "H", "path": "/h", "traits": [{ "ref": "Home" }] }]),
+        );
+        assert!(unmounted_in(vec![front, app]));
     }
 
     #[test]
