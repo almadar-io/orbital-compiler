@@ -2934,6 +2934,7 @@ fn resolve_sentinel_fields(
                 // the SAME `rewrite_payload_entity_refs` walk that already
                 // renames the literal-annotation marker.
                 field.entity = Some(entity.name.clone());
+                field.items = None;
                 changed = true;
             }
             continue;
@@ -2959,6 +2960,7 @@ fn resolve_sentinel_fields(
                             prim.clone()
                         };
                         field.properties = None;
+                        field.items = None;
                     }
                     ParamSub::Entity(entity) => {
                         field.field_type = if is_array_sentinel {
@@ -2971,6 +2973,7 @@ fn resolve_sentinel_fields(
                         // an Entity-kind type-param substitution flattens to
                         // `object`/`[object]` too and needs the SAME marker.
                         field.entity = Some(entity.name.clone());
+                        field.items = None;
                     }
                     ParamSub::Struct(_) => {
                         let mut bound = super::sigil_types::payload_field_of(
@@ -3020,6 +3023,7 @@ fn resolve_sentinel_fields(
                 };
                 field.properties = Some(entity_fields_to_payload_fields(entity));
                 field.entity = Some(entity.name.clone());
+                field.items = None;
                 changed = true;
             }
             // No entity to substitute — leave the sentinel for the
@@ -4535,6 +4539,106 @@ mod payload_entity_marker_tests {
         subs.insert("Note".to_string(), "LocalNote".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("LocalNote"));
+    }
+
+    /// A trait `(e : Type = string)` whose listened `accepted : [e]` and emitted `entries : [e]` and `entry : e` all
+    /// name the parameter; `type_args` is the call site's binding, if any.
+    fn generic_trait(type_args: serde_json::Value) -> TraitDefinition {
+        let list = json!({
+            "name": "accepted", "type": "[$e]",
+            "items": { "name": "", "type": "$e", "projectedFrom": { "type": "e" } }
+        });
+        let mut td: TraitDefinition = serde_json::from_value(json!({
+            "name": "LookupRun",
+            "category": "interaction",
+            "typeParams": [ { "name": "e", "kind": "Type", "default": "string" } ],
+            "typeArgs": type_args,
+            "emits": [ { "event": "OUT", "payloadSchema": [
+                { "name": "entries", "type": "[$e]", "items": { "name": "", "type": "$e" } },
+                { "name": "entry", "type": "$e" }
+            ] } ],
+            "stateMachine": {
+                "states": [ { "name": "idle", "isInitial": true } ],
+                "events": [ { "key": "LOOKUP", "payloadSchema": [ list ] } ],
+                "transitions": []
+            }
+        }))
+        .expect("generic trait fixture deserializes");
+        if td.type_args.as_ref().is_some_and(|args| args.is_empty()) {
+            td.type_args = None;
+        }
+        td
+    }
+
+    fn shape_of(td: &TraitDefinition, listened: bool, name: &str) -> orbital_core_base::ir::OirType {
+        let fields = if listened {
+            payload_fields(td)
+        } else {
+            td.emits.as_ref().expect("emits carried")[0].payload_schema.as_ref().expect("payloadSchema carried")
+        };
+        let field = fields.iter().find(|f| f.name == name).expect("field carried");
+        orbital_core_base::ir::types::payload_field_shape(field)
+    }
+
+    /// A type parameter that falls back to its declared default is substituted in a listened list's element too, so the
+    /// listen side and the emit side read the same type (the stale `items` kept `$e` and the emit side read `string`).
+    #[test]
+    fn a_defaulted_type_parameter_resolves_a_listened_list_element_like_the_emitted_field() {
+        use orbital_core_base::ir::OirType;
+        let mut td = generic_trait(json!({}));
+        assert!(resolve_type_param_sentinels(&mut td, None, &std::collections::HashMap::new(), &BTreeMap::new()));
+        assert_eq!(shape_of(&td, true, "accepted"), OirType::array(OirType::String));
+        assert_eq!(shape_of(&td, false, "entries"), OirType::array(OirType::String));
+        assert_eq!(shape_of(&td, false, "entry"), OirType::String);
+        assert!(payload_fields(&td)[0].items.is_none(), "the sentinel element is gone with the sentinel");
+    }
+
+    /// EDGE: a call-site binding that differs from the parameter's default wins on both sides.
+    #[test]
+    fn a_bound_type_parameter_differing_from_its_default_resolves_both_sides_to_the_binding() {
+        use orbital_core_base::ir::OirType;
+        let mut td = generic_trait(json!({ "e": "number" }));
+        resolve_type_param_sentinels(&mut td, None, &std::collections::HashMap::new(), &BTreeMap::new());
+        assert_eq!(shape_of(&td, true, "accepted"), OirType::array(OirType::Number));
+        assert_eq!(shape_of(&td, false, "entries"), OirType::array(OirType::Number));
+        assert_eq!(shape_of(&td, false, "entry"), OirType::Number);
+    }
+
+    /// CONTROL: an unresolvable parameter (no binding, no default) keeps its sentinel on both sides, element included.
+    #[test]
+    fn an_unbound_type_parameter_without_a_default_stays_the_same_variable_on_both_sides() {
+        use orbital_core_base::ir::OirType;
+        let mut td = generic_trait(json!({}));
+        td.type_params = Some(vec![orbital_core_base::schema::TraitTypeParamDef {
+            name: "e".to_string(),
+            kind: "Type".to_string(),
+            default: None,
+        }]);
+        resolve_type_param_sentinels(&mut td, None, &std::collections::HashMap::new(), &BTreeMap::new());
+        let var = OirType::Var { name: "e".to_string() };
+        assert_eq!(shape_of(&td, true, "accepted"), OirType::array(var.clone()));
+        assert_eq!(shape_of(&td, false, "entries"), OirType::array(var.clone()));
+        assert_eq!(shape_of(&td, false, "entry"), var);
+    }
+
+    /// An Entity-kind parameter bound to an entity replaces a listened list's element with the row, dropping the
+    /// stale sentinel element.
+    #[test]
+    fn an_entity_bound_type_parameter_drops_the_stale_list_element() {
+        let mut td = trait_with_payload_fields(json!([
+            { "name": "rows", "type": "[$r]", "items": { "name": "", "type": "$r" } }
+        ]));
+        td.type_params = Some(vec![orbital_core_base::schema::TraitTypeParamDef {
+            name: "r".to_string(),
+            kind: "Entity".to_string(),
+            default: None,
+        }]);
+        let note = entity_fixture("Note");
+        resolve_type_param_sentinels(&mut td, Some(&note), &std::collections::HashMap::new(), &BTreeMap::new());
+        let field = &payload_fields(&td)[0];
+        assert_eq!(field.field_type, "[object]");
+        assert_eq!(field.entity.as_deref(), Some("Note"));
+        assert!(field.items.is_none());
     }
 
     fn trait_with_emit(

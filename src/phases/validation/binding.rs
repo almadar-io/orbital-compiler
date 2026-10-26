@@ -3037,6 +3037,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
 
         let entity_defs = HashMap::new();
@@ -3111,6 +3112,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
 
         let entity_defs = HashMap::new();
@@ -3169,6 +3171,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
 
         let mut entity_defs = HashMap::new();
@@ -3730,6 +3733,7 @@ mod tests {
             fields: vec![],
             id: None,
             invariants: None,
+            indexes: None,
         }
     }
 
@@ -4235,6 +4239,7 @@ mod tests {
                 fields: vec![],
                 id: None,
                 invariants: None,
+                indexes: None,
             },
         );
 

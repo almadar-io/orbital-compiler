@@ -100,6 +100,7 @@ fn task_entity() -> EntityDefinition {
         instances: None,
         id: None,
         invariants: None,
+        indexes: None,
     }
 }
 
@@ -909,6 +910,7 @@ fn schema_with_default(field: FieldDefinition) -> OrbitalSchema {
         instances: None,
         id: None,
         invariants: None,
+        indexes: None,
     };
     OrbitalSchema {
         type_contract_version: None,

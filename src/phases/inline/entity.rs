@@ -703,6 +703,7 @@ mod render_ui_pattern_contract_reference_tests {
             }],
             id: None,
             invariants: None,
+            indexes: None,
         }
     }
 

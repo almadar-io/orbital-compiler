@@ -109,6 +109,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         instances: None,
         id: None,
         invariants: None,
+        indexes: None,
     };
     let trait_def = TraitDefinition {
         dispatch: None,

@@ -527,6 +527,7 @@ fn substitute_entity_sentinel(fields: &mut [PayloadField], row: &[PayloadField],
         f.field_type = shape.to_string();
         f.properties = Some(row.to_vec());
         f.entity = Some(entity.to_string());
+        f.items = None;
     }
 }
 
@@ -559,6 +560,7 @@ fn substitute_named_entity_sentinels(
         f.field_type = shape.to_string();
         f.properties = Some(row);
         f.entity = Some(entity);
+        f.items = None;
     }
 }
 
@@ -648,6 +650,31 @@ mod tests {
         assert_eq!(fields[2].field_type, "@entity(missingKnob)");
         assert_eq!(fields[3].field_type, "number");
         assert_eq!(fields[3].entity, None);
+    }
+
+    /// A resolved list keeps no element of its own: the `items` it carried named the sigil, and a reader that prefers
+    /// `items` over the entity stamp would see the unresolved type on this side only.
+    #[test]
+    fn a_resolved_entity_list_drops_the_sigil_element_it_carried() {
+        let row = vec![payload(serde_json::json!({ "name": "id", "type": "string" }))];
+        let list = |sigil: &str| {
+            payload(serde_json::json!({
+                "name": "rows", "type": format!("[{sigil}]"),
+                "items": { "name": "", "type": sigil }
+            }))
+        };
+        let mut bound = vec![list("@entity")];
+        substitute_entity_sentinel(&mut bound, &row, "Note");
+        assert!(bound[0].items.is_none());
+        let mut named = vec![list("@entity(rowEntity)"), list("@entity(missingKnob)")];
+        substitute_named_entity_sentinels(&mut named, |knob| {
+            (knob == "rowEntity").then(|| (row.clone(), "DataPoint".to_string()))
+        });
+        assert!(named[0].items.is_none());
+        assert_eq!(named[0].entity.as_deref(), Some("DataPoint"));
+        // control: a knob naming no entity keeps the whole sentinel, element included.
+        assert!(named[1].items.is_some());
+        assert_eq!(named[1].field_type, "[@entity(missingKnob)]");
     }
 
     fn field(json: serde_json::Value) -> FieldDefinition {

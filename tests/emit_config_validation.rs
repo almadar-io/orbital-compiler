@@ -86,6 +86,7 @@ fn schema_with_effects(
         instances: None,
         id: None,
         invariants: None,
+        indexes: None,
     };
 
     let trait_def = TraitDefinition {

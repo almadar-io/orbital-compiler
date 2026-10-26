@@ -1656,6 +1656,7 @@ mod tests {
             }],
             id: None,
             invariants: None,
+            indexes: None,
         }
     }
 

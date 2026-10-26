@@ -2520,6 +2520,25 @@ fn rewrite_entity_fields_in_entity(
     if let Some(p) = entity.delete_policy.as_mut() {
         rewrite_entity_field_paths(p, field_subs);
     }
+    for index in entity.indexes.iter_mut().flatten() {
+        for field in index.fields.iter_mut() {
+            if let Some(to) = field_subs.get(field) {
+                *field = to.clone();
+            }
+        }
+        if let Some(order) = index.order_by.as_mut() {
+            let (name, direction) = match order.split_once(':') {
+                Some((name, direction)) => (name, Some(direction)),
+                None => (order.as_str(), None),
+            };
+            if let Some(to) = field_subs.get(name) {
+                *order = match direction {
+                    Some(direction) => format!("{to}:{direction}"),
+                    None => to.clone(),
+                };
+            }
+        }
+    }
 }
 
 /// Stage B `roles {}`: rewrite role literals across an entity's four access
@@ -6370,5 +6389,32 @@ mod tests {
             Some("ent_CONSUMERWORKSPACEID00000"),
             "resolved against consumer_entity_ids, not the upstream's own ids"
         );
+    }
+
+    #[test]
+    fn a_field_rename_follows_into_declared_index_paths_and_leaves_other_fields_alone() {
+        let mut entity: EntityDefinition = serde_json::from_value(serde_json::json!({
+            "name": "Edge",
+            "fields": [{ "name": "graphId", "type": "string" }, { "name": "weight", "type": "number" }],
+            "indexes": [
+                { "fields": ["graphId", "relation"], "orderBy": "weight:desc" },
+                { "fields": ["relation"], "orderBy": "weight" }
+            ]
+        }))
+        .unwrap();
+        let subs = HashMap::from([
+            ("graphId".to_string(), "networkId".to_string()),
+            ("weight".to_string(), "strength".to_string()),
+        ]);
+        rewrite_entity_fields_in_entity(&mut entity, &subs);
+        let indexes = entity.indexes.as_ref().unwrap();
+        assert_eq!(indexes[0].fields, vec!["networkId".to_string(), "relation".to_string()]);
+        assert_eq!(indexes[0].order_by.as_deref(), Some("strength:desc"));
+        assert_eq!(indexes[1].fields, vec!["relation".to_string()]);
+        assert_eq!(indexes[1].order_by.as_deref(), Some("strength"));
+
+        let mut untouched = entity.clone();
+        rewrite_entity_fields_in_entity(&mut untouched, &HashMap::new());
+        assert_eq!(untouched.indexes, entity.indexes, "control: no substitutions, no change");
     }
 }

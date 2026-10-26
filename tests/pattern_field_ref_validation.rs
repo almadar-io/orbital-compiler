@@ -79,6 +79,7 @@ fn make_entity_with_fields(name: &str, field_names: &[&str]) -> EntityDefinition
         instances: None,
         id: None,
         invariants: None,
+        indexes: None,
     }
 }
 

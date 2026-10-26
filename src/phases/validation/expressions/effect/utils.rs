@@ -1020,6 +1020,7 @@ mod tests {
                 instances: None,
                 id: None,
                 invariants: None,
+                indexes: None,
             },
         );
 
@@ -1154,6 +1155,7 @@ mod tests {
                 instances: None,
                 id: None,
                 invariants: None,
+                indexes: None,
             },
         );
 

@@ -164,6 +164,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
         instances: None,
         id: None,
         invariants: None,
+        indexes: None,
     };
     let trait_def = TraitDefinition {
         dispatch: None,

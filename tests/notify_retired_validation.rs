@@ -55,6 +55,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
         instances: None,
         id: None,
         invariants: None,
+        indexes: None,
     };
 
     let trait_def = TraitDefinition {

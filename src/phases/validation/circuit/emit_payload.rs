@@ -1211,6 +1211,135 @@ mod tests {
         assert!(embeddings_mismatch(&embeddings_expr(index)));
     }
 
+    /// `trait LookupRun (e : Type = string)`: LOOKUP delivers `accepted : [e]`, OUT emits `entries : [e]`. The program
+    /// is inlined the way `orb validate` does (type parameters substituted, the call site's `typeArgs` applied) before the
+    /// emit-payload check reads it.
+    fn generic_emit_mismatch(type_args: &str, value: &str) -> bool {
+        let json = format!(
+            r#"{{
+                "name": "generic-app",
+                "orbitals": [{{
+                    "name": "LookupOrbital",
+                    "entity": {{ "name": "KeyLookup", "fields": [{{ "name": "id", "type": "string" }}] }},
+                    "traits": [{{
+                        "name": "LookupRun",
+                        "linkedEntity": "KeyLookup",
+                        "typeParams": [{{ "name": "e", "kind": "Type", "default": "string" }}],
+                        "typeArgs": {type_args},
+                        "emits": [{{ "event": "OUT", "payloadSchema": [{{
+                            "name": "entries", "type": "[$e]", "required": true,
+                            "items": {{ "name": "", "type": "$e" }}
+                        }}] }}],
+                        "stateMachine": {{
+                            "states": [{{ "name": "idle", "isInitial": true }}],
+                            "events": [{{ "key": "LOOKUP", "payloadSchema": [{{
+                                "name": "accepted", "type": "[$e]", "required": true,
+                                "items": {{ "name": "", "type": "$e" }}
+                            }}] }}],
+                            "transitions": [{{
+                                "from": "idle", "to": "idle", "event": "LOOKUP",
+                                "effects": [["emit", "OUT", {{ "entries": {value} }}]]
+                            }}]
+                        }}
+                    }}]
+                }}]
+            }}"#
+        );
+        let mut schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
+        for orbital in &mut schema.orbitals {
+            crate::phases::inline::rewrite::resolve_orbital_type_param_sentinels(orbital);
+        }
+        let mut ctx = ctx_with_seeded_entities(&schema);
+        validate_all_emit_payloads(&schema, &mut ctx);
+        ctx.result.errors.iter().any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
+    }
+
+    const ECHO_ACCEPTED: &str = r#"["array/reverse", "@payload.accepted"]"#;
+    const NUMBERS: &str = r#"["array/map", "@payload.accepted", ["fn", "x", 1]]"#;
+    const STRINGS: &str = r#"["array/map", "@payload.accepted", ["fn", "x", ["str/concat", "a", "b"]]]"#;
+
+    /// A generic trait that emits the list it was handed validates clean when the parameter falls back to its default.
+    #[test]
+    fn a_generic_trait_emitting_its_own_type_parameter_list_validates_with_the_default() {
+        assert!(!generic_emit_mismatch("{}", ECHO_ACCEPTED));
+    }
+
+    /// EDGE: the same emit validates when the call site binds the parameter to something other than the default.
+    #[test]
+    fn a_generic_trait_emitting_its_own_type_parameter_list_validates_when_bound_differently_from_its_default() {
+        assert!(!generic_emit_mismatch(r#"{ "e": "number" }"#, ECHO_ACCEPTED));
+    }
+
+    /// CONTROL: a list of numbers into `[e]` still errors when `e` resolves to `string`, by default or by binding.
+    #[test]
+    fn numbers_emitted_into_a_type_parameter_list_bound_to_string_are_refused() {
+        assert!(generic_emit_mismatch("{}", NUMBERS));
+        assert!(generic_emit_mismatch(r#"{ "e": "string" }"#, NUMBERS));
+    }
+
+    /// CONTROL: the check follows the binding, not the default: strings are refused once `e` is bound to `number`.
+    #[test]
+    fn strings_emitted_into_a_type_parameter_list_bound_to_number_are_refused() {
+        assert!(generic_emit_mismatch(r#"{ "e": "number" }"#, STRINGS));
+        assert!(!generic_emit_mismatch(r#"{ "e": "number" }"#, NUMBERS));
+    }
+
+    /// A buffer entity holding a list of `DataPoint` (`intrinsic` for embedded rows, plain for the ids of related rows),
+    /// emitted as the event's `[DataPoint]` rows; the field the emit declares is the one a config-entity knob resolves
+    /// to once inlined (`object` rows stamped with the entity).
+    fn buffer_emit_mismatch(intrinsic: bool) -> bool {
+        let json = format!(
+            r#"{{
+                "name": "collector-app",
+                "orbitals": [{{
+                    "name": "CollectorOrbital",
+                    "entity": {{ "name": "DataBuffer", "fields": [{{
+                        "name": "buffer", "type": "relation", "intrinsic": {intrinsic},
+                        "relation": {{ "cardinality": "many", "entity": "DataPoint" }}
+                    }}] }},
+                    "auxiliaryEntities": [{{ "name": "DataPoint", "fields": [{{ "name": "id", "type": "string" }}] }}],
+                    "traits": [{{
+                        "name": "DataCollectorRun",
+                        "linkedEntity": "DataBuffer",
+                        "emits": [{{ "event": "READY", "payloadSchema": [{{
+                            "name": "buffer", "type": "[object]", "required": true, "entity": "DataPoint",
+                            "properties": [{{ "name": "id", "type": "string" }}]
+                        }}] }}],
+                        "stateMachine": {{
+                            "states": [{{ "name": "idle", "isInitial": true }}],
+                            "transitions": [{{
+                                "from": "idle", "to": "idle", "event": "COLLECT",
+                                "effects": [["emit", "READY", {{ "buffer": ["array/reverse", "@entity.buffer"] }}]]
+                            }}]
+                        }}
+                    }}]
+                }}]
+            }}"#
+        );
+        let schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
+        let mut ctx = ctx_with_seeded_entities(&schema);
+        for orbital in &schema.orbitals {
+            for entity in orbital.auxiliary_entities.iter().flatten().filter_map(|e| e.as_inline()) {
+                ctx.entity_definitions.insert(entity.name.clone(), entity.clone());
+            }
+        }
+        validate_all_emit_payloads(&schema, &mut ctx);
+        ctx.result.errors.iter().any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
+    }
+
+    /// Rows held as embedded rows fill a `[DataPoint]` row slot.
+    #[test]
+    fn an_embedded_row_list_fills_a_list_of_entity_rows_slot() {
+        assert!(!buffer_emit_mismatch(true));
+    }
+
+    /// CONTROL: a list of related-row ids (the owner ruling of 2026-10-25: a relation reads as the row's id) is not a
+    /// list of rows; this is what std-data-collector's `buffer` was declared as.
+    #[test]
+    fn a_relation_id_list_does_not_fill_a_list_of_entity_rows_slot() {
+        assert!(buffer_emit_mismatch(false));
+    }
+
     fn repeats(effects: &str) -> bool {
         let ctx = check(r#"{ "event": "PING", "payloadSchema": [] }"#, effects);
         ctx.result

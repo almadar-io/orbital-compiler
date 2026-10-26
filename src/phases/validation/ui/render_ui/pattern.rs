@@ -878,6 +878,7 @@ mod entity_prop_contract_tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         }
     }
 

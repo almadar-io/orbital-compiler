@@ -97,6 +97,7 @@ pub(super) fn shape_as_identity_entity(name: &str, shape: &[FieldDefinition]) ->
         instances: None,
         id: None,
         invariants: None,
+        indexes: None,
     }
 }
 

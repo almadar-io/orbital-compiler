@@ -950,6 +950,7 @@ mod tests {
                     instances: None,
                     id: None,
                     invariants: None,
+                    indexes: None,
                 }),
                 auxiliary_entities: None,
                 traits: vec![],

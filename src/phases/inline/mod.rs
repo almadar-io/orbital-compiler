@@ -4257,6 +4257,7 @@ mod tests {
                 instances: None,
                 id: None,
                 invariants: None,
+                indexes: None,
             }),
             auxiliary_entities: None,
             traits: vec![TraitReference::Inline(trait_def)],
@@ -4584,6 +4585,7 @@ mod tests {
                 instances: None,
                 id: None,
                 invariants: None,
+                indexes: None,
             }),
             auxiliary_entities: None,
             traits: vec![],
@@ -4811,6 +4813,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         }
     }
 
@@ -6188,6 +6191,7 @@ mod tests {
                 instances: None,
                 id: None,
                 invariants: None,
+                indexes: None,
             }),
             auxiliary_entities: None,
             traits: vec![],
@@ -6256,6 +6260,7 @@ mod tests {
                 instances: None,
                 id: None,
                 invariants: None,
+                indexes: None,
             }),
             auxiliary_entities: None,
             traits: vec![],
@@ -6361,6 +6366,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
         let imported = EntityDefinition {
             timestamps: None,
@@ -6389,6 +6395,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
 
         // Not testing the field-usage narrowing here — assert this test's
@@ -6438,6 +6445,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
         let imported = EntityDefinition {
             timestamps: None,
@@ -6465,6 +6473,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
 
         let referenced: HashSet<String> = ["description", "status"]
@@ -6513,6 +6522,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
         let imported = EntityDefinition {
             timestamps: None,
@@ -6544,6 +6554,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
 
         // Every imported field is treated as referenced — this test is about
@@ -6604,6 +6615,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
         let import_browse = EntityDefinition {
             timestamps: None,
@@ -6632,6 +6644,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
         let import_modal = EntityDefinition {
             timestamps: None,
@@ -6660,6 +6673,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
 
         // First import adds name, status.
@@ -6723,6 +6737,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
         let original_len = caller.fields.len();
 
@@ -6765,6 +6780,7 @@ mod tests {
             instances: None,
             id: Some("ent_CALLER_TICKET".to_string()),
             invariants: None,
+            indexes: None,
         };
 
         let mut replies_field = make_field("replies", FieldType::Relation);
@@ -6797,6 +6813,7 @@ mod tests {
             instances: None,
             id: Some("ent_IMPORTED_THREADPOST".to_string()),
             invariants: None,
+            indexes: None,
         };
 
         let referenced: HashSet<String> = ["replies"].into_iter().map(String::from).collect();
@@ -6864,6 +6881,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
 
         let mut name_field = make_field("name", FieldType::String);
@@ -6891,6 +6909,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
 
         let referenced: HashSet<String> = ["name"].into_iter().map(String::from).collect();
@@ -6955,6 +6974,7 @@ mod tests {
                 instances: None,
                 id: None,
                 invariants: None,
+                indexes: None,
             }),
             auxiliary_entities: None,
             traits: vec![TraitReference::Inline(make_trait("StateTrait"))],
@@ -7004,6 +7024,7 @@ mod tests {
                 instances: None,
                 id: None,
                 invariants: None,
+                indexes: None,
             }),
             auxiliary_entities: None,
             traits: vec![TraitReference::Inline(make_trait("ActionTrait"))],
@@ -7129,6 +7150,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         };
         let trait_ref = TraitReference::Reference {
             dispatch: None,
@@ -7890,6 +7912,7 @@ mod tests {
             instances: None,
             id: None,
             invariants: None,
+            indexes: None,
         }
     }
 

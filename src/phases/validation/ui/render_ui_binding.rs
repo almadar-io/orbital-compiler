@@ -778,6 +778,7 @@ mod tests {
                 }],
                 id: None,
                 invariants: None,
+                indexes: None,
             },
         );
         let ctx = BindingContext {
@@ -865,6 +866,7 @@ mod tests {
                 }],
                 id: None,
                 invariants: None,
+                indexes: None,
             },
         );
         let ctx = BindingContext {

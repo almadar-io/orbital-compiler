@@ -1360,7 +1360,8 @@ pub enum ErrorCode {
     /// `store: X` (entity or app header) names no orbital of the program (EXEC-STORE-4). Error severity.
     StoreUnknownOrbital,
     /// A store driver orbital has no trait handling one of ROW_READ / ROW_LIST / ROWS_QUERY / ROWS_WRITE
-    /// (`spec/store/row-store.lolo`). Error severity.
+    /// (`spec/store/row-store.lolo`), or ROWS_ENSURE_INDEXES when it declares `queryCapabilities.indexes` runtime
+    /// or deploy. Error severity.
     StoreDriverContract,
     /// `store:` on an entity whose rows live in no store (`[runtime]` or browser-stored). Error severity.
     StoreOnNonPersistent,
@@ -1370,6 +1371,18 @@ pub enum ErrorCode {
     /// A single `persist delete|update` on an entity whose driver declares `writeCapabilities.conditional`
     /// false: the take is one conditional op (EXEC-STEP-8). Error severity.
     StoreDriverNotConditional,
+    /// An entity `@index` path names a field the entity does not declare (`id`, `createdAt` and `updatedAt` always
+    /// exist) or a non-scalar field (array, object, file). Error severity.
+    IndexPathInvalid,
+    /// An entity declares the same `@index` path twice (`orderBy: "f"` and `"f:asc"` are one order). Error severity.
+    IndexPathDuplicate,
+    /// A conjunctive `fetch` of an entity whose store driver declares `queryCapabilities.indexes: "deploy"` needs a
+    /// composite index (two or more equality fields, or an equality with a range or an order on another field) and no
+    /// declared `@index` path covers it. Error severity.
+    FetchNeedsCompositeIndex,
+    /// A `fetch` with an equality or range filter on an entity whose store driver declares `queryCapabilities.indexes:
+    /// "none"` (no push-down, the kernel scans) and no declared `@index` path covers it. Warning severity.
+    FetchUnindexed,
     /// A trait's `config.groupByField` + `config.columns[].key` bucket rows
     /// of the linked entity by strict key equality, but the field's declared
     /// enum allows a value no column key names — those rows match no column
@@ -1931,6 +1944,10 @@ impl ErrorCode {
             ErrorCode::StoreOnNonPersistent => "ORB_STORE_ON_NON_PERSISTENT",
             ErrorCode::StoreVerbOutsideSeam => "ORB_STORE_VERB_OUTSIDE_SEAM",
             ErrorCode::StoreDriverNotConditional => "ORB_STORE_DRIVER_NOT_CONDITIONAL",
+            ErrorCode::IndexPathInvalid => "ORB_INDEX_PATH_INVALID",
+            ErrorCode::IndexPathDuplicate => "ORB_INDEX_PATH_DUPLICATE",
+            ErrorCode::FetchNeedsCompositeIndex => "ORB_FETCH_NEEDS_COMPOSITE_INDEX",
+            ErrorCode::FetchUnindexed => "ORB_FETCH_UNINDEXED",
             ErrorCode::RenderGroupbyEnumColumnGap => "ORB_RENDER_GROUPBY_ENUM_COLUMN_GAP",
             ErrorCode::EmbedConfigForwardMultiReferrer => "ORB_EMBED_CONFIG_FORWARD_MULTI_REFERRER",
             ErrorCode::ThemePinContradictsApp => "ORB_THEME_PIN_CONTRADICTS_APP",
@@ -2403,7 +2420,11 @@ impl ErrorCode {
             | ErrorCode::StoreDriverContract
             | ErrorCode::StoreOnNonPersistent
             | ErrorCode::StoreVerbOutsideSeam
-            | ErrorCode::StoreDriverNotConditional => "entity",
+            | ErrorCode::StoreDriverNotConditional
+            | ErrorCode::IndexPathInvalid
+            | ErrorCode::IndexPathDuplicate
+            | ErrorCode::FetchNeedsCompositeIndex
+            | ErrorCode::FetchUnindexed => "entity",
             ErrorCode::RenderGroupbyEnumColumnGap => "render_ui",
             ErrorCode::EmbedConfigForwardMultiReferrer => "cross",
             ErrorCode::ThemePinContradictsApp => "schema",

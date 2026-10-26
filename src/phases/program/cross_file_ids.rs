@@ -524,6 +524,7 @@ mod tests {
             delete_policy: None,
             access_waivers: None,
             invariants: None,
+            indexes: None,
         }
     }
 
