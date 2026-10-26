@@ -97,6 +97,13 @@ fn a_literal_count_outside_one_to_1024_is_refused() {
 }
 
 #[test]
+fn only_the_tables_closed_calls_are_held_to_the_host_effect_shape() {
+    let r = check(json!([["fetch", "Item", { "key": "k", "cancelled": "X", "emit": { "success": "LOADED" } }]]));
+    assert!(!fires(&r, ErrorCode::HostEffectOptionUnknown) && !fires(&r, ErrorCode::HostEffectArity), "control: fetch is a data effect: {:?}", r.errors);
+    assert!(fires(&check(json!([["access-check", {}, { "cancelled": "X" }]])), ErrorCode::HostEffectOptionUnknown));
+}
+
+#[test]
 fn the_success_payload_a_handler_declares_must_be_one_the_effect_produces() {
     let spoiled = check(json!([["random-bytes", 8, { "emit": { "success": "SPOILED" } }]]));
     assert!(fires(&spoiled, ErrorCode::EmitPayloadNotProduced), "{:?}", spoiled.errors);

@@ -397,21 +397,11 @@ mod endpoint_tests {
         );
     }
 
-    #[test]
-    fn only_routes_can_be_unreachable_and_the_boot_page_is_the_first_route() {
-        let page = json!([http("/", &["S"]), route("/t", &["V"])]);
-        let codes = one(server_trait(), page, grants());
-        assert!(!codes.contains(&ErrorCode::PageUnreachable), "{codes:?}");
-        let page = json!([route("/t", &["V"]), route("/u", &["V"])]);
-        let codes = one(vec![trait_json("V", "INIT", true)], page, Value::Null);
-        assert!(codes.contains(&ErrorCode::PageUnreachable), "{codes:?}");
-    }
 }
 
 /// Validate all pages in a schema
 pub fn validate_all_pages(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     ctx.merge(validate_protocol_pages(schema));
-    ctx.merge(validate_page_reachability(schema));
 }
 
 /// Structural reachability signals collected once across the WHOLE schema —
@@ -630,144 +620,6 @@ fn schema_uses_pages_sigil(schema: &OrbitalSchema) -> bool {
         })
 }
 
-/// `ORB_PAGE_UNREACHABLE`: a declared inline page nothing in the schema can
-/// ever route a viewer to. Generalises the JS wiring lint's
-/// `page-absent-from-nav`, which only read `href` inside object-array
-/// entries and only ran when some navItems-shaped array existed anywhere.
-/// Routes only (a protocol endpoint is reached by its address, not a link).
-/// Here reachable = the schema's BOOT page (the first inline route page in
-/// declaration order — what both shipped routers mount at the index route
-/// when nothing else is requested; see `boot_position` below, never a bare
-/// `path == "/"` special case), a parameterized page (any `:name` segment),
-/// the target of any `navigate` effect anywhere in the schema, or a page
-/// path found as a literal `href` value anywhere in trait config or a
-/// rendered payload (scalar or array-entry — one structural walk covers
-/// both). No opt-in gate: a schema with zero links anywhere correctly
-/// reports every non-boot, non-param page as unreachable.
-pub(crate) fn validate_page_reachability(schema: &OrbitalSchema) -> ValidationResult {
-    let mut result = ValidationResult::new();
-
-    // The BOOT page — reachable by construction, whatever string its own
-    // `path` carries — is the first inline page in schema-declaration order
-    // (first orbital that declares one, its first page), never a bare
-    // `path == "/"` special case (an author's first-declared page is
-    // routinely NOT literally "/"). This is the actual rule both shipped
-    // routers use for "no page requested, boot into the default":
-    // - compiled path: `orbital-shell-typescript/src/backend/pages.rs:408`
-    //   (`let first_page = &module.pages[0];` mounted as `<Route index>`,
-    //   fed by `resolve.rs`'s `module.pages.push(...)` walk over
-    //   `schema.orbitals[].pages` in declared order — same order this
-    //   function's own double loop below walks).
-    // - runtime path: `packages/almadar-runtime/src/resolver/schema-to-ir.ts:581`
-    //   (`getPage` with no name falls back to `pages[0]`/the first entry of
-    //   the `ir.pages` map, built in the same declaration order).
-    let boot_position: Option<(usize, usize)> =
-        schema.orbitals.iter().enumerate().find_map(|(i, orbital)| {
-            orbital
-                .pages
-                .iter()
-                .flatten()
-                .position(|p| p.as_inline().is_some_and(|p| p.is_route()))
-                .map(|j| (i, j))
-        });
-
-    let signals = collect_reachability_signals(schema);
-
-    for (i, orbital) in schema.orbitals.iter().enumerate() {
-        for (j, page_ref) in orbital.pages.iter().flatten().enumerate() {
-            let Some(page) = page_ref.as_inline().filter(|p| p.is_route()) else {
-                continue;
-            };
-            if boot_position == Some((i, j)) {
-                continue;
-            }
-            if page.path.split('/').any(|segment| segment.starts_with(':')) {
-                continue;
-            }
-            if signals.hrefs.contains(&page.path) || signals.navigate_targets.contains(&page.path) {
-                continue;
-            }
-            let reached_by_dynamic_prefix = signals
-                .navigate_targets
-                .iter()
-                .any(|target| target.len() > 1 && page.path.starts_with(target.as_str()));
-            if reached_by_dynamic_prefix {
-                continue;
-            }
-
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::PageUnreachable,
-                    format!("orbitals[{}].pages[{}]", i, j),
-                    format!(
-                        "page '{}' is declared but appears in no link, navItems entry or navigate effect",
-                        page.path
-                    ),
-                )
-                .with_suggestion(format!(
-                    "add an href to a nav/footer/link component, or a navigate effect, targeting '{}', or remove the page if nothing should reach it",
-                    page.path
-                )),
-            );
-        }
-    }
-
-    // A lazy page is reached by the program's own links, or by the links inside a lazy page that is
-    // itself reached; walk that to a fixpoint so an unreached page's links reach nothing.
-    let mut hrefs = signals.hrefs.clone();
-    let navigate_targets = signals.navigate_targets.clone();
-    let lazy_pages: Vec<&orbital_core_base::schema::LazyPage> =
-        schema.lazy_pages.iter().flatten().collect();
-    let is_reached = |path: &str, hrefs: &HashSet<String>, targets: &HashSet<String>| {
-        hrefs.contains(path)
-            || targets.contains(path)
-            || targets
-                .iter()
-                .any(|target| target.len() > 1 && path.starts_with(target.as_str()))
-    };
-    let mut expanded = vec![false; lazy_pages.len()];
-    loop {
-        let mut grew = false;
-        for (k, lazy) in lazy_pages.iter().enumerate() {
-            if expanded[k] || !is_reached(&lazy.path, &hrefs, &navigate_targets) {
-                continue;
-            }
-            expanded[k] = true;
-            for link in &lazy.links {
-                grew |= hrefs.insert(link.clone());
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-
-    for (k, lazy) in lazy_pages.iter().enumerate() {
-        if lazy.path.split('/').any(|segment| segment.starts_with(':')) {
-            continue;
-        }
-        let reached = is_reached(&lazy.path, &hrefs, &navigate_targets);
-        if !reached {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::PageUnreachable,
-                    format!("lazyPages[{k}]"),
-                    format!(
-                        "page '{}' is declared but appears in no link, navItems entry or navigate effect",
-                        lazy.path
-                    ),
-                )
-                .with_suggestion(format!(
-                    "add an href to a nav/footer/link component, or a navigate effect, targeting '{}', or remove the `uses lazy` page if nothing should reach it",
-                    lazy.path
-                )),
-            );
-        }
-    }
-
-    result
-}
-
 /// The literal a `@config.<knob>` address value stands for at this orbital: the knob's declared default,
 /// read orbital-first then app, as trait config resolves.
 fn literal_of<'a>(
@@ -830,7 +682,7 @@ fn address_problems(
     orbital: &orbital_core_base::schema::Orbital,
 ) -> Vec<String> {
     let mut problems = Vec::new();
-    let Some(fields) = spec.address else {
+    let Some(fields) = spec.address.as_deref() else {
         if page.address.is_some() {
             problems.push(format!("protocol '{}' takes no address", spec.name));
         }
@@ -870,7 +722,7 @@ fn address_problems(
         schema: Some(schema),
     };
     for field in fields {
-        let Some(value) = record.get(field.name) else {
+        let Some(value) = record.get(field.name.as_str()) else {
             if field.required {
                 problems.push(format!(
                     "the '{}' address needs '{}'",
@@ -879,7 +731,7 @@ fn address_problems(
             }
             continue;
         };
-        let declared = orbital_core_base::type_compat::compat_kind_oir(field.ty);
+        let declared = orbital_core_base::type_compat::compat_kind_oir(&field.ty);
         if let Some(found) = expr_return_incompatible_in_ctx(value, &declared, &ctx) {
             problems.push(format!(
                 "'{}' of the '{}' address is {} where {} is declared",
@@ -960,7 +812,8 @@ pub fn validate_protocol_pages(schema: &OrbitalSchema) -> ValidationResult {
                 continue;
             };
             let location = format!("orbitals[{i}].pages[{j}]");
-            let Some(spec) = protocols::protocol(page.protocol_name()).filter(|p| !p.viewer) else {
+            let table = protocols::table_after_preflight();
+            let Some(spec) = table.iter().find(|p| p.name == page.protocol_name()).filter(|p| !p.viewer) else {
                 result.add_error(
                     ValidationError::error(
                         ErrorCode::PageUnknownProtocol,
@@ -972,9 +825,9 @@ pub fn validate_protocol_pages(schema: &OrbitalSchema) -> ValidationResult {
                         ),
                     )
                     .with_valid_values(
-                        protocols::PROTOCOLS
+                        table
                             .iter()
-                            .map(|p| p.name.to_string())
+                            .map(|p| p.name.clone())
                             .collect(),
                     ),
                 );
@@ -1130,440 +983,5 @@ mod tests {
             "OIR layer must not report a path-duplicate finding anymore: {:#?}",
             oir_result.errors
         );
-    }
-
-    // ------------------------------------------------------------------
-    // Shard C: `ORB_PAGE_UNREACHABLE` — generalises the JS wiring lint's
-    // `page-absent-from-nav`. Cases 1-5 mirror the JS test suite 1:1
-    // (case 5's expectation is INVERTED — the JS opt-in gate is gone by
-    // design); the last two are the new structural coverage (scalar href,
-    // navigate-effect target) the generalisation adds.
-    // ------------------------------------------------------------------
-
-    fn schema_for_reachability(
-        traits: serde_json::Value,
-        pages: serde_json::Value,
-    ) -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({
-            "name": "test-page-reachability",
-            "version": "1.0.0",
-            "orbitals": [
-                {
-                    "name": "AppOrbital",
-                    "entity": {
-                        "name": "Widget",
-                        "persistence": "persistent",
-                        "fields": [ { "name": "id", "type": "string", "required": true } ]
-                    },
-                    "traits": traits,
-                    "pages": pages
-                }
-            ]
-        }))
-        .expect("reachability fixture must deserialize")
-    }
-
-    fn with_lazy_pages(mut schema: OrbitalSchema, paths: &[&str]) -> OrbitalSchema {
-        schema.lazy_pages = Some(
-            paths
-                .iter()
-                .map(|p| orbital_core_base::schema::LazyPage {
-                    path: p.to_string(),
-                    orbital: "BlogPost".into(),
-                    orb_ref: "lazy/BlogPost.orb".into(),
-                    links: Vec::new(),
-                })
-                .collect(),
-        );
-        schema
-    }
-
-    /// Lazy pages from separate behaviors, each with the links its own resolved behavior carries.
-    fn with_linked_lazy_pages(
-        mut schema: OrbitalSchema,
-        pages: &[(&str, &[&str])],
-    ) -> OrbitalSchema {
-        schema.lazy_pages = Some(
-            pages
-                .iter()
-                .map(|(path, links)| orbital_core_base::schema::LazyPage {
-                    path: path.to_string(),
-                    orbital: format!("Doc{}", path.replace('/', "_")),
-                    orb_ref: format!("lazy/Doc{}.orb", path.replace('/', "_")),
-                    links: links.iter().map(|l| l.to_string()).collect(),
-                })
-                .collect(),
-        );
-        schema
-    }
-
-    #[test]
-    fn a_lazy_page_linked_only_from_a_reached_lazy_page_is_reachable() {
-        let schema = with_linked_lazy_pages(
-            schema_for_reachability(
-                layout_trait_with_nav_href_array(&["/", "/docs"]),
-                serde_json::json!([
-                    { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
-                ]),
-            ),
-            &[
-                ("/docs", &["/docs/intro"]),
-                ("/docs/intro", &["/docs/traits"]),
-                ("/docs/traits", &[]),
-            ],
-        );
-        assert!(reachability_messages(&schema).is_empty());
-    }
-
-    #[test]
-    fn control_links_inside_an_unreached_lazy_page_reach_nothing() {
-        let schema = with_linked_lazy_pages(
-            schema_for_reachability(
-                layout_trait_with_nav_href_array(&["/"]),
-                serde_json::json!([
-                    { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
-                ]),
-            ),
-            &[("/docs", &["/docs/intro"]), ("/docs/intro", &[])],
-        );
-        assert_eq!(
-            reachability_messages(&schema),
-            vec![
-                "page '/docs' is declared but appears in no link, navItems entry or navigate effect".to_string(),
-                "page '/docs/intro' is declared but appears in no link, navItems entry or navigate effect".to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn edge_a_lazy_page_linking_to_itself_does_not_reach_itself() {
-        let schema = with_linked_lazy_pages(
-            schema_for_reachability(
-                layout_trait_with_nav_href_array(&["/"]),
-                serde_json::json!([
-                    { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
-                ]),
-            ),
-            &[("/docs", &["/docs"])],
-        );
-        assert_eq!(reachability_messages(&schema).len(), 1);
-    }
-
-    #[test]
-    fn a_lazy_page_nothing_links_to_is_unreachable() {
-        let schema = with_lazy_pages(
-            schema_for_reachability(
-                layout_trait_with_nav_href_array(&["/"]),
-                serde_json::json!([
-                    { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
-                ]),
-            ),
-            &["/blog/why"],
-        );
-        assert_eq!(
-            reachability_messages(&schema),
-            vec!["page '/blog/why' is declared but appears in no link, navItems entry or navigate effect".to_string()]
-        );
-    }
-
-    #[test]
-    fn control_a_linked_lazy_page_is_reachable() {
-        let schema = with_lazy_pages(
-            schema_for_reachability(
-                layout_trait_with_nav_href_array(&["/", "/blog/why"]),
-                serde_json::json!([
-                    { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] }
-                ]),
-            ),
-            &["/blog/why"],
-        );
-        assert!(reachability_messages(&schema).is_empty());
-    }
-
-    #[test]
-    fn the_declared_sign_in_route_is_reachable_through_the_access_host() {
-        let pages = serde_json::json!([
-            { "name": "HomePage", "path": "/", "traits": [ { "ref": "AppLayout" } ] },
-            { "name": "SignInPage", "path": "/welcome", "traits": [ { "ref": "AppLayout" } ] }
-        ]);
-        let mut schema =
-            schema_for_reachability(layout_trait_with_nav_href_array(&["/"]), pages.clone());
-        assert_eq!(
-            reachability_messages(&schema).len(),
-            1,
-            "control: undeclared it is unreachable"
-        );
-        schema.site = Some(orbital_core_base::schema::SiteMeta {
-            sign_in: Some("/welcome".into()),
-            ..Default::default()
-        });
-        assert!(reachability_messages(&schema).is_empty());
-    }
-
-    fn reachability_messages(schema: &OrbitalSchema) -> Vec<String> {
-        validate_page_reachability(schema)
-            .errors
-            .into_iter()
-            .filter(|e| e.code == ErrorCode::PageUnreachable)
-            .map(|e| e.message)
-            .collect()
-    }
-
-    fn layout_trait_with_nav_href_array(hrefs: &[&str]) -> serde_json::Value {
-        let items: Vec<serde_json::Value> = hrefs
-            .iter()
-            .map(|h| serde_json::json!({ "href": h, "label": "Nav" }))
-            .collect();
-        serde_json::json!([{
-            "name": "AppLayout",
-            "linkedEntity": "Widget",
-            "config": { "navItems": { "type": "array", "default": items } },
-            "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] }
-        }])
-    }
-
-    fn page(name: &str, path: &str) -> serde_json::Value {
-        serde_json::json!({ "name": name, "path": path, "traits": [{ "ref": "AppLayout" }] })
-    }
-
-    fn layout_trait_with_pages_sigil() -> serde_json::Value {
-        serde_json::json!([{
-            "name": "AppLayout",
-            "linkedEntity": "Widget",
-            "config": { "navItems": { "type": "array", "default": "@pages" } },
-            "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] }
-        }])
-    }
-
-    fn labelled_page(name: &str, path: &str, label: &str) -> serde_json::Value {
-        serde_json::json!({ "name": name, "path": path, "label": label, "traits": [{ "ref": "AppLayout" }] })
-    }
-
-    #[test]
-    fn a_labelled_page_is_reached_through_the_pages_sigil() {
-        let schema = schema_for_reachability(
-            layout_trait_with_pages_sigil(),
-            serde_json::json!([
-                labelled_page("DashboardPage", "/dashboard", "Dashboard"),
-                labelled_page("StaffPage", "/staff", "Staff")
-            ]),
-        );
-        assert_eq!(reachability_messages(&schema), Vec::<String>::new());
-    }
-
-    #[test]
-    fn control_a_page_without_a_label_is_not_reached_through_the_pages_sigil() {
-        let schema = schema_for_reachability(
-            layout_trait_with_pages_sigil(),
-            serde_json::json!([
-                labelled_page("DashboardPage", "/dashboard", "Dashboard"),
-                page("StaffPage", "/staff")
-            ]),
-        );
-        let messages = reachability_messages(&schema);
-        assert_eq!(messages.len(), 1, "{:?}", messages);
-        assert!(messages[0].contains("/staff"), "{:?}", messages);
-    }
-
-    #[test]
-    fn control_a_label_without_any_pages_sigil_reaches_nothing() {
-        let schema = schema_for_reachability(
-            layout_trait_with_nav_href_array(&["/dashboard"]),
-            serde_json::json!([
-                labelled_page("DashboardPage", "/dashboard", "Dashboard"),
-                labelled_page("StaffPage", "/staff", "Staff")
-            ]),
-        );
-        let messages = reachability_messages(&schema);
-        assert_eq!(messages.len(), 1, "{:?}", messages);
-        assert!(messages[0].contains("/staff"), "{:?}", messages);
-    }
-
-    #[test]
-    fn fires_for_a_page_reachable_by_no_link_navitem_or_navigate_target() {
-        let schema = schema_for_reachability(
-            layout_trait_with_nav_href_array(&["/dashboard"]),
-            serde_json::json!([
-                page("DashboardPage", "/dashboard"),
-                page("StaffPage", "/staff")
-            ]),
-        );
-        let messages = reachability_messages(&schema);
-        assert_eq!(messages.len(), 1, "{:?}", messages);
-        assert!(messages[0].contains("/staff"), "{:?}", messages);
-    }
-
-    #[test]
-    fn silent_once_the_page_has_an_entry_in_a_navitems_array() {
-        let schema = schema_for_reachability(
-            layout_trait_with_nav_href_array(&["/dashboard", "/staff"]),
-            serde_json::json!([
-                page("DashboardPage", "/dashboard"),
-                page("StaffPage", "/staff")
-            ]),
-        );
-        assert_eq!(reachability_messages(&schema), Vec::<String>::new());
-    }
-
-    #[test]
-    fn does_not_flag_a_parameterized_detail_page() {
-        let schema = schema_for_reachability(
-            layout_trait_with_nav_href_array(&["/staff"]),
-            serde_json::json!([
-                page("StaffPage", "/staff"),
-                page("StaffDetailPage", "/staff/:id")
-            ]),
-        );
-        assert_eq!(reachability_messages(&schema), Vec::<String>::new());
-    }
-
-    #[test]
-    fn does_not_flag_the_app_root_page() {
-        let schema = schema_for_reachability(
-            layout_trait_with_nav_href_array(&[]),
-            serde_json::json!([page("HomePage", "/")]),
-        );
-        assert_eq!(reachability_messages(&schema), Vec::<String>::new());
-    }
-
-    #[test]
-    fn fires_even_when_no_navitems_array_exists_anywhere_no_opt_in_gate() {
-        // JS required at least one navItems-shaped array before it would
-        // check anything ("has not opted into the convention"); the Rust
-        // generalisation has no such gate — a MULTI-page app with zero links
-        // anywhere still owes every non-root, non-param page a real route.
-        // (A single-page schema is exempt — see
-        // `silent_for_a_schema_with_only_one_page_no_second_page_to_link_from`
-        // below — so this fixture needs a second page to isolate the claim.)
-        let traits = serde_json::json!([{
-            "name": "Directory",
-            "linkedEntity": "Widget",
-            "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] }
-        }]);
-        let schema = schema_for_reachability(
-            traits,
-            serde_json::json!([
-                { "name": "HomePage", "path": "/", "traits": [{ "ref": "Directory" }] },
-                { "name": "StaffPage", "path": "/staff", "traits": [{ "ref": "Directory" }] }
-            ]),
-        );
-        let messages = reachability_messages(&schema);
-        assert_eq!(messages.len(), 1, "{:?}", messages);
-        assert!(messages[0].contains("/staff"), "{:?}", messages);
-    }
-
-    #[test]
-    fn silent_for_a_scalar_href_not_nested_in_an_array() {
-        // `{ type: "case-study-card", href: "/about", ... }` — a scalar
-        // `href` prop directly on a rendered pattern object, not inside an
-        // array-of-descriptors. The OLD JS `descriptorEvents(node, 'href')`
-        // walk only extracted `href` from ARRAY entries, so this shape
-        // (`patterns-registry.json`'s `case-study-card`/`feature-card`/
-        // `showcase-card` prop) was invisible to it.
-        let traits = serde_json::json!([{
-            "name": "FeatureCard",
-            "linkedEntity": "Widget",
-            "stateMachine": {
-                "states": [{ "name": "idle", "isInitial": true }],
-                "events": [],
-                "transitions": [
-                    { "from": "idle", "to": "idle", "event": "INIT", "effects": [
-                        ["render-ui", "main", { "type": "case-study-card", "href": "/about", "title": "About" }]
-                    ] }
-                ]
-            }
-        }]);
-        let schema = schema_for_reachability(
-            traits,
-            // A second (boot) page so `/about` isn't trivially exempt as
-            // the schema's first-declared page — its silence must come
-            // from the scalar href, the thing under test.
-            serde_json::json!([
-                { "name": "HomePage", "path": "/home", "traits": [{ "ref": "FeatureCard" }] },
-                { "name": "AboutPage", "path": "/about", "traits": [{ "ref": "FeatureCard" }] }
-            ]),
-        );
-        assert_eq!(reachability_messages(&schema), Vec::<String>::new());
-    }
-
-    fn layout_trait_with_user_menu(items: serde_json::Value) -> serde_json::Value {
-        serde_json::json!([{
-            "name": "AppLayout",
-            "linkedEntity": "Widget",
-            "config": { "userMenuItems": { "type": "array", "default": items } },
-            "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] }
-        }])
-    }
-
-    #[test]
-    fn silent_for_a_page_reached_only_by_an_action_navigates_to() {
-        // `userMenuItems: [{ label, navigatesTo: "/account" }]` — an action
-        // entry the UI turns into `UI:NAVIGATE`, so it links its target.
-        let schema = schema_for_reachability(
-            layout_trait_with_user_menu(
-                serde_json::json!([{ "label": "Account", "navigatesTo": "/account" }]),
-            ),
-            serde_json::json!([page("HomePage", "/"), page("AccountPage", "/account")]),
-        );
-        assert_eq!(reachability_messages(&schema), Vec::<String>::new());
-    }
-
-    #[test]
-    fn control_an_action_without_navigates_to_reaches_nothing() {
-        let schema = schema_for_reachability(
-            layout_trait_with_user_menu(
-                serde_json::json!([{ "label": "Account", "event": "OPEN_ACCOUNT" }]),
-            ),
-            serde_json::json!([page("HomePage", "/"), page("AccountPage", "/account")]),
-        );
-        assert_eq!(reachability_messages(&schema).len(), 1);
-    }
-
-    #[test]
-    fn silent_for_a_page_reached_only_by_a_navigate_effect() {
-        let traits = serde_json::json!([{
-            "name": "ReportsButton",
-            "linkedEntity": "Widget",
-            "stateMachine": {
-                "states": [{ "name": "idle", "isInitial": true }],
-                "events": [{ "key": "OPEN_REPORTS" }],
-                "transitions": [
-                    { "from": "idle", "to": "idle", "event": "OPEN_REPORTS", "effects": [["navigate", "/reports"]] }
-                ]
-            }
-        }]);
-        let schema = schema_for_reachability(
-            traits,
-            // A second (boot) page so `/reports` isn't trivially exempt as
-            // the schema's first-declared page.
-            serde_json::json!([
-                { "name": "HomePage", "path": "/home", "traits": [{ "ref": "ReportsButton" }] },
-                { "name": "ReportsPage", "path": "/reports", "traits": [{ "ref": "ReportsButton" }] }
-            ]),
-        );
-        assert_eq!(reachability_messages(&schema), Vec::<String>::new());
-    }
-
-    #[test]
-    fn silent_for_a_schema_with_only_one_page_it_is_the_boot_page() {
-        // Every declared page IS the schema's first (and only) page, so it
-        // is the boot page the shipped router mounts at its index route
-        // regardless of its own literal path — the overwhelming majority
-        // of the pattern registry is exactly this shape: one orbital, one
-        // page, no shell, no nav, never a multi-page app a viewer routes
-        // through (measured against the release binary: without this rule,
-        // 1094/1226 registry files — almost entirely single-page atoms —
-        // spuriously failed `orb validate`, swamping the ~20 files the
-        // check exists to catch).
-        let traits = serde_json::json!([{
-            "name": "Directory",
-            "linkedEntity": "Widget",
-            "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] }
-        }]);
-        let schema = schema_for_reachability(
-            traits,
-            serde_json::json!([{ "name": "StaffPage", "path": "/staff", "traits": [{ "ref": "Directory" }] }]),
-        );
-        assert_eq!(reachability_messages(&schema), Vec::<String>::new());
     }
 }

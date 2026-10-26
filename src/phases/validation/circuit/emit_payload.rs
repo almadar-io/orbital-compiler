@@ -21,7 +21,8 @@ use orbital_core_base::schema::{
 
 use crate::embedded::ServiceRegistryData;
 use super::effect::{
-    expr_return_incompatible_given, expr_return_incompatible_in_ctx, ExprReturnCtx, TraitScopes,
+    expr_return_incompatible_given, expr_return_incompatible_in_ctx, nested_effects, scope_let_locals, BindingTypes,
+    EntityFieldMeta, ExprReturnCtx, TraitScopes,
 };
 use super::error::{ErrorCode, ValidationError};
 use super::fired_events::trait_has_dynamic_event_prop_binding;
@@ -68,78 +69,50 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
                 let payload = scopes.payload_for(&transition.event);
                 let types = scopes.types_for(schema, trait_def, &transition.event);
-                let type_ctx = ExprReturnCtx {
-                    entity: &scopes.entity_field_types,
-                    payload: &payload,
-                    types: Some(&types),
-                    schema: Some(schema),
-                };
                 if let Some(effects) = &transition.effects {
                     check_repeated_emits(
                         effects,
                         &format!("{}.stateMachine.transitions[{}]", trait_path, i),
                         ctx,
                     );
+                    let site = EmitSite {
+                        emit_schemas: &emit_schemas,
+                        entity: &scopes.entity_field_types,
+                        payload: &payload,
+                        schema,
+                        guard: transition.guard.as_ref(),
+                        entity_definitions: &ctx.entity_definitions,
+                        registry: &ctx.service_registry,
+                    };
+                    let mut found = ValidationResult::new();
                     for (j, effect) in effects.iter().enumerate() {
                         let path = format!(
                             "{}.stateMachine.transitions[{}].effects[{}]",
                             trait_path, i, j
                         );
-                        if !emit_schemas.is_empty() {
-                            let result = validate_emit_literal(
-                                effect,
-                                &path,
-                                &emit_schemas,
-                                &type_ctx,
-                                schema,
-                                transition.guard.as_ref(),
-                            );
-                            ctx.merge(result);
-                        }
-                        // V2 Phase 0 P0.8: tie operator `effect.produces` to
-                        // `emit: { success: "X" }` on the same call.
-                        let p08 = validate_emit_success_return(
-                            effect,
-                            &path,
-                            &emit_schemas,
-                            &ctx.entity_definitions,
-                            &ctx.service_registry,
-                        );
-                        ctx.merge(p08);
+                        check_effect_tree(effect, &path, &site, Some(&types), &mut found);
                     }
+                    ctx.merge(found);
                 }
             }
 
             if let Some(ticks) = &trait_def.ticks {
-                let type_ctx = ExprReturnCtx {
-                    entity: &scopes.entity_field_types,
-                    payload: &scopes.payload_field_types,
-                    types: Some(&scopes.tick_types),
-                    schema: Some(schema),
-                };
                 for (i, tick) in ticks.iter().enumerate() {
+                    let site = EmitSite {
+                        emit_schemas: &emit_schemas,
+                        entity: &scopes.entity_field_types,
+                        payload: &scopes.payload_field_types,
+                        schema,
+                        guard: tick.guard.as_ref(),
+                        entity_definitions: &ctx.entity_definitions,
+                        registry: &ctx.service_registry,
+                    };
+                    let mut found = ValidationResult::new();
                     for (j, effect) in tick.effects.iter().enumerate() {
                         let path = format!("{}.ticks[{}].effects[{}]", trait_path, i, j);
-                        if !emit_schemas.is_empty() {
-                            let result = validate_emit_literal(
-                                effect,
-                                &path,
-                                &emit_schemas,
-                                &type_ctx,
-                                schema,
-                                tick.guard.as_ref(),
-                            );
-                            ctx.merge(result);
-                        }
-                        let p08 = validate_emit_success_return(
-                            effect,
-                            &path,
-                            &emit_schemas,
-                            &ctx.entity_definitions,
-                            &ctx.service_registry,
-                        );
-                        ctx.merge(p08);
+                        check_effect_tree(effect, &path, &site, Some(&scopes.tick_types), &mut found);
                     }
+                    ctx.merge(found);
                 }
             }
 
@@ -205,6 +178,62 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                 }
             }
         }
+    }
+}
+
+/// What one trait's emit checks read, shared by every effect of a transition or tick.
+struct EmitSite<'a> {
+    emit_schemas: &'a HashMap<&'a str, &'a [PayloadField]>,
+    entity: &'a HashMap<String, EntityFieldMeta>,
+    payload: &'a HashMap<String, String>,
+    schema: &'a OrbitalSchema,
+    guard: Option<&'a SExpression>,
+    entity_definitions: &'a HashMap<String, EntityDefinition>,
+    registry: &'a ServiceRegistryData,
+}
+
+/// Check an effect and every effect nested in its `do` / `if` / `when` / `let` forms (`nested_effects` owns where
+/// effects nest). A `let` body is checked against `types` extended with the locals it binds; a local whose type is
+/// undecidable stays permissive, as at top level.
+fn check_effect_tree(
+    effect: &SExpression,
+    path: &str,
+    site: &EmitSite<'_>,
+    types: Option<&BindingTypes>,
+    found: &mut ValidationResult,
+) {
+    let type_ctx = ExprReturnCtx {
+        entity: site.entity,
+        payload: site.payload,
+        types,
+        schema: Some(site.schema),
+    };
+    if !site.emit_schemas.is_empty() {
+        found.merge(validate_emit_literal(
+            effect,
+            path,
+            site.emit_schemas,
+            &type_ctx,
+            site.schema,
+            site.guard,
+        ));
+    }
+    // V2 Phase 0 P0.8: tie operator `effect.produces` to `emit: { success: "X" }` on the same call.
+    found.merge(validate_emit_success_return(
+        effect,
+        path,
+        site.emit_schemas,
+        site.entity_definitions,
+        site.registry,
+    ));
+    let scoped = match effect {
+        SExpression::Array(arr) if matches!(arr.first().and_then(|e| e.as_str()), Some("let")) => {
+            scope_let_locals(arr, types, site.entity, site.payload, Some(site.schema), &mut |_| {})
+        }
+        _ => None,
+    };
+    for (member, member_path) in nested_effects(effect, path) {
+        check_effect_tree(member, &member_path, site, scoped.as_ref().or(types), found);
     }
 }
 
@@ -1004,6 +1033,87 @@ mod tests {
     fn a_record_literal_missing_a_required_member_or_mistyped_is_refused_in_a_program_type_slot() {
         assert!(viewer_literal_mismatch(r#"{ "claims": [] }"#));
         assert!(viewer_literal_mismatch(r#"{ "id": 5, "claims": [] }"#));
+    }
+
+    const GOOD_VIEWER: &str = r#"{ "id": "a", "claims": [] }"#;
+    const BAD_VIEWER: &str = r#"{ "claims": [] }"#;
+
+    /// The paths of the viewer-slot mismatches `effect` raises.
+    fn viewer_mismatch_paths(effect: &str) -> Vec<String> {
+        check(VIEWER_EMIT, effect)
+            .result
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch || e.code == ErrorCode::EmitPayloadMissingRequired)
+            .map(|e| e.path.clone())
+            .collect()
+    }
+
+    fn emit_viewer(literal: &str) -> String {
+        format!(r#"["emit", "OUT", {{ "viewer": {literal} }}]"#)
+    }
+
+    #[test]
+    fn an_emit_in_a_let_body_is_checked_like_a_top_level_one() {
+        let paths = viewer_mismatch_paths(&format!(r#"["let", [["k", "x"]], {}]"#, emit_viewer(BAD_VIEWER)));
+        assert_eq!(paths.len(), 1, "{paths:?}");
+        assert!(paths[0].ends_with(".effects[0].body[0]"), "{paths:?}");
+    }
+
+    #[test]
+    fn a_well_formed_emit_in_a_let_body_stays_clean() {
+        let good = r#"{ "id": "@k", "claims": [] }"#;
+        assert!(viewer_mismatch_paths(&format!(r#"["let", [["k", "x"]], {}]"#, emit_viewer(good))).is_empty());
+        assert!(viewer_mismatch_paths(&format!(r#"["let", [["k", "x"]], {}]"#, emit_viewer(GOOD_VIEWER))).is_empty());
+    }
+
+    #[test]
+    fn an_emit_in_a_nested_let_is_checked() {
+        let nested = format!(r#"["let", [["a", "x"]], ["let", [["b", "@a"]], {}]]"#, emit_viewer(BAD_VIEWER));
+        let paths = viewer_mismatch_paths(&nested);
+        assert_eq!(paths.len(), 1, "{paths:?}");
+        assert!(paths[0].ends_with(".effects[0].body[0].body[0]"), "{paths:?}");
+        let clean = format!(r#"["let", [["a", "x"]], ["let", [["b", "@a"]], {}]]"#, emit_viewer(GOOD_VIEWER));
+        assert!(viewer_mismatch_paths(&clean).is_empty());
+    }
+
+    #[test]
+    fn an_emit_in_an_if_branch_is_checked() {
+        let then_arm = format!(r#"["if", true, {}, ["log", "info", "no"]]"#, emit_viewer(BAD_VIEWER));
+        let paths = viewer_mismatch_paths(&then_arm);
+        assert_eq!(paths.len(), 1, "{paths:?}");
+        assert!(paths[0].ends_with(".effects[0].then"), "{paths:?}");
+        let else_arm = format!(r#"["if", true, ["log", "info", "yes"], {}]"#, emit_viewer(BAD_VIEWER));
+        let paths = viewer_mismatch_paths(&else_arm);
+        assert_eq!(paths.len(), 1, "{paths:?}");
+        assert!(paths[0].ends_with(".effects[0].else"), "{paths:?}");
+        let clean = format!(r#"["if", true, {}]"#, emit_viewer(GOOD_VIEWER));
+        assert!(viewer_mismatch_paths(&clean).is_empty());
+    }
+
+    #[test]
+    fn an_emit_in_a_do_block_and_a_when_body_is_checked() {
+        let in_do = format!(r#"["do", ["log", "info", "a"], {}]"#, emit_viewer(BAD_VIEWER));
+        let paths = viewer_mismatch_paths(&in_do);
+        assert_eq!(paths.len(), 1, "{paths:?}");
+        assert!(paths[0].ends_with(".effects[0].do[1]"), "{paths:?}");
+        let in_when = format!(r#"["when", true, {}]"#, emit_viewer(BAD_VIEWER));
+        let paths = viewer_mismatch_paths(&in_when);
+        assert_eq!(paths.len(), 1, "{paths:?}");
+        assert!(paths[0].ends_with(".effects[0].then[0]"), "{paths:?}");
+        let clean = format!(r#"["do", {}]"#, emit_viewer(GOOD_VIEWER));
+        assert!(viewer_mismatch_paths(&clean).is_empty());
+    }
+
+    #[test]
+    fn an_emit_in_a_let_inside_an_if_inside_a_do_is_checked_once() {
+        let deep = format!(
+            r#"["do", ["if", true, ["let", [["k", "x"]], {}]]]"#,
+            emit_viewer(BAD_VIEWER)
+        );
+        let paths = viewer_mismatch_paths(&deep);
+        assert_eq!(paths.len(), 1, "{paths:?}");
+        assert!(paths[0].ends_with(".effects[0].do[0].then.body[0]"), "{paths:?}");
     }
 
     const EXEC_EMIT: &str = r#"{ "event": "EXEC", "payloadSchema": [{ "name": "argv", "type": "[string]" }] }"#;

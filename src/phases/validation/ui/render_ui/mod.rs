@@ -44,8 +44,7 @@ pub fn validate_all_render_ui(schema: &OrbitalSchema, ctx: &mut ValidationContex
     // L2.1 keystone (gap #6): walk every render-ui prop binding
     // (`@payload.X` / `@entity.X` / `@config.X` / SExpression operator)
     // and verify the resolved type is in the prop's declared `types`
-    // from the registry. Independent pass — additive to the existing
-    // literal-only `RenderUIPropTypeMismatch` check.
+    // from the registry.
     validate_all_render_ui_bindings(schema, ctx);
 }
 
@@ -468,23 +467,6 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::RenderUIInvalidSlot));
-    }
-
-    #[test]
-    fn test_missing_pattern_type() {
-        let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
-            SExpression::Object(orbital_core_base::schema::SObject::new()),
-        ]);
-
-        let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::RenderUIMissingPatternType));
     }
 
     #[test]
@@ -952,8 +934,7 @@ mod tests {
             let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
             let renderitem_err = result.errors.iter().any(|e| {
                 (e.code == ErrorCode::RenderUIInvalidProp
-                    || e.code == ErrorCode::RenderUIInvalidPattern
-                    || e.code == ErrorCode::RenderUIPropTypeMismatch)
+                    || e.code == ErrorCode::RenderUIInvalidPattern)
                     && e.message.contains("renderItem")
             });
             assert!(
@@ -979,41 +960,6 @@ mod tests {
         assert!(!is_render_ui_effect(&SExpression::Array(vec![
             SExpression::String("set".to_string()),
         ])));
-    }
-
-    fn a11y_unnamed_suggestion(pattern: &str) -> String {
-        let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
-            SExpression::Object(
-                [("type".to_string(), SExpression::String(pattern.to_string()))]
-                    .into_iter()
-                    .collect(),
-            ),
-        ]);
-        let result = validate_render_ui_effect(&effect, "test", &HashMap::new(), None, None);
-        result
-            .errors
-            .iter()
-            .find(|e| e.code == ErrorCode::A11yUnnamed)
-            .and_then(|e| e.suggestion.clone())
-            .unwrap_or_else(|| panic!("expected ORB_A11Y_UNNAMED for {pattern}: {:?}", result.errors))
-    }
-
-    /// The suggestion names only props the pattern accepts: `input` takes no aria props, so
-    /// suggesting `aria-label` sent authors straight into ORB_RUI_INVALID_PROP.
-    #[test]
-    fn a11y_unnamed_suggests_only_props_the_pattern_accepts() {
-        assert_eq!(a11y_unnamed_suggestion("input"), "set one of: label");
-        assert_eq!(
-            a11y_unnamed_suggestion("atlas-image"),
-            "set one of: alt (or aria-hidden: true if it is decorative)"
-        );
-        assert_eq!(
-            a11y_unnamed_suggestion("button"),
-            "set one of: label, aria-label, aria-labelledby (or aria-hidden: true if it is decorative)",
-            "control: a pattern that takes the aria props keeps them"
-        );
     }
 
     #[test]
@@ -1514,137 +1460,6 @@ mod tests {
                 .iter()
                 .any(|e| e.code == ErrorCode::EffectMissingFetchForEntityPattern),
             "Expected EffectMissingFetchForEntityPattern warning. Warnings: {:?}",
-            result.errors
-        );
-    }
-
-    #[test]
-    fn test_data_grid_entity_string_literal_rejected() {
-        // V-2 fix: `entity: "Tenant"` (bare string) on `data-grid` must error
-        // because `data-grid.entity` is typed `["object", "array"]`. A string
-        // literal cannot iterate at runtime and silently renders zero rows.
-        // The fix should suggest using a binding expression like `@payload.data`.
-        let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
-            SExpression::Object(
-                [
-                    (
-                        "type".to_string(),
-                        SExpression::String("data-grid".to_string()),
-                    ),
-                    (
-                        "entity".to_string(),
-                        SExpression::String("Tenant".to_string()),
-                    ),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        ]);
-
-        let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
-
-        // Should report a hard error (not a warning) with a message that
-        // mentions binding alternatives.
-        let mismatch_errors: Vec<_> = result
-            .errors
-            .iter()
-            .filter(|e| {
-                e.code == ErrorCode::RenderUIPropTypeMismatch
-                    && e.message.contains("string literal")
-                    && e.message.contains("cannot iterate")
-            })
-            .collect();
-
-        assert!(
-            !mismatch_errors.is_empty(),
-            "Expected RenderUIPropTypeMismatch error for bare-string `entity` on data-grid. Errors: {:?}",
-            result.errors
-        );
-        // Must be severity error, not warning — otherwise `orbital validate`
-        // exits 0 and authors don't see the problem.
-        assert!(
-            mismatch_errors
-                .iter()
-                .any(|e| e.severity == crate::phases::validation::error::Severity::Error),
-            "Bare-string array-prop mismatch must be a hard error (severity=Error), not a warning. Errors: {:?}",
-            result.errors
-        );
-    }
-
-    #[test]
-    fn test_data_grid_entity_binding_accepted() {
-        // Sibling check: `entity: "@payload.data"` (binding) must NOT trigger
-        // the V-2 rule — bindings resolve at runtime to the actual array shape.
-        let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
-            SExpression::Object(
-                [
-                    (
-                        "type".to_string(),
-                        SExpression::String("data-grid".to_string()),
-                    ),
-                    (
-                        "entity".to_string(),
-                        SExpression::String("@payload.data".to_string()),
-                    ),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        ]);
-
-        let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
-
-        assert!(
-            !result.errors.iter().any(|e| {
-                e.code == ErrorCode::RenderUIPropTypeMismatch
-                    && e.message.contains("string literal")
-            }),
-            "Binding `@payload.data` for data-grid.entity must not trigger the bare-string mismatch rule. Errors: {:?}",
-            result.errors
-        );
-    }
-
-    #[test]
-    fn test_table_view_entity_binding_accepted() {
-        // `table-view.entity` is typed `["object", "array"]` in the registry
-        // (the resolved record / rows the trait passes after a fetch — see the
-        // prop description). A binding expression like `@entity` carries that
-        // data, so the V-2 bare-string rule MUST NOT fire on it. (A bare string
-        // literal like "Task" IS correctly rejected — that's a separate case.)
-        let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
-            SExpression::Object(
-                [
-                    (
-                        "type".to_string(),
-                        SExpression::String("table-view".to_string()),
-                    ),
-                    (
-                        "entity".to_string(),
-                        SExpression::String("@entity".to_string()),
-                    ),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        ]);
-
-        let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
-
-        assert!(
-            !result.errors.iter().any(|e| {
-                e.code == ErrorCode::RenderUIPropTypeMismatch
-                    && e.message.contains("string literal")
-            }),
-            "table-view.entity = `@entity` is a binding to resolved records; the bare-string rule must not fire. Errors: {:?}",
             result.errors
         );
     }

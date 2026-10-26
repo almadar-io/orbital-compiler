@@ -156,7 +156,7 @@ fn codes(schema: &OrbitalSchema) -> Vec<String> {
         .errors
         .iter()
         .map(|e| e.code.as_str().to_string())
-        .filter(|c| c.contains("LISTEN_SOURCE") || c.contains("EVENT_REF"))
+        .filter(|c| c.contains("EVENT_REF"))
         .collect()
 }
 
@@ -179,10 +179,6 @@ fn a_consumer_event_value_on_an_imported_input_lands_on_the_materialized_name() 
 fn an_unknown_trait_of_an_import_stays_unresolved() {
     let schema = inline("NoSuchTrait", "Things.NoSuchTrait.DO_SAVE");
     let c = codes(&schema);
-    assert!(
-        c.iter().any(|c| c == "ORB_X_LISTEN_SOURCE_UNRESOLVED"),
-        "{c:?}"
-    );
     assert!(c.iter().any(|c| c == "ORB_T_EVENT_REF_UNRESOLVED"), "{c:?}");
 }
 

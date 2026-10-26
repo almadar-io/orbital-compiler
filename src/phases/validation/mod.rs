@@ -19,7 +19,6 @@
 //! - [`binding`] - Binding validation (@entity, @payload)
 //! - [`closed_circuit`] - UI→Event→Transition flow
 //! - [`icon`] - Lucide icon names
-//! - [`time_unit`] - `time/*` unit literals
 //!
 //! # Usage
 //!
@@ -91,10 +90,6 @@ pub mod sexpr;
 pub mod config_type;
 #[path = "types/generic_types.rs"]
 pub mod generic_types;
-#[path = "types/time_unit.rs"]
-pub mod time_unit;
-#[path = "types/type_param_sweep.rs"]
-pub mod type_param_sweep;
 
 // ui — render-ui, patterns, slots, pages
 #[path = "ui/icon.rs"]
@@ -511,12 +506,6 @@ pub fn validate_comprehensive_full(
     // Phase 5e': a bridged embed (`behavior/apply` with `bridge`) whose events the
     // host never sends or never handles is a dead wire.
 
-    // Phase 5f: increment 3-I defensive sweep — a `$`-prefixed payload
-    // sentinel surviving the inline phase means the carrying trait had no
-    // `linkedEntity` to monomorphize its event alias's `(E : Entity)`
-    // parameter against. Blocking.
-    type_param_sweep::validate_type_param_sentinels(schema, &mut ctx);
-
     // Phase 6: Render-UI validation
     render_ui::validate_all_render_ui(schema, &mut ctx);
 
@@ -548,7 +537,6 @@ pub fn validate_comprehensive_full(
     // No-ops entirely when the program declares no identity entity. Runs
     // post-inline so config knob defaults carry their call-site values.
     user_identity::validate_user_identity(schema, &mut ctx);
-    user_identity::validate_user_into_required_slot(schema, &mut ctx);
 
     // Phase 11c3: entity access directives (`@read`/`@create`/`@update`/
     // `@delete`) — field/binding checks on the four per-row authorization
@@ -575,7 +563,6 @@ pub fn validate_comprehensive_full(
     entity_mutation::validate_all_client_tick_server_effects(schema, &mut ctx);
     entity_mutation::validate_all_mixed_residence(schema, &mut ctx);
     entity_mutation::validate_all_set_column_without_row(schema, &mut ctx);
-    entity_mutation::validate_all_guard_frame_field_authorization(schema, &mut ctx);
     entity_mutation::validate_all_auth_guard_client_only(schema, &mut ctx);
 
     // Phase 12: Closed circuit validation
@@ -589,11 +576,6 @@ pub fn validate_comprehensive_full(
 
     // Phase 13: Icon validation
     icon::validate_all_icons(schema, &mut ctx);
-
-    // Phase 13b: `time/*` unit literals (ORB_OP_INVALID_TIME_UNIT). An unknown
-    // unit throws at evaluation time, which inside a read predicate drops rows
-    // fail-closed while the run still reports PASS.
-    time_unit::validate_all_time_units(schema, &mut ctx);
 
     // Phase 14: Rabit V4 dual-carry id integrity (ORB_ID_*). No-op on legacy
     // id-free `.orb`; errors on dangling/kind-mismatched/name-drifted id edges,

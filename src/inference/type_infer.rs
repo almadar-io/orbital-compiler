@@ -506,8 +506,14 @@ impl<'c> Inferer<'c> {
                 };
                 // A value the program declared a type for (a substituted config knob, a recorded argument) is read
                 // as that type; a slot tag only records what was inferred.
-                if let Ok(declared) = serde_json::from_str::<OirType>(value) {
-                    return Some(declared);
+                if let Some(declared) = orbital_core_base::ir::types::DeclaredShape::parse(value) {
+                    let mut known = self.named_types.borrow_mut();
+                    for (name, ty) in declared.named {
+                        if !known.contains_key(&name) {
+                            std::sync::Arc::make_mut(&mut known).insert(name, ty);
+                        }
+                    }
+                    return Some(declared.ty);
                 }
                 self.slots.borrow_mut().push((value.clone(), ty.clone()));
                 ty
@@ -4162,6 +4168,50 @@ mod tests {
         assert!(found.is_empty(), "{found:?}");
         let wrong = check_oir_expr(&program("write"), &Row(vec![]));
         assert!(!wrong.is_empty(), "control: a kind outside the enum is still refused");
+    }
+
+    /// G-ORB-515: the declaration a `typed` list carries reads as the same type in the bare form
+    /// `.lolo` validation sees (before `orb resolve`) and in the versioned envelope the resolved `.orb`
+    /// records, so a lambda over the list types its parameter the same in both.
+    #[test]
+    fn a_typed_list_declaration_types_a_lambda_parameter_the_same_bare_or_versioned() {
+        let list = OirType::array(OirType::Struct {
+            additional: None,
+            fields: vec![{
+                let mut f = OirField::new("label".to_string(), OirType::String);
+                f.required = true;
+                f
+            }],
+        });
+        let bare = serde_json::to_string(&list).unwrap();
+        let versioned = serde_json::to_string(&orbital_core_base::ir::types::DeclaredShape {
+            version: Some(1),
+            name: None,
+            ty: list,
+            named: Default::default(),
+        })
+        .unwrap();
+        let findings = |declaration: &str, body: serde_json::Value| {
+            let sexpr: orbital_core_base::schema::SExpression = serde_json::from_value(serde_json::json!([
+                "array/map",
+                ["typed", ["list", { "label": "a" }], declaration],
+                ["fn", "m", body]
+            ]))
+            .expect("s-expression");
+            let program = orbital_core_eval::lower::lower_sexpr_keeping_typed(&sexpr).expect("lowers");
+            check_oir_expr(&program, &Row(vec![]))
+        };
+        for declaration in [&bare, &versioned] {
+            let read = findings(declaration, serde_json::json!(["str/upper", "@m.label"]));
+            assert!(read.is_empty(), "{declaration}: {read:?}");
+            let wrong = findings(declaration, serde_json::json!(["object/get", "@m", "nope"]));
+            assert!(!wrong.is_empty(), "control: a field the record lacks is refused: {declaration}");
+        }
+        assert_eq!(
+            findings(&bare, serde_json::json!(["object/get", "@m", "nope"])).len(),
+            findings(&versioned, serde_json::json!(["object/get", "@m", "nope"])).len(),
+            "both forms flag the wrong read the same way"
+        );
     }
 
     #[test]

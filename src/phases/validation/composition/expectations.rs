@@ -3,19 +3,10 @@
 //! Standalone (single-orbital slice) expectations are TRUSTED: they satisfy
 //! the identity rules (handled in `user_identity`/`entity_access`, which read
 //! the helpers here) and license relation/persist/fetch/`linkedEntity`
-//! targets (via `collect_names`). This module owns the two checks that need
-//! no sibling context or the whole program:
-//!
-//! - **Self-consistency (every schema):** a `persist` payload field outside
-//!   the consumer's own declared `expects entity X { shape }` fails with
-//!   `ORB_S_EXPECTATION_FIELD_UNDECLARED` — the declaration is the consumer's
-//!   source of truth. Existence-only expectations (no shape) opt out.
-//! - **Compose link-checks (every schema):** an expectation whose provider IS
-//!   present in this program must be compatible with it — shape per the
-//!   proposal's variance rules (width: provider may know more; field types via
-//!   orbital-core's `type_compat` only; closed literal unions: expectation
-//!   members ⊆ provider members), and an `expects entity [identity]` provider must
-//!   carry the `[identity]` tag.
+//! targets (via `collect_names`). Every `ORB_S_EXPECTATION_*` and
+//! `ORB_S_EXPECTED_FIELD_*` finding but the entity/payload field-type mismatch
+//! is reported by the std `.lolo` lint rules; this module keeps that mismatch,
+//! the spec propositions and the `--final` check.
 //!
 //! An expectation whose provider is **absent** is DEFERRED, never an error:
 //! that is the declaration doing its job — a promise about the neighborhood,
@@ -26,18 +17,14 @@
 //! drop its own `[identity]`, declare what it expects, and stay valid
 //! standalone — the composed program is where the provider is checked.
 
-use super::entity_mutation::trait_lands_a_write;
-use super::fired_events::{
-    collect_schema_fired_events, trait_has_dynamic_event_prop_binding, FiredEvents,
-};
 use super::user_identity::vocabulary;
 use super::{field_type_str, ErrorCode, ValidationContext, ValidationError, ValidationResult};
+use crate::phases::resolve::declared_struct_type;
 use orbital_core_base::ir::types::{field_shape, payload_field_shape, OirType};
 use orbital_core_base::schema::{
     ConfigField, EntityDefinition, EntityRef, ExpectDeclaration, FieldDefinition, Orbital,
-    OrbitalSchema, PageDefinition, PayloadField, SExpression, StringOrArray, TraitDefinition, TraitReference,
+    OrbitalSchema, PageDefinition, PayloadField, TraitDefinition, TraitReference,
 };
-use crate::phases::resolve::declared_struct_type;
 use orbital_core_base::type_compat::{checked_sub_with_named, enum_value_is_member};
 
 /// An orbital's `expects entity [identity]` declaration, if it carries one.
@@ -115,11 +102,6 @@ pub(super) fn shape_as_identity_entity(name: &str, shape: &[FieldDefinition]) ->
 
 pub fn validate_expectations(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
-    validate_persist_payload_self_consistency(schema, &mut result);
-    // Runs for EVERY schema. Orbital count used to gate this as a proxy for
-    // "is this a complete program", which mis-classified a multi-orbital
-    // library as complete; the real distinction is now made per expectation —
-    // absent provider = deferred, present-but-incompatible = error.
     validate_expectation_links(schema, &mut result);
     validate_propositions(schema, &mut result);
     ctx.merge(result);
@@ -273,148 +255,6 @@ fn body_trait<'a>(
 }
 
 // =============================================================================
-// Self-consistency: persist payloads vs the consumer's own declared shape
-// =============================================================================
-
-fn validate_persist_payload_self_consistency(
-    schema: &OrbitalSchema,
-    result: &mut ValidationResult,
-) {
-    for (i, orbital) in schema.orbitals.iter().enumerate() {
-        if orbital.expects.is_none() {
-            continue;
-        }
-        for (j, trait_ref) in orbital.traits.iter().enumerate() {
-            let orbital_core_base::schema::TraitReference::Inline(trait_def) = trait_ref else {
-                continue;
-            };
-            // Same authored-surface rule as user_identity: persist effects
-            // inside `uses[]`-inlined bodies (`source_behavior`) are the
-            // imported behavior's own contract, not this orbital's declared
-            // surface.
-            if trait_def.source_behavior.is_some() {
-                continue;
-            }
-            let path = super::trait_path(i, &orbital.name, j, trait_ref);
-            for (t, transition) in trait_def.state_machine.transitions.iter().enumerate() {
-                if let Some(effects) = &transition.effects {
-                    for (e, effect) in effects.iter().enumerate() {
-                        let effect_path =
-                            format!("{}.stateMachine.transitions[{}].effects[{}]", path, t, e);
-                        check_persist_payload(effect, &effect_path, orbital, result);
-                    }
-                }
-            }
-            if let Some(ticks) = &trait_def.ticks {
-                for (t, tick) in ticks.iter().enumerate() {
-                    for (e, effect) in tick.effects.iter().enumerate() {
-                        let effect_path = format!("{}.ticks[{}].effects[{}]", path, t, e);
-                        check_persist_payload(effect, &effect_path, orbital, result);
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// `["persist", "create", "X", { …payload }]` writing to an `expects entity X
-/// { shape }` must stay inside the declared shape — the declaration is the
-/// opting-in; payload fields are checked nowhere else.
-fn check_persist_payload(
-    effect: &SExpression,
-    path: &str,
-    orbital: &Orbital,
-    result: &mut ValidationResult,
-) {
-    let SExpression::Array(arr) = effect else {
-        return;
-    };
-    if !matches!(arr.first(), Some(SExpression::String(op)) if op == "persist") || arr.len() < 3 {
-        return;
-    }
-    if matches!(&arr[1], SExpression::String(op) if op == "batch") {
-        for w in orbital_core_base::persist_batch::batch_writes(&arr[2]) {
-            if let Some(SExpression::Object(payload)) = w.data {
-                check_persist_payload_keys(w.entity, payload, path, orbital, result);
-            }
-        }
-        return;
-    }
-    // Mirror effect/persist.rs's format detection.
-    let entity_index = if matches!(&arr[1], SExpression::String(op) if op == "create" || op == "upsert" || op == "update" || op == "delete")
-    {
-        2
-    } else {
-        1
-    };
-    let Some(SExpression::String(entity_name)) = arr.get(entity_index) else {
-        return;
-    };
-    let Some(SExpression::Object(payload)) = arr.get(entity_index + 1) else {
-        return; // binding/computed payload: nothing static to check
-    };
-    // A trailing object carrying `emit:` is the resolver's options bag, not
-    // the data payload (same convention as effect/persist.rs).
-    if entity_index + 1 == arr.len() - 1 && payload.contains_key("emit") {
-        return;
-    }
-    check_persist_payload_keys(entity_name, payload, path, orbital, result);
-}
-
-fn check_persist_payload_keys(
-    entity_name: &str,
-    payload: &orbital_core_base::schema::SObject,
-    path: &str,
-    orbital: &Orbital,
-    result: &mut ValidationResult,
-) {
-    // The orbital's own declaration is its view of the entity; a spec obligation's shape (strict) is only a minimum
-    // the provider must meet, so it never limits what the orbital may write.
-    let own = orbital.expects.iter().flatten().find_map(|e| match e {
-        ExpectDeclaration::Entity {
-            name,
-            shape,
-            strict: false,
-            ..
-        } if name == entity_name => Some(shape.as_deref()),
-        _ => None,
-    });
-    let Some(Some(shape)) = own else {
-        return; // no expectation, or existence-only: as unchecked as today
-    };
-    for key in payload.keys() {
-        if shape
-            .iter()
-            .any(|f| f.name.as_deref() == Some(key.as_str()))
-        {
-            continue;
-        }
-        let mut declared: Vec<&str> = shape.iter().filter_map(|f| f.name.as_deref()).collect();
-        declared.sort_unstable();
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::SchemaExpectationFieldUndeclared,
-                path,
-                format!(
-                    "`{}` persists `{}` to `{}`, but its `expects entity {}` shape declares only: \
-                     {}. The declaration is this orbital's own source of truth for the fields it \
-                     touches.",
-                    orbital.name,
-                    key,
-                    entity_name,
-                    entity_name,
-                    declared.join(", ")
-                ),
-            )
-            .with_suggestion(format!(
-                "Add `{}` to the `expects entity {}` shape, or remove it from the persist payload.",
-                key, entity_name
-            )),
-        );
-    }
-}
-
-// =============================================================================
 // Compose link-checks (multi-orbital schemas only)
 // =============================================================================
 
@@ -448,42 +288,6 @@ fn declared_knobs<'a>(schema: &'a OrbitalSchema, name: &str) -> Vec<(&'a str, &'
             _ => None,
         })
         .collect()
-}
-
-/// A knob's type: its type name, closed value set, element and record shapes.
-fn knob_type_matches(expected: &ConfigField, actual: &ConfigField) -> bool {
-    let sorted = |v: &Option<Vec<String>>| {
-        let mut v = v.clone().unwrap_or_default();
-        v.sort();
-        v
-    };
-    let shape = |k: &ConfigField| {
-        (
-            serde_json::to_value(&k.items).ok(),
-            serde_json::to_value(&k.properties).ok(),
-        )
-    };
-    expected.field_type == actual.field_type
-        && sorted(&expected.values) == sorted(&actual.values)
-        && shape(expected) == shape(actual)
-}
-
-fn knob_type_label(k: &ConfigField) -> String {
-    match &k.values {
-        Some(v) if !v.is_empty() => v
-            .iter()
-            .map(|s| format!("\"{s}\""))
-            .collect::<Vec<_>>()
-            .join(" | "),
-        _ => k.field_type.clone(),
-    }
-}
-
-fn knob_default_label(k: &ConfigField) -> String {
-    k.default
-        .as_ref()
-        .and_then(|d| serde_json::to_string(d).ok())
-        .unwrap_or_else(|| "no default".to_string())
 }
 
 fn find_trait<'a>(schema: &'a OrbitalSchema, name: &str) -> Option<&'a TraitDefinition> {
@@ -598,7 +402,6 @@ pub fn validate_final_expectations(schema: &OrbitalSchema) -> ValidationResult {
 
 fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationResult) {
     let providers = providers(schema);
-    let mut fired: Option<FiredEvents> = None;
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         let Some(expects) = &orbital.expects else {
             continue;
@@ -608,275 +411,56 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
         }
         for (j, expectation) in expects.iter().enumerate() {
             let path = format!("orbitals[{} ({})].expects[{}]", i, orbital.name, j);
-            if expectation.is_strict() {
-                if let Some(what) = unprovided(expectation, schema, &providers) {
-                    result.add_error(unsatisfied_error(
-                        &orbital.name,
-                        &what,
-                        &path,
-                        "a spec obligation is never deferred",
-                    ));
-                }
-            }
             match expectation {
-                ExpectDeclaration::Identity { name, shape, .. } => {
-                    check_identity_link(&orbital.name, name, shape, &providers, &path, schema, result);
-                }
-                ExpectDeclaration::Entity { name, shape, .. } => {
-                    let provider = providers.iter().find(|(def, _)| def.name == *name);
-                    match provider {
-                        // No provider here at all — DEFERRED to whoever imports
-                        // this program (see the module doc). Not an error.
-                        None => {}
-                        Some((def, _)) => {
-                            if let Some(shape) = shape {
-                                check_shape(&orbital.name, def, shape, &path, schema, result);
-                            }
-                            check_entity_facts(&orbital.name, def, expectation, &path, result);
-                            if expectation.is_strict()
-                                && persistent_never_written(expectation, schema)
-                            {
-                                result.add_error(unsatisfied_error(
-                                    &orbital.name,
-                                    &format!("entity `{name}` to be persisted"),
-                                    &path,
-                                    &format!("no trait in the program writes `{name}` with a `persist create|update|upsert`"),
-                                ));
-                            }
-                        }
-                    }
-                }
-                ExpectDeclaration::State {
-                    trait_name, state, ..
-                } => {
-                    if let Some(td) = find_trait(schema, trait_name) {
-                        if !td.state_machine.states.iter().any(|s| s.name == *state) {
-                            result.add_error(unsatisfied_error(
-                                &orbital.name,
-                                &format!("trait `{trait_name}` to declare state `{state}`"),
-                                &path,
-                                &format!("`{trait_name}` declares no such state"),
-                            ));
-                        }
-                    }
-                }
-                ExpectDeclaration::Transition {
-                    trait_name,
-                    from,
-                    event,
-                    to,
+                ExpectDeclaration::Identity {
+                    name,
+                    shape: Some(shape),
                     ..
                 } => {
-                    if let Some(td) = find_trait(schema, trait_name) {
-                        let has_edge = td.state_machine.transitions.iter().any(|t| {
-                            t.event == *event
-                                && t.to == *to
-                                && match &t.from {
-                                    StringOrArray::Single(f) => f == from,
-                                    StringOrArray::Multiple(fs) => fs.contains(from),
-                                }
-                        });
-                        if !has_edge {
-                            result.add_error(unsatisfied_error(
-                                &orbital.name,
-                                &format!(
-                                    "trait `{trait_name}` to move `{from}` to `{to}` on `{event}`"
-                                ),
-                                &path,
-                                &format!("`{trait_name}` has no such transition"),
-                            ));
-                        }
+                    let provider = match name {
+                        Some(name) => providers
+                            .iter()
+                            .find(|(def, _)| def.name == *name)
+                            .filter(|(def, _)| def.identity),
+                        None => providers.iter().find(|(def, _)| def.identity),
+                    };
+                    if let Some((def, _)) = provider {
+                        check_shape(&orbital.name, def, shape, &path, schema, result);
                     }
                 }
-                // A present trait of that name must emit the event; no such trait here is
-                // DEFERRED to whoever imports this program, like every other expectation.
+                ExpectDeclaration::Entity {
+                    name,
+                    shape: Some(shape),
+                    ..
+                } => {
+                    if let Some((def, _)) = providers.iter().find(|(def, _)| def.name == *name) {
+                        check_shape(&orbital.name, def, shape, &path, schema, result);
+                    }
+                }
                 ExpectDeclaration::Event {
                     trait_name,
                     event,
-                    payload,
+                    payload: Some(expected),
                     ..
                 } => {
-                    let provider = schema.orbitals.iter().find_map(|o| {
-                        o.traits.iter().find_map(|t| match t {
-                            TraitReference::Inline(td) if td.name == *trait_name => {
-                                Some((td, o.name.as_str()))
-                            }
-                            _ => None,
-                        })
-                    });
-                    if let Some((td, provider_orbital)) = provider {
-                        let emitted = td.emits.iter().flatten().find(|e| e.event == *event);
-                        if let (Some(emit), Some(expected)) = (emitted, payload) {
-                            check_event_payload(
-                                &orbital.name,
-                                trait_name,
-                                event,
-                                expected,
-                                emit.payload_schema.as_deref().unwrap_or(&[]),
-                                &path,
-                                schema,
-                                result,
-                            );
-                        }
-                        let emits = emitted.is_some();
-                        if emits
-                            && expectation.is_strict()
-                            && !fired
-                                .get_or_insert_with(|| collect_schema_fired_events(schema))
-                                .contains_for_trait(trait_name, event)
-                            && !trait_has_dynamic_event_prop_binding(td)
-                        {
-                            result.add_error(unsatisfied_error(
-                                &orbital.name,
-                                &format!("trait `{trait_name}` to fire `{event}`"),
-                                &path,
-                                &format!("`{trait_name}` declares `{event}` in `emits` but nothing in it fires it"),
-                            ));
-                        }
-                        if !emits {
-                            result.add_error(
-                                ValidationError::error(
-                                    ErrorCode::SchemaExpectationUnsatisfied,
-                                    &path,
-                                    format!(
-                                        "`{}` expects `{}.{}`, but trait `{}` in `{}` does not emit `{}`.",
-                                        orbital.name, trait_name, event, trait_name, provider_orbital, event
-                                    ),
-                                )
-                                .with_suggestion(format!(
-                                    "Declare `{event}` in `{trait_name}`'s `emits`, or listen to the trait that emits it."
-                                )),
-                            );
-                        }
-                    }
-                }
-                // A route expectation carries no shape, so there is nothing to
-                // link-check against a present provider, and an absent one is
-                // DEFERRED like every other expectation. Reachability is not
-                // weakened: the declaration is only ever derived for a target
-                // that already matched a page of the whole organism, so a
-                // genuine typo derives nothing and still fails `validate_navigate`.
-                ExpectDeclaration::Page {
-                    path: route,
-                    protocol,
-                    traits: Some(expected),
-                    ..
-                } => {
-                    let label = match protocol {
-                        Some(word) => format!("a `{word}` page"),
-                        None => format!("page `{route}`"),
-                    };
-                    let candidates: Vec<Vec<&str>> = expected_pages(schema, route, protocol.as_deref())
-                        .map(|page| {
-                            page.traits
-                                .iter()
-                                .flatten()
-                                .filter_map(TraitReference::trait_name)
-                                .collect()
-                        })
-                        .collect();
-                    let satisfied = candidates
-                        .iter()
-                        .any(|mounted| expected.iter().all(|t| mounted.iter().any(|m| m == t)));
-                    if !candidates.is_empty() && !satisfied {
-                        let mut mounted: Vec<&str> = candidates.into_iter().flatten().collect();
-                        mounted.dedup();
-                        let mut missing: Vec<&str> = expected
-                            .iter()
-                            .map(String::as_str)
-                            .filter(|t| !mounted.contains(t))
-                            .collect();
-                        if missing.is_empty() {
-                            missing = expected.iter().map(String::as_str).collect();
-                        }
-                        result.add_error(
-                            ValidationError::error(
-                                ErrorCode::SchemaExpectationProviderMismatch,
-                                &path,
-                                format!(
-                                    "`{}` expects {label} to mount {}, but the page mounts: {}.",
-                                    orbital.name,
-                                    missing.join(", "),
-                                    if mounted.is_empty() { "nothing".to_string() } else { mounted.join(", ") }
-                                ),
-                            )
-                            .with_suggestion(format!("Mount {} on the page, or drop it from the expectation.", missing.join(", "))),
+                    let emitted = find_trait(schema, trait_name)
+                        .and_then(|td| td.emits.iter().flatten().find(|e| e.event == *event));
+                    if let Some(emit) = emitted {
+                        check_event_payload(
+                            &orbital.name,
+                            trait_name,
+                            event,
+                            expected,
+                            emit.payload_schema.as_deref().unwrap_or(&[]),
+                            &path,
+                            schema,
+                            result,
                         );
                     }
                 }
-                ExpectDeclaration::Page { traits: None, .. } => {}
-                ExpectDeclaration::Config { name, knob, .. } => {
-                    check_config_knob(&orbital.name, name, knob, schema, &path, result);
-                }
+                _ => {}
             }
         }
-    }
-}
-
-/// `expects config { name : type = default }` against the knobs the program's traits declare under that name: one
-/// of them must have the type and, when the expectation states one, the default. No such knob is deferred (or, for a
-/// spec, reported by `unprovided`).
-fn check_config_knob(
-    consumer: &str,
-    name: &str,
-    expected: &ConfigField,
-    schema: &OrbitalSchema,
-    path: &str,
-    result: &mut ValidationResult,
-) {
-    let knobs = declared_knobs(schema, name);
-    if knobs.is_empty() {
-        return;
-    }
-    let typed: Vec<&(&str, &ConfigField)> = knobs
-        .iter()
-        .filter(|(_, k)| knob_type_matches(expected, k))
-        .collect();
-    if typed.is_empty() {
-        let found = knobs
-            .iter()
-            .map(|(t, k)| format!("`{t}` declares `{}`", knob_type_label(k)))
-            .collect::<Vec<_>>()
-            .join(", ");
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::SchemaExpectedFieldTypeMismatch,
-                path,
-                format!(
-                    "`{consumer}` expects config knob `{name} : {}`, but {found}.",
-                    knob_type_label(expected)
-                ),
-            )
-            .with_suggestion(format!(
-                "Declare `{name}` as `{}` in the trait's `config`.",
-                knob_type_label(expected)
-            )),
-        );
-        return;
-    }
-    let Some(want) = &expected.default else {
-        return;
-    };
-    if !typed.iter().any(|(_, k)| k.default.as_ref() == Some(want)) {
-        let found = typed
-            .iter()
-            .map(|(t, k)| format!("`{t}` defaults it to {}", knob_default_label(k)))
-            .collect::<Vec<_>>()
-            .join(", ");
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::SchemaExpectationUnsatisfied,
-                path,
-                format!(
-                    "`{consumer}` expects config knob `{name}` to default to {}, but {found}.",
-                    knob_default_label(expected)
-                ),
-            )
-            .with_suggestion(format!(
-                "Default `{name}` to {} in the trait's `config`.",
-                knob_default_label(expected)
-            )),
-        );
     }
 }
 
@@ -896,20 +480,6 @@ fn check_event_payload(
     for want in expected {
         let field_path = format!("{}.{}", path, want.name);
         let Some(have) = provided.iter().find(|p| p.name == want.name) else {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::SchemaExpectedFieldNotProvided,
-                    &field_path,
-                    format!(
-                        "`{consumer}` expects `{trait_name}.{event}` to carry `{}`; the event declares no such payload field.",
-                        want.name
-                    ),
-                )
-                .with_suggestion(format!(
-                    "Add `{}` to `{event}`'s payload in `{trait_name}`, or drop it from the expectation.",
-                    want.name
-                )),
-            );
             continue;
         };
         let required_ok = !want.required.unwrap_or(false) || have.required.unwrap_or(false);
@@ -954,210 +524,6 @@ fn check_event_payload(
     }
 }
 
-/// What an `expects entity X [persistent, shared] { @read … }` states about the provider beyond its fields: the
-/// storage mode, `shared`/`browser`, each stated access policy (structurally equal) and each declared waiver.
-fn check_entity_facts(
-    consumer: &str,
-    provider: &EntityDefinition,
-    expectation: &ExpectDeclaration,
-    path: &str,
-    result: &mut ValidationResult,
-) {
-    let ExpectDeclaration::Entity {
-        persistence,
-        shared,
-        browser,
-        read_policy,
-        create_policy,
-        update_policy,
-        delete_policy,
-        access_waivers,
-        ..
-    } = expectation
-    else {
-        return;
-    };
-    let mut mismatch = |what: String, suggestion: String| {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::SchemaExpectationProviderMismatch,
-                path,
-                format!("`{consumer}` expects `{}` {what}.", provider.name),
-            )
-            .with_suggestion(suggestion),
-        );
-    };
-    if let Some(mode) = persistence {
-        let actual = provider.persistence.clone().unwrap_or_default();
-        if actual != *mode {
-            mismatch(
-                format!("to be {mode:?}, but it is {actual:?}").to_lowercase(),
-                format!(
-                    "Change `{}`'s storage mode, or the expectation's.",
-                    provider.name
-                ),
-            );
-        }
-    }
-    if *shared && !provider.shared {
-        mismatch(
-            "to be `shared`, but it is not".to_string(),
-            format!(
-                "Tag `{}` `[shared]`, or drop the tag from the expectation.",
-                provider.name
-            ),
-        );
-    }
-    if *browser && !provider.browser {
-        mismatch(
-            "to be `browser`, but it is not".to_string(),
-            format!(
-                "Tag `{}` `[browser]`, or drop the tag from the expectation.",
-                provider.name
-            ),
-        );
-    }
-    for (op, expected, actual) in [
-        ("read", read_policy, &provider.read_policy),
-        ("create", create_policy, &provider.create_policy),
-        ("update", update_policy, &provider.update_policy),
-        ("delete", delete_policy, &provider.delete_policy),
-    ] {
-        if let Some(expected) = expected {
-            if actual.as_ref() != Some(expected) {
-                mismatch(
-                    format!(
-                        "to carry the `@{op}` policy it states, but its `@{op}` is {}",
-                        if actual.is_some() {
-                            "a different expression"
-                        } else {
-                            "absent"
-                        }
-                    ),
-                    format!(
-                        "Make `{}`'s `@{op}` the same expression, or change the expectation.",
-                        provider.name
-                    ),
-                );
-            }
-        }
-    }
-    if let Some(wanted) = access_waivers {
-        for (op, expected, actual) in [
-            (
-                "read",
-                &wanted.read,
-                provider
-                    .access_waivers
-                    .as_ref()
-                    .and_then(|w| w.read.as_ref()),
-            ),
-            (
-                "create",
-                &wanted.create,
-                provider
-                    .access_waivers
-                    .as_ref()
-                    .and_then(|w| w.create.as_ref()),
-            ),
-            (
-                "update",
-                &wanted.update,
-                provider
-                    .access_waivers
-                    .as_ref()
-                    .and_then(|w| w.update.as_ref()),
-            ),
-            (
-                "delete",
-                &wanted.delete,
-                provider
-                    .access_waivers
-                    .as_ref()
-                    .and_then(|w| w.delete.as_ref()),
-            ),
-        ] {
-            if expected.is_some() && actual.is_none() {
-                mismatch(
-                    format!("to declare `@{op} none` (its omission, with a reason), but it does not"),
-                    format!("Declare `@{op} none \"<reason>\"` on `{}`, or drop it from the expectation.", provider.name),
-                );
-            }
-        }
-    }
-}
-
-/// An `expects entity X [persistent]` obliges the program to write `X`: true when no trait of the program
-/// lands a `persist create|update|upsert` of it.
-fn persistent_never_written(expectation: &ExpectDeclaration, schema: &OrbitalSchema) -> bool {
-    let ExpectDeclaration::Entity {
-        name,
-        persistence: Some(orbital_core_base::schema::Persistence::Persistent),
-        ..
-    } = expectation
-    else {
-        return false;
-    };
-    !schema
-        .orbitals
-        .iter()
-        .flat_map(|o| o.traits.iter())
-        .any(|t| matches!(t, TraitReference::Inline(td) if trait_lands_a_write(td, name)))
-}
-
-fn check_identity_link(
-    consumer: &str,
-    name: &Option<String>,
-    shape: &Option<Vec<FieldDefinition>>,
-    providers: &[(&EntityDefinition, &str)],
-    path: &str,
-    schema: &OrbitalSchema,
-    result: &mut ValidationResult,
-) {
-    match name {
-        Some(name) => {
-            let named = providers.iter().find(|(def, _)| def.name == *name);
-            match named {
-                // No provider here at all — DEFERRED to the importer.
-                None => {}
-                Some((def, provider_orbital)) if !def.identity => result.add_error(
-                    ValidationError::error(
-                        ErrorCode::SchemaExpectationProviderMismatch,
-                        path,
-                        format!(
-                            "`{}` expects `{}` to be the [identity] entity, but `{}` provides \
-                             `{}` without the [identity] tag — `@user` will never resolve to it.",
-                            consumer, name, provider_orbital, name
-                        ),
-                    )
-                    .with_suggestion(format!(
-                        "Tag `{}` [identity] in `{}`, or change the expectation to \
-                         `expects entity {}`.",
-                        name, provider_orbital, name
-                    )),
-                ),
-                Some((def, _)) => {
-                    if let Some(shape) = shape {
-                        check_shape(consumer, def, shape, path, schema, result);
-                    }
-                }
-            }
-        }
-        None => {
-            let identity = providers.iter().find(|(def, _)| def.identity);
-            match identity {
-                // No identity here at all — DEFERRED to the importer.
-                None => {}
-                Some((def, _)) => {
-                    if let Some(shape) = shape {
-                        check_shape(consumer, def, shape, path, schema, result);
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// A field's type as a message names it: a relation names the entity it points at.
 fn field_type_label(field: &FieldDefinition) -> String {
     match &field.relation {
@@ -1189,41 +555,8 @@ fn check_shape(
             .iter()
             .find(|f| f.name.as_deref() == Some(field_name))
         else {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::SchemaExpectedFieldNotProvided,
-                    &field_path,
-                    format!(
-                        "`{}` expects `{}.{}`; `{}` declares no such field.",
-                        consumer, provider.name, field_name, provider.name
-                    ),
-                )
-                .with_suggestion(format!(
-                    "Add `{}` to `{}`, or drop it from `{}`'s expectation.",
-                    field_name, provider.name, consumer
-                )),
-            );
             continue;
         };
-
-        for (mark, wanted, has) in [
-            ("@key", expected.primary_key, actual.primary_key),
-            ("@unique", expected.unique, actual.unique),
-        ] {
-            if wanted == Some(true) && has != Some(true) {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::SchemaExpectationProviderMismatch,
-                        &field_path,
-                        format!(
-                            "`{}` expects `{}.{}` to be marked `{mark}`; `{}` declares it without.",
-                            consumer, provider.name, field_name, provider.name
-                        ),
-                    )
-                    .with_suggestion(format!("Mark `{field_name}` `{mark}` in `{}`, or drop the mark from the expectation.", provider.name)),
-                );
-            }
-        }
 
         let expected_type = field_type_label(expected);
         let actual_type = field_type_label(actual);
@@ -1302,7 +635,11 @@ fn check_shape(
 
 /// Provider values must satisfy the consumer's shape without a conversion.
 /// Vocabulary membership is checked separately by the expectation's subset rule.
-fn types_compatible(expected: &FieldDefinition, actual: &FieldDefinition, schema: &OrbitalSchema) -> bool {
+fn types_compatible(
+    expected: &FieldDefinition,
+    actual: &FieldDefinition,
+    schema: &OrbitalSchema,
+) -> bool {
     expectation_shapes_compatible(
         field_shape(expected),
         field_shape(actual),
@@ -1342,54 +679,15 @@ fn expectation_shapes_compatible(
             *shape = OirType::String;
         }
     }
-    checked_sub_with_named(&actual, &expected, &|name| declared_struct_type(schema, name)).is_some()
+    checked_sub_with_named(&actual, &expected, &|name| {
+        declared_struct_type(schema, name)
+    })
+    .is_some()
 }
 
 #[cfg(test)]
 mod final_expectation_tests {
     use super::*;
-
-    fn persisting(strict: bool) -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({
-            "name": "App",
-            "orbitals": [{
-                "name": "Requests", "entity": { "name": "Request", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
-                "expects": [{ "kind": "entity", "name": "ApprovalRequest", "shape": [{ "name": "status", "type": "string" }], "strict": strict }],
-                "traits": [{ "name": "Ask", "stateMachine": { "states": [{ "name": "idle", "isInitial": true }],
-                    "transitions": [{ "from": "idle", "to": "idle", "event": "ASK",
-                        "effects": [["persist", "create", "ApprovalRequest", { "status": "open", "payload": "x" }]] }] } }],
-                "pages": []
-            }]
-        }))
-        .expect("program json")
-    }
-
-    fn undeclared(schema: &OrbitalSchema) -> usize {
-        let mut r = ValidationResult::new();
-        validate_persist_payload_self_consistency(schema, &mut r);
-        r.errors
-            .iter()
-            .filter(|e| e.code == ErrorCode::SchemaExpectationFieldUndeclared)
-            .count()
-    }
-
-    #[test]
-    fn a_spec_obligations_shape_is_a_minimum_not_the_orbitals_view() {
-        assert_eq!(
-            undeclared(&persisting(true)),
-            0,
-            "a strict spec shape names what the provider must have at least"
-        );
-    }
-
-    #[test]
-    fn control_the_orbitals_own_expectation_is_its_source_of_truth() {
-        assert_eq!(
-            undeclared(&persisting(false)),
-            1,
-            "`payload` is outside the orbital's own declared view"
-        );
-    }
 
     fn program(provider_entity: &str, identity: bool) -> OrbitalSchema {
         serde_json::from_value(serde_json::json!({
@@ -1423,133 +721,6 @@ mod final_expectation_tests {
             .is_empty());
     }
 
-    fn knob_program(
-        knob: Option<serde_json::Value>,
-        expects: Option<serde_json::Value>,
-    ) -> OrbitalSchema {
-        let mut runner = serde_json::json!({ "name": "CliRunner", "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] } });
-        if let Some(knob) = knob {
-            runner["config"] = serde_json::json!({ "stdio": knob });
-        }
-        let mut orbital = serde_json::json!({
-            "name": "CliOrbital",
-            "entity": { "name": "CliCall", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
-            "traits": [runner],
-            "pages": []
-        });
-        if let Some(expects) = expects {
-            orbital["expects"] = serde_json::json!([expects]);
-        }
-        serde_json::from_value(serde_json::json!({ "name": "App", "orbitals": [orbital] }))
-            .expect("program json")
-    }
-
-    fn stdio_expectation(strict: bool) -> serde_json::Value {
-        serde_json::json!({ "kind": "config", "name": "stdio", "knob": { "type": "string", "default": "pipe" }, "strict": strict })
-    }
-
-    fn link_errors(schema: &OrbitalSchema) -> Vec<ValidationError> {
-        let mut r = ValidationResult::new();
-        validate_expectation_links(schema, &mut r);
-        r.errors
-    }
-
-    #[test]
-    fn a_knob_of_the_expected_type_and_default_satisfies_expects_config() {
-        let schema = knob_program(
-            Some(serde_json::json!({ "type": "string", "default": "pipe" })),
-            Some(stdio_expectation(true)),
-        );
-        assert!(
-            link_errors(&schema).is_empty(),
-            "{:?}",
-            link_errors(&schema)
-        );
-    }
-
-    #[test]
-    fn a_missing_knob_fails_a_spec_config_expectation() {
-        let errors = link_errors(&knob_program(None, Some(stdio_expectation(true))));
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.code == ErrorCode::SchemaExpectationUnsatisfied
-                    && e.message.contains("stdio")),
-            "{errors:?}"
-        );
-    }
-
-    #[test]
-    fn control_a_missing_knob_outside_a_spec_is_deferred() {
-        assert!(link_errors(&knob_program(None, Some(stdio_expectation(false)))).is_empty());
-    }
-
-    #[test]
-    fn a_knob_of_another_type_fails_expects_config() {
-        let errors = link_errors(&knob_program(
-            Some(serde_json::json!({ "type": "number", "default": 0 })),
-            Some(stdio_expectation(true)),
-        ));
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.code == ErrorCode::SchemaExpectedFieldTypeMismatch
-                    && e.message.contains("number")),
-            "{errors:?}"
-        );
-    }
-
-    #[test]
-    fn a_knob_with_another_closed_value_set_fails_expects_config() {
-        let expects = serde_json::json!({ "kind": "config", "name": "stdio", "knob": { "type": "string", "values": ["pipe", "inherit"] }, "strict": true });
-        let knob = serde_json::json!({ "type": "string", "values": ["pipe"], "default": "pipe" });
-        let errors = link_errors(&knob_program(Some(knob), Some(expects)));
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.code == ErrorCode::SchemaExpectedFieldTypeMismatch),
-            "{errors:?}"
-        );
-    }
-
-    #[test]
-    fn a_knob_with_another_default_fails_expects_config() {
-        let errors = link_errors(&knob_program(
-            Some(serde_json::json!({ "type": "string", "default": "inherit" })),
-            Some(stdio_expectation(true)),
-        ));
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.code == ErrorCode::SchemaExpectationUnsatisfied
-                    && e.message.contains("\"inherit\"")),
-            "{errors:?}"
-        );
-    }
-
-    #[test]
-    fn an_expectation_without_a_default_accepts_any_default() {
-        let expects = serde_json::json!({ "kind": "config", "name": "stdio", "knob": { "type": "string" }, "strict": true });
-        let schema = knob_program(
-            Some(serde_json::json!({ "type": "string", "default": "inherit" })),
-            Some(expects),
-        );
-        assert!(
-            link_errors(&schema).is_empty(),
-            "{:?}",
-            link_errors(&schema)
-        );
-    }
-
-    #[test]
-    fn control_a_program_without_expects_config_is_unaffected() {
-        assert!(link_errors(&knob_program(
-            Some(serde_json::json!({ "type": "number", "default": 3 })),
-            None
-        ))
-        .is_empty());
-    }
-
     fn alias_program() -> OrbitalSchema {
         serde_json::from_value(serde_json::json!({
             "name": "App",
@@ -1568,19 +739,39 @@ mod final_expectation_tests {
     }
 
     fn list_of(name: &str) -> OirType {
-        OirType::array(OirType::TypeRef { name: name.to_string() })
+        OirType::array(OirType::TypeRef {
+            name: name.to_string(),
+        })
     }
 
     #[test]
     fn a_list_of_an_alias_satisfies_an_expectation_of_the_same_alias() {
         let schema = alias_program();
-        assert!(expectation_shapes_compatible(list_of("Arg"), list_of("Arg"), None, None, &schema));
+        assert!(expectation_shapes_compatible(
+            list_of("Arg"),
+            list_of("Arg"),
+            None,
+            None,
+            &schema
+        ));
     }
 
     #[test]
     fn control_a_list_of_another_alias_does_not_satisfy_the_expectation() {
         let schema = alias_program();
-        assert!(!expectation_shapes_compatible(list_of("Arg"), list_of("Other"), None, None, &schema));
-        assert!(!expectation_shapes_compatible(list_of("Arg"), list_of("Undeclared"), None, None, &schema));
+        assert!(!expectation_shapes_compatible(
+            list_of("Arg"),
+            list_of("Other"),
+            None,
+            None,
+            &schema
+        ));
+        assert!(!expectation_shapes_compatible(
+            list_of("Arg"),
+            list_of("Undeclared"),
+            None,
+            None,
+            &schema
+        ));
     }
 }

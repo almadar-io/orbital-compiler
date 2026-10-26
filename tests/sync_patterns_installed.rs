@@ -21,6 +21,7 @@ fn validator_tables_come_from_the_installed_registry() {
             "services":"dist/patterns/services-registry.json",
             "bindingRules":"dist/language/binding-rules.json",
             "programTypes":"dist/language/program-types.json",
+            "protocols":"dist/language/protocols.json",
             "themes":"themes"}}"#,
     )
     .unwrap();
@@ -48,6 +49,11 @@ fn validator_tables_come_from_the_installed_registry() {
     )
     .unwrap();
     fs::write(core.join("dist/language/program-types.json"), "{}").unwrap();
+    fs::write(
+        core.join("dist/language/protocols.json"),
+        r#"[{"name":"route","address":null,"viewer":true,"grant":null,"side":"client"}]"#,
+    )
+    .unwrap();
     fs::create_dir_all(core.join("themes")).unwrap();
     fs::write(core.join("themes/zz.json"), r#"{"name":"zz","tokens":{}}"#).unwrap();
     install_language_data(load_language_data(tmp.path(), &tmp.path().join("store")).unwrap())

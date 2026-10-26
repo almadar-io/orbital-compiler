@@ -813,67 +813,6 @@ pub(crate) fn collect_async_result_events(
 }
 
 /// Extract event name from an emit effect
-/// True when at least one transition with the given event can propagate
-/// — i.e., its effects include an `(emit ...)` op or a `fetch` /
-/// `persist` / `call-service` / `ref` / `deref` carrying an
-/// `emit: { success: ... }` (or `failure: ...`) entry. A trait that
-/// only `set`s state, renders UI, or otherwise has no event-producing
-/// effect is terminal: the cycle-detector should skip its inbound edges.
-pub(crate) fn transition_can_propagate(trait_def: &TraitDefinition, event: &str) -> bool {
-    use orbital_core_base::schema::SExpression;
-    for transition in &trait_def.state_machine.transitions {
-        if transition.event != event {
-            continue;
-        }
-        let Some(effects) = &transition.effects else {
-            continue;
-        };
-        for effect in effects {
-            if extract_emit_event(effect).is_some() {
-                return true;
-            }
-            if let SExpression::Array(arr) = effect {
-                if arr.len() >= 2 {
-                    if let SExpression::String(op) = &arr[0] {
-                        if matches!(
-                            op.as_str(),
-                            "fetch"
-                                | "persist"
-                                | "ref"
-                                | "deref"
-                                | "call-service"
-                                | "http"
-                                | "redis"
-                                | "postgres"
-                                | "random-bytes"
-                                | "credential-status"
-                                | "credential-forget"
-                                | "access-check"
-                                | "oauth-authorize"
-                                | "oauth-connection-status"
-                                | "oauth-connection-forget"
-                                | "agent/invoke"
-                        ) || orbital_core_base::credential_admin::CredentialAdminOp::from_name(
-                            op,
-                        )
-                        .is_some()
-                        {
-                            for item in arr.iter().skip(1) {
-                                if let SExpression::Object(opts) = item {
-                                    if opts.contains_key("emit") {
-                                        return true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    false
-}
-
 pub(crate) fn extract_emit_event(
     effect: &orbital_core_base::schema::SExpression,
 ) -> Option<String> {

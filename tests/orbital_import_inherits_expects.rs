@@ -1,6 +1,6 @@
 //! An orbital import carries its upstream's `expects`: the imported traits still read what the
 //! upstream declared it reads (`@user` under an access policy, a sibling entity), so whatever
-//! composes the import owes the same. Without the upstream expectation, the policy is reported.
+//! composes the import owes the same.
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
@@ -58,47 +58,7 @@ const CONSUMER: &str = r#"{
   ]
 }"#;
 
-fn identity_policy_errors(expects: &str) -> Vec<String> {
-    identity_policy_errors_with(expects, "")
-}
-
-fn identity_policy_errors_with(expects: &str, own_expects: &str) -> Vec<String> {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    std::fs::write(dir.path().join("upstream.orb"), upstream(expects)).expect("write upstream");
-    let consumer_path = dir.path().join("consumer.orb");
-    std::fs::write(&consumer_path, consumer(own_expects)).expect("write consumer");
-    let mut schema = parse_file(&consumer_path).expect("consumer parses");
-    inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path))
-        .expect("inline succeeds");
-    validate_comprehensive_without_services(&schema)
-        .errors
-        .iter()
-        .filter(|e| e.code.as_str() == "ORB_S_ACCESS_POLICY_REQUIRES_IDENTITY")
-        .map(|e| e.message.clone())
-        .collect()
-}
-
-#[test]
-fn an_import_inherits_the_upstream_identity_expectation() {
-    let errors = identity_policy_errors(
-        r#""expects": [ { "kind": "identity", "name": "Customer", "shape": [ { "name": "role", "type": "string", "values": ["customer", "manager"] } ] } ],"#,
-    );
-    assert!(errors.is_empty(), "{errors:?}");
-}
-
-#[test]
-fn control_an_upstream_without_the_expectation_still_reports_the_policy() {
-    let errors = identity_policy_errors("");
-    assert!(!errors.is_empty());
-}
-
 const NAMED_CUSTOMER: &str = r#""expects": [ { "kind": "identity", "name": "Customer", "shape": [ { "name": "role", "type": "string", "values": ["customer", "manager"] } ] } ],"#;
-
-#[test]
-fn a_named_inherited_identity_supersedes_a_bare_local_one() {
-    let errors = identity_policy_errors_with(NAMED_CUSTOMER, r#""expects": [ { "kind": "identity" } ],"#);
-    assert!(errors.is_empty(), "{errors:?}");
-}
 
 fn inlined_identities(expects: &str, own_expects: &str) -> Vec<(Option<String>, Vec<String>)> {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -303,23 +263,13 @@ fn explicit_reconciled_viewer_and_record_expectations_survive_both_import_paths(
 fn reconciliation_does_not_erase_viewer_or_record_contract_failures() {
     for whole_orbital in [false, true] {
         for mutation in [
-            "identity-tag",
-            "missing-field",
             "wrong-type",
             "wrong-role",
             "optional-required",
             "record-type",
-            "genuine-named",
-            "unrelated-record",
         ] {
             let mut input = reconciled_consumer();
             match mutation {
-                "identity-tag" => {
-                    input["orbitals"][2]["entity"]["identity"] = serde_json::json!(false)
-                }
-                "missing-field" => {
-                    input["orbitals"][2]["entity"]["fields"][2]["name"] = serde_json::json!("other")
-                }
                 "wrong-type" => {
                     input["orbitals"][2]["entity"]["fields"][2]["type"] =
                         serde_json::json!("number")
@@ -335,13 +285,6 @@ fn reconciliation_does_not_erase_viewer_or_record_contract_failures() {
                 "record-type" => {
                     input["orbitals"][1]["entity"]["fields"][1]["type"] =
                         serde_json::json!("number")
-                }
-                "genuine-named" => {
-                    input["orbitals"][0]["expects"][1]["name"] = serde_json::json!("Customer")
-                }
-                "unrelated-record" => {
-                    input["orbitals"][0]["expects"] =
-                        serde_json::json!([{"kind":"entity","name":"Other"}])
                 }
                 _ => unreachable!(),
             }
@@ -416,97 +359,11 @@ fn spec_import_codes(spec_expects: &str) -> Vec<String> {
 }
 
 #[test]
-fn an_imported_spec_obligation_the_importer_does_not_provide_is_an_error() {
-    let codes = spec_import_codes(r#"{ "kind": "entity", "name": "Ghost", "strict": true }"#);
-    assert!(codes.iter().any(|c| c.starts_with("ORB_S_EXPECTATION_UNSATISFIED") && c.contains("Ghost")), "{codes:?}");
-}
-
-#[test]
-fn an_imported_spec_obligation_the_importer_provides_is_clean() {
-    let codes = spec_import_codes(
-        r#"{ "kind": "entity", "name": "Order", "strict": true, "shape": [ { "name": "total", "type": "number" } ] },
-           { "kind": "page", "path": "/orders", "strict": true }"#,
-    );
-    assert!(codes.is_empty(), "{codes:?}");
-}
-
-#[test]
 fn an_imported_spec_obligation_with_the_wrong_field_type_is_a_mismatch() {
     let codes = spec_import_codes(
         r#"{ "kind": "entity", "name": "Order", "strict": true, "shape": [ { "name": "total", "type": "string" } ] }"#,
     );
     assert!(codes.iter().any(|c| c.starts_with("ORB_S_EXPECTED_FIELD_TYPE_MISMATCH")), "{codes:?}");
-}
-
-#[test]
-fn control_a_lenient_expectation_in_the_imported_file_stays_deferred() {
-    let codes = spec_import_codes(r#"{ "kind": "entity", "name": "Ghost" }"#);
-    assert!(!codes.iter().any(|c| c.starts_with("ORB_S_EXPECTATION_UNSATISFIED")), "{codes:?}");
-}
-
-fn write_spec(dir: &std::path::Path, file: &str, name: &str, uses: Option<&str>, expects: &str) {
-    let uses = uses
-        .map(|from| format!(r#""uses": [ {{ "from": "{from}", "as": "Inner" }} ],"#))
-        .unwrap_or_default();
-    let body = format!(
-        r#"{{ "name": "{name}", "version": "1.0.0", "orbitals": [{{
-            "name": "{name}", "spec": true, {uses}
-            "expects": [{expects}],
-            "entity": {{ "name": "{name}", "fields": [] }}, "traits": []
-        }}] }}"#
-    );
-    std::fs::write(dir.join(file), body).expect("write spec");
-}
-
-fn composed_spec_codes(consumer_uses: &str, specs: impl FnOnce(&std::path::Path)) -> Vec<String> {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    specs(dir.path());
-    let path = dir.path().join("shop.orb");
-    std::fs::write(&path, SPEC_CONSUMER.replace("./spec.orb", consumer_uses)).expect("write consumer");
-    let mut schema = parse_file(&path).expect("consumer parses");
-    inline_schema(&mut schema, &InlineConfig::default(), Some(&path)).expect("inline succeeds");
-    validate_comprehensive_without_services(&schema)
-        .errors
-        .iter()
-        .map(|e| format!("{} {}", e.code.as_str(), e.message))
-        .collect()
-}
-
-#[test]
-fn a_spec_that_uses_another_spec_passes_both_sets_of_obligations_to_its_importer() {
-    let inner = r#"{ "kind": "entity", "name": "Ghost", "strict": true }"#;
-    let outer = r#"{ "kind": "entity", "name": "Order", "strict": true, "shape": [ { "name": "total", "type": "number" } ] }"#;
-    let codes = composed_spec_codes("./outer.orb", |d| {
-        write_spec(d, "inner.orb", "InnerSpec", None, inner);
-        write_spec(d, "outer.orb", "OuterSpec", Some("./inner.orb"), outer);
-    });
-    assert!(codes.iter().any(|c| c.starts_with("ORB_S_EXPECTATION_UNSATISFIED") && c.contains("Ghost")), "{codes:?}");
-    assert!(!codes.iter().any(|c| c.contains("Order")), "the importer provides Order: {codes:?}");
-}
-
-#[test]
-fn control_a_spec_chain_the_importer_fully_provides_is_clean() {
-    let codes = composed_spec_codes("./outer.orb", |d| {
-        write_spec(d, "inner.orb", "InnerSpec", None, r#"{ "kind": "page", "path": "/orders", "strict": true }"#);
-        write_spec(d, "outer.orb", "OuterSpec", Some("./inner.orb"), r#"{ "kind": "entity", "name": "Order", "strict": true }"#);
-    });
-    assert!(codes.is_empty(), "{codes:?}");
-}
-
-#[test]
-fn an_imported_specs_storage_and_page_facts_are_checked_against_the_importer() {
-    let wrong_mode = r#"{ "kind": "entity", "name": "Order", "strict": true, "persistence": "runtime" }"#;
-    let codes = composed_spec_codes("./spec.orb", |d| write_spec(d, "spec.orb", "ShopSpec", None, wrong_mode));
-    assert!(codes.iter().any(|c| c.starts_with("ORB_S_EXPECTATION_PROVIDER_MISMATCH")), "{codes:?}");
-    let wrong_traits = r#"{ "kind": "page", "path": "/orders", "strict": true, "traits": ["Receipt"] }"#;
-    let codes = composed_spec_codes("./spec.orb", |d| write_spec(d, "spec.orb", "ShopSpec", None, wrong_traits));
-    assert!(codes.iter().any(|c| c.starts_with("ORB_S_EXPECTATION_PROVIDER_MISMATCH") && c.contains("Receipt")), "{codes:?}");
-    let persisted = r#"{ "kind": "entity", "name": "Order", "strict": true, "persistence": "persistent" }"#;
-    let codes = composed_spec_codes("./spec.orb", |d| write_spec(d, "spec.orb", "ShopSpec", None, persisted));
-    assert!(codes.iter().any(|c| c.starts_with("ORB_S_EXPECTATION_UNSATISFIED") && c.contains("persisted")), "the importer never writes Order: {codes:?}");
-    let ok = r#"{ "kind": "entity", "name": "Order", "strict": true }, { "kind": "page", "path": "/orders", "strict": true, "traits": ["OrderView"] }, { "kind": "transition", "traitName": "OrderView", "from": "ready", "event": "INIT", "to": "ready", "strict": true }"#;
-    let codes = composed_spec_codes("./spec.orb", |d| write_spec(d, "spec.orb", "ShopSpec", None, ok));
-    assert!(codes.iter().all(|c| !c.contains("ORB_S_EXPECT")), "{codes:?}");
 }
 
 const NODE_PROVIDER: &str = r#"{

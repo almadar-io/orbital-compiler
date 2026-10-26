@@ -154,6 +154,37 @@ fn a_lazy_reference_is_split_out_and_its_pages_stay_on_the_importer() {
     );
 }
 
+fn linked_post() -> String {
+    POST.replace(
+        r#"[ ["render-ui", "main", { "type": "typography", "content": "Why we started" }] ]"#,
+        r#"[ ["render-ui", "main", { "type": "typography", "content": "Why we started" }], ["navigate", "/next"], ["navigate", "/earlier"] ]"#,
+    )
+}
+
+#[test]
+fn the_links_of_a_lazy_page_are_serialized_sorted_and_survive_a_round_trip() {
+    let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], false);
+    std::fs::write(s.path.with_file_name("post.orb"), linked_post()).expect("write post");
+    let (schema, _) = split(&s).expect("split");
+    let json = serde_json::to_value(&schema).expect("serializes");
+    assert_eq!(json["lazyPages"][0]["links"], serde_json::json!(["/earlier", "/next"]));
+    let back: OrbitalSchema = serde_json::from_value(json).expect("reads back");
+    assert_eq!(back.lazy_pages, schema.lazy_pages);
+}
+
+#[test]
+fn control_a_lazy_page_with_no_links_carries_none_and_a_program_without_lazy_pages_has_no_lazy_pages() {
+    let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
+    let (schema, _) = split(&s).expect("split");
+    let json = serde_json::to_value(&schema).expect("serializes");
+    assert!(json["lazyPages"][0].get("links").is_none(), "{json}");
+
+    let eager = site(&[home(EAGER_USE, ""), blog(EAGER_USE, "")], true);
+    let schema = parse_file(&eager.path).expect("site parses");
+    let json = serde_json::to_value(&schema).expect("serializes");
+    assert!(json.get("lazyPages").is_none(), "{json}");
+}
+
 #[test]
 fn the_importer_still_resolves_after_the_split() {
     let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);

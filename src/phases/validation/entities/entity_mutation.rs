@@ -725,38 +725,8 @@ fn contains_server_bound_effect(expr: &SExpression, residence: &Residence) -> bo
     orbital_core_base::runs_on::sexpr_runs_server_effect(expr, residence)
 }
 
-/// Effect operators that reach a server-owned resource — the subset of
-/// server-site effects Rule 2b gates a mutation-authorization finding
-/// on (a guard that reads an `@intrinsic` field AND `@user.*` is only a
-/// SECURITY concern when the transition it guards actually writes).
-const MUTATING_SERVER_OPERATORS: &[&str] = &["persist", "call-service"];
-
-/// True when `expr`'s tree contains a call to any operator in `ops`, at any
-/// depth (recurses through control-flow wrappers). Single walker
-/// shared by every "does this effect touch operator X" check in this module.
-fn expr_calls_any_operator(expr: &SExpression, ops: &[&str]) -> bool {
-    expr_calls_operator_where(expr, &|op| ops.contains(&op))
-}
-
-fn expr_calls_operator_where(expr: &SExpression, pred: &dyn Fn(&str) -> bool) -> bool {
-    match expr {
-        SExpression::Array(arr) => {
-            if let Some(SExpression::String(op)) = arr.first() {
-                if pred(op) {
-                    return true;
-                }
-            }
-            arr.iter().any(|item| expr_calls_operator_where(item, pred))
-        }
-        SExpression::Object(obj) => obj.values().any(|v| expr_calls_operator_where(v, pred)),
-        _ => false,
-    }
-}
-
 /// True when `expr`'s tree reads `@user` or `@user.<field>`, in either the
-/// bare dotted-string form or the `(object/get @user "field")` call form —
-/// the two spellings `entity_access.rs`'s `check_owner_field_identity_typed`
-/// already reasons about for the same binding root.
+/// bare dotted-string form or the `(object/get @user "field")` call form.
 fn references_user_binding(expr: &SExpression) -> bool {
     match expr {
         SExpression::String(s) => s == "@user" || s.starts_with("@user."),
@@ -773,123 +743,6 @@ fn references_user_binding(expr: &SExpression) -> bool {
         SExpression::Object(obj) => obj.values().any(references_user_binding),
         _ => false,
     }
-}
-
-/// The first `@intrinsic` field of `entity_def` that `expr`'s tree reads via
-/// `@entity.<field>` (dotted) or `(object/get @entity "field")` — the two
-/// spellings `entity_access.rs`'s owner-field extraction already handles for
-/// the same binding root.
-fn guard_references_intrinsic_field<'a>(
-    expr: &SExpression,
-    entity_def: &'a EntityDefinition,
-) -> Option<&'a str> {
-    let intrinsic_named = |field: &str| {
-        entity_def
-            .fields
-            .iter()
-            .find(|f| f.name.as_deref() == Some(field) && f.intrinsic == Some(true))
-            .and_then(|f| f.name.as_deref())
-    };
-    match expr {
-        SExpression::String(s) => {
-            let field = s.strip_prefix("@entity.")?;
-            let field = field.split(['.', '[']).next().unwrap_or(field);
-            intrinsic_named(field)
-        }
-        SExpression::Array(arr) => {
-            if let (
-                Some(SExpression::String(op)),
-                Some(SExpression::String(root)),
-                Some(SExpression::String(field)),
-            ) = (arr.first(), arr.get(1), arr.get(2))
-            {
-                if op == "object/get" && root == "@entity" {
-                    if let Some(hit) = intrinsic_named(field) {
-                        return Some(hit);
-                    }
-                }
-            }
-            arr.iter()
-                .find_map(|item| guard_references_intrinsic_field(item, entity_def))
-        }
-        SExpression::Object(obj) => obj
-            .values()
-            .find_map(|v| guard_references_intrinsic_field(v, entity_def)),
-        _ => None,
-    }
-}
-
-/// Run `ORB_GUARD_ON_FRAME_FIELD_AUTHORIZES` (guard half — the access-policy
-/// half lives in `entity_access.rs`'s `check_entity_field`) for every orbital
-/// in the schema.
-pub fn validate_all_guard_frame_field_authorization(
-    schema: &OrbitalSchema,
-    ctx: &mut ValidationContext,
-) {
-    for (trait_def, path) in super::inline_traits(schema) {
-        let result = validate_trait_guard_frame_field_authorization(
-            trait_def,
-            &path,
-            &ctx.entity_definitions,
-        );
-        ctx.merge(result);
-    }
-}
-
-/// Per-trait guard-authorization check, factored out so it can run against a
-/// hand-built `TraitDefinition` fixture without a full `OrbitalSchema`.
-fn validate_trait_guard_frame_field_authorization(
-    trait_def: &TraitDefinition,
-    path: &str,
-    entity_definitions: &HashMap<String, EntityDefinition>,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-    let Some(linked) = &trait_def.linked_entity else {
-        return result;
-    };
-    let Some(entity_def) = entity_definitions.get(linked) else {
-        return result;
-    };
-    for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
-        let Some(guard) = &transition.guard else {
-            continue;
-        };
-        // A plain precondition guard (no identity comparison) is not
-        // authorization — e.g. `ChatComposer.SEND`'s `activeChannel != ""`.
-        if !references_user_binding(guard) {
-            continue;
-        }
-        let Some(intrinsic_field) = guard_references_intrinsic_field(guard, entity_def) else {
-            continue;
-        };
-        let gates_a_mutation = transition
-            .effects
-            .as_ref()
-            .map(|effects| {
-                effects
-                    .iter()
-                    .any(|e| expr_calls_any_operator(e, MUTATING_SERVER_OPERATORS))
-            })
-            .unwrap_or(false);
-        if !gates_a_mutation {
-            continue;
-        }
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::GuardOnFrameFieldAuthorizes,
-                format!("{}.stateMachine.transitions[{}].guard", path, i),
-                format!(
-                    "trait {:?} transition '{}' guards a persist/call-service effect on @intrinsic field '{}' alongside @user — intrinsic fields are trait-owned view-state the runtime never seeds or persists, so this authorization check is trivially bypassable",
-                    trait_def.name, transition.event, intrinsic_field
-                ),
-            )
-            .with_suggestion(format!(
-                "Base this guard on a real persisted field of entity {:?}, not the @intrinsic field {:?}",
-                linked, intrinsic_field
-            )),
-        );
-    }
-    result
 }
 
 /// Whether the trait declares a client-run dispatch (`[client]` or `[optimistic]`); nothing is inferred
@@ -1385,8 +1238,7 @@ fn set_field_from_payload_var(effects: &[SExpression], field: &str, var: &str) -
 /// in — a real, intentional use, just never one that reaches a persisted
 /// row, and the field is routinely genuine access-control data (still read
 /// in `@read`/`@create`/… directives elsewhere) rather than trait-local
-/// scratch, so `@intrinsic` is the wrong label for it (verified: tripped
-/// `ORB_GUARD_ON_FRAME_FIELD_AUTHORIZES` when tried on `std-lms`'s
+/// scratch, so `@intrinsic` is the wrong label for it (`std-lms`'s
 /// `Progress.studentId`).
 fn field_scopes_a_read_filter(effects: &[SExpression], field: &str) -> bool {
     fn expr_reads_field(expr: &SExpression, target_dotted: &str, field: &str) -> bool {
@@ -3308,86 +3160,6 @@ mod tests {
         assert!(
             result.errors.is_empty(),
             "A [runtime] entity has no row to land in and must be exempt: {:?}",
-            result.errors
-        );
-    }
-
-    // ---- Rule 2b: guard-authorization on an @intrinsic field ---------------
-
-    #[test]
-    fn guard_on_intrinsic_field_alongside_user_gating_persist_errors() {
-        let guard = arr(vec![
-            s("and"),
-            arr(vec![
-                s("=="),
-                s("@entity.isEditing"),
-                SExpression::Bool(true),
-            ]),
-            arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]),
-        ]);
-        let persist_effect = arr(vec![s("persist"), s("update"), s("Note"), s("@entity")]);
-        let t = trait_with_guard("NoteEditor", "Note", Some(guard), vec![persist_effect]);
-        let mut defs = HashMap::new();
-        defs.insert(
-            "Note".to_string(),
-            entity_with_intrinsic_field("Note", "isEditing"),
-        );
-        let result = validate_trait_guard_frame_field_authorization(&t, "test", &defs);
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::GuardOnFrameFieldAuthorizes),
-            "Expected GuardOnFrameFieldAuthorizes error: {:?}",
-            result.errors
-        );
-    }
-
-    #[test]
-    fn guard_on_intrinsic_field_without_user_is_not_authorization() {
-        // A plain precondition guard with no identity comparison — like
-        // ChatComposer.SEND's `activeChannel != ""` — is not a hit.
-        let guard = arr(vec![
-            s("=="),
-            s("@entity.isEditing"),
-            SExpression::Bool(true),
-        ]);
-        let persist_effect = arr(vec![s("persist"), s("update"), s("Note"), s("@entity")]);
-        let t = trait_with_guard("NoteEditor", "Note", Some(guard), vec![persist_effect]);
-        let mut defs = HashMap::new();
-        defs.insert(
-            "Note".to_string(),
-            entity_with_intrinsic_field("Note", "isEditing"),
-        );
-        let result = validate_trait_guard_frame_field_authorization(&t, "test", &defs);
-        assert!(
-            result.errors.is_empty(),
-            "A plain precondition guard must not be flagged as authorization: {:?}",
-            result.errors
-        );
-    }
-
-    #[test]
-    fn guard_on_intrinsic_field_with_user_but_no_mutation_is_not_a_hit() {
-        let guard = arr(vec![
-            s("and"),
-            arr(vec![
-                s("=="),
-                s("@entity.isEditing"),
-                SExpression::Bool(true),
-            ]),
-            arr(vec![s("=="), s("@user.id"), s("@entity.ownerId")]),
-        ]);
-        let t = trait_with_guard("NoteViewer", "Note", Some(guard), vec![set_effect("title")]);
-        let mut defs = HashMap::new();
-        defs.insert(
-            "Note".to_string(),
-            entity_with_intrinsic_field("Note", "isEditing"),
-        );
-        let result = validate_trait_guard_frame_field_authorization(&t, "test", &defs);
-        assert!(
-            result.errors.is_empty(),
-            "No persist/call-service in the transition means no authorization is at stake: {:?}",
             result.errors
         );
     }

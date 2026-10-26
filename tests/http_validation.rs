@@ -1948,16 +1948,3 @@ mod call_key_final {
         assert!(!fires(&r, ErrorCode::CancelCallKeyNeverCalled), "{:?}", r.errors);
     }
 }
-
-#[test]
-fn an_emit_options_key_an_effect_does_not_carry_is_refused() {
-    let emit = json!({ "success": "SEARCHED", "failure": "SEARCH_FAILED" });
-    let dropped = check(json!([]), config(), json!([["persist", "create", "Row", {}, { "key": "k1", "emit": emit }]]));
-    assert!(fires(&dropped, ErrorCode::EffectOptionDropped), "{:?}", dropped.errors);
-    let kept = check(json!([]), config(), json!([["persist", "create", "Row", {}, { "emit": emit }]]));
-    assert!(!fires(&kept, ErrorCode::EffectOptionDropped), "control: {:?}", kept.errors);
-    let substrate = check(json!([]), config(), json!([["program/dispatch", "Icons.Searcher.INIT", {}, { "key": "k1", "emit": emit }]]));
-    assert!(!fires(&substrate, ErrorCode::EffectOptionDropped), "a substrate op carries its key: {:?}", substrate.errors);
-    let data_field = check(json!([]), config(), json!([["persist", "create", "Row", { "key": "k1", "id": "a" }, { "emit": emit }]]));
-    assert!(!fires(&data_field, ErrorCode::EffectOptionDropped), "edge: a row field named key is data: {:?}", data_field.errors);
-}

@@ -16,13 +16,12 @@
 //!   3. an Entity-kind param with NO arg still defaults to the trait's
 //!      `linkedEntity` (the 3-I behavior, unchanged, now routed through the
 //!      3-II-aware substitution path);
-//!   4. a Type-kind param with NO arg leaves the sentinel for the
-//!      defensive sweep (`ORB_T_UNRESOLVED_TYPE_PARAM`), which is NOT
+//!   4. a Type-kind param with NO arg leaves the sentinel (reported as
+//!      `ORB_T_UNRESOLVED_TYPE_PARAM` by the `type-param-sweep` lint), which is NOT
 //!      silently defaulted to `linkedEntity` even though one exists.
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::{type_param_sweep, ValidationContext};
 use orbital_core_base::schema::{OrbitalSchema, TraitReference};
 
 /// Atom fixture: one orbital with a single trait declaring `typeParams` (the
@@ -350,14 +349,6 @@ fn explicit_primitive_arg_substitutes_scalar_field_type() {
         field.properties.is_none(),
         "a primitive substitution must carry no properties"
     );
-
-    let mut ctx = ValidationContext::new();
-    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert!(
-        ctx.result.errors.is_empty(),
-        "resolved sentinel must not trip the sweep: {:?}",
-        ctx.result.errors
-    );
 }
 
 /// 2. `:: e Booking` — explicit ENTITY-named arg substitutes `object` +
@@ -381,14 +372,6 @@ fn explicit_entity_named_arg_substitutes_object_with_properties() {
         .expect("entity substitution must carry the entity's fields");
     let prop_names: Vec<&str> = props.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(prop_names, vec!["id", "when"]);
-
-    let mut ctx = ValidationContext::new();
-    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert!(
-        ctx.result.errors.is_empty(),
-        "resolved sentinel must not trip the sweep: {:?}",
-        ctx.result.errors
-    );
 }
 
 /// 3. Entity-kind param, NO call-site arg — still defaults to the trait's
@@ -409,21 +392,12 @@ fn entity_kind_param_with_no_arg_defaults_to_linked_entity() {
         vec!["id"],
         "must default to Booking (the linkedEntity), not some other entity"
     );
-
-    let mut ctx = ValidationContext::new();
-    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert!(
-        ctx.result.errors.is_empty(),
-        "resolved sentinel must not trip the sweep: {:?}",
-        ctx.result.errors
-    );
 }
 
 /// 4. Type-kind param, NO call-site arg — sentinel survives (no default),
-/// and the sweep reports it with the Type-kind-specific message rather than
-/// silently defaulting to `linkedEntity` even though one is present.
+/// rather than silently defaulting to `linkedEntity` even though one is present.
 #[test]
-fn type_kind_param_with_no_arg_leaves_sentinel_for_sweep() {
+fn type_kind_param_with_no_arg_leaves_the_sentinel() {
     let schema = materialize_and_inline(r#"[{"name": "v", "kind": "Type"}]"#, "", "");
     let trait_def = lookup_run_trait(&schema);
     let field = candidate_field(trait_def);
@@ -432,23 +406,6 @@ fn type_kind_param_with_no_arg_leaves_sentinel_for_sweep() {
         "Type-kind param must NOT default to linkedEntity — sentinel must survive"
     );
     assert!(field.properties.is_none());
-
-    let mut ctx = ValidationContext::new();
-    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert_eq!(
-        ctx.result.errors.len(),
-        2,
-        "one per surviving sentinel occurrence (emits + events): {:?}",
-        ctx.result.errors
-    );
-    for err in &ctx.result.errors {
-        assert_eq!(err.code.as_str(), "ORB_T_UNRESOLVED_TYPE_PARAM");
-        assert!(
-            err.message.contains("call-site argument"),
-            "Type-kind message must point at the missing `:: v <arg>`, got: {}",
-            err.message
-        );
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -477,14 +434,6 @@ fn struct_alias_arg_resolves_to_object_with_properties() {
         .expect("struct-alias substitution must carry the alias's flattened fields");
     let prop_names: Vec<&str> = props.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(prop_names, vec!["id"]);
-
-    let mut ctx = ValidationContext::new();
-    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert!(
-        ctx.result.errors.is_empty(),
-        "resolved sentinel must not trip the sweep: {:?}",
-        ctx.result.errors
-    );
 }
 
 /// 5b. Array form: `[$v]` substitutes `[object]` whose element (`items`) carries the alias's flattened shape.
@@ -522,22 +471,14 @@ fn date_arg_resolves_as_primitive() {
     let field = candidate_field(trait_def);
     assert_eq!(field.field_type, "date");
     assert!(field.properties.is_none());
-
-    let mut ctx = ValidationContext::new();
-    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert!(
-        ctx.result.errors.is_empty(),
-        "resolved sentinel must not trip the sweep: {:?}",
-        ctx.result.errors
-    );
 }
 
 /// 7. An arg naming neither a primitive, a known entity, nor a known struct
-/// alias is unresolvable — the sentinel survives for the sweep exactly as
+/// alias is unresolvable — the sentinel survives exactly as
 /// the no-arg case does (Gap A adds a lookup tier; it must not turn an
 /// unresolvable name into a silent pass-through).
 #[test]
-fn unknown_arg_name_still_leaves_sentinel_for_sweep() {
+fn unknown_arg_name_still_leaves_the_sentinel() {
     let schema = materialize_and_inline(
         r#"[{"name": "v", "kind": "Type"}]"#,
         r#", "typeArgs": {"v": "TotallyUnknownName"}"#,
@@ -549,13 +490,6 @@ fn unknown_arg_name_still_leaves_sentinel_for_sweep() {
         field.field_type, "$v",
         "an unresolvable arg name must leave the sentinel, not silently pass through"
     );
-
-    let mut ctx = ValidationContext::new();
-    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert_eq!(ctx.result.errors.len(), 2, "{:?}", ctx.result.errors);
-    for err in &ctx.result.errors {
-        assert_eq!(err.code.as_str(), "ORB_T_UNRESOLVED_TYPE_PARAM");
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -640,14 +574,6 @@ fn declared_default_resolves_with_no_call_site_arg() {
         .expect("declared default must carry the alias's flattened fields");
     let prop_names: Vec<&str> = props.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(prop_names, vec!["note"]);
-
-    let mut ctx = ValidationContext::new();
-    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert!(
-        ctx.result.errors.is_empty(),
-        "a resolved default must not trip the sweep: {:?}",
-        ctx.result.errors
-    );
 }
 
 /// 9. A call-site arg WINS over a declared default — `date` default
@@ -678,20 +604,13 @@ fn call_site_arg_wins_over_declared_default() {
 /// the declared-default test, minus the `default` key, proving Gap C only
 /// ever ADDS a fallback tier and never turns an undeclared-default param
 /// into a silent pass-through. (Mirrors `type_kind_param_with_no_arg_leaves_
-/// sentinel_for_sweep` above, which covers the non-standalone/`ref` shape.)
+/// the_sentinel` above, which covers the non-standalone/`ref` shape.)
 #[test]
-fn no_default_and_no_arg_still_blocks_standalone() {
+fn no_default_and_no_arg_still_leaves_the_sentinel_standalone() {
     let schema = standalone_and_inline(r#"[{"name": "v", "kind": "Type"}]"#, "");
     let trait_def = lookup_run_trait(&schema);
     let field = candidate_field(trait_def);
     assert_eq!(field.field_type, "$v");
-
-    let mut ctx = ValidationContext::new();
-    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert_eq!(ctx.result.errors.len(), 2, "{:?}", ctx.result.errors);
-    for err in &ctx.result.errors {
-        assert_eq!(err.code.as_str(), "ORB_T_UNRESOLVED_TYPE_PARAM");
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -724,14 +643,6 @@ fn imported_trait_struct_alias_arg_resolves_lexically_from_source_file() {
         .expect("source-file alias substitution must carry its flattened fields");
     let prop_names: Vec<&str> = props.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(prop_names, vec!["id"]);
-
-    let mut ctx = ValidationContext::new();
-    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert!(
-        ctx.result.errors.is_empty(),
-        "resolved sentinel must not trip the sweep: {:?}",
-        ctx.result.errors
-    );
 }
 
 /// 11. (b) The composer ALSO declares its own local alias of the SAME NAME
@@ -799,14 +710,6 @@ fn imported_trait_declared_default_resolves_lexically_from_source_file() {
         .expect("source-file default alias substitution must carry its flattened fields");
     let prop_names: Vec<&str> = props.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(prop_names, vec!["id"]);
-
-    let mut ctx = ValidationContext::new();
-    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert!(
-        ctx.result.errors.is_empty(),
-        "resolved sentinel must not trip the sweep: {:?}",
-        ctx.result.errors
-    );
 }
 
 /// 12. TRANSITIVE two-level import — the actual std-inventory shape: Top
@@ -947,12 +850,4 @@ fn transitive_two_level_import_inherits_middles_binding_past_tops_argless_refere
         .expect("must carry MiddleAlias's flattened fields, resolved from Middle's own file");
     let prop_names: Vec<&str> = props.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(prop_names, vec!["note"]);
-
-    let mut ctx = ValidationContext::new();
-    type_param_sweep::validate_type_param_sentinels(&schema, &mut ctx);
-    assert!(
-        ctx.result.errors.is_empty(),
-        "resolved sentinel must not trip the sweep: {:?}",
-        ctx.result.errors
-    );
 }

@@ -265,6 +265,80 @@ pub(crate) fn validate_effect(
     )
 }
 
+/// The effects a sequencing form (`do`, `if`, `when`, `let`) runs directly, each with its path: `<path>.do[i]`,
+/// `.then`, `.else`, `.then[i]` (`when`), `.body[i]` (`let`). A position written as a list of effects (`[[effect…]]`)
+/// adds `[k]`. Empty for a leaf effect. The one definition of where an effect nests.
+pub(crate) fn nested_effects<'a>(effect: &'a SExpression, path: &str) -> Vec<(&'a SExpression, String)> {
+    let SExpression::Array(arr) = effect else {
+        return Vec::new();
+    };
+    let positions: Vec<(&SExpression, String)> = match arr.first().and_then(|e| e.as_str()) {
+        Some("do") => arr.iter().enumerate().skip(1).map(|(i, b)| (b, format!("{}.do[{}]", path, i - 1))).collect(),
+        Some("if") => [(arr.get(2), "then"), (arr.get(3), "else")]
+            .into_iter()
+            .filter_map(|(b, label)| b.map(|b| (b, format!("{}.{}", path, label))))
+            .collect(),
+        Some("when") => arr.iter().enumerate().skip(2).map(|(i, b)| (b, format!("{}.then[{}]", path, i - 2))).collect(),
+        Some("let") => arr.iter().enumerate().skip(2).map(|(i, b)| (b, format!("{}.body[{}]", path, i - 2))).collect(),
+        _ => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for (position, position_path) in positions {
+        match position {
+            SExpression::Array(items) if matches!(items.first(), Some(SExpression::Array(_))) => {
+                out.extend(items.iter().enumerate().map(|(k, e)| (e, format!("{}[{}]", position_path, k))));
+            }
+            _ => out.push((position, position_path)),
+        }
+    }
+    out
+}
+
+/// The binding types the body of `["let", [[name, value]…], body…]` is checked against: `types` plus each local, typed
+/// as it is bound (later bindings see earlier ones). A local whose type is not decidable is removed, so it stays
+/// permissive. `on_value` sees each binding's value expression. `None` when there are no outer types to extend.
+pub(crate) fn scope_let_locals(
+    arr: &[SExpression],
+    types: Option<&super::set::BindingTypes>,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+    payload_field_types: &HashMap<String, String>,
+    schema: Option<&OrbitalSchema>,
+    on_value: &mut dyn FnMut(&SExpression),
+) -> Option<super::set::BindingTypes> {
+    let mut scoped = types.cloned();
+    if let Some(SExpression::Array(bindings)) = arr.get(1) {
+        for binding in bindings {
+            if let SExpression::Array(pair) = binding {
+                if let Some(bound) = pair.get(1) {
+                    on_value(bound);
+                }
+                if let (Some(SExpression::String(name)), Some(bound), Some(scope)) =
+                    (pair.first(), pair.get(1), scoped.as_mut())
+                {
+                    let ctx = super::set::ExprReturnCtx {
+                        entity: entity_field_types,
+                        payload: payload_field_types,
+                        types: Some(&*scope),
+                        schema,
+                    };
+                    let ty = orbital_core_eval::lower::lower_sexpr_keeping_typed(bound)
+                        .ok()
+                        .and_then(|oir| crate::type_infer::local_initializer_type(&oir, &ctx));
+                    match ty {
+                        Some(ty) => {
+                            scope.locals.insert(name.clone(), ty);
+                        }
+                        None => {
+                            scope.locals.remove(name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    scoped
+}
+
 /// Validate an effect and every effect nested in its control flow. `do`, `if`, `when` and `let` are the
 /// effect-sequencing forms (`exec_effect_expr` in the runtime kernel); each child effect is validated
 /// exactly like a top-level one, at `<path>.do[i]` / `.then` / `.else` / `.body[i]`. A branch written as a
@@ -322,123 +396,36 @@ pub(crate) fn validate_effect_in(
             service_registry,
         ));
     };
-    let child = |expr: &SExpression, child_path: String, result: &mut ValidationResult| {
-        // A branch that is itself a list of effects (`[[effect…]]`) is a sequence.
-        let sequence = matches!(expr, SExpression::Array(items) if matches!(items.first(), Some(SExpression::Array(_))));
-        let members: Vec<(&SExpression, String)> = match (sequence, expr) {
-            (true, SExpression::Array(items)) => items
-                .iter()
-                .enumerate()
-                .map(|(k, e)| (e, format!("{}[{}]", child_path, k)))
-                .collect(),
-            _ => vec![(expr, child_path)],
-        };
-        for (member, member_path) in members {
-            result.merge(validate_effect_in(
-                member,
-                &member_path,
-                known_entities,
-                entity_definitions,
-                known_services,
-                page_init_payloads,
-                service_registry,
-                declared_emits,
-                entity_field_types,
-                payload_field_types,
-                payload_shapes,
-                schema,
-                types,
-            ));
-        }
-    };
-
+    let mut scoped = None;
     match head {
-        "do" => {
-            for (i, body) in arr.iter().enumerate().skip(1) {
-                child(body, format!("{}.do[{}]", path, i - 1), &mut result);
-            }
-        }
-        "if" => {
+        "if" | "when" => {
             if let Some(cond) = arr.get(1) {
                 value(cond, &mut result);
             }
-            if let Some(then) = arr.get(2) {
-                child(then, format!("{}.then", path), &mut result);
-            }
-            if let Some(otherwise) = arr.get(3) {
-                child(otherwise, format!("{}.else", path), &mut result);
-            }
         }
-        "when" => {
-            if let Some(cond) = arr.get(1) {
-                value(cond, &mut result);
-            }
-            for (i, body) in arr.iter().enumerate().skip(2) {
-                child(body, format!("{}.then[{}]", path, i - 2), &mut result);
-            }
+        "let" => {
+            scoped = scope_let_locals(arr, types, entity_field_types, payload_field_types, schema, &mut |bound| {
+                value(bound, &mut result)
+            });
         }
-        _ => {
-            // The effects in the body read the locals the `let` binds, each typed as it is bound (later bindings see
-            // earlier ones).
-            let mut scoped = types.cloned();
-            if let Some(SExpression::Array(bindings)) = arr.get(1) {
-                for binding in bindings {
-                    if let SExpression::Array(pair) = binding {
-                        if let Some(bound) = pair.get(1) {
-                            value(bound, &mut result);
-                        }
-                        if let (Some(SExpression::String(name)), Some(bound), Some(scope)) =
-                            (pair.first(), pair.get(1), scoped.as_mut())
-                        {
-                            let ctx = super::set::ExprReturnCtx {
-                                entity: entity_field_types,
-                                payload: payload_field_types,
-                                types: Some(&*scope),
-                                schema,
-                            };
-                            let ty = orbital_core_eval::lower::lower_sexpr_keeping_typed(bound)
-                                .ok()
-                                .and_then(|oir| crate::type_infer::local_initializer_type(&oir, &ctx));
-                            match ty {
-                                Some(ty) => {
-                                    scope.locals.insert(name.clone(), ty);
-                                }
-                                None => {
-                                    scope.locals.remove(name);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            for (i, body) in arr.iter().enumerate().skip(2) {
-                let member_path = format!("{}.body[{}]", path, i - 2);
-                let sequence = matches!(body, SExpression::Array(items) if matches!(items.first(), Some(SExpression::Array(_))));
-                let members: Vec<(&SExpression, String)> = match (sequence, body) {
-                    (true, SExpression::Array(items)) => {
-                        items.iter().enumerate().map(|(k, e)| (e, format!("{}[{}]", member_path, k))).collect()
-                    }
-                    _ => vec![(body, member_path)],
-                };
-                for (member, at) in members {
-                    result.merge(validate_effect_in(
-                        member,
-                        &at,
-                        known_entities,
-                        entity_definitions,
-                        known_services,
-                        page_init_payloads,
-                        service_registry,
-                        declared_emits,
-                        entity_field_types,
-                        payload_field_types,
-                        payload_shapes,
-                        schema,
-                        scoped.as_ref().or(types),
-                    ));
-                }
-            }
-        }
+        _ => {}
+    }
+    for (member, at) in nested_effects(effect, path) {
+        result.merge(validate_effect_in(
+            member,
+            &at,
+            known_entities,
+            entity_definitions,
+            known_services,
+            page_init_payloads,
+            service_registry,
+            declared_emits,
+            entity_field_types,
+            payload_field_types,
+            payload_shapes,
+            schema,
+            scoped.as_ref().or(types),
+        ));
     }
     result
 }

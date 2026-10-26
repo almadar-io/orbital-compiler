@@ -210,17 +210,15 @@ fn an_expected_identity_retargets_onto_the_consumer_identity() {
     }
     assert_eq!(inherited_identity_names(&schema), vec![Some("Customer".to_string())]);
     assert!(!errors.iter().any(|c| c == "ORB_O_ENTITY_UNKNOWN_KEY"), "{errors:?}");
-    assert!(!errors.iter().any(|c| c == "ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED"), "{errors:?}");
 }
 
 #[test]
 fn control_without_the_remap_the_relations_keep_the_expected_name() {
-    let (schema, errors) = inline("", "");
+    let (schema, _) = inline("", "");
     for orbital in ["Records", "Use"] {
         assert!(relation_targets(&schema, orbital).iter().all(|(_, t)| t == "Person"));
     }
     assert_eq!(inherited_identity_names(&schema), vec![Some("Person".to_string())]);
-    assert!(errors.iter().any(|c| c == "ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED"), "{errors:?}");
 }
 
 #[test]

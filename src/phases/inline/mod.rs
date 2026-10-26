@@ -802,6 +802,7 @@ pub fn inline_schema_with_orbital_diagnostics(
                     config_provenance: Some(all_provenance),
                     operator_sites: None,
                     dispatch_facts: None,
+                    protocols: None,
                 });
             }
         }

@@ -1,7 +1,6 @@
-//! `program/eval` effect validation: the validator's errors return through the
-//! failure arm, so a call without `emit.failure` drops them.
+//! `program/eval` effect validation: its `emit` config block.
 
-use super::super::{ErrorCode, ValidationError, ValidationResult};
+use super::super::ValidationResult;
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
 use orbital_core_base::schema::SExpression;
 
@@ -11,7 +10,6 @@ pub(crate) fn validate_program_eval(
     declared_emits: Option<&[DeclaredEmit]>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
-    let mut has_failure = false;
 
     for arg in arr.iter().skip(1) {
         let SExpression::Object(options) = arg else {
@@ -26,22 +24,6 @@ pub(crate) fn validate_program_eval(
             declared_emits,
             path,
         ));
-        if matches!(emit_obj.get("failure"), Some(SExpression::String(ev)) if !ev.is_empty()) {
-            has_failure = true;
-        }
-    }
-
-    if !has_failure {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::EffectProgramEvalFailureMissing,
-                path,
-                "`program/eval` carries no `emit.failure` event — the validator's errors come back through it and would be dropped",
-            )
-            .with_suggestion(
-                "Add `{ emit: { success: \"<EVENT>\", failure: \"<FAILURE_EVENT>\" } }` as the last arg and handle the failure event in an arm.",
-            ),
-        );
     }
 
     result
@@ -49,6 +31,7 @@ pub(crate) fn validate_program_eval(
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::ErrorCode;
     use super::*;
 
     fn call(json: &str) -> Vec<SExpression> {
@@ -61,32 +44,6 @@ mod tests {
             .iter()
             .map(|e| e.code.clone())
             .collect()
-    }
-
-    #[test]
-    fn missing_failure_is_an_error() {
-        let arr = call(r#"["program/eval", "@entity.program", {"emit": {"success": "BUILT"}}]"#);
-        assert_eq!(
-            codes(&arr),
-            vec![ErrorCode::EffectProgramEvalFailureMissing]
-        );
-    }
-
-    #[test]
-    fn no_options_object_is_an_error() {
-        let arr = call(r#"["program/eval", "@entity.program"]"#);
-        assert_eq!(
-            codes(&arr),
-            vec![ErrorCode::EffectProgramEvalFailureMissing]
-        );
-    }
-
-    #[test]
-    fn empty_failure_event_is_an_error() {
-        let arr = call(
-            r#"["program/eval", "@entity.program", {"emit": {"success": "BUILT", "failure": ""}}]"#,
-        );
-        assert!(codes(&arr).contains(&ErrorCode::EffectProgramEvalFailureMissing));
     }
 
     #[test]

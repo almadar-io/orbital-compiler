@@ -981,11 +981,9 @@ fn role_target_that_is_a_consumer_roster_member_does_not_fire() {
 /// B4-R4: a `roles {}` target that is a member of some OTHER field's
 /// vocabulary on the consumer roster (`Member.status`'s `"active"`) must not
 /// pass by matching the wrong field — `ORB_O_ROLE_TARGET_NOT_MEMBER` fires
-/// naming `Member.role` specifically, and the downstream rewritten policy
-/// (`@user.role == "active"`) still fires `ORB_S_ROLE_LITERAL_NOT_MEMBER` —
-/// both name the same cause, which is fine.
+/// naming `Member.role` specifically.
 #[test]
-fn role_target_that_is_a_different_fields_vocabulary_member_fires_org_o_and_downstream_org_s() {
+fn role_target_that_is_a_different_fields_vocabulary_member_fires_org_o() {
     let collected = collect_stage_b_with_status(r#", "roles": { "approver": ["active"] }"#);
 
     let org_o = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
@@ -1000,23 +998,13 @@ fn role_target_that_is_a_different_fields_vocabulary_member_fires_org_o_and_down
          ORB_O_ROLE_TARGET_NOT_MEMBER must still fire, naming the `role` field: {:#?}",
         org_o.errors
     );
-
-    let comprehensive = validate_comprehensive_without_services(&collected.schema);
-    assert!(
-        comprehensive.errors.iter().any(
-            |e| e.code == ErrorCode::SchemaRoleLiteralNotMember && e.message.contains("active")
-        ),
-        "the rewritten policy compares `@user.role` to \"active\" directly — the downstream \
-         ORB_S_ROLE_LITERAL_NOT_MEMBER check must also fire: {:#?}",
-        comprehensive.errors
-    );
 }
 
 /// A `roles {}` list mixing a genuine roster member (`owner`) with a
-/// different field's vocabulary value (`active`) fires BOTH codes for the
-/// invalid member only — `owner` must stay silent on both checks.
+/// different field's vocabulary value (`active`) fires
+/// ORB_O_ROLE_TARGET_NOT_MEMBER for the invalid member only.
 #[test]
-fn role_target_list_with_one_status_value_fires_both_codes_for_that_member_only() {
+fn role_target_list_with_one_status_value_fires_for_that_member_only() {
     let collected =
         collect_stage_b_with_status(r#", "roles": { "approver": ["owner", "active"] }"#);
 
@@ -1033,24 +1021,10 @@ fn role_target_list_with_one_status_value_fires_both_codes_for_that_member_only(
         org_o.errors
     );
     assert!(org_o_target_errors[0].message.contains("active"));
-
-    let comprehensive = validate_comprehensive_without_services(&collected.schema);
-    let role_literal_errors: Vec<_> = comprehensive
-        .errors
-        .iter()
-        .filter(|e| e.code == ErrorCode::SchemaRoleLiteralNotMember)
-        .collect();
-    assert_eq!(
-        role_literal_errors.len(),
-        1,
-        "expected exactly one ORB_S_ROLE_LITERAL_NOT_MEMBER (for 'active' only), got {:#?}",
-        comprehensive.errors
-    );
-    assert!(role_literal_errors[0].message.contains("active"));
 }
 
 /// The valid Project-Friday-shaped mapping (`approver -> owner`, with a
-/// `status` field also present on the roster) stays silent on both checks.
+/// `status` field also present on the roster) stays silent.
 #[test]
 fn role_target_valid_mapping_stays_silent_even_with_a_status_field_present() {
     let collected = collect_stage_b_with_status(r#", "roles": { "approver": ["owner"] }"#);
@@ -1063,16 +1037,6 @@ fn role_target_valid_mapping_stays_silent_even_with_a_status_field_present() {
             .any(|e| e.code == ErrorCode::OrbitalRefRoleTargetNotMember),
         "{:#?}",
         org_o.errors
-    );
-
-    let comprehensive = validate_comprehensive_without_services(&collected.schema);
-    assert!(
-        !comprehensive
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::SchemaRoleLiteralNotMember),
-        "{:#?}",
-        comprehensive.errors
     );
 }
 

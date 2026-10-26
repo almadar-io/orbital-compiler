@@ -18,7 +18,6 @@ const CLIENT_AUTHS: [&str; 3] = ["basic", "post", "none"];
 const ENDPOINT_KEYS: [&str; 4] = ["authorization", "token", "revocation", "userinfo"];
 const AUTHORIZE_KEYS: [&str; 4] = ["redirectUri", "scope", "subject", "params"];
 const EMIT_KEYS: [&str; 2] = ["success", "failure"];
-const INPUT_KEYS: [&str; 7] = ["code", "state", "subject", "provider", "refreshToken", "token", "accessToken"];
 
 fn is_dynamic(value: &str) -> bool {
     value.starts_with('@') || value.starts_with('?') || value.starts_with('$')
@@ -72,13 +71,14 @@ fn check_client(client: &SExpression, egress: Option<&[String]>, at: &str, resul
             return;
         }
     };
+    let client_keys = OAuthClientDecl::keys();
     let mut keys: Vec<&String> = obj.keys().collect();
     keys.sort();
     for key in keys {
-        if !OAuthClientDecl::KEYS.contains(&key.as_str()) {
+        if !client_keys.contains(&key.as_str()) {
             result.add_error(
                 err(ErrorCode::OAuthClientInvalid, at, format!("`{key}` is not a key of an OAuth client"))
-                    .with_valid_values(words(OAuthClientDecl::KEYS)),
+                    .with_valid_values(words(&client_keys)),
             );
         }
     }
@@ -136,7 +136,7 @@ fn check_provider_word(value: Option<&SExpression>, at: &str, result: &mut Valid
 }
 
 fn check_http_call(arr: &[SExpression], egress: Option<&[String]>, at: &str, result: &mut ValidationResult) {
-    let endpoint_target = matches!(arr.get(2), Some(SExpression::String(origin)) if origin == OAuthEndpointKind::TARGET);
+    let endpoint_target = matches!(arr.get(2), Some(SExpression::String(origin)) if origin == OAuthEndpointKind::target());
     let (request, _) = http_objects(arr);
     let auth = request.and_then(|r| match r.get("auth") {
         Some(SExpression::Object(auth)) => Some(auth),
@@ -201,20 +201,20 @@ fn check_http_call(arr: &[SExpression], egress: Option<&[String]>, at: &str, res
             None => {
                 result.add_error(
                     err(ErrorCode::OAuthOpUnknown, at, format!("`{word}` is not an oauth-client op"))
-                        .with_valid_values(words(OAuthOp::WORDS)),
+                        .with_valid_values(words(&OAuthOp::words())),
                 );
                 return;
             }
         },
         _ => {
             result.add_error(
-                err(ErrorCode::OAuthOpUnknown, at, "an `oauth-client` auth needs an `op`").with_valid_values(words(OAuthOp::WORDS)),
+                err(ErrorCode::OAuthOpUnknown, at, "an `oauth-client` auth needs an `op`").with_valid_values(words(&OAuthOp::words())),
             );
             return;
         }
     };
     let (required, optional) = op.inputs();
-    for key in required {
+    for key in &required {
         if !matches!(auth.get(*key), Some(value) if !matches!(value, SExpression::Null)) {
             result.add_error(err(ErrorCode::OAuthOpUnknown, at, format!("oauth-client op `{}` needs `{key}`", op.name())));
         }
@@ -225,7 +225,7 @@ fn check_http_call(arr: &[SExpression], egress: Option<&[String]>, at: &str, res
                 .with_suggestion("Declare `client` for this op"),
         );
     }
-    for key in INPUT_KEYS {
+    for key in OAuthOp::all_inputs() {
         if auth.contains_key(key) && !required.contains(&key) && !optional.contains(&key) {
             result.add_error(err(ErrorCode::OAuthOpUnknown, at, format!("oauth-client op `{}` does not take `{key}`", op.name())));
         }

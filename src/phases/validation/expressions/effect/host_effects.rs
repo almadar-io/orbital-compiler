@@ -1,36 +1,22 @@
 //! `random-bytes`, `access-check`, `credential-*` validation
 //! (`docs/Almadar_Embedded_Kernel.md` H.7 P4, P6): arity, the closed options
-//! object (`emit { success, failure }` only), and a literal byte count in range.
+//! object and a literal integer in range. The effects are the operator table's `closedCall` entries; the options
+//! keys, the request fields and the range are its parameters and `closedCall` data.
 
 use super::super::{inline_traits, ErrorCode, ValidationError, ValidationResult};
 use super::emit_declaration::collect_declared_emits;
 use super::http::visit_effects;
 use super::keyed_call::check_key_and_cancelled;
 use super::{extract_emit_object_ref, validate_emit_config};
-use orbital_core_base::credential_admin::CredentialAdminOp;
+use orbital_core_base::language::registry::{try_get_operator, EmbeddedOperator};
 use orbital_core_base::schema::{OrbitalSchema, SExpression};
 
-const HOST_EFFECTS: [&str; 10] = [
-    "random-bytes",
-    "access-check",
-    "credential-status",
-    "credential-forget",
-    "credential-list",
-    "credential-set",
-    "credential-remove",
-    "credential-test",
-    "credential-mode",
-    "credential-rotate",
-];
-const HOST_EMIT_KEYS: [&str; 2] = ["success", "failure"];
-const RANDOM_BYTES_MAX: f64 = 1024.0;
-
-fn each_host_call<'a>(expr: &'a SExpression, visit: &mut dyn FnMut(&'a str, &'a [SExpression])) {
+fn each_host_call<'a>(expr: &'a SExpression, visit: &mut dyn FnMut(&'a str, &'a [SExpression], &'static EmbeddedOperator)) {
     match expr {
         SExpression::Array(arr) => {
             if let Some(SExpression::String(head)) = arr.first() {
-                if HOST_EFFECTS.contains(&head.as_str()) {
-                    visit(head, arr);
+                if let Some(operator) = try_get_operator(head).filter(|op| op.closed_call.is_some()) {
+                    visit(head, arr, operator);
                 }
             }
             for item in arr {
@@ -52,10 +38,11 @@ pub(crate) fn validate_host_effects(schema: &OrbitalSchema) -> ValidationResult 
     for (trait_def, path) in inline_traits(schema) {
         let declared = collect_declared_emits(trait_def);
         visit_effects(trait_def, &path, &mut |expr, at| {
-            each_host_call(expr, &mut |head, arr| {
-                let op = CredentialAdminOp::from_name(head);
-                let first = if op.is_some_and(|op| !op.takes_request()) { 1 } else { 2 };
-                if !(first..=first + 1).contains(&arr.len()) {
+            each_host_call(expr, &mut |head, arr, operator| {
+                let Some(closed) = operator.closed_call.as_ref() else { return };
+                let first = operator.min_arity as usize + 1;
+                let last = operator.max_arity.map_or(first, |max| max as usize) + 1;
+                if !(first..=last).contains(&arr.len()) {
                     let (takes, write) = if first == 1 {
                         ("only an optional options object", format!("Write ({head} {{ emit: {{ success: <EVENT> }} }})"))
                     } else {
@@ -67,17 +54,20 @@ pub(crate) fn validate_host_effects(schema: &OrbitalSchema) -> ValidationResult 
                     );
                     return;
                 }
-                if head == "random-bytes" {
-                    check_count(&arr[1], at, &mut result);
+                if let Some(range) = closed.int_range {
+                    if let Some(count) = arr.get(range.arg + 1) {
+                        check_count(head, range.arg, (range.min, range.max), count, at, &mut result);
+                    }
                 }
-                if let Some(op) = op.filter(|op| op.takes_request()) {
-                    check_request(op, &arr[1], at, &mut result);
+                if closed.request {
+                    check_request(head, operator, &arr[1], at, &mut result);
                 }
+                let (allowed, emit_keys) = operator.option_keys().unwrap_or_default();
                 match arr.get(first) {
                     None => {}
                     Some(SExpression::Object(options)) => {
-                        let keyed = head == "random-bytes";
-                        let allowed: &[&str] = if keyed { &["key", "emit"] } else { &["emit"] };
+                        let keyed = allowed.contains(&"key");
+                        let allowed: &[&str] = &allowed;
                         if let Some(key) = options.keys().find(|k| !allowed.contains(&k.as_str())) {
                             result.add_error(
                                 ValidationError::error(
@@ -92,7 +82,7 @@ pub(crate) fn validate_host_effects(schema: &OrbitalSchema) -> ValidationResult 
                             result.merge(check_key_and_cancelled(options, at, head));
                         }
                         if let Some(emit) = extract_emit_object_ref(options) {
-                            result.merge(validate_emit_config(emit, &HOST_EMIT_KEYS, Some(&declared), at));
+                            result.merge(validate_emit_config(emit, &emit_keys, Some(&declared), at));
                         }
                     }
                     Some(_) => result.add_error(
@@ -112,9 +102,8 @@ pub(crate) fn validate_host_effects(schema: &OrbitalSchema) -> ValidationResult 
 
 /// A literal request of a credential effect: an object of the effect's declared parameters, with the required ones
 /// present. A request that is a binding is the runtime's to check.
-fn check_request(op: CredentialAdminOp, request: &SExpression, at: &str, result: &mut ValidationResult) {
-    let (required, optional) = op.params();
-    let declared: Vec<&str> = required.iter().chain(optional).copied().collect();
+fn check_request(head: &str, operator: &EmbeddedOperator, request: &SExpression, at: &str, result: &mut ValidationResult) {
+    let Some((declared, required)) = operator.request_fields() else { return };
     let invalid = |message: String, result: &mut ValidationResult| {
         result.add_error(
             ValidationError::error(ErrorCode::CredentialRequestInvalid, at, message)
@@ -124,33 +113,33 @@ fn check_request(op: CredentialAdminOp, request: &SExpression, at: &str, result:
     match request {
         SExpression::Object(fields) => {
             if let Some(key) = fields.keys().find(|k| !declared.contains(&k.as_str())) {
-                invalid(format!("`{}` takes only {}, got `{key}`", op.name(), declared.join(", ")), result);
+                invalid(format!("`{}` takes only {}, got `{key}`", head, declared.join(", ")), result);
             }
             for name in required.iter().filter(|name| !fields.contains_key(**name)) {
-                invalid(format!("`{}` needs `{name}` in its request", op.name()), result);
+                invalid(format!("`{}` needs `{name}` in its request", head), result);
             }
         }
         SExpression::String(_) => {
             if !matches!(request, SExpression::String(text) if text.starts_with('@')) {
-                invalid(format!("`{}` takes a request object, not text", op.name()), result);
+                invalid(format!("`{}` takes a request object, not text", head), result);
             }
         }
         SExpression::Number(_) | SExpression::Bool(_) | SExpression::Null | SExpression::Array(_) => {
-            invalid(format!("`{}` takes a request object", op.name()), result);
+            invalid(format!("`{}` takes a request object", head), result);
         }
     }
 }
 
-fn check_count(count: &SExpression, at: &str, result: &mut ValidationResult) {
+fn check_count(head: &str, arg: usize, (min, max): (i64, i64), count: &SExpression, at: &str, result: &mut ValidationResult) {
     let SExpression::Number(n) = *count else {
         return;
     };
-    if n.fract() != 0.0 || !(1.0..=RANDOM_BYTES_MAX).contains(&n) {
+    if n.fract() != 0.0 || !((min as f64)..=(max as f64)).contains(&n) {
         result.add_error(
             ValidationError::error(
                 ErrorCode::RandomBytesCount,
                 at,
-                format!("`random-bytes` draws an integer from 1 to {RANDOM_BYTES_MAX} bytes, got {n}"),
+                format!("`{head}` argument {} is an integer from {min} to {max}, got {n}", arg + 1),
             )
             .with_suggestion("Use a whole number of bytes such as 32"),
         );

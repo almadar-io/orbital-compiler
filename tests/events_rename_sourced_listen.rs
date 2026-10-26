@@ -12,7 +12,6 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use orbital_core_base::schema::{ListenSource, OrbitalSchema, TraitReference};
 
 /// Minimal stand-in for std-mod-queue: a CloseButton atom plus a review trait
@@ -195,16 +194,5 @@ fn events_rename_keeps_sourced_listen_source_side() {
     assert!(
         button_emits.contains(&"CLOSE"),
         "CloseButton emits must stay CLOSE, got {button_emits:?}"
-    );
-
-    // The composed schema validates: no ORB_X_LISTEN_SOURCE_UNRESOLVED.
-    let result = validate_comprehensive_without_services(&schema);
-    assert!(
-        !result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::CrossOrbitalListenSourceUnresolved),
-        "sourced listen must resolve post-rename; got {:?}",
-        result.errors
     );
 }

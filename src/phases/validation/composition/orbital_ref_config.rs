@@ -590,7 +590,7 @@ pub fn suppress_cascaded_with<T: CascadeRow>(
             return None;
         }
         // `ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED`'s path is the bare
-        // `{entity}.@{sigil}` (`entity_access.rs:434`) — no orbital index
+        // `{entity}.@{sigil}` (the entity-access lint rule) — no orbital index
         // to scope by, so match on the named entity alone: the policy's
         // own entity, or the relation target the message quotes (the
         // un-rebound upstream entity IS the cause).

@@ -597,12 +597,12 @@ fn control_navigate_target_on_the_same_import_is_remapped() {
 }
 
 /// The real-organism proof's acceptance bar, reproduced at fixture scale:
-/// none of the five materialization-gap codes fire on this schema.
+/// none of the materialization-gap codes fire on this schema.
 /// `validate_comprehensive_without_services` is used (not just `inline_schema`) because these
 /// are POST-inline structural checks (`trait_validator`, `entity_access`,
 /// `entity`/`cross_orbital::relations`) — inlining alone can't observe them.
 #[test]
-fn materialized_schema_trips_none_of_the_five_gap_codes() {
+fn materialized_schema_trips_none_of_the_gap_codes() {
     let schema = inline_consumer();
     let result = validate_comprehensive_without_services(&schema);
     let codes: Vec<&str> = result.errors.iter().map(|e| e.code.as_str()).collect();
@@ -611,7 +611,6 @@ fn materialized_schema_trips_none_of_the_five_gap_codes() {
         "ORB_X_UNRESOLVED_RELATION_TARGET",
         "ORB_T_ENTITY_NOT_REBINDABLE",
         "ORB_ID_LEDGER_ORPHAN",
-        "ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED",
     ] {
         assert!(!codes.contains(&forbidden), "{forbidden} fired: {codes:?}");
     }

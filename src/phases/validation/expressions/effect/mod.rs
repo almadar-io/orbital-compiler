@@ -39,7 +39,7 @@ pub(crate) use http::validate_http_effects;
 pub(crate) use inbound::validate_inbound;
 pub(crate) use http_site::validate_http_auth_placement;
 pub(crate) use emit::{extract_emit_object_ref, validate_emit, validate_emit_config};
-pub(crate) use emit_declaration::collect_declared_emits;
+pub(crate) use emit_declaration::{collect_declared_emits, nested_effects, scope_let_locals};
 #[cfg(test)]
 pub(crate) use emit_declaration::{validate_effect, validate_emit_against_declaration};
 pub(crate) use fetch::{
@@ -47,10 +47,7 @@ pub(crate) use fetch::{
     validate_fetch_object,
 };
 pub(crate) use navigate::{validate_navigate, validate_send_server};
-pub(crate) use keyed_call::{
-    validate_call_key_literals_are_used, validate_call_service_keys_are_unique_per_transition,
-    validate_effect_options_carry_their_key,
-};
+pub(crate) use keyed_call::validate_call_key_literals_are_used;
 use keyed_call::CallKeyFacts;
 pub(crate) use operator_args::{validate_operator_arg_types, validate_operator_arg_types_under};
 pub(crate) use os_grants::{validate_final_os_targets, validate_os_grants, validate_placement};
@@ -88,8 +85,6 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
         ctx.merge(result);
     }
     ctx.merge(validate_call_key_literals_are_used(schema));
-    ctx.merge(validate_effect_options_carry_their_key(schema));
-    ctx.merge(validate_call_service_keys_are_unique_per_transition(schema));
     ctx.merge(validate_http_effects(schema));
     ctx.merge(validate_inbound(schema));
     validate_http_auth_placement(schema, ctx);
