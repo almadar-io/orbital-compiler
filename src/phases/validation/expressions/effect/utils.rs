@@ -168,9 +168,9 @@ mod tests {
     #[test]
     fn test_valid_set_effect() {
         let effect = SExpression::Array(vec![
-            SExpression::String("set".to_string()),
-            SExpression::String("@entity.title".to_string()),
-            SExpression::String("value".to_string()),
+            SExpression::String(("set".to_string()).into()),
+            SExpression::String(("@entity.title".to_string()).into()),
+            SExpression::String(("value".to_string()).into()),
         ]);
 
         let result = validate_effect(
@@ -191,9 +191,9 @@ mod tests {
     #[test]
     fn test_set_effect_payload_not_allowed() {
         let effect = SExpression::Array(vec![
-            SExpression::String("set".to_string()),
-            SExpression::String("@payload.title".to_string()),
-            SExpression::String("value".to_string()),
+            SExpression::String(("set".to_string()).into()),
+            SExpression::String(("@payload.title".to_string()).into()),
+            SExpression::String(("value".to_string()).into()),
         ]);
 
         let result = validate_effect(
@@ -218,9 +218,9 @@ mod tests {
     #[test]
     fn test_set_effect_missing_path() {
         let effect = SExpression::Array(vec![
-            SExpression::String("set".to_string()),
-            SExpression::String("@entity".to_string()),
-            SExpression::String("value".to_string()),
+            SExpression::String(("set".to_string()).into()),
+            SExpression::String(("@entity".to_string()).into()),
+            SExpression::String(("value".to_string()).into()),
         ]);
 
         let result = validate_effect(
@@ -245,8 +245,8 @@ mod tests {
     #[test]
     fn test_fetch_effect_invalid_entity() {
         let effect = SExpression::Array(vec![
-            SExpression::String("fetch".to_string()),
-            SExpression::String("NonExistent".to_string()),
+            SExpression::String(("fetch".to_string()).into()),
+            SExpression::String(("NonExistent".to_string()).into()),
         ]);
 
         let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
@@ -272,9 +272,9 @@ mod tests {
     #[test]
     fn test_call_service_missing_service() {
         let effect = SExpression::Array(vec![
-            SExpression::String("call-service".to_string()),
-            SExpression::String("unknownService".to_string()),
-            SExpression::String("action".to_string()),
+            SExpression::String(("call-service".to_string()).into()),
+            SExpression::String(("unknownService".to_string()).into()),
+            SExpression::String(("action".to_string()).into()),
         ]);
 
         let known_services: HashSet<String> = ["api".to_string()].into_iter().collect();
@@ -300,9 +300,9 @@ mod tests {
     #[test]
     fn test_call_service_unknown_service_registry_gate_errors() {
         let effect = SExpression::Array(vec![
-            SExpression::String("call-service".to_string()),
-            SExpression::String("unknownService".to_string()),
-            SExpression::String("action".to_string()),
+            SExpression::String(("call-service".to_string()).into()),
+            SExpression::String(("unknownService".to_string()).into()),
+            SExpression::String(("action".to_string()).into()),
         ]);
 
         let service_registry = crate::embedded::ServiceRegistryData {
@@ -338,9 +338,9 @@ mod tests {
     #[test]
     fn test_call_service_known_service_bad_action_errors() {
         let effect = SExpression::Array(vec![
-            SExpression::String("call-service".to_string()),
-            SExpression::String("email".to_string()),
-            SExpression::String("sendEmail".to_string()),
+            SExpression::String(("call-service".to_string()).into()),
+            SExpression::String(("email".to_string()).into()),
+            SExpression::String(("sendEmail".to_string()).into()),
         ]);
 
         let service_registry = crate::embedded::ServiceRegistryData {
@@ -376,9 +376,9 @@ mod tests {
     #[test]
     fn test_call_service_declared_only_service_empty_actions_clean() {
         let effect = SExpression::Array(vec![
-            SExpression::String("call-service".to_string()),
-            SExpression::String("migration".to_string()),
-            SExpression::String("anyHostAction".to_string()),
+            SExpression::String(("call-service".to_string()).into()),
+            SExpression::String(("migration".to_string()).into()),
+            SExpression::String(("anyHostAction".to_string()).into()),
         ]);
 
         let service_registry = crate::embedded::ServiceRegistryData {
@@ -447,9 +447,9 @@ mod tests {
 
     fn call_email(params: SExpression) -> SExpression {
         SExpression::Array(vec![
-            SExpression::String("call-service".to_string()),
-            SExpression::String("email".to_string()),
-            SExpression::String("send".to_string()),
+            SExpression::String(("call-service".to_string()).into()),
+            SExpression::String(("email".to_string()).into()),
+            SExpression::String(("send".to_string()).into()),
             params,
         ])
     }
@@ -477,9 +477,9 @@ mod tests {
         // An inline schema.services declaration must not hard-error calls to
         // registry services — resolved = inline ∪ registry.
         let effect = SExpression::Array(vec![
-            SExpression::String("call-service".to_string()),
-            SExpression::String("email".to_string()),
-            SExpression::String("send".to_string()),
+            SExpression::String(("call-service".to_string()).into()),
+            SExpression::String(("email".to_string()).into()),
+            SExpression::String(("send".to_string()).into()),
         ]);
         let known_services: HashSet<String> = ["api".to_string()].into_iter().collect();
         let registry = crate::embedded::ServiceRegistryData {
@@ -515,10 +515,10 @@ mod tests {
             [
                 (
                     "recipient".to_string(),
-                    SExpression::String("a@b.c".to_string()),
+                    SExpression::String(("a@b.c".to_string()).into()),
                 ),
-                ("subject".to_string(), SExpression::String("s".to_string())),
-                ("body".to_string(), SExpression::String("b".to_string())),
+                ("subject".to_string(), SExpression::String(("s".to_string()).into())),
+                ("body".to_string(), SExpression::String(("b".to_string()).into())),
             ]
             .into_iter()
             .collect(),
@@ -541,10 +541,10 @@ mod tests {
             [
                 (
                     "to".to_string(),
-                    SExpression::String("@payload.email".to_string()),
+                    SExpression::String(("@payload.email".to_string()).into()),
                 ),
-                ("subject".to_string(), SExpression::String("s".to_string())),
-                ("body".to_string(), SExpression::String("b".to_string())),
+                ("subject".to_string(), SExpression::String(("s".to_string()).into())),
+                ("body".to_string(), SExpression::String(("b".to_string()).into())),
             ]
             .into_iter()
             .collect(),
@@ -558,8 +558,8 @@ mod tests {
         let params = SExpression::Object(
             [
                 ("to".to_string(), SExpression::Number(5.0)),
-                ("subject".to_string(), SExpression::String("s".to_string())),
-                ("body".to_string(), SExpression::String("b".to_string())),
+                ("subject".to_string(), SExpression::String(("s".to_string()).into())),
+                ("body".to_string(), SExpression::String(("b".to_string()).into())),
             ]
             .into_iter()
             .collect(),
@@ -575,7 +575,7 @@ mod tests {
     fn test_call_service_dynamic_params_skip_checks() {
         // A non-object params expression has unknowable keys — no param errors.
         let result = run_effect(
-            &call_email(SExpression::String("@payload".to_string())),
+            &call_email(SExpression::String(("@payload".to_string()).into())),
             &email_registry(),
         );
         assert!(result.is_valid(), "unexpected errors: {:?}", result.errors);
@@ -584,9 +584,9 @@ mod tests {
     #[test]
     fn test_call_service_no_params_reports_missing_required() {
         let effect = SExpression::Array(vec![
-            SExpression::String("call-service".to_string()),
-            SExpression::String("email".to_string()),
-            SExpression::String("send".to_string()),
+            SExpression::String(("call-service".to_string()).into()),
+            SExpression::String(("email".to_string()).into()),
+            SExpression::String(("send".to_string()).into()),
         ]);
         let result = run_effect(&effect, &email_registry());
         assert_eq!(
@@ -604,9 +604,9 @@ mod tests {
         // Trailing `{ emit: … }` past arity 4 is the envelope, not params.
         let params = SExpression::Object(
             [
-                ("to".to_string(), SExpression::String("a@b.c".to_string())),
-                ("subject".to_string(), SExpression::String("s".to_string())),
-                ("body".to_string(), SExpression::String("b".to_string())),
+                ("to".to_string(), SExpression::String(("a@b.c".to_string()).into())),
+                ("subject".to_string(), SExpression::String(("s".to_string()).into())),
+                ("body".to_string(), SExpression::String(("b".to_string()).into())),
             ]
             .into_iter()
             .collect(),
@@ -617,7 +617,7 @@ mod tests {
                 SExpression::Object(
                     [(
                         "success".to_string(),
-                        SExpression::String("SENT".to_string()),
+                        SExpression::String(("SENT".to_string()).into()),
                     )]
                     .into_iter()
                     .collect(),
@@ -627,9 +627,9 @@ mod tests {
             .collect(),
         );
         let effect = SExpression::Array(vec![
-            SExpression::String("call-service".to_string()),
-            SExpression::String("email".to_string()),
-            SExpression::String("send".to_string()),
+            SExpression::String(("call-service".to_string()).into()),
+            SExpression::String(("email".to_string()).into()),
+            SExpression::String(("send".to_string()).into()),
             params,
             envelope,
         ]);
@@ -647,23 +647,23 @@ mod tests {
     fn call_service_with_emit(keys: &[(&str, &str)]) -> SExpression {
         let params = SExpression::Object(
             [
-                ("to".to_string(), SExpression::String("a@b.c".to_string())),
-                ("subject".to_string(), SExpression::String("s".to_string())),
-                ("body".to_string(), SExpression::String("b".to_string())),
+                ("to".to_string(), SExpression::String(("a@b.c".to_string()).into())),
+                ("subject".to_string(), SExpression::String(("s".to_string()).into())),
+                ("body".to_string(), SExpression::String(("b".to_string()).into())),
             ]
             .into_iter()
             .collect(),
         );
         let emit = SExpression::Object(
             keys.iter()
-                .map(|(k, v)| (k.to_string(), SExpression::String(v.to_string())))
+                .map(|(k, v)| (k.to_string(), SExpression::String(v.to_string().into())))
                 .collect(),
         );
         let envelope = SExpression::Object([("emit".to_string(), emit)].into_iter().collect());
         SExpression::Array(vec![
-            SExpression::String("call-service".to_string()),
-            SExpression::String("email".to_string()),
-            SExpression::String("send".to_string()),
+            SExpression::String(("call-service".to_string()).into()),
+            SExpression::String(("email".to_string()).into()),
+            SExpression::String(("send".to_string()).into()),
             params,
             envelope,
         ])
@@ -703,13 +703,13 @@ mod tests {
         // I-8: a call-service nested inside another effect's args gets the
         // same action check as a top-level one (`llm embed` class).
         let nested = SExpression::Array(vec![
-            SExpression::String("call-service".to_string()),
-            SExpression::String("email".to_string()),
-            SExpression::String("sendEmail".to_string()),
+            SExpression::String(("call-service".to_string()).into()),
+            SExpression::String(("email".to_string()).into()),
+            SExpression::String(("sendEmail".to_string()).into()),
         ]);
         let effect = SExpression::Array(vec![
-            SExpression::String("set".to_string()),
-            SExpression::String("@entity.result".to_string()),
+            SExpression::String(("set".to_string()).into()),
+            SExpression::String(("@entity.result".to_string()).into()),
             nested,
         ]);
         let result = run_effect(&effect, &email_registry());
@@ -725,18 +725,18 @@ mod tests {
             [
                 (
                     "recipient".to_string(),
-                    SExpression::String("a@b.c".to_string()),
+                    SExpression::String(("a@b.c".to_string()).into()),
                 ),
-                ("subject".to_string(), SExpression::String("s".to_string())),
-                ("body".to_string(), SExpression::String("b".to_string())),
-                ("to".to_string(), SExpression::String("a@b.c".to_string())),
+                ("subject".to_string(), SExpression::String(("s".to_string()).into())),
+                ("body".to_string(), SExpression::String(("b".to_string()).into())),
+                ("to".to_string(), SExpression::String(("a@b.c".to_string()).into())),
             ]
             .into_iter()
             .collect(),
         ));
         let effect = SExpression::Array(vec![
-            SExpression::String("set".to_string()),
-            SExpression::String("@entity.result".to_string()),
+            SExpression::String(("set".to_string()).into()),
+            SExpression::String(("@entity.result".to_string()).into()),
             nested,
         ]);
         let result = run_effect(&effect, &email_registry());
@@ -760,8 +760,8 @@ mod tests {
 
         // Navigate without payload
         let effect = SExpression::Array(vec![
-            SExpression::String("navigate".to_string()),
-            SExpression::String("/inspection/123".to_string()),
+            SExpression::String(("navigate".to_string()).into()),
+            SExpression::String(("/inspection/123".to_string()).into()),
         ]);
 
         let result = validate_effect(
@@ -797,12 +797,12 @@ mod tests {
 
         // Navigate with payload
         let effect = SExpression::Array(vec![
-            SExpression::String("navigate".to_string()),
-            SExpression::String("/inspection/123".to_string()),
+            SExpression::String(("navigate".to_string()).into()),
+            SExpression::String(("/inspection/123".to_string()).into()),
             SExpression::Object(
                 vec![(
                     "id".to_string(),
-                    SExpression::String("@entity.id".to_string()),
+                    SExpression::String(("@entity.id".to_string()).into()),
                 )]
                 .into_iter()
                 .collect(),
@@ -857,10 +857,10 @@ mod tests {
         }];
 
         let effect = SExpression::Array(vec![
-            SExpression::String("emit".to_string()),
-            SExpression::String("TASK_CREATED".to_string()),
+            SExpression::String(("emit".to_string()).into()),
+            SExpression::String(("TASK_CREATED".to_string()).into()),
             SExpression::Object(
-                vec![("taskId".to_string(), SExpression::String("123".to_string()))]
+                vec![("taskId".to_string(), SExpression::String(("123".to_string()).into()))]
                     .into_iter()
                     .collect(),
             ),
@@ -875,8 +875,8 @@ mod tests {
         let declared_emits: Vec<DeclaredEmit> = vec![];
 
         let effect = SExpression::Array(vec![
-            SExpression::String("emit".to_string()),
-            SExpression::String("UNKNOWN_EVENT".to_string()),
+            SExpression::String(("emit".to_string()).into()),
+            SExpression::String(("UNKNOWN_EVENT".to_string()).into()),
         ]);
 
         let result = validate_emit_against_declaration(&effect, "test", &declared_emits);
@@ -902,12 +902,12 @@ mod tests {
 
         // Only provide orderId, missing customerId
         let effect = SExpression::Array(vec![
-            SExpression::String("emit".to_string()),
-            SExpression::String("ORDER_CONFIRMED".to_string()),
+            SExpression::String(("emit".to_string()).into()),
+            SExpression::String(("ORDER_CONFIRMED".to_string()).into()),
             SExpression::Object(
                 vec![(
                     "orderId".to_string(),
-                    SExpression::String("123".to_string()),
+                    SExpression::String(("123".to_string()).into()),
                 )]
                 .into_iter()
                 .collect(),
@@ -932,8 +932,8 @@ mod tests {
         }];
 
         let effect = SExpression::Array(vec![
-            SExpression::String("emit".to_string()),
-            SExpression::String("STATUS_CHANGED".to_string()),
+            SExpression::String(("emit".to_string()).into()),
+            SExpression::String(("STATUS_CHANGED".to_string()).into()),
             // No payload needed for internal events
         ]);
 
@@ -1038,20 +1038,20 @@ mod tests {
 
         // Fetch with valid include + required emit.success
         let effect = SExpression::Array(vec![
-            SExpression::String("fetch".to_string()),
-            SExpression::String("Inspection".to_string()),
+            SExpression::String(("fetch".to_string()).into()),
+            SExpression::String(("Inspection".to_string()).into()),
             SExpression::Object(
                 vec![
                     (
                         "include".to_string(),
-                        SExpression::Array(vec![SExpression::String("company".to_string())]),
+                        SExpression::Array(vec![SExpression::String(("company".to_string()).into())]),
                     ),
                     (
                         "emit".to_string(),
                         SExpression::Object(
                             vec![(
                                 "success".to_string(),
-                                SExpression::String("InspectionLoaded".to_string()),
+                                SExpression::String(("InspectionLoaded".to_string()).into()),
                             )]
                             .into_iter()
                             .collect(),
@@ -1167,12 +1167,12 @@ mod tests {
 
         // Fetch with invalid include (nonExistent is not a relation)
         let effect = SExpression::Array(vec![
-            SExpression::String("fetch".to_string()),
-            SExpression::String("Inspection".to_string()),
+            SExpression::String(("fetch".to_string()).into()),
+            SExpression::String(("Inspection".to_string()).into()),
             SExpression::Object(
                 vec![(
                     "include".to_string(),
-                    SExpression::Array(vec![SExpression::String("nonExistent".to_string())]),
+                    SExpression::Array(vec![SExpression::String(("nonExistent".to_string()).into())]),
                 )]
                 .into_iter()
                 .collect(),

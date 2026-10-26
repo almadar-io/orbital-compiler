@@ -434,10 +434,10 @@ mod tests {
     #[test]
     fn test_valid_render_ui_effect() {
         let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
+            SExpression::String(("main".to_string()).into()),
             SExpression::Object(
-                [("type".to_string(), SExpression::String("card".to_string()))]
+                [("type".to_string(), SExpression::String(("card".to_string()).into()))]
                     .into_iter()
                     .collect(),
             ),
@@ -451,10 +451,10 @@ mod tests {
     #[test]
     fn test_invalid_slot() {
         let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("invalid-slot".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
+            SExpression::String(("invalid-slot".to_string()).into()),
             SExpression::Object(
-                [("type".to_string(), SExpression::String("card".to_string()))]
+                [("type".to_string(), SExpression::String(("card".to_string()).into()))]
                     .into_iter()
                     .collect(),
             ),
@@ -472,13 +472,13 @@ mod tests {
     #[test]
     fn test_unknown_item_action_prop() {
         let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
+            SExpression::String(("main".to_string()).into()),
             SExpression::Object(
                 [
                     (
                         "type".to_string(),
-                        SExpression::String("table-view".to_string()),
+                        SExpression::String(("table-view".to_string()).into()),
                     ),
                     (
                         "itemActions".to_string(),
@@ -486,15 +486,15 @@ mod tests {
                             [
                                 (
                                     "label".to_string(),
-                                    SExpression::String("Delete".to_string()),
+                                    SExpression::String(("Delete".to_string()).into()),
                                 ),
                                 (
                                     "event".to_string(),
-                                    SExpression::String("DELETE".to_string()),
+                                    SExpression::String(("DELETE".to_string()).into()),
                                 ),
                                 (
                                     "condition".to_string(), // Unknown/hallucinated prop
-                                    SExpression::String("@entity.canDelete".to_string()),
+                                    SExpression::String(("@entity.canDelete".to_string()).into()),
                                 ),
                             ]
                             .into_iter()
@@ -519,7 +519,7 @@ mod tests {
     // FC-5 helpers: build the pinned dynamic-children tuple
     // `["array/map", <coll>, ["fn", <param>, <node>]]`.
     fn s(v: &str) -> SExpression {
-        SExpression::String(v.to_string())
+        SExpression::String(v.to_string().into())
     }
     fn obj(pairs: &[(&str, SExpression)]) -> SExpression {
         SExpression::Object(
@@ -948,7 +948,7 @@ mod tests {
     #[test]
     fn test_is_render_ui_effect() {
         assert!(is_render_ui_effect(&SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
         ])));
 
         assert!(is_render_ui_effect(&SExpression::Object(
@@ -958,7 +958,7 @@ mod tests {
         )));
 
         assert!(!is_render_ui_effect(&SExpression::Array(vec![
-            SExpression::String("set".to_string()),
+            SExpression::String(("set".to_string()).into()),
         ])));
     }
 
@@ -966,17 +966,17 @@ mod tests {
     fn test_unknown_pattern_prop() {
         // Test that inventorySlots (non-existent prop) on game-menu triggers warning
         let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
+            SExpression::String(("main".to_string()).into()),
             SExpression::Object(
                 [
                     (
                         "type".to_string(),
-                        SExpression::String("game-menu".to_string()),
+                        SExpression::String(("game-menu".to_string()).into()),
                     ),
                     (
                         "title".to_string(),
-                        SExpression::String("Main Menu".to_string()),
+                        SExpression::String(("Main Menu".to_string()).into()),
                     ),
                     (
                         "inventorySlots".to_string(), // Not a valid prop for game-menu
@@ -1005,17 +1005,17 @@ mod tests {
     fn test_valid_pattern_props() {
         // Test that correct props (options, title) on game-menu pass validation
         let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
+            SExpression::String(("main".to_string()).into()),
             SExpression::Object(
                 [
                     (
                         "type".to_string(),
-                        SExpression::String("game-menu".to_string()),
+                        SExpression::String(("game-menu".to_string()).into()),
                     ),
                     (
                         "title".to_string(),
-                        SExpression::String("Main Menu".to_string()),
+                        SExpression::String(("Main Menu".to_string()).into()),
                     ),
                     (
                         "options".to_string(), // Correct prop name
@@ -1044,17 +1044,17 @@ mod tests {
     fn test_filter_group_entity_prop() {
         // Test that entity prop on filter-group is valid
         let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("filter".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
+            SExpression::String(("filter".to_string()).into()),
             SExpression::Object(
                 [
                     (
                         "type".to_string(),
-                        SExpression::String("filter-group".to_string()),
+                        SExpression::String(("filter-group".to_string()).into()),
                     ),
                     (
                         "entity".to_string(),
-                        SExpression::String("Contact".to_string()),
+                        SExpression::String(("Contact".to_string()).into()),
                     ),
                     ("filters".to_string(), SExpression::Array(vec![])),
                 ]
@@ -1217,23 +1217,23 @@ mod tests {
         );
 
         let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
+            SExpression::String(("main".to_string()).into()),
             SExpression::Object(
                 [
                     (
                         "type".to_string(),
-                        SExpression::String("data-grid".to_string()),
+                        SExpression::String(("data-grid".to_string()).into()),
                     ),
                     (
                         "entity".to_string(),
-                        SExpression::String("Inspection".to_string()),
+                        SExpression::String(("Inspection".to_string()).into()),
                     ),
                     (
                         "fields".to_string(),
                         SExpression::Array(vec![
-                            SExpression::String("title".to_string()),
-                            SExpression::String("company.name".to_string()),
+                            SExpression::String(("title".to_string()).into()),
+                            SExpression::String(("company.name".to_string()).into()),
                         ]),
                     ),
                 ]
@@ -1313,21 +1313,21 @@ mod tests {
         );
 
         let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
+            SExpression::String(("main".to_string()).into()),
             SExpression::Object(
                 [
                     (
                         "type".to_string(),
-                        SExpression::String("data-grid".to_string()),
+                        SExpression::String(("data-grid".to_string()).into()),
                     ),
                     (
                         "entity".to_string(),
-                        SExpression::String("Inspection".to_string()),
+                        SExpression::String(("Inspection".to_string()).into()),
                     ),
                     (
                         "fields".to_string(),
-                        SExpression::Array(vec![SExpression::String("company.name".to_string())]),
+                        SExpression::Array(vec![SExpression::String(("company.name".to_string()).into())]),
                     ),
                 ]
                 .into_iter()
@@ -1440,17 +1440,17 @@ mod tests {
     fn test_missing_fetch_for_entity_pattern() {
         // render-ui with entity prop but NO fetch — should warn
         let trait_def = make_trait_with_effects(vec![SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
+            SExpression::String(("main".to_string()).into()),
             SExpression::Object(
                 [
                     (
                         "type".to_string(),
-                        SExpression::String("table-view".to_string()),
+                        SExpression::String(("table-view".to_string()).into()),
                     ),
                     (
                         "entity".to_string(),
-                        SExpression::String("Task".to_string()),
+                        SExpression::String(("Task".to_string()).into()),
                     ),
                 ]
                 .into_iter()
@@ -1476,21 +1476,21 @@ mod tests {
         // fetch + render-ui with same entity — should NOT warn
         let trait_def = make_trait_with_effects(vec![
             SExpression::Array(vec![
-                SExpression::String("fetch".to_string()),
-                SExpression::String("Task".to_string()),
+                SExpression::String(("fetch".to_string()).into()),
+                SExpression::String(("Task".to_string()).into()),
             ]),
             SExpression::Array(vec![
-                SExpression::String("render-ui".to_string()),
-                SExpression::String("main".to_string()),
+                SExpression::String(("render-ui".to_string()).into()),
+                SExpression::String(("main".to_string()).into()),
                 SExpression::Object(
                     [
                         (
                             "type".to_string(),
-                            SExpression::String("table-view".to_string()),
+                            SExpression::String(("table-view".to_string()).into()),
                         ),
                         (
                             "entity".to_string(),
-                            SExpression::String("Task".to_string()),
+                            SExpression::String(("Task".to_string()).into()),
                         ),
                     ]
                     .into_iter()

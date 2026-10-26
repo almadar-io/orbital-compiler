@@ -174,9 +174,9 @@ fn sigil_payload_in_effect_passes() {
     let trait_def = make_trait_with_transition(
         None,
         vec![SExpression::Array(vec![
-            SExpression::String("set".to_string()),
-            SExpression::String("@entity.amount".to_string()),
-            SExpression::String("@payload.amount".to_string()),
+            SExpression::String(("set".to_string()).into()),
+            SExpression::String(("@entity.amount".to_string()).into()),
+            SExpression::String(("@payload.amount".to_string()).into()),
         ])],
     );
     let result = validate_trait_sigil_contexts(&trait_def, "test");
@@ -191,9 +191,9 @@ fn sigil_payload_in_effect_passes() {
 fn sigil_state_in_guard_passes() {
     let trait_def = make_trait_with_transition(
         Some(SExpression::Array(vec![
-            SExpression::String("=".to_string()),
-            SExpression::String("@state".to_string()),
-            SExpression::String("Browsing".to_string()),
+            SExpression::String(("=".to_string()).into()),
+            SExpression::String(("@state".to_string()).into()),
+            SExpression::String(("Browsing".to_string()).into()),
         ])),
         vec![],
     );
@@ -208,9 +208,9 @@ fn sigil_state_in_guard_passes() {
 #[test]
 fn sigil_now_in_tick_passes() {
     let trait_def = make_trait_with_tick(vec![SExpression::Array(vec![
-        SExpression::String("set".to_string()),
-        SExpression::String("@entity.lastTick".to_string()),
-        SExpression::String("@now".to_string()),
+        SExpression::String(("set".to_string()).into()),
+        SExpression::String(("@entity.lastTick".to_string()).into()),
+        SExpression::String(("@now".to_string()).into()),
     ])]);
     let result = validate_trait_sigil_contexts(&trait_def, "test");
     assert!(
@@ -223,9 +223,9 @@ fn sigil_now_in_tick_passes() {
 #[test]
 fn sigil_payload_in_tick_is_rejected() {
     let trait_def = make_trait_with_tick(vec![SExpression::Array(vec![
-        SExpression::String("set".to_string()),
-        SExpression::String("@entity.amount".to_string()),
-        SExpression::String("@payload.amount".to_string()),
+        SExpression::String(("set".to_string()).into()),
+        SExpression::String(("@entity.amount".to_string()).into()),
+        SExpression::String(("@payload.amount".to_string()).into()),
     ])]);
     let result = validate_trait_sigil_contexts(&trait_def, "test");
     assert!(
@@ -239,9 +239,9 @@ fn sigil_payload_in_tick_is_rejected() {
 fn sigil_unknown_root_in_guard_is_rejected() {
     let trait_def = make_trait_with_transition(
         Some(SExpression::Array(vec![
-            SExpression::String("=".to_string()),
-            SExpression::String("@bogus.field".to_string()),
-            SExpression::String("@entity.field".to_string()),
+            SExpression::String(("=".to_string()).into()),
+            SExpression::String(("@bogus.field".to_string()).into()),
+            SExpression::String(("@entity.field".to_string()).into()),
         ])),
         vec![],
     );

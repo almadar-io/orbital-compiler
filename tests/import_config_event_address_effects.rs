@@ -154,7 +154,7 @@ fn effect_tool_event(schema: &OrbitalSchema) -> String {
         panic!("tool entry: {:?}", tools[0])
     };
     match first.get("event") {
-        Some(SExpression::String(s)) => s.clone(),
+        Some(SExpression::String(s)) => s.clone().into_inner(),
         other => panic!("tool event: {other:?}"),
     }
 }
@@ -174,7 +174,7 @@ fn config_tool_event(schema: &OrbitalSchema) -> String {
         panic!("tool entry")
     };
     match first.get("event") {
-        Some(SExpression::String(s)) => s.clone(),
+        Some(SExpression::String(s)) => s.clone().into_inner(),
         other => panic!("tool event: {other:?}"),
     }
 }

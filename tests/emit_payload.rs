@@ -21,7 +21,7 @@ use orbital_core_base::schema::{
 // ============================================================================
 
 fn string_sexpr(s: &str) -> SExpression {
-    SExpression::String(s.to_string())
+    SExpression::String(s.to_string().into())
 }
 
 fn number_sexpr(n: f64) -> SExpression {

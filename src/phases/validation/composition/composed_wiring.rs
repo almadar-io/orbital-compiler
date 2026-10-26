@@ -104,7 +104,7 @@ fn produced_by_name(schema: &OrbitalSchema, fired: &FiredEvents) -> HashSet<Stri
 fn strings_in(node: &SExpression, out: &mut HashSet<String>) {
     match node {
         SExpression::String(s) => {
-            out.insert(s.clone());
+            out.insert(s.clone().into_inner());
         }
         SExpression::Array(items) => items.iter().for_each(|i| strings_in(i, out)),
         _ => {}
@@ -386,15 +386,15 @@ fn value_control_events(node: &SExpression, td: &TraitDefinition, out: &mut Hash
             return None;
         };
         match s.strip_prefix("@config.") {
-            None => Some(s.clone()),
+            None => Some(s.clone().into_inner()),
             Some(knob) => {
-                td.config
+                (td.config
                     .as_ref()
                     .and_then(|c| c.get(knob))
                     .and_then(|f| match &f.default {
                         Some(SExpression::String(v)) => Some(v.clone()),
                         _ => None,
-                    })
+                    })).map(|v| v.into_inner())
             }
         }
     };

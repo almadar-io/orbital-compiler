@@ -27,7 +27,7 @@ use orbital_core_base::schema::{
 fn emit_object(entries: &[(&str, &str)]) -> SExpression {
     let mut m: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     for (k, v) in entries {
-        m.insert((*k).to_string(), SExpression::String((*v).to_string()));
+        m.insert((*k).to_string(), SExpression::String(((*v).to_string()).into()));
     }
     SExpression::Object(m)
 }
@@ -211,8 +211,8 @@ fn declared_emit(event: &str, external: bool) -> EmitDefinition {
 #[test]
 fn fetch_with_success_and_failure_is_valid() {
     let effects = vec![SExpression::Array(vec![
-        SExpression::String("fetch".to_string()),
-        SExpression::String("Patient".to_string()),
+        SExpression::String(("fetch".to_string()).into()),
+        SExpression::String(("Patient".to_string()).into()),
         options_with_emit(emit_object(&[
             ("success", "PATIENT_LOADED"),
             ("failure", "PATIENT_LOAD_FAILED"),
@@ -241,8 +241,8 @@ fn fetch_with_success_and_failure_is_valid() {
 #[test]
 fn fetch_with_on_message_is_rejected() {
     let effects = vec![SExpression::Array(vec![
-        SExpression::String("fetch".to_string()),
-        SExpression::String("Patient".to_string()),
+        SExpression::String(("fetch".to_string()).into()),
+        SExpression::String(("Patient".to_string()).into()),
         options_with_emit(emit_object(&[("on_message", "STREAMING")])),
     ])];
     let schema = schema_with_effects(effects, vec![]);
@@ -261,9 +261,9 @@ fn fetch_with_on_message_is_rejected() {
 fn set_with_failure_is_rejected() {
     // set is synchronous — only `success` fires. `failure` is meaningless.
     let effects = vec![SExpression::Array(vec![
-        SExpression::String("set".to_string()),
-        SExpression::String("@entity.status".to_string()),
-        SExpression::String("done".to_string()),
+        SExpression::String(("set".to_string()).into()),
+        SExpression::String(("@entity.status".to_string()).into()),
+        SExpression::String(("done".to_string()).into()),
         options_with_emit(emit_object(&[("failure", "WRITE_FAILED")])),
     ])];
     let schema = schema_with_effects(effects, vec![]);
@@ -281,9 +281,9 @@ fn set_with_failure_is_rejected() {
 #[test]
 fn set_with_success_is_valid() {
     let effects = vec![SExpression::Array(vec![
-        SExpression::String("set".to_string()),
-        SExpression::String("@entity.status".to_string()),
-        SExpression::String("done".to_string()),
+        SExpression::String(("set".to_string()).into()),
+        SExpression::String(("@entity.status".to_string()).into()),
+        SExpression::String(("done".to_string()).into()),
         options_with_emit(emit_object(&[("success", "STATUS_CHANGED")])),
     ])];
     let schema = schema_with_effects(effects, vec![declared_emit("STATUS_CHANGED", false)]);
@@ -304,8 +304,8 @@ fn mixed_case_event_name_accepted_post_phase_2_5() {
     // `type X = Event<T>`). MixedCase is now accepted alongside UPPER_SNAKE.
     // The camelCase / MixedCase form no longer trips EffectEmitInvalidName.
     let effects = vec![SExpression::Array(vec![
-        SExpression::String("fetch".to_string()),
-        SExpression::String("Patient".to_string()),
+        SExpression::String(("fetch".to_string()).into()),
+        SExpression::String(("Patient".to_string()).into()),
         options_with_emit(emit_object(&[("success", "patientLoaded")])),
     ])];
     let schema = schema_with_effects(effects, vec![]);
@@ -326,8 +326,8 @@ fn malformed_event_identifier_still_rejected() {
     // — the post-Phase-2.5 check only relaxes the UPPER_SNAKE requirement,
     // not the identifier-well-formedness rule.
     let effects = vec![SExpression::Array(vec![
-        SExpression::String("fetch".to_string()),
-        SExpression::String("Patient".to_string()),
+        SExpression::String(("fetch".to_string()).into()),
+        SExpression::String(("Patient".to_string()).into()),
         options_with_emit(emit_object(&[("success", "1badName")])),
     ])];
     let schema = schema_with_effects(effects, vec![]);
@@ -345,8 +345,8 @@ fn malformed_event_identifier_still_rejected() {
 #[test]
 fn undeclared_event_is_warning() {
     let effects = vec![SExpression::Array(vec![
-        SExpression::String("fetch".to_string()),
-        SExpression::String("Patient".to_string()),
+        SExpression::String(("fetch".to_string()).into()),
+        SExpression::String(("Patient".to_string()).into()),
         options_with_emit(emit_object(&[("success", "PATIENT_LOADED")])),
     ])];
     // No declared emit for PATIENT_LOADED
@@ -375,8 +375,8 @@ fn undeclared_event_is_warning() {
 #[test]
 fn os_watch_http_on_message_is_valid() {
     let effects = vec![SExpression::Array(vec![
-        SExpression::String("os/watch-http".to_string()),
-        SExpression::String("wss://push".to_string()),
+        SExpression::String(("os/watch-http".to_string()).into()),
+        SExpression::String(("wss://push".to_string()).into()),
         options_with_emit(emit_object(&[("onMessage", "PUSH_RECEIVED")])),
     ])];
     let schema = schema_with_effects(effects, vec![declared_emit("PUSH_RECEIVED", false)]);
@@ -394,8 +394,8 @@ fn os_watch_http_on_message_is_valid() {
 #[test]
 fn ref_with_on_change_is_valid() {
     let effects = vec![SExpression::Array(vec![
-        SExpression::String("ref".to_string()),
-        SExpression::String("Patient".to_string()),
+        SExpression::String(("ref".to_string()).into()),
+        SExpression::String(("Patient".to_string()).into()),
         options_with_emit(emit_object(&[("onChange", "PATIENT_UPDATED")])),
     ])];
     let schema = schema_with_effects(effects, vec![declared_emit("PATIENT_UPDATED", false)]);
@@ -414,8 +414,8 @@ fn ref_with_on_change_is_valid() {
 fn ref_with_success_is_rejected() {
     // Ref is reactive — `success` makes no sense, only `on_change` + `failure`.
     let effects = vec![SExpression::Array(vec![
-        SExpression::String("ref".to_string()),
-        SExpression::String("Patient".to_string()),
+        SExpression::String(("ref".to_string()).into()),
+        SExpression::String(("Patient".to_string()).into()),
         options_with_emit(emit_object(&[("success", "LOADED")])),
     ])];
     let schema = schema_with_effects(effects, vec![]);
@@ -435,8 +435,8 @@ fn snake_case_stream_keys_are_not_a_second_spelling() {
     // One spelling per key, the runtime's route name: `on_message`/`on_change` are unknown keys.
     for (op, key) in [("os/watch-http", "on_message"), ("ref", "on_change")] {
         let effects = vec![SExpression::Array(vec![
-            SExpression::String(op.to_string()),
-            SExpression::String(if op == "ref" { "Patient" } else { "wss://push" }.to_string()),
+            SExpression::String(op.to_string().into()),
+            SExpression::String((if op == "ref" { "Patient" } else { "wss://push" }.to_string()).into()),
             options_with_emit(emit_object(&[(key, "PUSH_RECEIVED")])),
         ])];
         let schema = schema_with_effects(effects, vec![declared_emit("PUSH_RECEIVED", false)]);
@@ -463,7 +463,7 @@ fn options(entries: Vec<(&str, SExpression)>) -> SExpression {
 }
 
 fn str_expr(s: &str) -> SExpression {
-    SExpression::String(s.to_string())
+    SExpression::String(s.to_string().into())
 }
 
 fn keyed_call_service(opts: SExpression) -> SExpression {
@@ -745,8 +745,8 @@ fn key_only_options_are_read_as_options_not_params() {
 
 fn os_call(op: &str, emit: &[(&str, &str)]) -> SExpression {
     SExpression::Array(vec![
-        SExpression::String(op.to_string()),
-        SExpression::String("127.0.0.1".to_string()),
+        SExpression::String(op.to_string().into()),
+        SExpression::String(("127.0.0.1".to_string()).into()),
         SExpression::Number(0.0),
         options_with_emit(emit_object(emit)),
     ])

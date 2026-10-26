@@ -1576,7 +1576,7 @@ mod tests {
     };
 
     fn s(v: &str) -> SExpression {
-        SExpression::String(v.to_string())
+        SExpression::String(v.to_string().into())
     }
 
     fn batch(ops: serde_json::Value) -> SExpression {

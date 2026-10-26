@@ -75,7 +75,7 @@ fn app_names(overrides: &[(&str, Option<&str>)]) -> Vec<(String, String)> {
                 TraitReference::Inline(def) if def.name.ends_with("AgentLayout") => {
                     let value = def.config.as_ref().and_then(|c| c.get("appName")).and_then(|f| f.default.clone());
                     match value {
-                        Some(SExpression::String(s)) => Some((o.name.clone(), s)),
+                        Some(SExpression::String(s)) => Some((o.name.clone(), s.to_string())),
                         other => Some((o.name.clone(), format!("{other:?}"))),
                     }
                 }

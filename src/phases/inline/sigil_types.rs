@@ -164,7 +164,7 @@ fn keyed(fields: Vec<FieldDefinition>) -> HashMap<String, FieldDefinition> {
 /// separate effective-config map is needed.
 fn knob_value(config: Option<&HashMap<String, ConfigField>>, knob: &str) -> Option<String> {
     match config?.get(knob)?.default.as_ref()? {
-        SExpression::String(s) => Some(s.clone()),
+        SExpression::String(s) => Some(s.clone().into_inner()),
         _ => None,
     }
 }

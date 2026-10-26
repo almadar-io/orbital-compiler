@@ -111,12 +111,12 @@ fn walk_expr(
                             SExpression::Array(params) => {
                                 for p in params {
                                     if let SExpression::String(name) = p {
-                                        extended.insert(name.clone());
+                                        extended.insert(name.clone().into_inner());
                                     }
                                 }
                             }
                             SExpression::String(name) => {
-                                extended.insert(name.clone());
+                                extended.insert(name.clone().into_inner());
                             }
                             _ => {}
                         }
@@ -145,7 +145,7 @@ fn walk_expr(
                                             );
                                         }
                                         if let Some(SExpression::String(name)) = pair.first() {
-                                            extended.insert(name.clone());
+                                            extended.insert(name.clone().into_inner());
                                         }
                                     }
                                 }
@@ -454,12 +454,12 @@ mod tests {
         // (let ((nextWaypoint @entity.path)) @nextWaypoint.x) in tick context:
         // the let-bound name is a valid root inside the body.
         let expr = SExpression::Array(vec![
-            SExpression::String("let".to_string()),
+            SExpression::String(("let".to_string()).into()),
             SExpression::Array(vec![SExpression::Array(vec![
-                SExpression::String("nextWaypoint".to_string()),
-                SExpression::String("@entity.path".to_string()),
+                SExpression::String(("nextWaypoint".to_string()).into()),
+                SExpression::String(("@entity.path".to_string()).into()),
             ])]),
-            SExpression::String("@nextWaypoint.x".to_string()),
+            SExpression::String(("@nextWaypoint.x".to_string()).into()),
         ]);
         let mut result = ValidationResult::new();
         walk_expr(
@@ -481,18 +481,18 @@ mod tests {
         // a value referencing an unknown root (not a prior binding) is still
         // flagged. (let ((a @entity.n) (b @a)) @b) — b sees a.
         let ok = SExpression::Array(vec![
-            SExpression::String("let".to_string()),
+            SExpression::String(("let".to_string()).into()),
             SExpression::Array(vec![
                 SExpression::Array(vec![
-                    SExpression::String("a".to_string()),
-                    SExpression::String("@entity.n".to_string()),
+                    SExpression::String(("a".to_string()).into()),
+                    SExpression::String(("@entity.n".to_string()).into()),
                 ]),
                 SExpression::Array(vec![
-                    SExpression::String("b".to_string()),
-                    SExpression::String("@a".to_string()),
+                    SExpression::String(("b".to_string()).into()),
+                    SExpression::String(("@a".to_string()).into()),
                 ]),
             ]),
-            SExpression::String("@b".to_string()),
+            SExpression::String(("@b".to_string()).into()),
         ]);
         let mut r_ok = ValidationResult::new();
         walk_expr(&ok, "test", SigilContext::Tick, &HashSet::new(), &mut r_ok);
@@ -505,12 +505,12 @@ mod tests {
         // (let ((x @bogus.field)) @x) — @bogus is neither a prior binding nor a
         // valid sigil, so it is still rejected.
         let bad = SExpression::Array(vec![
-            SExpression::String("let".to_string()),
+            SExpression::String(("let".to_string()).into()),
             SExpression::Array(vec![SExpression::Array(vec![
-                SExpression::String("x".to_string()),
-                SExpression::String("@bogus.field".to_string()),
+                SExpression::String(("x".to_string()).into()),
+                SExpression::String(("@bogus.field".to_string()).into()),
             ])]),
-            SExpression::String("@x".to_string()),
+            SExpression::String(("@x".to_string()).into()),
         ]);
         let mut r_bad = ValidationResult::new();
         walk_expr(

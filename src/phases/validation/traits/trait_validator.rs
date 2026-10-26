@@ -516,12 +516,12 @@ fn validate_unbound_trait_embeds(
         // The condition is the value's own binding, or its explicit presence test `(validate/required <binding>)`.
         let presence = |cond: &SExpression| -> Option<String> {
             match cond {
-                SExpression::String(s) => Some(s.clone()),
+                SExpression::String(s) => Some(s.clone().into_inner()),
                 SExpression::Array(call) => match call.as_slice() {
                     [SExpression::String(op), SExpression::String(s)]
                         if op == "validate/required" =>
                     {
-                        Some(s.clone())
+                        Some(s.clone().into_inner())
                     }
                     _ => None,
                 },
@@ -1013,13 +1013,13 @@ mod tests {
                     event: "INIT".to_string(),
                     guard: None,
                     effects: Some(vec![orbital_core_base::schema::SExpression::Array(vec![
-                        orbital_core_base::schema::SExpression::String("render-ui".to_string()),
-                        orbital_core_base::schema::SExpression::String("main".to_string()),
+                        orbital_core_base::schema::SExpression::String(("render-ui".to_string()).into()),
+                        orbital_core_base::schema::SExpression::String(("main".to_string()).into()),
                         orbital_core_base::schema::SExpression::Object({
                             let mut m = orbital_core_base::schema::SObject::new();
                             m.insert(
                                 "type".to_string(),
-                                orbital_core_base::schema::SExpression::String("box".to_string()),
+                                orbital_core_base::schema::SExpression::String(("box".to_string()).into()),
                             );
                             m
                         }),
@@ -1086,7 +1086,7 @@ mod tests {
         use orbital_core_base::schema::ConfigField;
 
         fn s(v: &str) -> SExpression {
-            SExpression::String(v.to_string())
+            SExpression::String(v.to_string().into())
         }
 
         fn obj(pairs: &[(&str, SExpression)]) -> SExpression {
@@ -1542,17 +1542,17 @@ mod tests {
 
     fn with_render(mut t: TraitDefinition, prop: &str) -> TraitDefinition {
         let mut props = orbital_core_base::schema::SObject::new();
-        props.insert("type".to_string(), SExpression::String("stack".to_string()));
+        props.insert("type".to_string(), SExpression::String(("stack".to_string()).into()));
         props.insert(
             "children".to_string(),
-            SExpression::String(prop.to_string()),
+            SExpression::String(prop.to_string().into()),
         );
         t.state_machine.transitions[0]
             .effects
             .get_or_insert_with(Vec::new)
             .push(SExpression::Array(vec![
-                SExpression::String("render-ui".to_string()),
-                SExpression::String("main".to_string()),
+                SExpression::String(("render-ui".to_string()).into()),
+                SExpression::String(("main".to_string()).into()),
                 SExpression::Object(props),
             ]));
         t
@@ -1590,9 +1590,9 @@ mod tests {
         helper.name = "Helper".to_string();
         helper.linked_entity = Some("Item".to_string());
         helper.state_machine.transitions[0].effects = Some(vec![SExpression::Array(vec![
-            SExpression::String("set".to_string()),
-            SExpression::String("@entity.name".to_string()),
-            SExpression::String("x".to_string()),
+            SExpression::String(("set".to_string()).into()),
+            SExpression::String(("@entity.name".to_string()).into()),
+            SExpression::String(("x".to_string()).into()),
         ])]);
         assert_eq!(init_fetch_errors(&make_orbital(vec![helper])), 0);
         assert_eq!(
@@ -1618,8 +1618,8 @@ mod tests {
             .effects
             .get_or_insert_with(Vec::new)
             .push(SExpression::Array(vec![
-                SExpression::String("fetch".to_string()),
-                SExpression::String("Item".to_string()),
+                SExpression::String(("fetch".to_string()).into()),
+                SExpression::String(("Item".to_string()).into()),
             ]));
         t
     }
@@ -1675,12 +1675,12 @@ mod tests {
             .effects
             .get_or_insert_with(Vec::new)
             .push(SExpression::Array(vec![
-                SExpression::String("when".to_string()),
+                SExpression::String(("when".to_string()).into()),
                 SExpression::Bool(true),
                 SExpression::Array(vec![
-                    SExpression::String("persist".to_string()),
-                    SExpression::String("create".to_string()),
-                    SExpression::String("Item".to_string()),
+                    SExpression::String(("persist".to_string()).into()),
+                    SExpression::String(("create".to_string()).into()),
+                    SExpression::String(("Item".to_string()).into()),
                     SExpression::Object(orbital_core_base::schema::SObject::new()),
                 ]),
             ]));
@@ -1690,9 +1690,9 @@ mod tests {
             .effects
             .get_or_insert_with(Vec::new)
             .push(SExpression::Array(vec![
-                SExpression::String("persist".to_string()),
-                SExpression::String("update".to_string()),
-                SExpression::String("Item".to_string()),
+                SExpression::String(("persist".to_string()).into()),
+                SExpression::String(("update".to_string()).into()),
+                SExpression::String(("Item".to_string()).into()),
                 SExpression::Object(orbital_core_base::schema::SObject::new()),
             ]));
         assert_eq!(

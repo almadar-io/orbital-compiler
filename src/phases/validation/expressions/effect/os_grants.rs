@@ -334,7 +334,7 @@ fn concat_roots(
     expr: &SExpression,
     config: &HashMap<String, ConfigField>,
 ) -> Option<Vec<SExpression>> {
-    let mut roots: Vec<Vec<SExpression>> = vec![vec![SExpression::String("str/concat".to_string())]];
+    let mut roots: Vec<Vec<SExpression>> = vec![vec![SExpression::string("str/concat")]];
     for piece in concat_static_prefix(expr, &config_rooted)? {
         let options = if config_rooted(piece) {
             config_values(piece, config)?

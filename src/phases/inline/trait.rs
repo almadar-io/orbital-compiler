@@ -252,7 +252,7 @@ pub(crate) fn apply_overrides_to_trait(
                 .filter_map(|(knob, field)| {
                     let SExpression::String(default) = field.default.as_ref()? else { return None };
                     let SExpression::String(chosen) = effective_config.get(knob)? else { return None };
-                    (chosen != default).then(|| (default.clone(), chosen.clone()))
+                    (chosen != default).then(|| (default.to_string(), chosen.to_string()))
                 })
                 .collect()
         })
@@ -300,10 +300,10 @@ pub(crate) fn apply_overrides_to_trait(
             })
             .unwrap_or_default();
         for (knob, renamed) in renames {
-            effective_config.insert(knob.clone(), SExpression::String(renamed.clone()));
+            effective_config.insert(knob.clone(), SExpression::string(renamed.clone()));
             if let Some(cfg) = trait_def.config.as_mut() {
                 if let Some(field) = cfg.get_mut(&knob) {
-                    field.default = Some(SExpression::String(renamed));
+                    field.default = Some(SExpression::string(renamed));
                 }
             }
         }
@@ -507,17 +507,17 @@ pub(crate) fn apply_overrides_to_trait(
                                 _ => return None,
                             },
                         };
-                        let renamed = event_subs.get(current)?;
+                        let renamed = event_subs.get(current.as_str())?;
                         Some((knob.clone(), renamed.clone()))
                     })
                     .collect()
             })
             .unwrap_or_default();
         for (knob, renamed) in event_knob_renames {
-            effective_config.insert(knob.clone(), SExpression::String(renamed.clone()));
+            effective_config.insert(knob.clone(), SExpression::string(renamed.clone()));
             if let Some(cfg) = trait_def.config.as_mut() {
                 if let Some(field) = cfg.get_mut(&knob) {
-                    field.default = Some(SExpression::String(renamed));
+                    field.default = Some(SExpression::string(renamed));
                 }
             }
         }
@@ -802,7 +802,7 @@ fn wrap_narrowed_display_set(expr: &mut SExpression, string_fields: &HashSet<Str
         if is_narrowed_set {
             let value = items[2].clone();
             items[2] =
-                SExpression::Array(vec![SExpression::String("str/concat".to_string()), value]);
+                SExpression::Array(vec![SExpression::string("str/concat"), value]);
         }
         for item in items.iter_mut() {
             wrap_narrowed_display_set(item, string_fields);
@@ -2775,7 +2775,7 @@ mod entity_id_reader_tests {
     };
 
     fn s(v: &str) -> SExpression {
-        SExpression::String(v.to_string())
+        SExpression::String(v.to_string().into())
     }
 
     use orbital_core_base::schema::DispatchMode;
@@ -3506,7 +3506,7 @@ mod forwarded_sibling_config_tests {
                 .expect("content must resolve");
         assert_eq!(
             resolved.get("content").and_then(|f| f.default.as_ref()),
-            Some(&SExpression::String("FeedTitle".to_string())),
+            Some(&SExpression::String(("FeedTitle".to_string()).into())),
         );
     }
 
@@ -3529,7 +3529,7 @@ mod forwarded_sibling_config_tests {
                 .expect("title must resolve via the switched key");
         assert_eq!(
             resolved.get("title").and_then(|f| f.default.as_ref()),
-            Some(&SExpression::String("X".to_string())),
+            Some(&SExpression::String(("X".to_string()).into())),
         );
     }
 
@@ -3551,7 +3551,7 @@ mod forwarded_sibling_config_tests {
                 .expect("title must resolve past the self-forward rung");
         assert_eq!(
             resolved.get("title").and_then(|f| f.default.as_ref()),
-            Some(&SExpression::String("FeedTitle".to_string())),
+            Some(&SExpression::String(("FeedTitle".to_string()).into())),
         );
     }
 
@@ -3619,7 +3619,7 @@ mod forwarded_sibling_config_tests {
         .expect("label must resolve against the orbital's own config rung");
         assert_eq!(
             resolved.get("label").and_then(|f| f.default.as_ref()),
-            Some(&SExpression::String("Widgets".to_string())),
+            Some(&SExpression::String(("Widgets".to_string()).into())),
         );
         assert_eq!(
             resolved
@@ -3646,7 +3646,7 @@ mod forwarded_sibling_config_tests {
             resolved_via_app
                 .get("label")
                 .and_then(|f| f.default.as_ref()),
-            Some(&SExpression::String("App Widgets".to_string())),
+            Some(&SExpression::String(("App Widgets".to_string()).into())),
         );
     }
 
@@ -3903,7 +3903,7 @@ mod unbound_trait_knob_override_tests {
                 .as_ref()
                 .and_then(|c| c.get("mode"))
                 .and_then(|f| f.default.as_ref()),
-            Some(&SExpression::String("none".to_string())),
+            Some(&SExpression::String(("none".to_string()).into())),
             "a string-typed knob's literal \"none\" override is an ordinary value, not the unbound sentinel"
         );
     }
@@ -3941,7 +3941,7 @@ mod config_ref_emit_name_tests {
         let mut td = calendar_trait();
         let config = orbital_core_base::schema::SObject::from([(
             "onEventClick".to_string(),
-            SExpression::String(String::new()),
+            SExpression::String(String::new().into()),
         )]);
         resolve_config_ref_emit_names(&mut td, &config);
         let emits: Vec<&str> = td
@@ -3968,7 +3968,7 @@ mod config_ref_emit_name_tests {
         let mut td = calendar_trait();
         let config = orbital_core_base::schema::SObject::from([(
             "onEventClick".to_string(),
-            SExpression::String("OPEN_NOTE".to_string()),
+            SExpression::String(("OPEN_NOTE".to_string()).into()),
         )]);
         resolve_config_ref_emit_names(&mut td, &config);
         let emits: Vec<&str> = td

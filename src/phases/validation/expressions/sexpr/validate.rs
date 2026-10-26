@@ -243,11 +243,11 @@ pub(crate) fn validate_sexpr_with_locals(
                         if let SExpression::Array(params) = &arr[1] {
                             for param in params {
                                 if let SExpression::String(name) = param {
-                                    extended_locals.insert(name.clone());
+                                    extended_locals.insert(name.clone().into_inner());
                                 }
                             }
                         } else if let SExpression::String(param_name) = &arr[1] {
-                            extended_locals.insert(param_name.clone());
+                            extended_locals.insert(param_name.clone().into_inner());
                         }
                         // Validate the body with extended locals
                         result.merge(validate_sexpr_with_locals(
@@ -281,7 +281,7 @@ pub(crate) fn validate_sexpr_with_locals(
                                             ));
                                         }
                                         if let Some(SExpression::String(name)) = pair.first() {
-                                            extended_locals.insert(name.clone());
+                                            extended_locals.insert(name.clone().into_inner());
                                         }
                                     }
                                 }
@@ -527,7 +527,7 @@ pub(crate) fn validate_sexpr_with_locals(
 /// top-level call stays greppable without dumping whole subtrees.
 pub(crate) fn render_sexpr_brief(expr: &SExpression) -> String {
     match expr {
-        SExpression::String(s) => s.clone(),
+        SExpression::String(s) => s.clone().into_inner(),
         SExpression::Number(n) => n.to_string(),
         SExpression::Bool(b) => b.to_string(),
         SExpression::Null => "null".to_string(),
@@ -600,9 +600,9 @@ mod tests {
     #[test]
     fn test_valid_guard() {
         let guard = SExpression::Array(vec![
-            SExpression::String("=".to_string()),
-            SExpression::String("@entity.status".to_string()),
-            SExpression::String("active".to_string()),
+            SExpression::String(("=".to_string()).into()),
+            SExpression::String(("@entity.status".to_string()).into()),
+            SExpression::String(("active".to_string()).into()),
         ]);
 
         let result = validate_sexpr(&guard, "test", SExprContext::Guard, &HashSet::new());
@@ -612,9 +612,9 @@ mod tests {
     #[test]
     fn test_effect_in_guard() {
         let guard = SExpression::Array(vec![
-            SExpression::String("set".to_string()),
-            SExpression::String("@entity.status".to_string()),
-            SExpression::String("active".to_string()),
+            SExpression::String(("set".to_string()).into()),
+            SExpression::String(("@entity.status".to_string()).into()),
+            SExpression::String(("active".to_string()).into()),
         ]);
 
         let result = validate_sexpr(&guard, "test", SExprContext::Guard, &HashSet::new());
@@ -631,9 +631,9 @@ mod tests {
         // str/concat and array/concat and must be a blocking validation
         // error naming both replacements, not silently pass as a data array.
         let expr = SExpression::Array(vec![
-            SExpression::String("concat".to_string()),
-            SExpression::String("a".to_string()),
-            SExpression::String("b".to_string()),
+            SExpression::String(("concat".to_string()).into()),
+            SExpression::String(("a".to_string()).into()),
+            SExpression::String(("b".to_string()).into()),
         ]);
         let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
         assert!(!result.is_valid());
@@ -658,10 +658,10 @@ mod tests {
         // `has_nested_call_arg` requires (see the false-positive regression
         // below for why a bare element-count gate alone isn't safe).
         let expr = SExpression::Array(vec![
-            SExpression::String("camelCase".to_string()),
+            SExpression::String(("camelCase".to_string()).into()),
             SExpression::Array(vec![
-                SExpression::String("str/upper".to_string()),
-                SExpression::String("hello world".to_string()),
+                SExpression::String(("str/upper".to_string()).into()),
+                SExpression::String(("hello world".to_string()).into()),
             ]),
         ]);
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
@@ -687,7 +687,7 @@ mod tests {
         // A lone-element literal array (an asset-manifest-style data tag,
         // e.g. `["static"]`) whose sole value happens to coincide with some
         // operator's basename must NOT be swept into the call path.
-        let expr = SExpression::Array(vec![SExpression::String("camelCase".to_string())]);
+        let expr = SExpression::Array(vec![SExpression::String(("camelCase".to_string()).into())]);
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
         assert!(
             !result
@@ -709,10 +709,10 @@ mod tests {
         // to exactly match `validate/email`'s basename. Multiple plain-
         // string siblings, no nested call anywhere — must stay data.
         let expr = SExpression::Array(vec![
-            SExpression::String("email".to_string()),
-            SExpression::String("sms".to_string()),
-            SExpression::String("push".to_string()),
-            SExpression::String("mixed".to_string()),
+            SExpression::String(("email".to_string()).into()),
+            SExpression::String(("sms".to_string()).into()),
+            SExpression::String(("push".to_string()).into()),
+            SExpression::String(("mixed".to_string()).into()),
         ]);
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
         assert!(
@@ -735,12 +735,12 @@ mod tests {
         // path) had no such alias at all — fixed separately in
         // `packages/almadar-evaluator/SExpressionEvaluator.ts`, not here.
         let expr = SExpression::Array(vec![
-            SExpression::String("join".to_string()),
+            SExpression::String(("join".to_string()).into()),
             SExpression::Array(vec![
-                SExpression::String("a".to_string()),
-                SExpression::String("b".to_string()),
+                SExpression::String(("a".to_string()).into()),
+                SExpression::String(("b".to_string()).into()),
             ]),
-            SExpression::String(", ".to_string()),
+            SExpression::String((", ".to_string()).into()),
         ]);
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
         assert!(
@@ -755,7 +755,7 @@ mod tests {
     #[test]
     fn test_arity_mismatch() {
         let expr = SExpression::Array(vec![
-            SExpression::String("not".to_string()),
+            SExpression::String(("not".to_string()).into()),
             // not takes exactly 1 argument, but we give 2
             SExpression::Bool(true),
             SExpression::Bool(false),
@@ -771,15 +771,15 @@ mod tests {
 
     fn reduce_lambda() -> SExpression {
         SExpression::Array(vec![
-            SExpression::String("fn".to_string()),
+            SExpression::String(("fn".to_string()).into()),
             SExpression::Array(vec![
-                SExpression::String("acc".to_string()),
-                SExpression::String("x".to_string()),
+                SExpression::String(("acc".to_string()).into()),
+                SExpression::String(("x".to_string()).into()),
             ]),
             SExpression::Array(vec![
-                SExpression::String("+".to_string()),
-                SExpression::String("@acc".to_string()),
-                SExpression::String("@x".to_string()),
+                SExpression::String(("+".to_string()).into()),
+                SExpression::String(("@acc".to_string()).into()),
+                SExpression::String(("@x".to_string()).into()),
             ]),
         ])
     }
@@ -788,8 +788,8 @@ mod tests {
     fn reduce_lambda_in_init_slot_is_rejected() {
         // The silent corpus-wide class: (array/reduce arr (fn …) init).
         let expr = SExpression::Array(vec![
-            SExpression::String("array/reduce".to_string()),
-            SExpression::String("@entity.items".to_string()),
+            SExpression::String(("array/reduce".to_string()).into()),
+            SExpression::String(("@entity.items".to_string()).into()),
             reduce_lambda(),
             SExpression::Number(0.0),
         ]);
@@ -803,8 +803,8 @@ mod tests {
     #[test]
     fn reduce_spec_order_is_clean() {
         let expr = SExpression::Array(vec![
-            SExpression::String("array/reduce".to_string()),
-            SExpression::String("@entity.items".to_string()),
+            SExpression::String(("array/reduce".to_string()).into()),
+            SExpression::String(("@entity.items".to_string()).into()),
             SExpression::Number(0.0),
             reduce_lambda(),
         ]);
@@ -824,13 +824,13 @@ mod tests {
         // JS runtime accepts a raw body expression (binds @acc/@item) at the
         // reducer slot; the position check must not require a (fn …) there.
         let expr = SExpression::Array(vec![
-            SExpression::String("array/reduce".to_string()),
-            SExpression::String("@entity.items".to_string()),
+            SExpression::String(("array/reduce".to_string()).into()),
+            SExpression::String(("@entity.items".to_string()).into()),
             SExpression::Number(0.0),
             SExpression::Array(vec![
-                SExpression::String("+".to_string()),
-                SExpression::String("@acc".to_string()),
-                SExpression::String("@item".to_string()),
+                SExpression::String(("+".to_string()).into()),
+                SExpression::String(("@acc".to_string()).into()),
+                SExpression::String(("@item".to_string()).into()),
             ]),
         ]);
         let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
@@ -847,9 +847,9 @@ mod tests {
     #[test]
     fn map_lambda_in_array_slot_is_rejected() {
         let expr = SExpression::Array(vec![
-            SExpression::String("array/map".to_string()),
+            SExpression::String(("array/map".to_string()).into()),
             reduce_lambda(),
-            SExpression::String("@entity.items".to_string()),
+            SExpression::String(("@entity.items".to_string()).into()),
         ]);
         let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
         assert!(result
@@ -865,10 +865,10 @@ mod tests {
         // pointed at the reference site. The message must carry the call
         // itself so the author can find it by searching.
         let expr = SExpression::Array(vec![
-            SExpression::String("object/get".to_string()),
-            SExpression::String("@item".to_string()),
-            SExpression::String("reviewCount".to_string()),
-            SExpression::String(">".to_string()),
+            SExpression::String(("object/get".to_string()).into()),
+            SExpression::String(("@item".to_string()).into()),
+            SExpression::String(("reviewCount".to_string()).into()),
+            SExpression::String((">".to_string()).into()),
             SExpression::Number(0.0),
         ]);
 
@@ -895,7 +895,7 @@ mod tests {
     #[test]
     fn arity_mismatch_without_infix_token_gets_generic_suggestion() {
         let expr = SExpression::Array(vec![
-            SExpression::String("not".to_string()),
+            SExpression::String(("not".to_string()).into()),
             SExpression::Bool(true),
             SExpression::Bool(false),
         ]);
@@ -916,9 +916,9 @@ mod tests {
     #[test]
     fn test_payload_in_tick() {
         let effect = SExpression::Array(vec![
-            SExpression::String("set".to_string()),
-            SExpression::String("@entity.value".to_string()),
-            SExpression::String("@payload.data".to_string()),
+            SExpression::String(("set".to_string()).into()),
+            SExpression::String(("@entity.value".to_string()).into()),
+            SExpression::String(("@payload.data".to_string()).into()),
         ]);
 
         let result = validate_sexpr(&effect, "test", SExprContext::TickEffect, &HashSet::new());
@@ -931,7 +931,7 @@ mod tests {
 
     #[test]
     fn test_valid_entity_binding() {
-        let expr = SExpression::String("@Task.title".to_string());
+        let expr = SExpression::String(("@Task.title".to_string()).into());
 
         let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &known_entities);
@@ -940,7 +940,7 @@ mod tests {
 
     #[test]
     fn test_unknown_entity_binding() {
-        let expr = SExpression::String("@NonExistent.title".to_string());
+        let expr = SExpression::String(("@NonExistent.title".to_string()).into());
 
         let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &known_entities);
@@ -955,8 +955,8 @@ mod tests {
     fn test_math_clamp_valid() {
         // ["math/clamp", "@entity.output", 0.0, 1.0]
         let expr = SExpression::Array(vec![
-            SExpression::String("math/clamp".to_string()),
-            SExpression::String("@entity.output".to_string()),
+            SExpression::String(("math/clamp".to_string()).into()),
+            SExpression::String(("@entity.output".to_string()).into()),
             SExpression::Number(0.0),
             SExpression::Number(1.0),
         ]);
@@ -969,8 +969,8 @@ mod tests {
     fn test_math_pow_arity_error() {
         // math/pow requires exactly 2 arguments
         let expr = SExpression::Array(vec![
-            SExpression::String("math/pow".to_string()),
-            SExpression::String("@entity.base".to_string()),
+            SExpression::String(("math/pow".to_string()).into()),
+            SExpression::String(("@entity.base".to_string()).into()),
             // Missing second argument
         ]);
 

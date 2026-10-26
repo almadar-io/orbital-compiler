@@ -19,7 +19,7 @@ pub fn sexpr_obj_to_json_map(
 /// Convert an `SExpression` to a `serde_json::Value`.
 pub fn sexpr_to_json(expr: &SExpression) -> serde_json::Value {
     match expr {
-        SExpression::String(s) => serde_json::Value::String(s.clone()),
+        SExpression::String(s) => serde_json::Value::String(s.clone().into_inner()),
         SExpression::Number(n) => {
             serde_json::Value::Number(serde_json::Number::from_f64(*n).unwrap_or(0.into()))
         }

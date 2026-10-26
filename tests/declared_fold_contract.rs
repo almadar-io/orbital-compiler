@@ -56,7 +56,7 @@ orbital Probe {
             orbital_core_base::value::Value::Number(first),
             orbital_core_base::value::Value::Number(second),
             orbital_core_base::value::Value::Number(42.0),
-        ])
+        ].into())
     );
 }
 

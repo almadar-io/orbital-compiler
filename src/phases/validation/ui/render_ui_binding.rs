@@ -678,7 +678,7 @@ mod tests {
             sibling_trait_names: &[],
         };
         assert_eq!(
-            resolve_binding_type(&SExpression::String("hello".to_string()), &ctx),
+            resolve_binding_type(&SExpression::String(("hello".to_string()).into()), &ctx),
             BindingType::String
         );
         assert_eq!(
@@ -716,13 +716,13 @@ mod tests {
             sibling_trait_names: &[],
         };
         assert_eq!(
-            resolve_binding_type(&SExpression::String("@payload.tabId".to_string()), &ctx),
+            resolve_binding_type(&SExpression::String(("@payload.tabId".to_string()).into()), &ctx),
             BindingType::String
         );
         // Unknown field falls through to Unknown
         assert_eq!(
             resolve_binding_type(
-                &SExpression::String("@payload.notDeclared".to_string()),
+                &SExpression::String(("@payload.notDeclared".to_string()).into()),
                 &ctx
             ),
             BindingType::Unknown
@@ -789,7 +789,7 @@ mod tests {
             sibling_trait_names: &[],
         };
         assert_eq!(
-            resolve_binding_type(&SExpression::String("@entity.title".to_string()), &ctx),
+            resolve_binding_type(&SExpression::String(("@entity.title".to_string()).into()), &ctx),
             BindingType::String
         );
     }
@@ -807,12 +807,12 @@ mod tests {
             sibling_trait_names: &[],
         };
         assert_eq!(
-            resolve_binding_type(&SExpression::String("@user.name".to_string()), &ctx),
+            resolve_binding_type(&SExpression::String(("@user.name".to_string()).into()), &ctx),
             BindingType::String
         );
         // Field outside the default shape → Unknown, not a false mismatch.
         assert_eq!(
-            resolve_binding_type(&SExpression::String("@user.notReal".to_string()), &ctx),
+            resolve_binding_type(&SExpression::String(("@user.notReal".to_string()).into()), &ctx),
             BindingType::Unknown
         );
     }
@@ -879,7 +879,7 @@ mod tests {
         };
         assert_eq!(
             resolve_binding_type(
-                &SExpression::String("@user.loyaltyPoints".to_string()),
+                &SExpression::String(("@user.loyaltyPoints".to_string()).into()),
                 &ctx
             ),
             BindingType::Number
@@ -887,11 +887,11 @@ mod tests {
         // `@user` is the viewer plus the roster row: `role` comes from the
         // viewer; a field on neither resolves Unknown (skip).
         assert_eq!(
-            resolve_binding_type(&SExpression::String("@user.role".to_string()), &ctx),
+            resolve_binding_type(&SExpression::String(("@user.role".to_string()).into()), &ctx),
             BindingType::String
         );
         assert_eq!(
-            resolve_binding_type(&SExpression::String("@user.notReal".to_string()), &ctx),
+            resolve_binding_type(&SExpression::String(("@user.notReal".to_string()).into()), &ctx),
             BindingType::Unknown
         );
     }
@@ -917,7 +917,7 @@ mod tests {
             sibling_trait_names: &[],
         };
         assert_eq!(
-            resolve_binding_type(&SExpression::String("@user.name".to_string()), &ctx),
+            resolve_binding_type(&SExpression::String(("@user.name".to_string()).into()), &ctx),
             BindingType::Unknown
         );
     }
@@ -934,13 +934,13 @@ mod tests {
             sibling_trait_names: &siblings,
         };
         assert_eq!(
-            resolve_binding_type(&SExpression::String("@trait.CmsHubTabs".to_string()), &ctx),
+            resolve_binding_type(&SExpression::String(("@trait.CmsHubTabs".to_string()).into()), &ctx),
             BindingType::TraitRef
         );
         // Missing sibling → Unknown (caller's other rule catches the
         // missing-trait error with a more specific code).
         assert_eq!(
-            resolve_binding_type(&SExpression::String("@trait.MissingOne".to_string()), &ctx),
+            resolve_binding_type(&SExpression::String(("@trait.MissingOne".to_string()).into()), &ctx),
             BindingType::Unknown
         );
     }
@@ -973,8 +973,8 @@ mod tests {
         // so `or`'s signature (`T, T -> T`) returns Number (NOT boolean —
         // gap #24's lift).
         let expr = SExpression::Array(vec![
-            SExpression::String("or".to_string()),
-            SExpression::String("@payload.totalCount".to_string()),
+            SExpression::String(("or".to_string()).into()),
+            SExpression::String(("@payload.totalCount".to_string()).into()),
             SExpression::Number(10.0),
         ]);
         assert_eq!(resolve_binding_type(&expr, &ctx), BindingType::Number);

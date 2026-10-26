@@ -169,7 +169,7 @@ fn build_cross_references(schema: &OrbitalSchema, ctx: &mut EnrichmentContext) {
                                     props.get("entity")
                                 {
                                     ctx.entity_used_by_pages
-                                        .entry(entity.clone())
+                                        .entry(entity.clone().into_inner())
                                         .or_default()
                                         .push(page.name.clone());
                                 }

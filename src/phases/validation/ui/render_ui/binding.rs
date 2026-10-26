@@ -995,7 +995,7 @@ fn walk_for_node_sets(
                         if let (Some(SExpression::String(name)), Some(value)) =
                             (pair.first(), pair.get(1))
                         {
-                            env.push((name.clone(), value.clone()));
+                            env.push((name.clone().into_inner(), value.clone()));
                         }
                     }
                 }
@@ -1300,8 +1300,8 @@ mod array_into_record_tests {
     fn pattern(ty: &str, prop: &str, value: &str) -> SExpression {
         SExpression::Object(
             [
-                ("type".to_string(), SExpression::String(ty.to_string())),
-                (prop.to_string(), SExpression::String(value.to_string())),
+                ("type".to_string(), SExpression::String(ty.to_string().into())),
+                (prop.to_string(), SExpression::String(value.to_string().into())),
             ]
             .into_iter()
             .collect(),
@@ -1494,8 +1494,8 @@ mod array_element_kind_tests {
         };
         let pat = SExpression::Object(
             [
-                ("type".to_string(), SExpression::String(ty.to_string())),
-                (prop.to_string(), SExpression::String(value.to_string())),
+                ("type".to_string(), SExpression::String(ty.to_string().into())),
+                (prop.to_string(), SExpression::String(value.to_string().into())),
             ]
             .into_iter()
             .collect(),

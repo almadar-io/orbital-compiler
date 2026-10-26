@@ -899,7 +899,7 @@ mod entity_prop_contract_tests {
             entity_with_fields("Article", &["title"]),
         );
 
-        let obj = pattern_obj(vec![("entity", SExpression::String("Article".to_string()))]);
+        let obj = pattern_obj(vec![("entity", SExpression::String(("Article".to_string()).into()))]);
 
         let result = validate_entity_prop_contract_inner(
             "data-grid",
@@ -936,7 +936,7 @@ mod entity_prop_contract_tests {
             entity_with_fields("Article", &["title", "subtitle"]),
         );
 
-        let obj = pattern_obj(vec![("entity", SExpression::String("Article".to_string()))]);
+        let obj = pattern_obj(vec![("entity", SExpression::String(("Article".to_string()).into()))]);
 
         let result = validate_entity_prop_contract_inner(
             "data-grid",
@@ -969,10 +969,10 @@ mod entity_prop_contract_tests {
 
         let columns = SExpression::Array(vec![SExpression::Object(pattern_obj(vec![(
             "field",
-            SExpression::String("subtitle".to_string()),
+            SExpression::String(("subtitle".to_string()).into()),
         )]))]);
         let obj = pattern_obj(vec![
-            ("entity", SExpression::String("Article".to_string())),
+            ("entity", SExpression::String(("Article".to_string()).into())),
             ("columns", columns),
         ]);
 
@@ -1008,7 +1008,7 @@ mod entity_prop_contract_tests {
 
         let obj = pattern_obj(vec![(
             "entity",
-            SExpression::String("@payload.data".to_string()),
+            SExpression::String(("@payload.data".to_string()).into()),
         )]);
 
         let result = validate_entity_prop_contract_inner(
@@ -1037,7 +1037,7 @@ mod entity_prop_contract_tests {
         let defs: HashMap<String, EntityDefinition> = HashMap::new();
         let obj = pattern_obj(vec![(
             "entity",
-            SExpression::String("@payload.data".to_string()),
+            SExpression::String(("@payload.data".to_string()).into()),
         )]);
 
         let result = validate_entity_prop_contract_inner(
@@ -1069,7 +1069,7 @@ mod entity_prop_contract_tests {
         );
 
         for binding in ["@entity.items", "@config.team", "@config.steps"] {
-            let obj = pattern_obj(vec![("entity", SExpression::String(binding.to_string()))]);
+            let obj = pattern_obj(vec![("entity", SExpression::String(binding.to_string().into()))]);
             let result = validate_entity_prop_contract_inner(
                 "data-grid",
                 &pattern_with_required_fields(),
@@ -1200,7 +1200,7 @@ mod children_operator_tests {
     use super::*;
 
     fn s(v: &str) -> SExpression {
-        SExpression::String(v.to_string())
+        SExpression::String(v.to_string().into())
     }
     fn obj(pairs: &[(&str, SExpression)]) -> SExpression {
         let mut m: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();

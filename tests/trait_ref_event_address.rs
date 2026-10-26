@@ -90,7 +90,7 @@ fn grid_values(events: &str) -> (String, String) {
         .and_then(|d| serde_json::to_value(d).ok())
         .and_then(|v| v[0]["event"].as_str().map(str::to_string))
         .expect("tools[0].event");
-    (target, tool)
+    (target.into_inner(), tool)
 }
 
 #[test]

@@ -334,12 +334,12 @@ fn good_array_of_metricspec_passes() {
     let mut good_metric: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     good_metric.insert(
         "label".to_string(),
-        SExpression::String("Revenue".to_string()),
+        SExpression::String(("Revenue".to_string()).into()),
     );
     good_metric.insert("value".to_string(), SExpression::Number(142000.0));
     good_metric.insert(
         "format".to_string(),
-        SExpression::String("currency".to_string()),
+        SExpression::String(("currency".to_string()).into()),
     );
     config.insert(
         "metrics".to_string(),
@@ -375,11 +375,11 @@ fn string_value_where_number_expected_fails() {
     let mut bad_metric: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     bad_metric.insert(
         "label".to_string(),
-        SExpression::String("Retention".to_string()),
+        SExpression::String(("Retention".to_string()).into()),
     );
     // LLM emitted "85%" as a string for a numeric value slot — the exact
     // bug pattern we saw in the workspace failure.
-    bad_metric.insert("value".to_string(), SExpression::String("85%".to_string()));
+    bad_metric.insert("value".to_string(), SExpression::String(("85%".to_string()).into()));
     config.insert(
         "metrics".to_string(),
         ConfigField {
@@ -481,8 +481,8 @@ fn bare_string_in_array_of_objects_fails() {
             additional_properties: None,
             field_type: "[FormatOption]".to_string(),
             default: Some(SExpression::Array(vec![
-                SExpression::String("csv".to_string()),
-                SExpression::String("pdf".to_string()),
+                SExpression::String(("csv".to_string()).into()),
+                SExpression::String(("pdf".to_string()).into()),
             ])),
             label: None,
             description: None,
@@ -555,14 +555,14 @@ fn enum_value_outside_allowed_set_fails() {
     let mut bad_enum: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     bad_enum.insert(
         "label".to_string(),
-        SExpression::String("Revenue".to_string()),
+        SExpression::String(("Revenue".to_string()).into()),
     );
     bad_enum.insert("value".to_string(), SExpression::Number(100.0));
     // `format` is closed to ["number","currency","percent"] — anything
     // else trips the enum membership check.
     bad_enum.insert(
         "format".to_string(),
-        SExpression::String("dollars".to_string()),
+        SExpression::String(("dollars".to_string()).into()),
     );
     config.insert(
         "metrics".to_string(),
@@ -604,11 +604,11 @@ fn binding_strings_pass_the_check() {
     let mut binding_metric: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     binding_metric.insert(
         "label".to_string(),
-        SExpression::String("Revenue".to_string()),
+        SExpression::String(("Revenue".to_string()).into()),
     );
     binding_metric.insert(
         "value".to_string(),
-        SExpression::String("@entity.revenue".to_string()),
+        SExpression::String(("@entity.revenue".to_string()).into()),
     );
     config.insert(
         "metrics".to_string(),
@@ -654,11 +654,11 @@ fn computed_sexpr_call_for_array_items_defers() {
     // be misread as a 3-element literal array of MetricSpec objects.
     let mut config = HashMap::new();
     let call = SExpression::Array(vec![
-        SExpression::String("array/map".to_string()),
-        SExpression::String("@entity.tiles".to_string()),
+        SExpression::String(("array/map".to_string()).into()),
+        SExpression::String(("@entity.tiles".to_string()).into()),
         SExpression::Array(vec![
-            SExpression::String("fn".to_string()),
-            SExpression::Array(vec![SExpression::String("t".to_string())]),
+            SExpression::String(("fn".to_string()).into()),
+            SExpression::Array(vec![SExpression::String(("t".to_string()).into())]),
             SExpression::Object(orbital_core_base::schema::SObject::new()),
         ]),
     ]);
@@ -704,13 +704,13 @@ fn computed_sexpr_call_nested_in_object_property_defers() {
     let mut metric: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     metric.insert(
         "label".to_string(),
-        SExpression::String("Revenue".to_string()),
+        SExpression::String(("Revenue".to_string()).into()),
     );
     metric.insert(
         "value".to_string(),
         SExpression::Array(vec![
-            SExpression::String("array/sum".to_string()),
-            SExpression::String("@entity.rows".to_string()),
+            SExpression::String(("array/sum".to_string()).into()),
+            SExpression::String(("@entity.rows".to_string()).into()),
         ]),
     );
     config.insert(
@@ -808,7 +808,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
             additional_properties: None,
             field_type: "[FormatOption]".to_string(),
             default: Some(SExpression::Array(vec![SExpression::String(
-                "csv".to_string(),
+                ("csv".to_string()).into(),
             )])),
             label: None,
             description: None,
@@ -845,7 +845,7 @@ fn array_typed_slot_with_scalar_default_fails() {
             nullable: None,
             additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
-            default: Some(SExpression::String("not an array".to_string())),
+            default: Some(SExpression::String(("not an array".to_string()).into())),
             label: None,
             description: None,
             synonyms: None,
@@ -916,7 +916,7 @@ fn number_on_a_name_carrying_scalar_tag_fails() {
 /// (`null`) stays permitted — only L1 ever rejected null here.
 #[test]
 fn string_and_null_on_a_name_carrying_scalar_tag_pass() {
-    for value in [SExpression::String("circle".to_string()), SExpression::Null] {
+    for value in [SExpression::String(("circle".to_string()).into()), SExpression::Null] {
         let mut config = HashMap::new();
         config.insert(
             "knob".to_string(),
@@ -961,7 +961,7 @@ fn non_number_on_int_or_float_fails() {
                 nullable: None,
                 additional_properties: None,
                 field_type: tag.to_string(),
-                default: Some(SExpression::String("1.5".to_string())),
+                default: Some(SExpression::String(("1.5".to_string()).into())),
                 label: None,
                 description: None,
                 synonyms: None,
@@ -1049,9 +1049,9 @@ fn map_with_conforming_values_passes() {
     let mut entries: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     entries.insert(
         "draft".to_string(),
-        SExpression::String("Draft".to_string()),
+        SExpression::String(("Draft".to_string()).into()),
     );
-    entries.insert("sent".to_string(), SExpression::String("Sent".to_string()));
+    entries.insert("sent".to_string(), SExpression::String(("Sent".to_string()).into()));
     let schema = map_knob(SExpression::Object(entries));
     assert!(shape_errors(&schema).is_empty());
     assert!(
@@ -1087,7 +1087,7 @@ fn map_with_a_wrong_typed_value_is_reported() {
 /// A map whose default isn't an object at all.
 #[test]
 fn map_with_a_non_object_default_is_reported() {
-    let schema = map_knob(SExpression::String("not-a-map".to_string()));
+    let schema = map_knob(SExpression::String(("not-a-map".to_string()).into()));
     let warns = shape_errors(&schema);
     assert_eq!(warns.len(), 1, "expected one finding, got: {warns:?}");
     assert!(
@@ -1186,15 +1186,15 @@ fn sexpr_args_slot(item_type: FieldType, default: Vec<SExpression>) -> OrbitalSc
 
 fn persist_args() -> Vec<SExpression> {
     let mut opts = orbital_core_base::schema::SObject::new();
-    opts.insert("emit".to_string(), SExpression::String("SAVED".to_string()));
+    opts.insert("emit".to_string(), SExpression::String(("SAVED".to_string()).into()));
     vec![
-        SExpression::String("update".to_string()),
-        SExpression::String("Order".to_string()),
-        SExpression::String("@entity".to_string()),
+        SExpression::String(("update".to_string()).into()),
+        SExpression::String(("Order".to_string()).into()),
+        SExpression::String(("@entity".to_string()).into()),
         SExpression::Number(0.0),
         SExpression::Bool(true),
         SExpression::Null,
-        SExpression::Array(vec![SExpression::String("object/get".to_string()), SExpression::String("@entity".to_string()), SExpression::String("total".to_string())]),
+        SExpression::Array(vec![SExpression::String(("object/get".to_string()).into()), SExpression::String(("@entity".to_string()).into()), SExpression::String(("total".to_string()).into())]),
         SExpression::Object(opts),
     ]
 }
@@ -1207,7 +1207,7 @@ fn sexpr_slot_accepts_atoms_lists_and_option_objects() {
 
 #[test]
 fn control_shapeless_object_slot_still_rejects_a_string() {
-    let errs = shape_errors(&sexpr_args_slot(FieldType::Object, vec![SExpression::String("update".to_string())]));
+    let errs = shape_errors(&sexpr_args_slot(FieldType::Object, vec![SExpression::String(("update".to_string()).into())]));
     assert_eq!(errs.len(), 1, "an object slot still wants an object: {errs:?}");
 }
 

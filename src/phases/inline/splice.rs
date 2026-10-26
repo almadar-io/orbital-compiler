@@ -430,7 +430,7 @@ mod tests {
     };
 
     fn s(v: &str) -> SExpression {
-        SExpression::String(v.to_string())
+        SExpression::String(v.to_string().into())
     }
     fn arr(items: Vec<SExpression>) -> SExpression {
         SExpression::Array(items)

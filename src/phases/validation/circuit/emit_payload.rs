@@ -706,7 +706,7 @@ fn emit_event_for_key(args: &[SExpression], key: &str) -> Option<String> {
             SExpression::String(s) => Some(s.clone()),
             _ => None,
         }
-    })
+    }).map(|v| v.into_inner())
 }
 
 /// Lenient primitive compatibility — delegated to orbital-core's canonical

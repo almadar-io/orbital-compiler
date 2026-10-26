@@ -34,7 +34,7 @@ pub(crate) fn validate_navigate(
     // Extract the navigate path (may be static string or dynamic expression)
     let dynamic_prefix = matches!(&arr[1], SExpression::Array(_));
     let nav_path_str: Option<String> = match &arr[1] {
-        SExpression::String(s) => Some(s.clone()),
+        SExpression::String(s) => Some(s.clone().into_inner()),
         SExpression::Array(_) => {
             // Dynamic path like ["str/concat", "/inspection/", "@entity.id"]
             // We can't statically validate the exact path, but we can try to

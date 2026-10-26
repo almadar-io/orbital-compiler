@@ -943,7 +943,7 @@ pub fn validate_trait_bindings(
             result.merge(validate_expr_bindings(ensures, &p, BindingContext::Ensures, known_entities));
             result.merge(validate_payload_field_references(ensures, &p, payload_fields, &transition.event));
             let as_entity = orbital_core_eval::proof::obligations::subst_fields(ensures, "@fromEntity", &|f| {
-                Some(SExpression::String(format!("@entity.{f}")))
+                Some(SExpression::string(format!("@entity.{f}")))
             });
             result.merge(validate_entity_field_references(&as_entity, &p, linked_entity_def, entity_definitions));
         }
@@ -1086,7 +1086,7 @@ fn validate_expr_bindings_with_locals(
                             let mut extended_locals = lambda_locals.clone();
                             for param in params {
                                 if let SExpression::String(name) = param {
-                                    extended_locals.insert(name.clone());
+                                    extended_locals.insert(name.clone().into_inner());
                                 }
                             }
                             // Validate the lambda body with extended locals
@@ -1101,7 +1101,7 @@ fn validate_expr_bindings_with_locals(
                             // Single string parameter shorthand
                             // Format: ["fn", "param", body]
                             let mut extended_locals = lambda_locals.clone();
-                            extended_locals.insert(param_name.clone());
+                            extended_locals.insert(param_name.clone().into_inner());
                             return validate_expr_bindings_with_locals(
                                 &arr[2],
                                 &format!("{}[2]", path),
@@ -1139,7 +1139,7 @@ fn validate_expr_bindings_with_locals(
                                             ));
                                         }
                                         if let Some(SExpression::String(name)) = pair.first() {
-                                            extended_locals.insert(name.clone());
+                                            extended_locals.insert(name.clone().into_inner());
                                         }
                                     }
                                 }
@@ -2724,7 +2724,7 @@ mod tests {
 
     #[test]
     fn test_payload_field_undeclared_no_schema() {
-        let expr = SExpression::String("@payload.rawData".to_string());
+        let expr = SExpression::String(("@payload.rawData".to_string()).into());
         let result = validate_payload_field_references(&expr, "test", None, "READ");
         assert!(result
             .errors
@@ -2734,7 +2734,7 @@ mod tests {
 
     #[test]
     fn test_payload_field_undeclared_missing_field() {
-        let expr = SExpression::String("@payload.unknownField".to_string());
+        let expr = SExpression::String(("@payload.unknownField".to_string()).into());
         let fields = vec![PayloadField {
             nullable: None,
             additional_properties: None,
@@ -2758,7 +2758,7 @@ mod tests {
 
     #[test]
     fn test_payload_field_declared() {
-        let expr = SExpression::String("@payload.rawData".to_string());
+        let expr = SExpression::String(("@payload.rawData".to_string()).into());
         let fields = vec![PayloadField {
             nullable: None,
             additional_properties: None,
@@ -2781,7 +2781,7 @@ mod tests {
     fn test_payload_sigil_hybrid_gets_corrective_suggestion() {
         // `?payload.date` lowers to `@payload.payload.date` — the suggestion
         // must name the sigil mistake, not "add a field named payload".
-        let expr = SExpression::String("@payload.payload.date".to_string());
+        let expr = SExpression::String(("@payload.payload.date".to_string()).into());
         let fields = vec![PayloadField {
             nullable: None,
             additional_properties: None,
@@ -2817,7 +2817,7 @@ mod tests {
     fn test_payload_field_literally_named_payload_keeps_default_suggestion() {
         // A schema that DOES declare a field named `payload` is not the hybrid
         // mistake — deeper misses under it keep the generic suggestion.
-        let expr = SExpression::String("@payload.payload.missing".to_string());
+        let expr = SExpression::String(("@payload.payload.missing".to_string()).into());
         let fields = vec![PayloadField {
             nullable: None,
             additional_properties: None,
@@ -2863,12 +2863,12 @@ mod tests {
         let known_entities: HashSet<String> = HashSet::new();
         // ["lambda", ["item"], ["=", "@item.status", "pending"]]
         let expr = SExpression::Array(vec![
-            SExpression::String("lambda".to_string()),
-            SExpression::Array(vec![SExpression::String("item".to_string())]),
+            SExpression::String(("lambda".to_string()).into()),
+            SExpression::Array(vec![SExpression::String(("item".to_string()).into())]),
             SExpression::Array(vec![
-                SExpression::String("=".to_string()),
-                SExpression::String("@item.status".to_string()),
-                SExpression::String("pending".to_string()),
+                SExpression::String(("=".to_string()).into()),
+                SExpression::String(("@item.status".to_string()).into()),
+                SExpression::String(("pending".to_string()).into()),
             ]),
         ]);
         let result = validate_expr_bindings(&expr, "test", BindingContext::Effect, &known_entities);
@@ -2888,21 +2888,21 @@ mod tests {
         // ["array/map", "@entity.items", ["fn", "item", { type: badge, label: "@item.name" }]]
         let node = SExpression::Object(
             [
-                ("type".to_string(), SExpression::String("badge".to_string())),
+                ("type".to_string(), SExpression::String(("badge".to_string()).into())),
                 (
                     "label".to_string(),
-                    SExpression::String("@item.name".to_string()),
+                    SExpression::String(("@item.name".to_string()).into()),
                 ),
             ]
             .into_iter()
             .collect(),
         );
         let expr = SExpression::Array(vec![
-            SExpression::String("array/map".to_string()),
-            SExpression::String("@entity.items".to_string()),
+            SExpression::String(("array/map".to_string()).into()),
+            SExpression::String(("@entity.items".to_string()).into()),
             SExpression::Array(vec![
-                SExpression::String("fn".to_string()),
-                SExpression::String("item".to_string()),
+                SExpression::String(("fn".to_string()).into()),
+                SExpression::String(("item".to_string()).into()),
                 node,
             ]),
         ]);
@@ -2923,10 +2923,10 @@ mod tests {
         // A bare `@item.name` with no enclosing map/lambda → unknown root.
         let expr = SExpression::Object(
             [
-                ("type".to_string(), SExpression::String("badge".to_string())),
+                ("type".to_string(), SExpression::String(("badge".to_string()).into())),
                 (
                     "label".to_string(),
-                    SExpression::String("@item.name".to_string()),
+                    SExpression::String(("@item.name".to_string()).into()),
                 ),
             ]
             .into_iter()
@@ -2949,12 +2949,12 @@ mod tests {
         // ["fn", "h", ["=", "@h.owner", "player"]]
         // String param shorthand (not wrapped in array)
         let expr = SExpression::Array(vec![
-            SExpression::String("fn".to_string()),
-            SExpression::String("h".to_string()),
+            SExpression::String(("fn".to_string()).into()),
+            SExpression::String(("h".to_string()).into()),
             SExpression::Array(vec![
-                SExpression::String("=".to_string()),
-                SExpression::String("@h.owner".to_string()),
-                SExpression::String("player".to_string()),
+                SExpression::String(("=".to_string()).into()),
+                SExpression::String(("@h.owner".to_string()).into()),
+                SExpression::String(("player".to_string()).into()),
             ]),
         ]);
         let result = validate_expr_bindings(&expr, "test", BindingContext::Effect, &known_entities);
@@ -3045,7 +3045,7 @@ mod tests {
         let entity_defs = HashMap::new();
 
         // @entity.title should pass (field exists)
-        let expr = SExpression::String("@entity.title".to_string());
+        let expr = SExpression::String(("@entity.title".to_string()).into());
         let result =
             validate_entity_field_references(&expr, "test", Some(&entity_def), &entity_defs);
         assert!(
@@ -3055,7 +3055,7 @@ mod tests {
         );
 
         // @entity.nonExistent should error
-        let expr = SExpression::String("@entity.nonExistent".to_string());
+        let expr = SExpression::String(("@entity.nonExistent".to_string()).into());
         let result =
             validate_entity_field_references(&expr, "test", Some(&entity_def), &entity_defs);
         assert!(
@@ -3121,7 +3121,7 @@ mod tests {
         let entity_defs = HashMap::new();
 
         // @entity.id should pass (meta-field, always present at runtime)
-        let expr = SExpression::String("@entity.id".to_string());
+        let expr = SExpression::String(("@entity.id".to_string()).into());
         let result =
             validate_entity_field_references(&expr, "test", Some(&entity_def), &entity_defs);
         assert!(result.errors.is_empty(), "id should be skipped");
@@ -3182,12 +3182,12 @@ mod tests {
         entity_defs.insert("User".to_string(), entity_def);
 
         // @User.email should pass
-        let expr = SExpression::String("@User.email".to_string());
+        let expr = SExpression::String(("@User.email".to_string()).into());
         let result = validate_entity_field_references(&expr, "test", None, &entity_defs);
         assert!(result.errors.is_empty());
 
         // @User.phone should error
-        let expr = SExpression::String("@User.phone".to_string());
+        let expr = SExpression::String(("@User.phone".to_string()).into());
         let result = validate_entity_field_references(&expr, "test", None, &entity_defs);
         assert!(result
             .errors
@@ -3199,7 +3199,7 @@ mod tests {
     fn test_non_lambda_item_is_invalid() {
         let known_entities: HashSet<String> = HashSet::new();
         // @item.status outside a lambda should still warn
-        let expr = SExpression::String("@item.status".to_string());
+        let expr = SExpression::String(("@item.status".to_string()).into());
         let result = validate_expr_bindings(&expr, "test", BindingContext::Effect, &known_entities);
         assert!(
             result
@@ -3324,7 +3324,7 @@ mod tests {
     }
 
     fn s(v: &str) -> SExpression {
-        SExpression::String(v.to_string())
+        SExpression::String(v.to_string().into())
     }
     fn arr(items: Vec<SExpression>) -> SExpression {
         SExpression::Array(items)

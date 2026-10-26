@@ -349,14 +349,14 @@ fn collect_fetches(expr: &SExpression, transition: usize, seen: &mut FetchOption
                 }
                 match &success {
                     Some(event) => {
-                        seen.ids_events.insert(event.clone());
+                        seen.ids_events.insert(event.clone().into_inner());
                     }
                     None => seen.ids_without_success.push(transition),
                 }
             }
             if is("total", "none") {
                 if let Some(event) = &success {
-                    seen.no_total_events.insert(event.clone());
+                    seen.no_total_events.insert(event.clone().into_inner());
                 }
             }
         }

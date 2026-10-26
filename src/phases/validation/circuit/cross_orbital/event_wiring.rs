@@ -600,7 +600,7 @@ pub(crate) fn collect_effect_produced_events(trait_def: &TraitDefinition) -> Has
     fn credit(value: &SExpression, out: &mut HashSet<String>) {
         if let SExpression::String(ev) = value {
             if !ev.is_empty() && !ev.starts_with('@') {
-                out.insert(ev.clone());
+                out.insert(ev.clone().into_inner());
             }
         }
     }
@@ -744,7 +744,7 @@ pub(crate) fn collect_failure_events(
                         if let Some(SExpression::Object(emit_map)) = map.get("emit") {
                             if let Some(SExpression::String(ev)) = emit_map.get("failure") {
                                 if !ev.is_empty() {
-                                    out.insert(ev.clone());
+                                    out.insert(ev.clone().into_inner());
                                 }
                             }
                         }
@@ -792,7 +792,7 @@ pub(crate) fn collect_async_result_events(
                             for v in emit_map.values() {
                                 if let SExpression::String(ev) = v {
                                     if !ev.is_empty() {
-                                        out.insert(ev.clone());
+                                        out.insert(ev.clone().into_inner());
                                     }
                                 }
                             }
@@ -823,14 +823,14 @@ pub(crate) fn extract_emit_event(
             if let SExpression::String(op) = &arr[0] {
                 if op == "emit" {
                     if let SExpression::String(event) = &arr[1] {
-                        return Some(event.clone());
+                        return Some(event.clone().into_inner());
                     }
                 }
             }
         }
         SExpression::Object(obj) => {
             if let Some(SExpression::String(event)) = obj.get("emit") {
-                return Some(event.clone());
+                return Some(event.clone().into_inner());
             }
         }
         _ => {}
@@ -1143,12 +1143,12 @@ mod tests {
             orbital_core_base::schema::SObject::new();
         node.insert(
             "type".to_string(),
-            SExpression::String(pattern_type.to_string()),
+            SExpression::String(pattern_type.to_string().into()),
         );
-        node.insert(prop.to_string(), SExpression::String(event.to_string()));
+        node.insert(prop.to_string(), SExpression::String(event.to_string().into()));
         SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
+            SExpression::String(("main".to_string()).into()),
             SExpression::Object(node),
         ])
     }
@@ -1251,14 +1251,14 @@ mod tests {
             orbital_core_base::schema::SObject::new();
         emit_map.insert(
             "success".to_string(),
-            SExpression::String("SummaryLoaded".to_string()),
+            SExpression::String(("SummaryLoaded".to_string()).into()),
         );
         let mut options: orbital_core_base::schema::SObject =
             orbital_core_base::schema::SObject::new();
         options.insert("emit".to_string(), SExpression::Object(emit_map));
         let fetch_effect = SExpression::Array(vec![
-            SExpression::String("fetch".to_string()),
-            SExpression::String("Task".to_string()),
+            SExpression::String(("fetch".to_string()).into()),
+            SExpression::String(("Task".to_string()).into()),
             SExpression::Object(options),
         ]);
 
@@ -1288,13 +1288,13 @@ mod tests {
         let descriptor = |event: &str| {
             let mut dm: orbital_core_base::schema::SObject =
                 orbital_core_base::schema::SObject::new();
-            dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
-            dm.insert("event".to_string(), SExpression::String(event.to_string()));
+            dm.insert("name".to_string(), SExpression::String(("Edit".to_string()).into()));
+            dm.insert("event".to_string(), SExpression::String(event.to_string().into()));
             SExpression::Object(dm)
         };
         SExpression::Array(vec![
-            SExpression::String("if".to_string()),
-            SExpression::String("@user.role".to_string()),
+            SExpression::String(("if".to_string()).into()),
+            SExpression::String(("@user.role".to_string()).into()),
             SExpression::Array(vec![descriptor(then_event)]),
             SExpression::Array(vec![descriptor(else_event)]),
         ])
@@ -1305,12 +1305,12 @@ mod tests {
             orbital_core_base::schema::SObject::new();
         node.insert(
             "type".to_string(),
-            SExpression::String(pattern_type.to_string()),
+            SExpression::String(pattern_type.to_string().into()),
         );
         node.insert("itemActions".to_string(), item_actions);
         SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
+            SExpression::String(("main".to_string()).into()),
             SExpression::Object(node),
         ])
     }
@@ -1348,19 +1348,19 @@ mod tests {
         let mut dm: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         dm.insert(
             "event".to_string(),
-            SExpression::String("ARCHIVE".to_string()),
+            SExpression::String(("ARCHIVE".to_string()).into()),
         );
         let typed = SExpression::Array(vec![
-            SExpression::String("typed".to_string()),
+            SExpression::String(("typed".to_string()).into()),
             SExpression::Array(vec![SExpression::Object(dm)]),
-            SExpression::String("{\"kind\":\"array\"}".to_string()),
+            SExpression::String(("{\"kind\":\"array\"}".to_string()).into()),
         ]);
         let filtered = SExpression::Array(vec![
-            SExpression::String("array/filter".to_string()),
+            SExpression::String(("array/filter".to_string()).into()),
             typed,
             SExpression::Array(vec![
-                SExpression::String("fn".to_string()),
-                SExpression::String("item".to_string()),
+                SExpression::String(("fn".to_string()).into()),
+                SExpression::String(("item".to_string()).into()),
                 SExpression::Bool(true),
             ]),
         ]);
@@ -1373,7 +1373,7 @@ mod tests {
             "DocList",
             render_ui_with_item_actions(
                 "data-list",
-                SExpression::String("@config.itemActions".to_string()),
+                SExpression::String(("@config.itemActions".to_string()).into()),
             ),
         );
         assert!(
@@ -1389,19 +1389,19 @@ mod tests {
         let descriptor = |event: &str| {
             let mut dm: orbital_core_base::schema::SObject =
                 orbital_core_base::schema::SObject::new();
-            dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
-            dm.insert("event".to_string(), SExpression::String(event.to_string()));
+            dm.insert("name".to_string(), SExpression::String(("Edit".to_string()).into()));
+            dm.insert("event".to_string(), SExpression::String(event.to_string().into()));
             SExpression::Object(dm)
         };
         let inner_if = SExpression::Array(vec![
-            SExpression::String("if".to_string()),
-            SExpression::String("@user.tier".to_string()),
+            SExpression::String(("if".to_string()).into()),
+            SExpression::String(("@user.tier".to_string()).into()),
             SExpression::Array(vec![descriptor("PROMOTE_ITEM")]),
             SExpression::Array(vec![descriptor("DEMOTE_ITEM")]),
         ]);
         let outer_if = SExpression::Array(vec![
-            SExpression::String("if".to_string()),
-            SExpression::String("@user.role".to_string()),
+            SExpression::String(("if".to_string()).into()),
+            SExpression::String(("@user.role".to_string()).into()),
             inner_if,
             SExpression::Array(vec![descriptor("VIEW_ITEM")]),
         ]);
@@ -1427,16 +1427,16 @@ mod tests {
         let descriptor = |event: &str| {
             let mut dm: orbital_core_base::schema::SObject =
                 orbital_core_base::schema::SObject::new();
-            dm.insert("event".to_string(), SExpression::String(event.to_string()));
+            dm.insert("event".to_string(), SExpression::String(event.to_string().into()));
             SExpression::Object(dm)
         };
         let bare = || SExpression::Array(vec![descriptor("EDIT"), descriptor("DELETE")]);
         let filtered = SExpression::Array(vec![
-            SExpression::String("array/filter".to_string()),
+            SExpression::String(("array/filter".to_string()).into()),
             bare(),
             SExpression::Array(vec![
-                SExpression::String("fn".to_string()),
-                SExpression::String("item".to_string()),
+                SExpression::String(("fn".to_string()).into()),
+                SExpression::String(("item".to_string()).into()),
                 SExpression::Bool(true),
             ]),
         ]);
@@ -1461,7 +1461,7 @@ mod tests {
                         orbital_core_base::schema::SObject::new();
                     dm.insert(
                         "event".to_string(),
-                        SExpression::String((*event).to_string()),
+                        SExpression::String(((*event).to_string()).into()),
                     );
                     SExpression::Object(dm)
                 })
@@ -1470,13 +1470,13 @@ mod tests {
     }
 
     fn call(op: &str, args: Vec<SExpression>) -> SExpression {
-        let mut items = vec![SExpression::String(op.to_string())];
+        let mut items = vec![SExpression::String(op.to_string().into())];
         items.extend(args);
         SExpression::Array(items)
     }
 
     fn lambda(body: SExpression) -> SExpression {
-        call("fn", vec![SExpression::String("item".to_string()), body])
+        call("fn", vec![SExpression::String(("item".to_string()).into()), body])
     }
 
     fn produced_through(item_actions: SExpression) -> HashSet<String> {
@@ -1501,7 +1501,7 @@ mod tests {
                 "array/sort",
                 vec![
                     descriptor_list(&["A", "B"]),
-                    SExpression::String("k".into()),
+                    SExpression::string("k"),
                 ],
             ),
             call("array/take", vec![descriptor_list(&["A", "B"]), n()]),
@@ -1555,7 +1555,7 @@ mod tests {
         let effect = call(
             "set",
             vec![
-                SExpression::String("@entity.x".into()),
+                SExpression::string("@entity.x"),
                 SExpression::Number(1.0),
             ],
         );
@@ -1565,7 +1565,7 @@ mod tests {
             "let",
             vec![
                 SExpression::Array(vec![SExpression::Array(vec![
-                    SExpression::String("x".into()),
+                    SExpression::string("x"),
                     descriptor_list(&["IGNORED"]),
                 ])]),
                 descriptor_list(&["A"]),
@@ -1586,11 +1586,11 @@ mod tests {
         let cond = call(
             "if",
             vec![
-                SExpression::String("@user.role".into()),
+                SExpression::string("@user.role"),
                 filtered,
                 call(
                     "array/sort",
-                    vec![descriptor_list(&["C"]), SExpression::String("k".into())],
+                    vec![descriptor_list(&["C"]), SExpression::string("k")],
                 ),
             ],
         );
@@ -1613,7 +1613,7 @@ mod tests {
             ),
             call(
                 "array/groupBy",
-                vec![descriptor_list(&["A"]), SExpression::String("k".into())],
+                vec![descriptor_list(&["A"]), SExpression::string("k")],
             ),
             call(
                 "array/slice",
@@ -1640,14 +1640,14 @@ mod tests {
         let body = call(
             "if",
             vec![
-                SExpression::String("@item.done".into()),
+                SExpression::string("@item.done"),
                 descriptor_list(&["REOPEN"]),
                 descriptor_list(&["COMPLETE"]),
             ],
         );
         let mapped = call(
             "array/map",
-            vec![SExpression::String("@entity.items".into()), lambda(body)],
+            vec![SExpression::string("@entity.items"), lambda(body)],
         );
         assert_eq!(produced_through(mapped), set_of(&["REOPEN", "COMPLETE"]));
         let mapped_to_descriptor = call(
@@ -1665,8 +1665,8 @@ mod tests {
     #[test]
     fn filtered_unresolved_binding_credits_nothing() {
         let filtered = SExpression::Array(vec![
-            SExpression::String("array/filter".to_string()),
-            SExpression::String("@config.itemActions".to_string()),
+            SExpression::String(("array/filter".to_string()).into()),
+            SExpression::String(("@config.itemActions".to_string()).into()),
             SExpression::Null,
         ]);
         let produced = collect_effect_produced_events(&trait_with_effect(
@@ -1719,8 +1719,8 @@ mod tests {
                 event: "TICK".to_string(),
                 guard: None,
                 effects: Some(vec![orbital_core_base::schema::SExpression::Array(vec![
-                    orbital_core_base::schema::SExpression::String("emit".to_string()),
-                    orbital_core_base::schema::SExpression::String(event.to_string()),
+                    orbital_core_base::schema::SExpression::String(("emit".to_string()).into()),
+                    orbital_core_base::schema::SExpression::String(event.to_string().into()),
                 ])]),
                 ensures: None,
             }];
@@ -1772,7 +1772,7 @@ mod tests {
                         additional_properties: None,
                         field_type: "event".to_string(),
                         default: Some(orbital_core_base::schema::SExpression::String(
-                            event.to_string(),
+                            event.to_string().into(),
                         )),
                         label: None,
                         description: None,
@@ -1836,17 +1836,17 @@ mod tests {
             event: "INIT".to_string(),
             guard: None,
             effects: Some(vec![orbital_core_base::schema::SExpression::Array(vec![
-                orbital_core_base::schema::SExpression::String("render-ui".to_string()),
-                orbital_core_base::schema::SExpression::String("main".to_string()),
+                orbital_core_base::schema::SExpression::String(("render-ui".to_string()).into()),
+                orbital_core_base::schema::SExpression::String(("main".to_string()).into()),
                 orbital_core_base::schema::SExpression::Object(
                     [
                         (
                             "type".to_string(),
-                            orbital_core_base::schema::SExpression::String("button".to_string()),
+                            orbital_core_base::schema::SExpression::String(("button".to_string()).into()),
                         ),
                         (
                             "action".to_string(),
-                            orbital_core_base::schema::SExpression::String(event.to_string()),
+                            orbital_core_base::schema::SExpression::String(event.to_string().into()),
                         ),
                     ]
                     .into_iter()
@@ -1970,17 +1970,17 @@ mod tests {
                 event: "INIT".to_string(),
                 guard: None,
                 effects: Some(vec![SExpression::Array(vec![
-                    SExpression::String("render-ui".to_string()),
-                    SExpression::String("main".to_string()),
+                    SExpression::String(("render-ui".to_string()).into()),
+                    SExpression::String(("main".to_string()).into()),
                     SExpression::Object(
                         [
                             (
                                 "type".to_string(),
-                                SExpression::String("button".to_string()),
+                                SExpression::String(("button".to_string()).into()),
                             ),
                             (
                                 "action".to_string(),
-                                SExpression::String("@config.event".to_string()),
+                                SExpression::String(("@config.event".to_string()).into()),
                             ),
                         ]
                         .into_iter()
@@ -2041,13 +2041,13 @@ mod tests {
                 event: "INIT".to_string(),
                 guard: None,
                 effects: Some(vec![SExpression::Array(vec![
-                    SExpression::String("persist".to_string()),
-                    SExpression::String("create".to_string()),
-                    SExpression::String("AuditLog".to_string()),
+                    SExpression::String(("persist".to_string()).into()),
+                    SExpression::String(("create".to_string()).into()),
+                    SExpression::String(("AuditLog".to_string()).into()),
                     SExpression::Object(
                         [(
                             "action".to_string(),
-                            SExpression::String("SORT".to_string()),
+                            SExpression::String(("SORT".to_string()).into()),
                         )]
                         .into_iter()
                         .collect(),
@@ -2091,20 +2091,20 @@ mod tests {
             if let Some(effects) = def.state_machine.transitions[0].effects.as_mut() {
                 effects.clear();
                 effects.push(orbital_core_base::schema::SExpression::Array(vec![
-                    orbital_core_base::schema::SExpression::String("render-ui".to_string()),
-                    orbital_core_base::schema::SExpression::String("main".to_string()),
+                    orbital_core_base::schema::SExpression::String(("render-ui".to_string()).into()),
+                    orbital_core_base::schema::SExpression::String(("main".to_string()).into()),
                     orbital_core_base::schema::SExpression::Object(
                         [
                             (
                                 "type".to_string(),
                                 orbital_core_base::schema::SExpression::String(
-                                    "button".to_string(),
+                                    ("button".to_string()).into(),
                                 ),
                             ),
                             (
                                 "action".to_string(),
                                 orbital_core_base::schema::SExpression::String(
-                                    "GAME_END".to_string(),
+                                    ("GAME_END".to_string()).into(),
                                 ),
                             ),
                         ]
@@ -2197,13 +2197,13 @@ mod async_result_collector_tests {
     fn effect_with_emit(op: &str, emit: &[(&str, &str)]) -> SExpression {
         let mut emit_map = orbital_core_base::schema::SObject::new();
         for (k, v) in emit {
-            emit_map.insert((*k).to_string(), SExpression::String((*v).to_string()));
+            emit_map.insert((*k).to_string(), SExpression::String(((*v).to_string()).into()));
         }
         let mut options = orbital_core_base::schema::SObject::new();
         options.insert("emit".to_string(), SExpression::Object(emit_map));
         SExpression::Array(vec![
-            SExpression::String(op.to_string()),
-            SExpression::String("Item".to_string()),
+            SExpression::String(op.to_string().into()),
+            SExpression::String(("Item".to_string()).into()),
             SExpression::Object(options),
         ])
     }
@@ -2232,7 +2232,7 @@ mod async_result_collector_tests {
     fn async_result_events_excludes_call_service_and_descends_through_if() {
         let call_service = effect_with_emit("call-service", &[("success", "ShouldNotCount")]);
         let wrapped_fetch = SExpression::Array(vec![
-            SExpression::String("if".to_string()),
+            SExpression::String(("if".to_string()).into()),
             SExpression::Bool(true),
             SExpression::Array(vec![effect_with_emit("fetch", &[("success", "Nested")])]),
             SExpression::Array(vec![]),

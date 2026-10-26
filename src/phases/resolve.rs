@@ -3138,8 +3138,8 @@ mod tests {
 
     // helper: build an s-expr call `[op, ...args]` from string args.
     fn sexpr_call(op: &str, args: &[&str]) -> SExpression {
-        let mut elems = vec![SExpression::String(op.to_string())];
-        elems.extend(args.iter().map(|a| SExpression::String(a.to_string())));
+        let mut elems = vec![SExpression::String(op.to_string().into())];
+        elems.extend(args.iter().map(|a| SExpression::String(a.to_string().into())));
         SExpression::Array(elems)
     }
 
@@ -3237,7 +3237,7 @@ mod tests {
         // were dropped: std-helpdesk's three-role @read silently lost its
         // customer branch, so no customer could ever read their own ticket.
         let expr = SExpression::Array(vec![
-            SExpression::String("or".to_string()),
+            SExpression::String(("or".to_string()).into()),
             SExpression::Bool(false),
             SExpression::Bool(false),
             SExpression::Bool(true),
@@ -3254,7 +3254,7 @@ mod tests {
     #[test]
     fn variadic_and_keeps_every_branch() {
         let expr = SExpression::Array(vec![
-            SExpression::String("and".to_string()),
+            SExpression::String(("and".to_string()).into()),
             SExpression::Bool(true),
             SExpression::Bool(true),
             SExpression::Bool(false),

@@ -53,7 +53,7 @@ fn validate_persist_batch(
 
     let single = |tuple: &[SExpression], op_path: &str, result: &mut ValidationResult| {
         let mut single = vec![
-            SExpression::String("persist".to_string()),
+            SExpression::string("persist"),
             tuple[0].clone(),
             tuple[1].clone(),
         ];
@@ -314,7 +314,7 @@ pub(crate) fn validate_persist(
     // Check entity name
     if arr.len() > entity_index {
         if let SExpression::String(entity_name) = &arr[entity_index] {
-            if !known_entities.is_empty() && !known_entities.contains(entity_name) {
+            if !known_entities.is_empty() && !known_entities.contains(entity_name.as_str()) {
                 result.add_error(
                     ValidationError::error(
                         ErrorCode::EffectFetchInvalidEntity,
@@ -527,9 +527,9 @@ mod tests {
             obj.insert(k.to_string(), v);
         }
         vec![
-            SExpression::String("persist".to_string()),
-            SExpression::String("create".to_string()),
-            SExpression::String(entity.to_string()),
+            SExpression::String(("persist".to_string()).into()),
+            SExpression::String(("create".to_string()).into()),
+            SExpression::String(entity.to_string().into()),
             SExpression::Object(obj),
         ]
     }
@@ -539,8 +539,8 @@ mod tests {
         let arr = persist_create_arr(
             "Message",
             vec![
-                ("sender", SExpression::String("@user.id".to_string())),
-                ("text", SExpression::String("@payload.text".to_string())),
+                ("sender", SExpression::String(("@user.id".to_string()).into())),
+                ("text", SExpression::String(("@payload.text".to_string()).into())),
                 ("isEditing", SExpression::Bool(true)),
             ],
         );
@@ -563,8 +563,8 @@ mod tests {
         let arr = persist_create_arr(
             "Message",
             vec![
-                ("sender", SExpression::String("@user.id".to_string())),
-                ("text", SExpression::String("@payload.text".to_string())),
+                ("sender", SExpression::String(("@user.id".to_string()).into())),
+                ("text", SExpression::String(("@payload.text".to_string()).into())),
             ],
         );
         let mut defs = HashMap::new();
@@ -583,10 +583,10 @@ mod tests {
     #[test]
     fn bare_whole_frame_persist_is_not_a_hit_for_intrinsic_rule() {
         let arr = vec![
-            SExpression::String("persist".to_string()),
-            SExpression::String("create".to_string()),
-            SExpression::String("Message".to_string()),
-            SExpression::String("@entity".to_string()),
+            SExpression::String(("persist".to_string()).into()),
+            SExpression::String(("create".to_string()).into()),
+            SExpression::String(("Message".to_string()).into()),
+            SExpression::String(("@entity".to_string()).into()),
         ];
         let mut defs = HashMap::new();
         defs.insert("Message".to_string(), message_entity(None));
@@ -605,7 +605,7 @@ mod tests {
         let create_policy = json!(["==", "@entity.sender", "@user.id"]);
         let arr = persist_create_arr(
             "Message",
-            vec![("text", SExpression::String("@payload.text".to_string()))],
+            vec![("text", SExpression::String(("@payload.text".to_string()).into()))],
         );
         let mut defs = HashMap::new();
         defs.insert("Message".to_string(), message_entity(Some(create_policy)));
@@ -627,8 +627,8 @@ mod tests {
         let arr = persist_create_arr(
             "Message",
             vec![
-                ("sender", SExpression::String("@user.id".to_string())),
-                ("text", SExpression::String("@payload.text".to_string())),
+                ("sender", SExpression::String(("@user.id".to_string()).into())),
+                ("text", SExpression::String(("@payload.text".to_string()).into())),
             ],
         );
         let mut defs = HashMap::new();
@@ -648,10 +648,10 @@ mod tests {
     fn bare_whole_frame_persist_create_is_not_a_hit_for_policy_rule() {
         let create_policy = json!(["==", "@entity.sender", "@user.id"]);
         let arr = vec![
-            SExpression::String("persist".to_string()),
-            SExpression::String("create".to_string()),
-            SExpression::String("Message".to_string()),
-            SExpression::String("@entity".to_string()),
+            SExpression::String(("persist".to_string()).into()),
+            SExpression::String(("create".to_string()).into()),
+            SExpression::String(("Message".to_string()).into()),
+            SExpression::String(("@entity".to_string()).into()),
         ];
         let mut defs = HashMap::new();
         defs.insert("Message".to_string(), message_entity(Some(create_policy)));
@@ -669,7 +669,7 @@ mod tests {
         let create_policy = json!(["==", "@entity.sender", "@user.id"]);
         let arr = persist_create_arr("Message", vec![]);
         let mut update_arr = arr.clone();
-        update_arr[1] = SExpression::String("update".to_string());
+        update_arr[1] = SExpression::String(("update".to_string()).into());
         let mut defs = HashMap::new();
         defs.insert("Message".to_string(), message_entity(Some(create_policy)));
         let known = ["Message".to_string()].into_iter().collect();
@@ -684,8 +684,8 @@ mod tests {
     }
 
     fn persist_with_id(action: &str, id: SExpression) -> Vec<SExpression> {
-        let mut arr = persist_create_arr("Message", vec![("id", id), ("text", SExpression::String("hi".to_string()))]);
-        arr[1] = SExpression::String(action.to_string());
+        let mut arr = persist_create_arr("Message", vec![("id", id), ("text", SExpression::String(("hi".to_string()).into()))]);
+        arr[1] = SExpression::String(action.to_string().into());
         arr
     }
 
@@ -765,7 +765,7 @@ mod tests {
 
     #[test]
     fn persist_create_with_a_literal_id_is_flagged_and_suggests_upsert() {
-        let arr = persist_with_id("create", SExpression::String("mix".to_string()));
+        let arr = persist_with_id("create", SExpression::String(("mix".to_string()).into()));
         let known = ["Message".to_string()].into_iter().collect();
         let result = validate_persist(&arr, "test", &known, &HashMap::new(), None);
         let hit = result
@@ -778,21 +778,21 @@ mod tests {
 
     #[test]
     fn a_bound_id_an_upsert_and_an_update_are_not_literal_id_creates() {
-        let bound = SExpression::String("@payload.id".to_string());
+        let bound = SExpression::String(("@payload.id".to_string()).into());
         assert_eq!(literal_id_hits(&persist_with_id("create", bound.clone())), 0, "a bound id");
-        let literal = SExpression::String("mix".to_string());
+        let literal = SExpression::String(("mix".to_string()).into());
         assert_eq!(literal_id_hits(&persist_with_id("upsert", literal.clone())), 0, "an upsert");
         assert_eq!(literal_id_hits(&persist_with_id("update", literal.clone())), 0, "an update");
         assert_eq!(literal_id_hits(&persist_with_id("create", literal)), 1, "control: the literal-id create");
-        let no_id = persist_create_arr("Message", vec![("text", SExpression::String("hi".to_string()))]);
+        let no_id = persist_create_arr("Message", vec![("text", SExpression::String(("hi".to_string()).into()))]);
         assert_eq!(literal_id_hits(&no_id), 0, "a create naming no id");
     }
 
     #[test]
     fn persist_upsert_is_held_to_the_create_policy_field_rule() {
         let create_policy = json!(["==", "@entity.sender", "@user.id"]);
-        let mut arr = persist_create_arr("Message", vec![("text", SExpression::String("hi".to_string()))]);
-        arr[1] = SExpression::String("upsert".to_string());
+        let mut arr = persist_create_arr("Message", vec![("text", SExpression::String(("hi".to_string()).into()))]);
+        arr[1] = SExpression::String(("upsert".to_string()).into());
         let mut defs = HashMap::new();
         defs.insert("Message".to_string(), message_entity(Some(create_policy)));
         let known = ["Message".to_string()].into_iter().collect();

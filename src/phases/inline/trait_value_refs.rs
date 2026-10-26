@@ -176,13 +176,13 @@ impl Pass<'_> {
                         };
                         if !is_behavior_specifier(&spec) {
                             return Err(InlineError::BehaviorRefUnresolved {
-                                literal: spec,
+                                literal: spec.into_inner(),
                                 path: path.to_string(),
                                 reason: "not a behavior specifier (<prefix>/<name>, std/behaviors/<name> or ./<dir>/<name>)".to_string(),
                             });
                         }
                         let canonical = self.resolve(&spec, &Member::Whole, path)?;
-                        items[1] = SExpression::String(canonical);
+                        items[1] = SExpression::string(canonical);
                         return Ok(());
                     }
                 }
@@ -200,7 +200,7 @@ impl Pass<'_> {
                     });
                 if let Some((behavior, member)) = named {
                     let canonical = self.resolve(&behavior, &member, path)?;
-                    map.insert("behavior".to_string(), SExpression::String(canonical));
+                    map.insert("behavior".to_string(), SExpression::string(canonical));
                 }
                 for (key, v) in map.iter_mut() {
                     if key != "behavior" && key != "trait" && key != "orbital" {

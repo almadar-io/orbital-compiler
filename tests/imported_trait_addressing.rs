@@ -134,7 +134,7 @@ fn values(schema: &OrbitalSchema) -> (String, String) {
         .and_then(|d| serde_json::to_value(d).ok())
         .and_then(|v| v[0]["event"].as_str().map(str::to_string))
         .expect("tools[0].event");
-    (tool, tools)
+    (tool.into_inner(), tools)
 }
 
 fn listen_trait(schema: &OrbitalSchema) -> String {

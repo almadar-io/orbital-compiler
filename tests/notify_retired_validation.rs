@@ -152,9 +152,9 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
 
 fn notify_tuple(level: &str, message: &str) -> SExpression {
     SExpression::Array(vec![
-        SExpression::String("notify".to_string()),
-        SExpression::String(level.to_string()),
-        SExpression::String(message.to_string()),
+        SExpression::String(("notify".to_string()).into()),
+        SExpression::String(level.to_string().into()),
+        SExpression::String(message.to_string().into()),
     ])
 }
 
@@ -184,21 +184,21 @@ fn the_retirement_code_carries_the_orb_string() {
 #[test]
 fn a_render_ui_toast_effect_carries_no_retirement_error() {
     let toast = SExpression::Array(vec![
-        SExpression::String("render-ui".to_string()),
-        SExpression::String("toast".to_string()),
+        SExpression::String(("render-ui".to_string()).into()),
+        SExpression::String(("toast".to_string()).into()),
         SExpression::Object(
             [
                 (
                     "type".to_string(),
-                    SExpression::String("alert".to_string()),
+                    SExpression::String(("alert".to_string()).into()),
                 ),
                 (
                     "variant".to_string(),
-                    SExpression::String("error".to_string()),
+                    SExpression::String(("error".to_string()).into()),
                 ),
                 (
                     "message".to_string(),
-                    SExpression::String("Saving failed".to_string()),
+                    SExpression::String(("Saving failed".to_string()).into()),
                 ),
                 ("dismissible".to_string(), SExpression::Bool(true)),
             ]

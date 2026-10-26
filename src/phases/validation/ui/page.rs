@@ -431,7 +431,7 @@ struct ReachabilitySignals {
 fn literal_href(expr: &SExpression) -> Option<String> {
     let path = match expr {
         SExpression::String(s) if !s.starts_with('@') => s.clone(),
-        SExpression::Array(items) => match items.split_first() {
+        SExpression::Array(items) => (match items.split_first() {
             Some((SExpression::String(op), parts)) if op == "str/concat" => parts
                 .iter()
                 .map(|p| match p {
@@ -440,10 +440,10 @@ fn literal_href(expr: &SExpression) -> Option<String> {
                 })
                 .collect::<Option<String>>()?,
             _ => return None,
-        },
+        }).into(),
         _ => return None,
     };
-    (!path.is_empty()).then_some(path)
+    (!path.is_empty()).then_some(path.into_inner())
 }
 
 fn collect_href_strings(expr: &SExpression, out: &mut HashSet<String>) {
@@ -474,7 +474,7 @@ fn collect_navigate_targets(expr: &SExpression, out: &mut HashSet<String>) {
             if op == "navigate" {
                 match target {
                     SExpression::String(s) => {
-                        out.insert(s.clone());
+                        out.insert(s.clone().into_inner());
                     }
                     // `["str/concat", "/inspection/", "@entity.id"]` — the
                     // literal first segment is a checkable static prefix,
@@ -486,7 +486,7 @@ fn collect_navigate_targets(expr: &SExpression, out: &mut HashSet<String>) {
                         ) = (inner.first(), inner.get(1))
                         {
                             if concat_op == "str/concat" {
-                                out.insert(prefix.clone());
+                                out.insert(prefix.clone().into_inner());
                             }
                         }
                     }
@@ -866,7 +866,7 @@ mod tests {
     }
 
     fn concat(parts: &[SExpression]) -> SExpression {
-        let mut items = vec![SExpression::String("str/concat".to_string())];
+        let mut items = vec![SExpression::String(("str/concat".to_string()).into())];
         items.extend(parts.iter().cloned());
         SExpression::Array(items)
     }
@@ -875,8 +875,8 @@ mod tests {
     fn href_built_from_literal_strings_counts_as_that_path() {
         let mut out = HashSet::new();
         let expr = href_obj(concat(&[
-            SExpression::String("/ar".into()),
-            SExpression::String("/blog/x".into()),
+            SExpression::string("/ar"),
+            SExpression::string("/blog/x"),
         ]));
         collect_href_strings(&expr, &mut out);
         assert!(out.contains("/ar/blog/x"), "{out:?}");
@@ -885,7 +885,7 @@ mod tests {
     #[test]
     fn control_a_plain_string_href_still_counts() {
         let mut out = HashSet::new();
-        collect_href_strings(&href_obj(SExpression::String("/blog".into())), &mut out);
+        collect_href_strings(&href_obj(SExpression::string("/blog")), &mut out);
         assert!(out.contains("/blog"));
     }
 
@@ -893,8 +893,8 @@ mod tests {
     fn edge_a_concat_with_a_binding_is_not_a_literal_path() {
         let mut out = HashSet::new();
         let expr = href_obj(concat(&[
-            SExpression::String("@config.pathPrefix".into()),
-            SExpression::String("/blog".into()),
+            SExpression::string("@config.pathPrefix"),
+            SExpression::string("/blog"),
         ]));
         collect_href_strings(&expr, &mut out);
         assert!(out.is_empty(), "{out:?}");
@@ -904,11 +904,11 @@ mod tests {
     fn edge_a_concat_with_a_nested_expression_is_not_a_literal_path() {
         let mut out = HashSet::new();
         let nested = SExpression::Array(vec![
-            SExpression::String("str/upper".into()),
-            SExpression::String("/x".into()),
+            SExpression::string("str/upper"),
+            SExpression::string("/x"),
         ]);
         collect_href_strings(
-            &href_obj(concat(&[SExpression::String("/ar".into()), nested])),
+            &href_obj(concat(&[SExpression::string("/ar"), nested])),
             &mut out,
         );
         assert!(out.is_empty(), "{out:?}");
@@ -918,7 +918,7 @@ mod tests {
     fn edge_an_empty_concat_counts_as_nothing() {
         let mut out = HashSet::new();
         collect_href_strings(
-            &href_obj(concat(&[SExpression::String(String::new())])),
+            &href_obj(concat(&[SExpression::String(String::new().into())])),
             &mut out,
         );
         assert!(out.is_empty(), "{out:?}");

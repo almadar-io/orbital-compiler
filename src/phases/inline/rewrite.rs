@@ -79,7 +79,7 @@ pub(crate) fn map_event_typed_members(
                         if let Some(SExpression::String(current)) = map.get_mut(member.as_str()) {
                             if !current.is_empty() && !current.starts_with('@') {
                                 if let Some(to) = f(current.as_str()) {
-                                    *current = to;
+                                    *current = to.into();
                                     touched = true;
                                 }
                             }
@@ -94,7 +94,7 @@ pub(crate) fn map_event_typed_members(
                     if let Some(SExpression::String(current)) = map.get_mut(member.as_str()) {
                         if !current.is_empty() && !current.starts_with('@') {
                             if let Some(to) = f(current.as_str()) {
-                                *current = to;
+                                *current = to.into();
                                 touched = true;
                             }
                         }
@@ -182,7 +182,7 @@ pub(crate) fn map_fields_event_values(
             if let Some(SExpression::String(current)) = field.default.as_mut() {
                 if !current.starts_with('@') {
                     if let Some(to) = on_value(current) {
-                        *current = to;
+                        *current = to.into();
                     }
                 }
             }
@@ -275,7 +275,7 @@ pub(crate) fn visit_entity_slots(expr: &mut SExpression, f: &mut dyn FnMut(&mut 
                 let (name_part, suffix) = rest.split_at(split_at);
                 let mut name = name_part.to_string();
                 f(&mut name);
-                *s = format!("@{name}{suffix}");
+                *s = format!("@{name}{suffix}").into();
             }
         }
         SExpression::Array(items) => {
@@ -481,18 +481,18 @@ fn try_rewrite_role_equality(
     let is_negated = matches!(op.as_str(), "!=" | "!==" | "neq");
     let node = if targets.len() == 1 {
         let mut new_items = items.to_vec();
-        new_items[literal_idx] = SExpression::String(targets[0].clone());
+        new_items[literal_idx] = SExpression::string(targets[0].clone());
         SExpression::Array(new_items)
     } else {
         SExpression::Array(vec![
-            SExpression::String("array/includes".to_string()),
-            SExpression::Array(targets.iter().cloned().map(SExpression::String).collect()),
-            SExpression::String(format!("@user.{field}")),
+            SExpression::string("array/includes"),
+            SExpression::Array(targets.iter().cloned().map(SExpression::string).collect()),
+            SExpression::string(format!("@user.{field}")),
         ])
     };
     if targets.len() > 1 && is_negated {
         Some(SExpression::Array(vec![
-            SExpression::String("not".to_string()),
+            SExpression::string("not"),
             node,
         ]))
     } else {
@@ -550,7 +550,7 @@ fn try_rewrite_role_includes(
     let expanded = expand_role_members(members, roles);
     let mut new_haystack: Vec<SExpression> = Vec::with_capacity(expanded.len() + 1);
     if is_list_call {
-        new_haystack.push(SExpression::String("list".to_string()));
+        new_haystack.push(SExpression::string("list"));
     }
     new_haystack.extend(expanded);
     items[1] = SExpression::Array(new_haystack);
@@ -573,14 +573,14 @@ fn expand_role_members(
         let mapped: Vec<String> = roles
             .get(lit.as_str())
             .cloned()
-            .unwrap_or_else(|| vec![lit.clone()]);
+            .unwrap_or_else(|| vec![lit.clone().into_inner()]);
         for m in mapped {
             if !expanded.contains(&m) {
                 expanded.push(m);
             }
         }
     }
-    expanded.into_iter().map(SExpression::String).collect()
+    expanded.into_iter().map(SExpression::string).collect()
 }
 
 /// Where a role list lives inside a config knob: the knob, the object keys
@@ -640,7 +640,7 @@ fn resolve_role_collection(expr: &SExpression, scope: &ItemScope) -> Option<(Str
                     return None;
                 };
                 let (knob, mut path) = scope.get(param.strip_prefix('@')?)?.clone();
-                path.push(key.clone());
+                path.push(key.clone().into_inner());
                 Some((knob, path))
             }
             _ => None,
@@ -687,7 +687,7 @@ fn collect_role_list_sites(
                                     out.push(RoleListSite {
                                         knob,
                                         path,
-                                        key: Some(key.clone()),
+                                        key: Some(key.clone().into_inner()),
                                         field: field.clone(),
                                     });
                                 }
@@ -709,7 +709,7 @@ fn collect_role_list_sites(
                             if let Some(coll) = resolve_role_collection(&items[1], scope) {
                                 collect_role_list_sites(&items[1], scope, cfg, role_fields, out);
                                 let mut inner = scope.clone();
-                                inner.insert(param.clone(), coll);
+                                inner.insert(param.clone().into_inner(), coll);
                                 collect_role_list_sites(body, &inner, cfg, role_fields, out);
                                 return;
                             }
@@ -765,7 +765,7 @@ fn expand_role_list_in_place(value: &mut SExpression, roles: &HashMap<String, Ve
         return;
     };
     if matches!(items.first(), Some(SExpression::String(s)) if s == "list") {
-        expanded.insert(0, SExpression::String("list".to_string()));
+        expanded.insert(0, SExpression::string("list"));
     }
     *items = expanded;
 }
@@ -858,7 +858,7 @@ pub(crate) fn role_list_literals(default: &SExpression, site: &RoleListSite) -> 
             for m in members {
                 if let SExpression::String(s) = m {
                     if !out.contains(s) {
-                        out.push(s.clone());
+                        out.push(s.clone().into_inner());
                     }
                 }
             }
@@ -935,8 +935,8 @@ fn rewrite_identifiers_inner(
                 if let (SExpression::String(op), SExpression::String(arg)) = (&items[0], &items[1])
                 {
                     if op == "emit" {
-                        if let Some(to) = event_subs.get(arg) {
-                            items[1] = SExpression::String(to.clone());
+                        if let Some(to) = event_subs.get(arg.as_str()) {
+                            items[1] = SExpression::string(to.clone());
                             // Don't return — let the recursive walk visit
                             // any payload tail so nested entity refs in
                             // `(emit EVENT { ref: [...] })` still rewrite.
@@ -972,7 +972,7 @@ fn rewrite_identifiers_inner(
             // event-key rewriting — absence-of-schema means we can't prove
             // intent, so we don't guess.
             let pattern_type = match map.get("type") {
-                Some(SExpression::String(ty)) => Some(ty.clone()),
+                Some(SExpression::String(ty)) => Some(ty.to_string()),
                 _ => None,
             };
             let event_props_for_pattern: Option<&HashSet<&'static str>> = pattern_type
@@ -1006,8 +1006,8 @@ fn rewrite_identifiers_inner(
                 if k == "emit" {
                     match v {
                         SExpression::String(ev) => {
-                            if let Some(to) = event_subs.get(ev) {
-                                *ev = to.clone();
+                            if let Some(to) = event_subs.get(ev.as_str()) {
+                                *ev = to.clone().into();
                             }
                         }
                         SExpression::Object(emit_map) => {
@@ -1015,8 +1015,8 @@ fn rewrite_identifiers_inner(
                             for (slot, slot_v) in emit_map.iter_mut() {
                                 if slots.contains(slot) {
                                     if let SExpression::String(ev) = slot_v {
-                                        if let Some(to) = event_subs.get(ev) {
-                                            *ev = to.clone();
+                                        if let Some(to) = event_subs.get(ev.as_str()) {
+                                            *ev = to.clone().into();
                                         }
                                     }
                                 }
@@ -1047,8 +1047,8 @@ fn rewrite_identifiers_inner(
                 {
                     if let SExpression::String(s) = v {
                         if !s.starts_with('@') {
-                            if let Some(to) = event_subs.get(s) {
-                                *s = to.clone();
+                            if let Some(to) = event_subs.get(s.as_str()) {
+                                *s = to.clone().into();
                                 continue;
                             }
                         }
@@ -1077,8 +1077,8 @@ fn rewrite_identifiers_inner(
                                         if let Some(SExpression::String(s)) = entry.get_mut(*field)
                                         {
                                             if !s.starts_with('@') {
-                                                if let Some(to) = event_subs.get(s) {
-                                                    *s = to.clone();
+                                                if let Some(to) = event_subs.get(s.as_str()) {
+                                                    *s = to.clone().into();
                                                 }
                                             }
                                         }
@@ -1091,8 +1091,8 @@ fn rewrite_identifiers_inner(
                 }
                 if ENTITY_VALUED_PROPS.contains(&k.as_str()) {
                     if let SExpression::String(s) = v {
-                        if let Some(to) = entity_subs.get(s) {
-                            *s = to.clone();
+                        if let Some(to) = entity_subs.get(s.as_str()) {
+                            *s = to.clone().into();
                             continue;
                         }
                     }
@@ -1157,7 +1157,7 @@ pub(crate) fn rewrite_entity_field_paths(
                 let split_at = rest.find(['.', '[']).unwrap_or(rest.len());
                 let (field, suffix) = rest.split_at(split_at);
                 if let Some(to) = field_subs.get(field) {
-                    *s = format!("{sigil}{to}{suffix}");
+                    *s = format!("{sigil}{to}{suffix}").into();
                 }
                 break;
             }
@@ -1168,7 +1168,7 @@ pub(crate) fn rewrite_entity_field_paths(
             {
                 if op == "object/get" && ROW_ALIAS_SIGILS.contains(&format!("{root}.").as_str()) {
                     if let Some(to) = field_subs.get(f.as_str()) {
-                        *f = to.clone();
+                        *f = to.clone().into();
                     }
                 }
             }
@@ -1180,7 +1180,7 @@ pub(crate) fn rewrite_entity_field_paths(
             for key in ["key", "name", "field"] {
                 if let Some(SExpression::String(v)) = map.get_mut(key) {
                     if let Some(to) = field_subs.get(v.as_str()) {
-                        *v = to.clone();
+                        *v = to.clone().into();
                     }
                 }
             }
@@ -1224,7 +1224,7 @@ pub(crate) fn rewrite_bare_field_name_config_default(
         SExpression::String(s) => {
             if !s.is_empty() && !s.starts_with('@') {
                 if let Some(to) = field_subs.get(s.as_str()) {
-                    *s = to.clone();
+                    *s = to.clone().into();
                 }
             }
         }
@@ -1233,7 +1233,7 @@ pub(crate) fn rewrite_bare_field_name_config_default(
                 if let SExpression::String(s) = item {
                     if !s.is_empty() && !s.starts_with('@') {
                         if let Some(to) = field_subs.get(s.as_str()) {
-                            *s = to.clone();
+                            *s = to.clone().into();
                         }
                     }
                 }
@@ -1265,7 +1265,7 @@ pub(crate) fn collect_stale_field_name_literals(
     match default {
         SExpression::String(s) => {
             if !s.is_empty() && !s.starts_with('@') && field_subs.contains_key(s.as_str()) {
-                out.insert(s.clone());
+                out.insert(s.clone().into_inner());
             }
         }
         SExpression::Array(items) => {
@@ -1423,7 +1423,7 @@ pub(crate) fn mark_literal_list_in_place(value: &mut SExpression, field_type: &s
     if should_wrap {
         if let SExpression::Array(elems) = value {
             let mut wrapped = Vec::with_capacity(elems.len() + 1);
-            wrapped.push(SExpression::String("list".to_string()));
+            wrapped.push(SExpression::string("list"));
             wrapped.append(elems);
             *value = SExpression::Array(wrapped);
         }
@@ -1722,7 +1722,7 @@ pub(crate) fn declared_list_types(
         let named = |record: &Option<String>| -> Option<String> {
             let knob = record.as_deref()?.strip_prefix("@entity(")?.strip_suffix(')')?;
             match config_subs.get(knob)? {
-                SExpression::String(name) => Some(name.clone()),
+                SExpression::String(name) => Some(name.clone().into_inner()),
                 _ => None,
             }
         };
@@ -1746,9 +1746,9 @@ pub(crate) fn declared_list_types(
         out.insert(
             knob.clone(),
             SExpression::Array(vec![
-                SExpression::String("typed".to_string()),
+                SExpression::string("typed"),
                 value.clone(),
-                SExpression::String(text),
+                SExpression::string(text),
             ]),
         );
     }
@@ -2339,8 +2339,8 @@ pub(crate) fn rewrite_entity_typed_config_values(
             continue;
         }
         if let Some(SExpression::String(name)) = field.default.as_ref() {
-            if let Some(to) = entity_subs.get(name) {
-                field.default = Some(SExpression::String(to.clone()));
+            if let Some(to) = entity_subs.get(name.as_str()) {
+                field.default = Some(SExpression::string(to.clone()));
                 field.ref_id = entity_ids.get(to).cloned();
             }
         }
@@ -2605,7 +2605,7 @@ fn rewrite_recorded_shapes(
                         {
                             if rewrite(&mut shape) {
                                 *declaration = serde_json::to_string(&shape)
-                                    .expect("declared shape serializes");
+                                    .expect("declared shape serializes").into();
                                 changed = true;
                             }
                         }
@@ -3187,25 +3187,25 @@ mod literal_list_tests {
     #[test]
     fn strip_marker_is_the_wrap_inverse() {
         let wrapped = vec![
-            SExpression::String("list".to_string()),
-            SExpression::String("tag".to_string()),
+            SExpression::String(("list".to_string()).into()),
+            SExpression::String(("tag".to_string()).into()),
         ];
         let stripped = strip_literal_list_marker(&wrapped);
         assert_eq!(stripped, &wrapped[1..]);
-        let bare = vec![SExpression::String("tag".to_string())];
+        let bare = vec![SExpression::String(("tag".to_string()).into())];
         assert_eq!(strip_literal_list_marker(&bare), &bare[..]);
     }
 
     #[test]
     fn wraps_pure_literal_string_headed_list() {
         let mut v = arr(vec![
-            SExpression::String("path".to_string()),
-            SExpression::String("method".to_string()),
+            SExpression::String(("path".to_string()).into()),
+            SExpression::String(("method".to_string()).into()),
         ]);
         mark_literal_list_in_place(&mut v, "[string]");
         match &v {
             SExpression::Array(items) => {
-                assert_eq!(items[0], SExpression::String("list".to_string()));
+                assert_eq!(items[0], SExpression::String(("list".to_string()).into()));
             }
             _ => panic!("expected array"),
         }
@@ -3263,8 +3263,8 @@ mod literal_list_tests {
         let Some(SExpression::Array(fields)) = section.get("fields") else {
             panic!("expected fields array")
         };
-        assert_eq!(fields[0], SExpression::String("list".to_string()));
-        assert_eq!(fields[1], SExpression::String("count".to_string()));
+        assert_eq!(fields[0], SExpression::String(("list".to_string()).into()));
+        assert_eq!(fields[1], SExpression::String(("count".to_string()).into()));
     }
 
     /// A string-headed value can never be a literal of a struct-element array
@@ -3298,7 +3298,7 @@ mod literal_list_tests {
         let SExpression::Array(items) = &v else {
             panic!("expected array")
         };
-        assert_eq!(items[0], SExpression::String("list".to_string()));
+        assert_eq!(items[0], SExpression::String(("list".to_string()).into()));
     }
 
     #[test]
@@ -3324,26 +3324,26 @@ mod literal_list_tests {
         food.insert(
             "x".to_string(),
             arr(vec![
-                SExpression::String("object/get".to_string()),
-                SExpression::String("@entity.food".to_string()),
-                SExpression::String("x".to_string()),
+                SExpression::String(("object/get".to_string()).into()),
+                SExpression::String(("@entity.food".to_string()).into()),
+                SExpression::String(("x".to_string()).into()),
             ]),
         );
         let mut cell = orbital_core_base::schema::SObject::new();
         cell.insert(
             "type".to_string(),
-            SExpression::String("draw-shape".to_string()),
+            SExpression::String(("draw-shape".to_string()).into()),
         );
         cell.insert("position".to_string(), SExpression::Object(food));
         let mut v = arr(vec![
-            SExpression::String("array/concat".to_string()),
+            SExpression::String(("array/concat".to_string()).into()),
             arr(vec![SExpression::Object(cell)]),
             arr(vec![]),
         ]);
         mark_literal_list_in_place(&mut v, "[json]");
         match &v {
             SExpression::Array(items) => {
-                assert_eq!(items[0], SExpression::String("array/concat".to_string()));
+                assert_eq!(items[0], SExpression::String(("array/concat".to_string()).into()));
             }
             _ => panic!("expected array"),
         }
@@ -3351,22 +3351,22 @@ mod literal_list_tests {
 
     #[test]
     fn ignores_non_array_slots() {
-        let mut scalar = arr(vec![SExpression::String("path".to_string())]);
+        let mut scalar = arr(vec![SExpression::String(("path".to_string()).into())]);
         mark_literal_list_in_place(&mut scalar, "string");
-        assert_eq!(scalar, arr(vec![SExpression::String("path".to_string())]));
+        assert_eq!(scalar, arr(vec![SExpression::String(("path".to_string()).into())]));
     }
 
     #[test]
     fn a_list_knob_whose_first_item_is_an_object_is_marked_as_a_list() {
         let mut object_headed = arr(vec![
             SExpression::Object(orbital_core_base::schema::SObject::new()),
-            SExpression::String("tool".to_string()),
+            SExpression::String(("tool".to_string()).into()),
         ]);
         mark_literal_list_in_place(&mut object_headed, "[json]");
         match &object_headed {
             SExpression::Array(items) => {
                 assert_eq!(items.len(), 3, "{object_headed:?}");
-                assert_eq!(items[0], SExpression::String("list".to_string()));
+                assert_eq!(items[0], SExpression::String(("list".to_string()).into()));
             }
             _ => panic!("expected array"),
         }
@@ -3574,8 +3574,8 @@ mod conditional_event_list_tests {
 
     fn descriptor(event: &str) -> SExpression {
         let mut dm = orbital_core_base::schema::SObject::new();
-        dm.insert("name".to_string(), SExpression::String("Edit".to_string()));
-        dm.insert("event".to_string(), SExpression::String(event.to_string()));
+        dm.insert("name".to_string(), SExpression::String(("Edit".to_string()).into()));
+        dm.insert("event".to_string(), SExpression::String(event.to_string().into()));
         SExpression::Object(dm)
     }
 
@@ -3583,7 +3583,7 @@ mod conditional_event_list_tests {
         let mut node = orbital_core_base::schema::SObject::new();
         node.insert(
             "type".to_string(),
-            SExpression::String("data-list".to_string()),
+            SExpression::String(("data-list".to_string()).into()),
         );
         node.insert("itemActions".to_string(), item_actions);
         SExpression::Object(node)
@@ -3595,8 +3595,8 @@ mod conditional_event_list_tests {
     #[test]
     fn rename_reaches_descriptors_in_both_conditional_branches() {
         let item_actions = SExpression::Array(vec![
-            SExpression::String("if".to_string()),
-            SExpression::String("@user.role".to_string()),
+            SExpression::String(("if".to_string()).into()),
+            SExpression::String(("@user.role".to_string()).into()),
             SExpression::Array(vec![descriptor("EDIT_ITEM")]),
             SExpression::Array(vec![descriptor("VIEW_ITEM")]),
         ]);
@@ -3614,7 +3614,7 @@ mod conditional_event_list_tests {
         let SExpression::Array(cond) = &node["itemActions"] else {
             panic!("expected the conditional array to survive the rewrite intact");
         };
-        assert_eq!(cond[0], SExpression::String("if".to_string()));
+        assert_eq!(cond[0], SExpression::String(("if".to_string()).into()));
         let then_event = match &cond[2] {
             SExpression::Array(items) => match &items[0] {
                 SExpression::Object(dm) => dm.get("event").cloned(),
@@ -3629,8 +3629,8 @@ mod conditional_event_list_tests {
             },
             _ => None,
         };
-        assert_eq!(then_event, Some(SExpression::String("EditRow".to_string())));
-        assert_eq!(else_event, Some(SExpression::String("ViewRow".to_string())));
+        assert_eq!(then_event, Some(SExpression::String(("EditRow".to_string()).into())));
+        assert_eq!(else_event, Some(SExpression::String(("ViewRow".to_string()).into())));
     }
 
     /// Literal (non-conditional) `itemActions` rename is unaffected — the
@@ -3655,7 +3655,7 @@ mod conditional_event_list_tests {
         let SExpression::Object(dm) = &items[0] else {
             panic!("expected descriptor object");
         };
-        assert_eq!(dm["event"], SExpression::String("EditRow".to_string()));
+        assert_eq!(dm["event"], SExpression::String(("EditRow".to_string()).into()));
     }
 }
 
@@ -5102,7 +5102,7 @@ mod event_typed_union_fold_tests {
 
     fn entry(k: &str, v: &str) -> SExpression {
         let mut m = orbital_core_base::schema::SObject::new();
-        m.insert(k.to_string(), SExpression::String(v.to_string()));
+        m.insert(k.to_string(), SExpression::String(v.to_string().into()));
         SExpression::Object(m)
     }
 
@@ -5110,7 +5110,7 @@ mod event_typed_union_fold_tests {
         match value {
             SExpression::Array(a) => match &a[i] {
                 SExpression::Object(m) => match m.get(k) {
-                    Some(SExpression::String(s)) => s.clone(),
+                    Some(SExpression::String(s)) => s.clone().into_inner(),
                     _ => String::new(),
                 },
                 _ => String::new(),

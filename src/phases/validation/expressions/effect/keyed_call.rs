@@ -303,7 +303,7 @@ enum KeyText {
 fn key_text(key: &SExpression) -> KeyText {
     match key {
         SExpression::String(text) if !text.starts_with('@') && !text.starts_with('?') => {
-            KeyText::Literal(text.clone())
+            KeyText::Literal(text.clone().into_inner())
         }
         SExpression::Array(items) => match (
             items.first().and_then(SExpression::as_str),
@@ -315,7 +315,7 @@ fn key_text(key: &SExpression) -> KeyText {
                     && !text.starts_with('@')
                     && !text.starts_with('?') =>
             {
-                KeyText::Literal(text.clone())
+                KeyText::Literal(text.clone().into_inner())
             }
             _ => KeyText::Dynamic,
         },
@@ -343,7 +343,7 @@ pub(crate) fn validate_call_key_literals_are_used(schema: &OrbitalSchema) -> Val
                                 && !text.starts_with('@')
                                 && !text.starts_with('?')
                             {
-                                out.casts.push((path.to_string(), text.clone()));
+                                out.casts.push((path.to_string(), text.clone().into_inner()));
                             }
                         }
                     }

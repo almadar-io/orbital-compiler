@@ -90,17 +90,17 @@ mod tests {
     #[test]
     fn content_body_pattern_true_for_string_payload() {
         assert!(is_content_body_pattern(&SExpression::String(
-            "@trait.X".to_string()
+            ("@trait.X".to_string()).into()
         )));
     }
 
     #[test]
     fn content_body_pattern_true_for_nonempty_children() {
         let payload = obj(&[
-            ("type", SExpression::String("stack".to_string())),
+            ("type", SExpression::String(("stack".to_string()).into())),
             (
                 "children",
-                SExpression::Array(vec![SExpression::String("x".to_string())]),
+                SExpression::Array(vec![SExpression::String(("x".to_string()).into())]),
             ),
         ]);
         assert!(is_content_body_pattern(&payload));
@@ -110,10 +110,10 @@ mod tests {
     fn content_body_pattern_true_for_a_single_child_object() {
         // `{ type: container, children: { type: stack, … } }` — one child node.
         let payload = obj(&[
-            ("type", SExpression::String("container".to_string())),
+            ("type", SExpression::String(("container".to_string()).into())),
             (
                 "children",
-                obj(&[("type", SExpression::String("stack".to_string()))]),
+                obj(&[("type", SExpression::String(("stack".to_string()).into()))]),
             ),
         ]);
         assert!(is_content_body_pattern(&payload));
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn content_body_pattern_false_for_empty_children() {
         let payload = obj(&[
-            ("type", SExpression::String("container".to_string())),
+            ("type", SExpression::String(("container".to_string()).into())),
             ("children", SExpression::Array(vec![])),
         ]);
         assert!(!is_content_body_pattern(&payload));
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn content_body_pattern_false_for_chrome_with_no_children() {
-        let payload = obj(&[("type", SExpression::String("button".to_string()))]);
+        let payload = obj(&[("type", SExpression::String(("button".to_string()).into()))]);
         assert!(!is_content_body_pattern(&payload));
     }
 
@@ -138,8 +138,8 @@ mod tests {
     fn main_slot_render_ui_accepts_all_three_main_slots() {
         for slot in MAIN_SLOTS {
             let effect = SExpression::Array(vec![
-                SExpression::String("render-ui".to_string()),
-                SExpression::String((*slot).to_string()),
+                SExpression::String(("render-ui".to_string()).into()),
+                SExpression::String(((*slot).to_string()).into()),
                 SExpression::Null,
             ]);
             assert!(
@@ -152,8 +152,8 @@ mod tests {
     #[test]
     fn main_slot_render_ui_false_for_overlay_slot() {
         let effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("modal".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
+            SExpression::String(("modal".to_string()).into()),
             SExpression::Null,
         ]);
         assert!(!is_main_slot_render_ui(&effect));

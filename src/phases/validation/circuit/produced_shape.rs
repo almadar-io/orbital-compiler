@@ -56,7 +56,7 @@ fn call_site_entity(op_name: &str, args: &[SExpression]) -> Option<String> {
         _ => return None,
     };
     match args.get(idx) {
-        Some(SExpression::String(name)) => Some(name.clone()),
+        Some(SExpression::String(name)) => Some(name.clone().into_inner()),
         _ => None,
     }
 }

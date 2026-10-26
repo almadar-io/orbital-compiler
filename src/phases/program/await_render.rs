@@ -204,7 +204,7 @@ fn emit_success(arg: &SExpression) -> Option<String> {
         return None;
     };
     match emit.get("success")? {
-        SExpression::String(event) => Some(event.clone()),
+        SExpression::String(event) => Some(event.clone().into_inner()),
         _ => None,
     }
 }
@@ -218,7 +218,7 @@ fn render_targets(effects: &[SExpression]) -> Vec<(String, Option<&SExpression>)
                 if let SExpression::Array(items) = e {
                     if let Some(SExpression::String(slot)) = items.get(1) {
                         let tree = items.get(2).filter(|t| matches!(t, SExpression::Object(_)));
-                        out.push((slot.clone(), tree));
+                        out.push((slot.to_string(), tree));
                     }
                 }
             }
@@ -280,7 +280,7 @@ fn shape_from_spec(
 ) -> Option<SkeletonShape> {
     match spec {
         SExpression::String(variant) if is_variant(variant) => Some(SkeletonShape {
-            variant: variant.clone(),
+            variant: variant.clone().into_inner(),
             rows: None,
             columns: None,
             fields: None,
@@ -291,7 +291,7 @@ fn shape_from_spec(
                 _ => return None,
             };
             Some(SkeletonShape {
-                variant,
+                variant: variant.into_inner(),
                 rows: count(o.get("rows"), config),
                 columns: count(o.get("columns"), config),
                 fields: count(o.get("fields"), config),

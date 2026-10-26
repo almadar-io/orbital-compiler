@@ -827,7 +827,7 @@ fn config_forward_resolves_against_embedder_through_orbital_import() {
             .and_then(|c| c.get("itemClickEvent"))
             .and_then(|f| f.default.clone()),
         Some(orbital_core_base::schema::SExpression::String(
-            "VIEW".to_string()
+            ("VIEW".to_string()).into()
         )),
         "config forward must resolve against the embedder (Embedder), not stay the raw \
          @config.itemClickEvent token"
@@ -1560,7 +1560,7 @@ fn g2_entity_rebind_rewrites_entity_typed_config_knob_value() {
     assert_eq!(
         target_entity.default,
         Some(orbital_core_base::schema::SExpression::String(
-            "Gadget".to_string()
+            ("Gadget".to_string()).into()
         )),
         "an `entity`-typed knob's literal default must follow the SAME \
          entity_subs rename every other entity reference goes through, not \
@@ -1685,13 +1685,13 @@ fn g3_fields_rename_reaches_bare_config_defaults_item_sigil_and_object_get_polic
     assert_eq!(
         read_policy,
         &orbital_core_base::schema::SExpression::Array(vec![
-            orbital_core_base::schema::SExpression::String("=".to_string()),
+            orbital_core_base::schema::SExpression::String(("=".to_string()).into()),
             orbital_core_base::schema::SExpression::Array(vec![
-                orbital_core_base::schema::SExpression::String("object/get".to_string()),
-                orbital_core_base::schema::SExpression::String("@entity".to_string()),
-                orbital_core_base::schema::SExpression::String("company".to_string()),
+                orbital_core_base::schema::SExpression::String(("object/get".to_string()).into()),
+                orbital_core_base::schema::SExpression::String(("@entity".to_string()).into()),
+                orbital_core_base::schema::SExpression::String(("company".to_string()).into()),
             ]),
-            orbital_core_base::schema::SExpression::String("@user.id".to_string()),
+            orbital_core_base::schema::SExpression::String(("@user.id".to_string()).into()),
         ]),
         "`(object/get @entity title)` in the entity's OWN read_policy must \
          follow the rename to `company`, not stay pinned to 'title'"
@@ -1704,8 +1704,8 @@ fn g3_fields_rename_reaches_bare_config_defaults_item_sigil_and_object_get_polic
     assert_eq!(
         form_fields.default,
         Some(orbital_core_base::schema::SExpression::Array(vec![
-            orbital_core_base::schema::SExpression::String("company".to_string()),
-            orbital_core_base::schema::SExpression::String("value".to_string()),
+            orbital_core_base::schema::SExpression::String(("company".to_string()).into()),
+            orbital_core_base::schema::SExpression::String(("value".to_string()).into()),
         ])),
         "a bare `[string]` field-name list must be rewritten element-by-element"
     );
@@ -1714,7 +1714,7 @@ fn g3_fields_rename_reaches_bare_config_defaults_item_sigil_and_object_get_polic
     assert_eq!(
         search_field.default,
         Some(orbital_core_base::schema::SExpression::String(
-            "company".to_string()
+            ("company".to_string()).into()
         )),
         "a bare `string` field-name default must be rewritten"
     );
@@ -1725,7 +1725,7 @@ fn g3_fields_rename_reaches_bare_config_defaults_item_sigil_and_object_get_polic
     assert_eq!(
         card_title_binding.default,
         Some(orbital_core_base::schema::SExpression::String(
-            "@item.company".to_string()
+            ("@item.company".to_string()).into()
         )),
         "`@item.<f>` must follow the SAME field rename `@entity.<f>` already did"
     );
@@ -2080,14 +2080,14 @@ fn g3_field_rename_reaches_a_hoisted_renders_forwarded_columns() {
     assert_eq!(
         entry.get("field"),
         Some(&orbital_core_base::schema::SExpression::String(
-            "billRate".to_string()
+            ("billRate".to_string()).into()
         )),
         "the forwarded columns[0].field must follow the rename, not stay pinned to 'hourlyRate'"
     );
     assert_eq!(
         entry.get("key"),
         Some(&orbital_core_base::schema::SExpression::String(
-            "billRate".to_string()
+            ("billRate".to_string()).into()
         )),
         "the forwarded columns[0].key must follow the rename, not stay pinned to 'hourlyRate'"
     );

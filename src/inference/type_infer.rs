@@ -1261,7 +1261,7 @@ impl<'c> Inferer<'c> {
         match expr {
             OirExpr::String { value } => Some(value.clone()),
             OirExpr::Call { function, args } => match quoted_literal(function, args)? {
-                orbital_core_base::schema::SExpression::String(text) => Some(text),
+                orbital_core_base::schema::SExpression::String(text) => Some(text.into_inner()),
                 _ => None,
             },
             _ => None,
@@ -1375,6 +1375,7 @@ impl<'c> Inferer<'c> {
         let mut integral = vec![false; args.len()];
         let mut arg_types: Vec<Option<OirType>> = vec![None; args.len()];
         for (index, arg) in args.iter().enumerate() {
+            let short_circuited = short_circuited(name, args, index).then(|| self.diagnostics.borrow().len());
             if let Some(declared) = &declared_node {
                 self.register_named_types(declared, &mut bindings);
                 signature.bind_declared_node(&mut bindings, index, declared.clone());
@@ -1499,6 +1500,10 @@ impl<'c> Inferer<'c> {
             self.present.borrow_mut().truncate(narrowed);
             self.present_calls.borrow_mut().truncate(narrowed_calls);
             self.refinements.borrow_mut().truncate(refined);
+            if let Some(mark) = short_circuited {
+                self.diagnostics.borrow_mut().truncate(mark);
+                continue;
+            }
             if let Err(mismatch) = outcome {
                 sound = false;
                 refuted |= !matches!(mismatch, Mismatch::Undetermined { .. });
@@ -2738,6 +2743,19 @@ fn conditional_parts(expr: &OirExpr) -> Option<(&OirExpr, &OirExpr, &OirExpr)> {
 
 /// The branch of an `if` that can run when its condition is provably decided without running the program (a
 /// `@config` knob substituted to its call-site literal), with the dead branch that cannot.
+/// Whether `(and …)`/`(or …)` never evaluates its argument at `index`: an earlier one is statically false (`and`) or
+/// true (`or`), as a call site's literal config makes it.
+fn short_circuited(name: &str, args: &[&OirExpr], index: usize) -> bool {
+    let decides = |arg: &&OirExpr| {
+        arg.to_sexpression().is_some_and(|decided| match name {
+            "and" => decided.is_statically_false(),
+            "or" => decided.is_statically_true(),
+            _ => false,
+        })
+    };
+    args[..index].iter().any(decides)
+}
+
 fn live_branch(expr: &OirExpr) -> Option<(&OirExpr, &OirExpr)> {
     let OirExpr::Conditional {
         condition,
@@ -3281,7 +3299,7 @@ mod tests {
 
     fn quoted_text(v: &str) -> OirExpr {
         quoted(orbital_core_base::schema::SExpression::String(
-            v.to_string(),
+            v.to_string().into(),
         ))
     }
 

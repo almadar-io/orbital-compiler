@@ -228,7 +228,7 @@ fn collect_controls(expr: &SExpression, out: &mut Controls) {
         }
         SExpression::Object(obj) => {
             if let Some(SExpression::String(pattern_type)) = obj.get("type") {
-                if let Some(pattern) = patterns().get(pattern_type) {
+                if let Some(pattern) = patterns().get(pattern_type.as_str()) {
                     for (key, value) in obj.iter() {
                         if let Some(prop) = pattern.props_schema.get(key) {
                             let mut events = HashSet::new();
@@ -287,7 +287,7 @@ fn literal_events(value: &SExpression, out: &mut HashSet<String>) {
     for leaf in value.value_leaves(&live_sources()) {
         if let SExpression::String(s) = leaf {
             if !s.is_empty() && !s.starts_with('@') && !is_bus_excluded_event(s) {
-                out.insert(s.clone());
+                out.insert(s.clone().into_inner());
             }
         }
     }

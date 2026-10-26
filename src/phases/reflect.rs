@@ -110,8 +110,8 @@ fn answer(expr: &SExpression, from: Option<&Path>) -> CompileResult<Option<SExpr
     let mut payload = orbital_core_base::schema::SObject::new();
     payload.insert("result".to_string(), quote_expr(&description));
     Ok(Some(SExpression::Array(vec![
-        SExpression::String("emit".into()),
-        SExpression::String(success.to_string()),
+        SExpression::string("emit"),
+        SExpression::string(success.to_string()),
         SExpression::Object(payload),
     ])))
 }

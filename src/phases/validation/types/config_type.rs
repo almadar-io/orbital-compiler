@@ -100,7 +100,7 @@ fn trait_event_ctx(trait_def: &TraitDefinition) -> TraitEventCtx {
                 });
             if let Some(value) = resolved {
                 if !value.is_empty() && !value.starts_with('@') {
-                    events.insert(value);
+                    events.insert(value.into_inner());
                 }
             }
         } else if !entry.is_empty() {
@@ -226,7 +226,7 @@ fn check_event_address_args(
             Some(SExpression::Object(args)),
         ) = (items.get(1), items.get(2), items.get(3))
         {
-            let declared = registry.params.get(service).and_then(|a| a.get(action));
+            let declared = registry.params.get(service.as_str()).and_then(|a| a.get(action.as_str()));
             for param in declared.into_iter().flatten() {
                 if param.param_type == EVENT_ADDRESS_TYPE {
                     if let Some(SExpression::String(value)) = args.get(&param.name) {
@@ -614,7 +614,7 @@ fn check_reference_binding_type(
         event_payload: Some(&bctx.payload_fields),
         sibling_trait_names: &[],
     };
-    let resolved = resolve_binding_type(&SExpression::String(value_str.to_string()), &render_ctx);
+    let resolved = resolve_binding_type(&SExpression::string(value_str.to_string()), &render_ctx);
     // `Unknown` (resolver couldn't determine — unlinked entity, undeclared
     // payload field), `Null`, and `TraitRef` (never produced for `@entity`/
     // `@payload` paths, kept for lattice completeness) all mean "can't
@@ -998,7 +998,7 @@ fn validate_config_field(
                         && !s.is_empty()
                         && !s.starts_with('@')
                         && !ctx.events.is_empty()
-                        && !ctx.events.contains(s)
+                        && !ctx.events.contains(s.as_str())
                     {
                         let mut valid: Vec<String> = ctx.events.iter().cloned().collect();
                         valid.sort();
@@ -1111,7 +1111,7 @@ fn field_ref_record_fields(
     let knob_text = |knob: &str| -> Option<String> {
         match bctx.trait_def.config.as_ref()?.get(knob)?.default.as_ref()? {
             SExpression::String(text) if !text.is_empty() && !text.starts_with('@') => {
-                Some(text.clone())
+                Some(text.clone().into_inner())
             }
             _ => None,
         }
@@ -1947,7 +1947,7 @@ pub(crate) fn check_field_def_shape(
                         if !s.is_empty()
                             && !s.starts_with('@')
                             && !orbital_events.events.is_empty()
-                            && !orbital_events.events.contains(s)
+                            && !orbital_events.events.contains(s.as_str())
                         {
                             let mut valid: Vec<String> =
                                 orbital_events.events.iter().cloned().collect();
@@ -2508,32 +2508,34 @@ fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
         }
 
         // `self_forward`: the key is the owner's own knob whose value is `@config.<key>` — that
-        // declaration can't supply itself, so it must be declared outside that knob.
-        let key_reachable = |owner: &str, key: &str, self_forward: bool| -> bool {
-            if declared_keys.contains(key) {
-                return true;
-            }
-            let mut queue = vec![owner];
-            let mut seen: HashSet<&str> = HashSet::new();
-            while let Some(name) = queue.pop() {
-                if !seen.insert(name) {
-                    continue;
-                }
-                let own_forward = self_forward && name == owner;
-                if !own_forward && declared.get(name).is_some_and(|keys| keys.contains(key)) {
+        // declaration can't supply itself, so it must be declared outside that knob. `within`, when
+        // set, is the only traits the walk may visit.
+        let key_reachable_within =
+            |owner: &str, key: &str, self_forward: bool, within: Option<&HashSet<&str>>| -> bool {
+                if declared_keys.contains(key) {
                     return true;
                 }
-                if let Some(neighbors) = adjacency.get(name) {
-                    queue.extend(neighbors.iter().copied());
+                let mut queue = vec![owner];
+                let mut seen: HashSet<&str> = HashSet::new();
+                while let Some(name) = queue.pop() {
+                    if within.is_some_and(|members| !members.contains(name)) || !seen.insert(name) {
+                        continue;
+                    }
+                    let own_forward = self_forward && name == owner;
+                    if !own_forward && declared.get(name).is_some_and(|keys| keys.contains(key)) {
+                        return true;
+                    }
+                    if let Some(neighbors) = adjacency.get(name) {
+                        queue.extend(neighbors.iter().copied());
+                    }
                 }
-            }
-            false
+                false
+            };
+        let key_reachable = |owner: &str, key: &str, self_forward: bool| -> bool {
+            key_reachable_within(owner, key, self_forward, None)
         };
 
-        for (ti, trait_ref) in orbital.traits.iter().enumerate() {
-            let TraitReference::Inline(td) = trait_ref else {
-                continue;
-            };
+        let config_reads = |td: &'_ TraitDefinition| -> (HashSet<String>, HashSet<String>) {
             let mut used: HashSet<String> = HashSet::new();
             for cf in td.config.iter().flat_map(|c| c.values()) {
                 if let Some(default) = &cf.default {
@@ -2550,15 +2552,23 @@ fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
                     collect_config_keys(effect, &mut used);
                 }
             }
-            let self_forwards: HashSet<&str> = td
+            let self_forwards: HashSet<String> = td
                 .config
                 .iter()
                 .flat_map(|c| c.iter())
                 .filter(|(k, cf)| {
                     matches!(&cf.default, Some(SExpression::String(v)) if config_key_of(v) == Some(k.as_str()))
                 })
-                .map(|(k, _)| k.as_str())
+                .map(|(k, _)| k.clone())
                 .collect();
+            (used, self_forwards)
+        };
+
+        for (ti, trait_ref) in orbital.traits.iter().enumerate() {
+            let TraitReference::Inline(td) = trait_ref else {
+                continue;
+            };
+            let (used, self_forwards) = config_reads(td);
             let mut dangling: Vec<&String> = used
                 .iter()
                 .filter(|key| !key_reachable(&td.name, key, self_forwards.contains(key.as_str())))
@@ -2584,6 +2594,59 @@ fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
                         key
                     )),
                 );
+            }
+        }
+
+        // A call site composes a page-mounted trait alone: it carries what that trait embeds, never
+        // its embedders or their other children, so each forward must resolve inside that closure.
+        let children = graph.embedded_children();
+        let mut entries: Vec<String> = crate::phases::embed_graph::page_declared_traits(orbital).into_iter().collect();
+        entries.sort();
+        let mut reported: HashSet<(String, String)> = HashSet::new();
+        for entry in &entries {
+            let mut members: HashSet<&str> = HashSet::new();
+            let mut stack = vec![entry.as_str()];
+            while let Some(name) = stack.pop() {
+                if members.insert(name) {
+                    stack.extend(children.get(name).into_iter().flatten().copied());
+                }
+            }
+            for (ti, trait_ref) in orbital.traits.iter().enumerate() {
+                let TraitReference::Inline(td) = trait_ref else {
+                    continue;
+                };
+                if !members.contains(td.name.as_str()) {
+                    continue;
+                }
+                let (used, self_forwards) = config_reads(td);
+                let mut standalone: Vec<&String> = used
+                    .iter()
+                    .filter(|key| {
+                        let self_forward = self_forwards.contains(key.as_str());
+                        key_reachable(&td.name, key, self_forward)
+                            && !key_reachable_within(&td.name, key, self_forward, Some(&members))
+                    })
+                    .collect();
+                standalone.sort();
+                for key in standalone {
+                    if !reported.insert((td.name.clone(), key.clone())) {
+                        continue;
+                    }
+                    result.add_error(
+                        ValidationError::error(
+                            ErrorCode::ConfigDanglingRef,
+                            format!("orbitals[{} ({})].traits[{} ({})]", oi, orbital.name, ti, td.name),
+                            format!(
+                                "`@config.{key}` — {} declares knob '{key}' only outside what page trait {entry} embeds, so a call site composing {entry} alone has no trait that declares it and the forward renders as the literal string",
+                                td.name
+                            ),
+                        )
+                        .with_suggestion(format!(
+                            "Declare `{key}` on {} or on a trait {entry} embeds",
+                            td.name
+                        )),
+                    );
+                }
             }
         }
     }
@@ -2672,6 +2735,26 @@ mod dangling_config_tests {
             .iter()
             .filter(|e| e.code == ErrorCode::ConfigDanglingRef)
             .count()
+    }
+
+    fn with_page_on(json: &str, mounted: &str) -> String {
+        let mut value: serde_json::Value = serde_json::from_str(json).expect("fixture parses");
+        value["orbitals"][0]["pages"] =
+            serde_json::json!([{ "name": "P", "path": "/p", "traits": [{ "ref": mounted }] }]);
+        value.to_string()
+    }
+
+    // G-ORB-533: std-thread's page trait read `@config.pageSize` declared only on a sibling; the atom
+    // validated through the embed component while each call site composing the page trait alone broke.
+    #[test]
+    fn a_page_trait_reading_a_knob_only_its_embedder_declares_dangles_at_the_atom() {
+        assert_eq!(dangles(&with_page_on(REFERRER_DECLARED, "Child")), 1);
+    }
+
+    #[test]
+    fn control_a_page_trait_that_embeds_the_reader_resolves_the_forward() {
+        assert_eq!(dangles(&with_page_on(REFERRER_DECLARED, "Parent")), 0);
+        assert_eq!(dangles(REFERRER_DECLARED), 0);
     }
 
     #[test]
@@ -4077,7 +4160,7 @@ mod recursive_type_literal_tests {
 
     fn item(label: &str, sub_menu: Vec<SExpression>) -> SExpression {
         let mut obj = orbital_core_base::schema::SObject::new();
-        obj.insert("label".to_string(), SExpression::String(label.to_string()));
+        obj.insert("label".to_string(), SExpression::String(label.to_string().into()));
         obj.insert("subMenu".to_string(), SExpression::Array(sub_menu));
         SExpression::Object(obj)
     }
@@ -4119,7 +4202,7 @@ mod recursive_type_literal_tests {
         let mut typo_leaf = orbital_core_base::schema::SObject::new();
         typo_leaf.insert(
             "labell".to_string(), // typo: required "label" is now absent
-            SExpression::String("C".to_string()),
+            SExpression::String(("C".to_string()).into()),
         );
         typo_leaf.insert("subMenu".to_string(), SExpression::Array(vec![]));
         let depth3 = item("A", vec![item("B", vec![SExpression::Object(typo_leaf)])]);
@@ -4242,10 +4325,10 @@ mod required_member_tests {
                 &HashMap::new(),
             )
         };
-        let text = check(SExpression::String("ls".to_string()));
+        let text = check(SExpression::String(("ls".to_string()).into()));
         assert!(text.errors.is_empty(), "a string is the string variant: {:?}", text.errors);
         let mut env = orbital_core_base::schema::SObject::new();
-        env.insert("env".to_string(), SExpression::String("HOME".to_string()));
+        env.insert("env".to_string(), SExpression::String(("HOME".to_string()).into()));
         let record = check(SExpression::Object(env));
         assert!(record.errors.is_empty(), "a record variant still fits: {:?}", record.errors);
         assert!(
@@ -4469,7 +4552,7 @@ mod tuple_shape_tests {
         assert!(
             !check(&SExpression::Array(vec![
                 SExpression::Number(1.0),
-                SExpression::String("x".into()),
+                SExpression::string("x"),
                 SExpression::Number(3.0)
             ]))
             .errors
@@ -4477,7 +4560,7 @@ mod tuple_shape_tests {
             "wrong slot type"
         );
         assert!(
-            !check(&SExpression::String("x".into())).errors.is_empty(),
+            !check(&SExpression::string("x")).errors.is_empty(),
             "not an array"
         );
 
@@ -4495,7 +4578,7 @@ mod tuple_shape_tests {
         );
         assert!(
             !check_knob(&SExpression::Array(vec![
-                SExpression::String("a".into()),
+                SExpression::string("a"),
                 SExpression::Number(5.0),
                 SExpression::Number(6.0)
             ]))

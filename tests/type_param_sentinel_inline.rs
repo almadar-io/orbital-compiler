@@ -356,7 +356,7 @@ fn at_entity_naming_an_undeclared_entity_keeps_its_sentinel() {
         cfg.get_mut("targetEntity")
             .expect("fixture declares targetEntity")
             .default = Some(orbital_core_base::schema::SExpression::String(
-            "Ghost".to_string(),
+            ("Ghost".to_string()).into(),
         ));
     }
     inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");

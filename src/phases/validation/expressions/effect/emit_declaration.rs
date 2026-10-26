@@ -204,7 +204,7 @@ pub(crate) fn validate_required_emit_success(
         };
         if let SExpression::String(s) = success {
             if !s.is_empty() {
-                found_emit_success = Some(s.clone());
+                found_emit_success = Some(s.clone().into_inner());
                 break;
             }
         }
@@ -326,10 +326,10 @@ pub(crate) fn scope_let_locals(
                         .and_then(|oir| crate::type_infer::local_initializer_type(&oir, &ctx));
                     match ty {
                         Some(ty) => {
-                            scope.locals.insert(name.clone(), ty);
+                            scope.locals.insert(name.clone().into_inner(), ty);
                         }
                         None => {
-                            scope.locals.remove(name);
+                            scope.locals.remove(name.as_str());
                         }
                     }
                 }

@@ -61,7 +61,7 @@ pub(super) fn extract_fetch_entity(effect: &SExpression) -> Option<String> {
             if let SExpression::String(op) = &arr[0] {
                 if op == "fetch" {
                     if let SExpression::String(entity) = &arr[1] {
-                        return Some(entity.clone());
+                        return Some(entity.clone().into_inner());
                     }
                 }
             }
@@ -93,7 +93,7 @@ pub(super) fn extract_render_ui_entity(effect: &SExpression) -> Option<String> {
                     if is_binding_ref(entity) {
                         return None;
                     }
-                    return Some(entity.clone());
+                    return Some(entity.clone().into_inner());
                 }
             }
             None
@@ -106,7 +106,7 @@ pub(super) fn extract_render_ui_entity(effect: &SExpression) -> Option<String> {
                         if is_binding_ref(entity) {
                             return None;
                         }
-                        return Some(entity.clone());
+                        return Some(entity.clone().into_inner());
                     }
                 }
             }
@@ -136,7 +136,7 @@ pub fn extract_slot(expr: &SExpression) -> Option<String> {
     match expr {
         SExpression::Array(arr) if arr.len() >= 2 => {
             if let SExpression::String(slot) = &arr[1] {
-                Some(slot.clone())
+                Some(slot.clone().into_inner())
             } else {
                 None
             }
@@ -145,7 +145,7 @@ pub fn extract_slot(expr: &SExpression) -> Option<String> {
             let render_ui = obj.get("render_ui").or_else(|| obj.get("render-ui"))?;
             if let SExpression::Object(rui_obj) = render_ui {
                 if let Some(SExpression::String(slot)) = rui_obj.get("slot") {
-                    return Some(slot.clone());
+                    return Some(slot.clone().into_inner());
                 }
             }
             None

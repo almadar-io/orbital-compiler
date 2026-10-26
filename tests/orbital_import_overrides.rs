@@ -225,7 +225,7 @@ fn retype_replaces_the_type_and_default_and_keeps_docs_and_mock() {
     assert!(codes.is_empty(), "{codes:?}");
     let f = field(&schema, "count");
     assert_eq!(f.field_type, FieldType::String);
-    assert_eq!(f.default, Some(SExpression::String("zero".to_string())));
+    assert_eq!(f.default, Some(SExpression::String(("zero".to_string()).into())));
     assert_eq!(f.mock.as_deref(), Some("1, 2, 3"), "mock carries over");
     assert_eq!(entity(&schema).fields.len(), 3, "no field added or dropped");
     assert_eq!(

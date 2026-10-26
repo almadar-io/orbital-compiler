@@ -251,7 +251,7 @@ fn overlay_only_embeds(td: &orbital_core_base::schema::TraitDefinition) -> HashS
                     }
                 }
                 for name in embedded {
-                    slots_by_trait.entry(name).or_default().push(slot.clone());
+                    slots_by_trait.entry(name).or_default().push(slot.clone().into_inner());
                 }
             }
         }
@@ -493,7 +493,7 @@ mod tests {
         assert_eq!(chain.len(), 1);
         assert_eq!(
             chain[0].get("a").and_then(|f| f.default.as_ref()),
-            Some(&SExpression::String("A".to_string())),
+            Some(&SExpression::String(("A".to_string()).into())),
             "walks the FIRST-recorded referrer (First), not Second"
         );
     }

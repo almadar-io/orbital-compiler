@@ -45,8 +45,8 @@ fn trait_with_trait_binding_in_children(trait_name: &str, binding: &str) -> Trai
     );
 
     let render_ui = SExpression::Array(vec![
-        SExpression::String("render-ui".to_string()),
-        SExpression::String("main".to_string()),
+        SExpression::String(("render-ui".to_string()).into()),
+        SExpression::String(("main".to_string()).into()),
         // Pattern config — reuse the same value shape the lowerer
         // produces (strings in `children` survive as SExpression::String).
         object_to_sexpr(serde_json::Value::Object(pattern_obj)),
@@ -102,7 +102,7 @@ fn object_to_sexpr(v: serde_json::Value) -> SExpression {
         serde_json::Value::Null => SExpression::Null,
         serde_json::Value::Bool(b) => SExpression::Bool(b),
         serde_json::Value::Number(n) => SExpression::Number(n.as_f64().unwrap_or(0.0)),
-        serde_json::Value::String(s) => SExpression::String(s),
+        serde_json::Value::String(s) => SExpression::String(s.into()),
         serde_json::Value::Array(items) => {
             SExpression::Array(items.into_iter().map(object_to_sexpr).collect())
         }
@@ -284,21 +284,21 @@ fn three_way_cycle_is_detected() {
 /// Build a trait whose transition carries a `@trait.X` binding in a non-
 /// render position: `effect_kind` selects where ("guard" | "fetch" | "set").
 fn trait_with_binding_outside_render(effect_kind: &str, binding: &str) -> TraitDefinition {
-    let binding_sexpr = SExpression::String(binding.to_string());
+    let binding_sexpr = SExpression::String(binding.to_string().into());
     let (guard, effects) = match effect_kind {
         "guard" => (
             Some(binding_sexpr.clone()),
             Some(vec![SExpression::Array(vec![
-                SExpression::String("ref".to_string()),
-                SExpression::String("Item".to_string()),
+                SExpression::String(("ref".to_string()).into()),
+                SExpression::String(("Item".to_string()).into()),
             ])]),
         ),
         // A `fetch` effect with the @trait binding buried in its options map.
         "fetch" => (
             None,
             Some(vec![SExpression::Array(vec![
-                SExpression::String("fetch".to_string()),
-                SExpression::String("Item".to_string()),
+                SExpression::String(("fetch".to_string()).into()),
+                SExpression::String(("Item".to_string()).into()),
                 SExpression::Object({
                     let mut m = orbital_core_base::schema::SObject::new();
                     m.insert("emit".to_string(), binding_sexpr.clone());
@@ -310,9 +310,9 @@ fn trait_with_binding_outside_render(effect_kind: &str, binding: &str) -> TraitD
         "set" => (
             None,
             Some(vec![SExpression::Array(vec![
-                SExpression::String("set".to_string()),
+                SExpression::String(("set".to_string()).into()),
                 binding_sexpr.clone(),
-                SExpression::String("?payload.x".to_string()),
+                SExpression::String(("?payload.x".to_string()).into()),
             ])]),
         ),
         _ => panic!("unknown effect_kind: {effect_kind}"),

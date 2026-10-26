@@ -8,7 +8,7 @@
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::set::{BindingTypes, EntityFieldMeta, ExprReturnCtx};
-use crate::type_infer::{check_oir_expr_under, is_effect, is_value_operator};
+use crate::type_infer::{check_oir_expr_under, is_effect, is_value_operator, TypeCtx as _};
 use orbital_core_base::ir::OirExpr;
 use orbital_core_base::schema::SExpression;
 use orbital_core_base::signature::Mismatch;
@@ -100,7 +100,9 @@ fn collect(
                     // An effect is checked as one tree with the value expressions it is handed, so a `let` or lambda
                     // around them scopes their locals.
                     name if !covered && (is_effect(name) || is_value_operator(name)) => {
-                        report(expr, path, ctx, condition, result);
+                        let mut rows = Vec::new();
+                        let expr = with_fetch_filter_rows(expr, ctx, &mut rows);
+                        report(&expr, path, ctx, condition, &rows, result);
                         covered = true;
                     }
                     _ => {}
@@ -170,7 +172,62 @@ fn effect_in(expr: &SExpression) -> Option<String> {
     }
 }
 
-fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, condition: Option<&OirExpr>, result: &mut ValidationResult) {
+/// `expr` with the row operand of each `(object/get @entity k)` in a `fetch` filter over a declared entity read as
+/// that entity's row: the filter's whole `@entity` there is the candidate row it admits, while `@entity.f` stays the
+/// issuing trait's (`interpolate_filter_trait_refs`).
+/// `rows` collects how each row read prints, so a finding names it `@entity` as written.
+fn with_fetch_filter_rows(expr: &SExpression, ctx: &ExprReturnCtx<'_>, rows: &mut Vec<String>) -> SExpression {
+    fn row_reads(expr: &SExpression, row: &SExpression) -> SExpression {
+        match expr {
+            SExpression::Array(items) => {
+                let mut items: Vec<SExpression> = items.iter().map(|item| row_reads(item, row)).collect();
+                if matches!(items.as_slice(), [SExpression::String(head), SExpression::String(arg), ..] if head == "object/get" && arg == "@entity") {
+                    items[1] = row.clone();
+                }
+                SExpression::Array(items)
+            }
+            SExpression::Object(map) => {
+                SExpression::Object(map.iter().map(|(k, v)| (k.clone(), row_reads(v, row))).collect())
+            }
+            other => other.clone(),
+        }
+    }
+    match expr {
+        SExpression::Array(items) => {
+            let mut items: Vec<SExpression> = items.iter().map(|item| with_fetch_filter_rows(item, ctx, rows)).collect();
+            if let [SExpression::String(head), SExpression::String(target), SExpression::Object(options), ..] = items.as_mut_slice() {
+                if let (true, Some(row_type)) = (head == "fetch", ctx.entity_type(target)) {
+                    if let Some(filter) = options.get_mut("filter") {
+                        let shape = serde_json::to_string(&row_type).unwrap_or_default();
+                        let row = SExpression::Array(vec![
+                            SExpression::string("typed"),
+                            SExpression::string("@entity"),
+                            SExpression::string(shape),
+                        ]);
+                        if let Ok(lowered) = orbital_core_eval::lower::lower_sexpr_keeping_typed(&row) {
+                            rows.push(orbital_core_base::ir::pretty_print_expr(&lowered));
+                        }
+                        *filter = row_reads(filter, &row);
+                    }
+                }
+            }
+            SExpression::Array(items)
+        }
+        SExpression::Object(map) => {
+            SExpression::Object(map.iter().map(|(k, v)| (k.clone(), with_fetch_filter_rows(v, ctx, rows))).collect())
+        }
+        other => other.clone(),
+    }
+}
+
+fn report(
+    expr: &SExpression,
+    path: &str,
+    ctx: &ExprReturnCtx<'_>,
+    condition: Option<&OirExpr>,
+    rows: &[String],
+    result: &mut ValidationResult,
+) {
     // A `typed` value is read as the type the program declared for it.
     let Ok(oir) = orbital_core_eval::lower::lower_sexpr_keeping_typed(expr) else {
         return;
@@ -178,7 +235,7 @@ fn report(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, condition: Op
     for found in check_oir_expr_under(&oir, condition, ctx) {
         let position = found.index + 1;
         let function = &found.function;
-        let call = &found.expression;
+        let call = &rows.iter().fold(found.expression.clone(), |call, row| call.replace(row.as_str(), "@entity"));
         if let Mismatch::Undetermined { reason } = &found.mismatch {
             result.add_error(
                 ValidationError::error(
@@ -606,6 +663,20 @@ mod tests {
         assert_eq!(mismatches(live_type, HashMap::new()).len(), 1, "control: the live branch is a number");
     }
 
+    // std-lifecycle under `fromStatus: ""`: `(or (= "" "") (= (object/get @entity statusField) …))` never reads the field.
+    #[test]
+    fn an_operand_a_decided_and_or_never_evaluates_is_not_typed() {
+        assert!(mismatches(r#"["or", ["=", "", ""], ["=", ["str/upper", 5], "x"]]"#, HashMap::new()).is_empty());
+        assert!(mismatches(r#"["and", ["=", "a", "b"], ["=", ["str/upper", 5], "x"]]"#, HashMap::new()).is_empty());
+    }
+
+    #[test]
+    fn control_an_operand_before_or_beside_an_undecided_one_is_typed() {
+        assert_eq!(mismatches(r#"["or", ["=", ["str/upper", 5], "x"], ["=", "", ""]]"#, HashMap::new()).len(), 1);
+        assert_eq!(mismatches(r#"["and", ["=", "a", "a"], ["=", ["str/upper", 5], "x"]]"#, HashMap::new()).len(), 1);
+        assert_eq!(mismatches(r#"["or", ["=", "@entity.name", "x"], ["=", ["str/upper", 5], "x"]]"#, field("name", "string")).len(), 1);
+    }
+
     #[test]
     fn a_reference_to_a_row_is_read_through_its_entity() {
         use orbital_core_base::ir::OirType;
@@ -644,6 +715,59 @@ mod tests {
         assert_eq!(run(r#"["array/map", "@payload.rows", ["fn", "r", ["str/upper", ["object/get", "@r", "title"]]]]"#), (0, 0));
         assert_eq!(run(r#"["+", "@payload.row.title", 1]"#), (0, 1), "control: title is a string");
         assert_eq!(run(r#"["==", "@payload.ghost.title", "x"]"#), (1, 0), "control: a row of no declared entity");
+    }
+
+    // G-ORB-534: std-lifecycle's delete scan `(fetch @config.targetEntity { filter: (= (object/get @entity @config.statusField) …) })`
+    // reads the TARGET row (std-otel: `OtelSpan.state`), not the run-log entity the scheduler trait is bound to.
+    fn fetch_filter_mismatches(filter: &str) -> usize {
+        fetch_filter_findings(filter).len()
+    }
+
+    fn fetch_filter_findings(filter: &str) -> Vec<String> {
+        effect_findings(&format!(r#"["if", ["=", "@entity.headId", ""], ["fetch", "Span", {{ "filter": {filter} }}], null]"#))
+    }
+
+    fn effect_findings(effect: &str) -> Vec<String> {
+        let program: orbital_core_base::schema::OrbitalSchema = serde_json::from_str(&format!(
+            r#"{{ "name": "App", "version": "1.0.0", "orbitals": [{{ "name": "O",
+              "entity": {{ "name": "RunLog", "fields": [ {{ "name": "id", "type": "string" }}, {{ "name": "headId", "type": "string" }} ] }},
+              "auxiliaryEntities": [ {{ "name": "Span", "persistence": "persistent", "collection": "spans", "fields": [
+                {{ "name": "id", "type": "string" }}, {{ "name": "state", "type": "string" }}, {{ "name": "endTime", "type": "number" }} ] }} ],
+              "traits": [{{ "name": "T", "linkedEntity": "RunLog", "stateMachine": {{
+                "states": [{{ "name": "idle", "isInitial": true }}],
+                "transitions": [{{ "from": "idle", "to": "idle", "event": "INIT",
+                  "effects": [{effect}] }}] }} }}],
+              "pages": [{{ "name": "P", "path": "/p", "traits": [{{ "ref": "T" }}] }}] }}] }}"#
+        ))
+        .expect("program");
+        crate::phases::validation::validate_comprehensive_without_services(&program)
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
+            .map(|e| e.message.clone())
+            .collect()
+    }
+
+    #[test]
+    fn a_fetch_filter_reads_the_row_of_the_fetched_entity() {
+        assert_eq!(
+            fetch_filter_mismatches(r#"["and", ["=", ["object/get", "@entity", "state"], "exported"], ["<", ["object/get", "@entity", "endTime"], 5]]"#),
+            0
+        );
+    }
+
+    #[test]
+    fn control_a_fetch_filter_still_names_missing_target_fields_and_reads_the_trait_through_entity_fields() {
+        assert_eq!(fetch_filter_mismatches(r#"["=", ["object/get", "@entity", "headId"], "x"]"#), 1, "headId is the trait's, not Span's");
+        assert_eq!(fetch_filter_mismatches(r#"["=", ["object/get", "@entity", "state"], ["+", "@entity.headId", 1]]"#), 1);
+        assert_eq!(fetch_filter_mismatches(r#"["=", ["object/get", "@entity", "state"], "@entity.headId"]"#), 0);
+        assert_eq!(
+            effect_findings(r#"["if", ["=", "delete", "delete"], ["fetch", "Span", { "filter": ["=", ["object/get", "@entity", "state"], "x"] }], ["fetch", "Span", { "filter": ["=", ["object/get", "@entity", "status"], "x"] }]]"#).len(),
+            0,
+            "a branch the call site's literal config rules out is not typed"
+        );
+        let found = fetch_filter_findings(r#"["=", ["object/get", "@entity", "headId"], "x"]"#);
+        assert!(found[0].contains(r#"object/get(@entity, "headId")"#), "the finding names the read as written: {found:?}");
     }
 
     #[test]

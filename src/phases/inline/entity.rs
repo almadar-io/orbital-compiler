@@ -364,6 +364,9 @@ pub(crate) fn trait_referenced_fields_of_entity_recursive(
 ) -> (bool, HashSet<String>) {
     let mut fields = trait_referenced_fields_of_entity(trait_def, candidate, is_own_entity);
     let mut references = is_own_entity || !fields.is_empty();
+    // The sibling pull retargets a child bound to its parent's raw binding with the parent's rebind.
+    let rebound_away =
+        !is_own_entity && trait_def.linked_entity.as_deref() == Some(candidate.name.as_str());
     for (sibling, _) in
         super::sibling_trait_refs_of(trait_def, alias, &trait_def.name, ctx, &HashSet::new())
     {
@@ -371,7 +374,8 @@ pub(crate) fn trait_referenced_fields_of_entity_recursive(
             continue;
         }
         if let Ok(TraitReference::Inline(child_def)) = ctx.get_trait(alias, &sibling) {
-            let child_is_own = child_def.linked_entity.as_deref() == Some(candidate.name.as_str());
+            let child_is_own = !rebound_away
+                && child_def.linked_entity.as_deref() == Some(candidate.name.as_str());
             let (child_references, child_fields) = trait_referenced_fields_of_entity_recursive(
                 &child_def,
                 candidate,
@@ -710,8 +714,8 @@ mod render_ui_pattern_contract_reference_tests {
 
     fn trait_with_render_ui(linked_entity: &str, node: SExpression) -> TraitDefinition {
         let render_effect = SExpression::Array(vec![
-            SExpression::String("render-ui".to_string()),
-            SExpression::String("main".to_string()),
+            SExpression::String(("render-ui".to_string()).into()),
+            SExpression::String(("main".to_string()).into()),
             node,
         ]);
         TraitDefinition {
@@ -763,13 +767,13 @@ mod render_ui_pattern_contract_reference_tests {
         let mut obj = orbital_core_base::schema::SObject::new();
         obj.insert(
             "type".to_string(),
-            SExpression::String("calendar-grid".to_string()),
+            SExpression::String(("calendar-grid".to_string()).into()),
         );
         // No literal "entity" key — defaults to the trait's own linked_entity,
         // matching `ui-calendar-grid.lolo`'s real render-ui node.
         obj.insert(
             "events".to_string(),
-            SExpression::String("@entity".to_string()),
+            SExpression::String(("@entity".to_string()).into()),
         );
         SExpression::Object(obj)
     }
@@ -802,7 +806,7 @@ mod render_ui_pattern_contract_reference_tests {
         };
         obj.insert(
             "entity".to_string(),
-            SExpression::String("Other".to_string()),
+            SExpression::String(("Other".to_string()).into()),
         );
         let t = trait_with_render_ui("Schedule", SExpression::Object(obj));
         let fields = trait_references_entity_fields(&t, &e);

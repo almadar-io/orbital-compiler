@@ -195,7 +195,7 @@ pub(crate) fn forward_consumer_app_knobs(
         let Some(value) = source.default.clone() else {
             continue;
         };
-        field.forwarded_from = Some(token.clone());
+        field.forwarded_from = Some(token.clone().into_inner());
         field.default = Some(value);
     }
 }
@@ -1547,7 +1547,7 @@ pub(crate) fn resolve_orbital_reference(
         decl.into_iter()
             .filter(|(key, _)| {
                 let token = format!("@config.{key}");
-                let forward = SExpression::String(token.clone());
+                let forward = SExpression::string(token.clone());
                 parent_configs.values().any(|cfg| {
                     cfg.values().any(|f| {
                         f.default.as_ref() == Some(&forward)
@@ -2986,8 +2986,8 @@ fn rename_events_in_trait(
         for f in cfg.values_mut() {
             if f.field_type == "event" {
                 if let Some(SExpression::String(s)) = f.default.as_ref() {
-                    if let Some(to) = event_subs.get(s) {
-                        f.default = Some(SExpression::String(to.clone()));
+                    if let Some(to) = event_subs.get(s.as_str()) {
+                        f.default = Some(SExpression::string(to.clone()));
                     }
                 }
             }
@@ -3069,8 +3069,8 @@ fn rewrite_navigate_targets(expr: &mut SExpression, path_map: &HashMap<String, S
         && matches!(items.first(), Some(SExpression::String(op)) if op == "navigate");
     if is_navigate {
         if let SExpression::String(target) = &items[1] {
-            if let Some(to) = path_map.get(target) {
-                items[1] = SExpression::String(to.clone());
+            if let Some(to) = path_map.get(target.as_str()) {
+                items[1] = SExpression::string(to.clone());
                 for item in items.iter_mut().skip(2) {
                     rewrite_navigate_targets(item, path_map);
                 }
@@ -3091,7 +3091,7 @@ fn rewrite_navigate_targets(expr: &mut SExpression, path_map: &HashMap<String, S
         if let Some(prefix) = concat_prefix {
             if let Some(rewritten) = rewrite_concat_prefix(&prefix, path_map) {
                 if let SExpression::Array(concat) = &mut items[1] {
-                    concat[1] = SExpression::String(rewritten);
+                    concat[1] = SExpression::string(rewritten);
                 }
             }
             for item in items.iter_mut().skip(2) {
@@ -3781,7 +3781,7 @@ mod tests {
                 .as_ref()
                 .and_then(|c| c.get("limit"))
                 .and_then(|f| f.default.clone()),
-            Some(SExpression::String("@config.pageSize".to_string())),
+            Some(SExpression::String(("@config.pageSize".to_string()).into())),
             "an unrelated alias's schema config must never resolve THIS reference's forward"
         );
     }
@@ -4361,7 +4361,7 @@ mod tests {
                 .as_ref()
                 .and_then(|c| c.get("itemClickEvent"))
                 .and_then(|f| f.default.clone()),
-            Some(SExpression::String("VIEW".to_string())),
+            Some(SExpression::String(("VIEW".to_string()).into())),
             "the pulled sibling's forward must resolve against its EMBEDDER's declared \
              config (A), not fall straight through to the orbital/schema rungs"
         );
@@ -4454,7 +4454,7 @@ mod tests {
                 .as_ref()
                 .and_then(|m| m.get("itemClickEvent"))
                 .and_then(|f| f.default.clone()),
-            Some(SExpression::String("VIEW".to_string())),
+            Some(SExpression::String(("VIEW".to_string()).into())),
             "C's forward must resolve through B (which declares nothing) out to \
              A's declared value — the direct-embedder loop alone only sees B"
         );
@@ -4550,7 +4550,7 @@ mod tests {
                 .as_ref()
                 .and_then(|c| c.get("itemClickEvent"))
                 .and_then(|f| f.default.clone()),
-            Some(SExpression::String("VIEW".to_string())),
+            Some(SExpression::String(("VIEW".to_string()).into())),
             "the embedder rung must win over the orbital rung, same precedence as the pull site"
         );
     }
@@ -5108,15 +5108,15 @@ mod tests {
         let mut folded: HashMap<String, ConfigField> = HashMap::from([
             (
                 "navItems".to_string(),
-                field(SExpression::String("@config.navItems".into())),
+                field(SExpression::string("@config.navItems")),
             ),
             (
                 "appName".to_string(),
-                field(SExpression::String("@config.missing".into())),
+                field(SExpression::string("@config.missing")),
             ),
             (
                 "title".to_string(),
-                field(SExpression::String("literal".into())),
+                field(SExpression::string("literal")),
             ),
         ]);
         let consumer: HashMap<String, ConfigField> = HashMap::from([(
@@ -5132,11 +5132,11 @@ mod tests {
         // an unknown consumer knob and a literal are left for the validator / as-is
         assert_eq!(
             folded["appName"].default,
-            Some(SExpression::String("@config.missing".into()))
+            Some(SExpression::string("@config.missing"))
         );
         assert_eq!(
             folded["title"].default,
-            Some(SExpression::String("literal".into()))
+            Some(SExpression::string("literal"))
         );
     }
 
@@ -5530,9 +5530,9 @@ mod tests {
         assert_eq!(
             entity.read_policy,
             Some(SExpression::Array(vec![
-                SExpression::String("=".to_string()),
-                SExpression::String("@user.role".to_string()),
-                SExpression::String("owner".to_string()),
+                SExpression::String(("=".to_string()).into()),
+                SExpression::String(("@user.role".to_string()).into()),
+                SExpression::String(("owner".to_string()).into()),
             ])),
             "the primary entity's read_policy role literal must be remapped"
         );
@@ -5697,7 +5697,7 @@ mod tests {
                 .as_ref()
                 .and_then(|c| c.get("embedKnob1"))
                 .and_then(|f| f.default.clone()),
-            Some(SExpression::String("VALUE1".to_string())),
+            Some(SExpression::String(("VALUE1".to_string()).into())),
             "Embedder1's forward must resolve"
         );
         assert_eq!(
@@ -5706,7 +5706,7 @@ mod tests {
                 .as_ref()
                 .and_then(|c| c.get("embedKnob2"))
                 .and_then(|f| f.default.clone()),
-            Some(SExpression::String("VALUE2".to_string())),
+            Some(SExpression::String(("VALUE2".to_string()).into())),
             "Embedder2's forward must ALSO resolve — every embedder, not just the first"
         );
     }
@@ -6116,7 +6116,7 @@ mod tests {
             .and_then(|d| serde_json::to_value(d).ok())
             .and_then(|v| v[0]["event"].as_str().map(str::to_string))
             .expect("tools[0].event");
-        (one, tool)
+        (one.into_inner(), tool)
     }
 
     #[test]

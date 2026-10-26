@@ -134,7 +134,7 @@ fn record_parse_shapes(expr: &SExpression, aliases: &Aliases, version: Option<u3
                 if head == "json/parse" {
                     if let Some(declared) = DeclaredShape::of_alias(shape, aliases) {
                         out[2] =
-                            SExpression::String(recorded_type(declared.name, declared.ty, aliases, version.or(declared.version)));
+                            SExpression::string(recorded_type(declared.name, declared.ty, aliases, version.or(declared.version)));
                     }
                 } else if head == "typed" {
                     // A knob's `typed` value (inline `declared_list_types`) records its type before the orbital's
@@ -142,9 +142,9 @@ fn record_parse_shapes(expr: &SExpression, aliases: &Aliases, version: Option<u3
                     if let Some(mut declared) = DeclaredShape::parse(shape) {
                         declared.version = version.or(declared.version);
                         out[2] = SExpression::String(if declared.named.is_empty() {
-                            recorded_type(declared.name, declared.ty, aliases, declared.version)
+                            recorded_type(declared.name, declared.ty, aliases, declared.version).into()
                         } else {
-                            serde_json::to_string(&declared).unwrap_or_default()
+                            serde_json::to_string(&declared).unwrap_or_default().into()
                         });
                     }
                 }
@@ -212,9 +212,9 @@ fn tag(expr: &SExpression, next: &mut usize) -> SExpression {
                     let slot = format!("{SLOT}{}", *next);
                     *next += 1;
                     out.push(SExpression::Array(vec![
-                        SExpression::String("typed".to_string()),
+                        SExpression::string("typed"),
                         inner,
-                        SExpression::String(slot),
+                        SExpression::string(slot),
                     ]));
                 } else {
                     out.push(inner);
@@ -301,11 +301,11 @@ fn untag(expr: &SExpression, slots: &HashMap<String, OirType>, aliases: &Aliases
             {
                 if head == "typed" && slot.starts_with(SLOT) {
                     let value = untag(value, slots, aliases, version);
-                    return match slots.get(slot).and_then(|ty| declared_list(ty, aliases)) {
+                    return match slots.get(slot.as_str()).and_then(|ty| declared_list(ty, aliases)) {
                         Some(ty) => SExpression::Array(vec![
-                            SExpression::String("typed".to_string()),
+                            SExpression::string("typed"),
                             value,
-                            SExpression::String(recorded_type(None, ty, aliases, version)),
+                            SExpression::string(recorded_type(None, ty, aliases, version)),
                         ]),
                         None => value,
                     };

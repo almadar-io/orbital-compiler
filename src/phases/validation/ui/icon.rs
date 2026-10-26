@@ -217,7 +217,7 @@ fn validate_icon_value(icon: &SExpression, path: &str) -> ValidationResult {
 
 /// Validate an icon name (public API)
 pub fn validate_icon_name(icon_name: &str, path: &str) -> ValidationResult {
-    validate_icon_value(&SExpression::String(icon_name.to_string()), path)
+    validate_icon_value(&SExpression::string(icon_name.to_string()), path)
 }
 
 #[cfg(test)]

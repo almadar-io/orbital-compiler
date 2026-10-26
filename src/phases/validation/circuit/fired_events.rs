@@ -355,7 +355,7 @@ fn collect_fired_with_knobs(
                 if op == "emit" {
                     fired
                         .by_effect
-                        .insert((trait_name.to_string(), event.clone()));
+                        .insert((trait_name.to_string(), event.clone().into_inner()));
                 }
             }
             if let [SExpression::String(op), SExpression::String(address), _, SExpression::Object(options), ..] = arr.as_slice() {
@@ -375,7 +375,7 @@ fn collect_fired_with_knobs(
                     if let Some(SExpression::Object(emit_cfg)) = obj.get("emit") {
                         for (_k, v) in emit_cfg.iter() {
                             if let SExpression::String(s) = v {
-                                fired.by_effect.insert((trait_name.to_string(), s.clone()));
+                                fired.by_effect.insert((trait_name.to_string(), s.clone().into_inner()));
                             }
                         }
                     }
@@ -436,7 +436,7 @@ fn collect_fired_with_knobs(
                             // emitter let the dead button suppress the very
                             // warning that would have found it.
                             if !s.starts_with('@') && !is_bus_excluded_event(s) {
-                                fired.by_control.insert((trait_name.to_string(), s.clone()));
+                                fired.by_control.insert((trait_name.to_string(), s.clone().into_inner()));
                             }
                         }
                     }
@@ -454,7 +454,7 @@ fn collect_fired_with_knobs(
                                     if !s.starts_with('@') && !is_bus_excluded_event(s) {
                                         fired
                                             .by_control
-                                            .insert((trait_name.to_string(), s.clone()));
+                                            .insert((trait_name.to_string(), s.clone().into_inner()));
                                     }
                                 }
                             }
@@ -597,15 +597,15 @@ mod tests {
             event: "INIT".to_string(),
             guard: None,
             effects: Some(vec![SExpression::Array(vec![
-                SExpression::String("render-ui".to_string()),
-                SExpression::String("main".to_string()),
+                SExpression::String(("render-ui".to_string()).into()),
+                SExpression::String(("main".to_string()).into()),
                 SExpression::Object(
                     [
                         (
                             "type".to_string(),
-                            SExpression::String("button".to_string()),
+                            SExpression::String(("button".to_string()).into()),
                         ),
-                        ("action".to_string(), SExpression::String(event.to_string())),
+                        ("action".to_string(), SExpression::String(event.to_string().into())),
                     ]
                     .into_iter()
                     .collect(),
@@ -742,7 +742,7 @@ mod tests {
     // ---- Rule 5: fold-aware emitter counting -------------------------------
 
     fn s(v: &str) -> SExpression {
-        SExpression::String(v.to_string())
+        SExpression::String(v.to_string().into())
     }
 
     #[test]

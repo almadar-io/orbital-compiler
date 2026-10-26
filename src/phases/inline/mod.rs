@@ -1981,6 +1981,15 @@ fn inline_orbital(
         // silently dropped every rebind after the first one encountered.
         let mut merged_aliases: HashSet<(String, String, Option<String>)> = HashSet::new();
         let mut pending: Vec<PendingMerge> = Vec::new();
+        let declared_aux_names: HashSet<String> = orbital
+            .auxiliary_entities
+            .iter()
+            .flatten()
+            .filter_map(|aux| match aux {
+                EntityRef::Inline(e) => Some(e.name.clone()),
+                _ => None,
+            })
+            .collect();
 
         for trait_ref in &orbital.traits {
             if let TraitReference::Reference {
@@ -2004,7 +2013,18 @@ fn inline_orbital(
                             // caller's. Genuine DATA fields are NOT merged here —
                             // the consumer re-declared its own entity and owns
                             // them; a missing DATA field surfaces as an error.
-                            None => (imported_entity.name == caller_entity_name, true),
+                            // The same-named entity may be one of its auxiliaries.
+                            None => (
+                                imported_entity.name == caller_entity_name
+                                    || declared_aux_names.contains(imported_entity.name.as_str()),
+                                true,
+                            ),
+                        };
+                        let target = match linked_entity {
+                            None if imported_entity.name != caller_entity_name => {
+                                Some(imported_entity.name.clone())
+                            }
+                            other => other.clone(),
                         };
                         if carries_fields
                             && merged_aliases.insert((
@@ -2075,7 +2095,7 @@ fn inline_orbital(
                                 }
                             }
                             pending.push(PendingMerge {
-                                target: linked_entity.clone(),
+                                target,
                                 imported: imported_entity,
                                 intrinsic_only,
                                 required_data,
@@ -3510,7 +3530,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
             }) {
                 // Both contributors' propositions are owed.
                 *existing_holds = match (existing_holds.take(), holds) {
-                    (Some(a), Some(b)) if a != b => Some(orbital_core_base::schema::SExpression::Array(vec![orbital_core_base::schema::SExpression::String("and".to_string()), a, b])),
+                    (Some(a), Some(b)) if a != b => Some(orbital_core_base::schema::SExpression::Array(vec![orbital_core_base::schema::SExpression::string("and"), a, b])),
                     (a, b) => a.or(b),
                 };
                 *existing_strict |= strict;
@@ -3666,7 +3686,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     fn s(v: &str) -> SExpression {
-        SExpression::String(v.to_string())
+        SExpression::String(v.to_string().into())
     }
 
     /// A cross-orbital pulled-sibling rename must drag every `@trait.<old>`
@@ -4045,8 +4065,8 @@ mod tests {
                 event: "OPEN".to_string(),
                 guard: None,
                 effects: Some(vec![SExpression::Array(vec![
-                    SExpression::String("ref".to_string()),
-                    SExpression::String("ModalRecord".to_string()),
+                    SExpression::String(("ref".to_string()).into()),
+                    SExpression::String(("ModalRecord".to_string()).into()),
                 ])]),
                 ensures: None,
             });
@@ -4084,8 +4104,8 @@ mod tests {
         assert_eq!(
             effect,
             &SExpression::Array(vec![
-                SExpression::String("ref".to_string()),
-                SExpression::String("CartItem".to_string()),
+                SExpression::String(("ref".to_string()).into()),
+                SExpression::String(("CartItem".to_string()).into()),
             ]),
             "rename path must not interfere with linked_entity rewrite"
         );
@@ -5279,12 +5299,12 @@ mod tests {
 
         let mut expr = SExpression::Array(vec![
             SExpression::Array(vec![
-                SExpression::String("ref".to_string()),
-                SExpression::String("A".to_string()),
+                SExpression::String(("ref".to_string()).into()),
+                SExpression::String(("A".to_string()).into()),
             ]),
             SExpression::Array(vec![
-                SExpression::String("ref".to_string()),
-                SExpression::String("B".to_string()),
+                SExpression::String(("ref".to_string()).into()),
+                SExpression::String(("B".to_string()).into()),
             ]),
         ]);
 
@@ -5293,10 +5313,10 @@ mod tests {
         if let SExpression::Array(items) = &expr {
             // Both nested ref calls were rewritten in one pass.
             if let SExpression::Array(inner) = &items[0] {
-                assert_eq!(inner[1], SExpression::String("X".to_string()));
+                assert_eq!(inner[1], SExpression::String(("X".to_string()).into()));
             }
             if let SExpression::Array(inner) = &items[1] {
-                assert_eq!(inner[1], SExpression::String("Y".to_string()));
+                assert_eq!(inner[1], SExpression::String(("Y".to_string()).into()));
             }
         } else {
             panic!("expected outer array");
@@ -5312,14 +5332,14 @@ mod tests {
         event_subs.insert("OPEN".to_string(), "ADD_ITEM".to_string());
 
         let mut expr = SExpression::Array(vec![
-            SExpression::String("emit".to_string()),
-            SExpression::String("OPEN".to_string()),
+            SExpression::String(("emit".to_string()).into()),
+            SExpression::String(("OPEN".to_string()).into()),
         ]);
 
         rewrite_identifiers(&mut expr, &HashMap::new(), &event_subs);
 
         if let SExpression::Array(items) = &expr {
-            assert_eq!(items[1], SExpression::String("ADD_ITEM".to_string()));
+            assert_eq!(items[1], SExpression::String(("ADD_ITEM".to_string()).into()));
         } else {
             panic!("expected array");
         }
@@ -5337,11 +5357,11 @@ mod tests {
         event_subs.insert("FILTER".to_string(), "NARROW".to_string());
 
         let mut payload_obj: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
-        payload_obj.insert("value".to_string(), SExpression::String("".to_string()));
-        payload_obj.insert("field".to_string(), SExpression::String("".to_string()));
+        payload_obj.insert("value".to_string(), SExpression::String(("".to_string()).into()));
+        payload_obj.insert("field".to_string(), SExpression::String(("".to_string()).into()));
         let mut expr = SExpression::Array(vec![
-            SExpression::String("emit".to_string()),
-            SExpression::String("FILTER".to_string()),
+            SExpression::String(("emit".to_string()).into()),
+            SExpression::String(("FILTER".to_string()).into()),
             SExpression::Object(payload_obj),
         ]);
 
@@ -5349,7 +5369,7 @@ mod tests {
 
         if let SExpression::Array(items) = &expr {
             assert_eq!(items.len(), 3, "payload tail should be preserved");
-            assert_eq!(items[1], SExpression::String("NARROW".to_string()));
+            assert_eq!(items[1], SExpression::String(("NARROW".to_string()).into()));
             // Payload object is left alone — only the event name in
             // position 1 was a rename target.
             assert!(matches!(items[2], SExpression::Object(_)));
@@ -5369,20 +5389,20 @@ mod tests {
         event_subs.insert("OPEN".to_string(), "ADD_ITEM".to_string());
 
         let mut expr = SExpression::Array(vec![
-            SExpression::String("emit".to_string()),
-            SExpression::String("OPEN".to_string()),
+            SExpression::String(("emit".to_string()).into()),
+            SExpression::String(("OPEN".to_string()).into()),
             SExpression::Array(vec![
-                SExpression::String("ref".to_string()),
-                SExpression::String("OldEntity".to_string()),
+                SExpression::String(("ref".to_string()).into()),
+                SExpression::String(("OldEntity".to_string()).into()),
             ]),
         ]);
 
         rewrite_identifiers(&mut expr, &entity_subs, &event_subs);
 
         if let SExpression::Array(items) = &expr {
-            assert_eq!(items[1], SExpression::String("ADD_ITEM".to_string()));
+            assert_eq!(items[1], SExpression::String(("ADD_ITEM".to_string()).into()));
             if let SExpression::Array(inner) = &items[2] {
-                assert_eq!(inner[1], SExpression::String("NewEntity".to_string()));
+                assert_eq!(inner[1], SExpression::String(("NewEntity".to_string()).into()));
             } else {
                 panic!("expected inner ref array");
             }
@@ -5405,11 +5425,11 @@ mod tests {
         let mut object = orbital_core_base::schema::SObject::new();
         object.insert(
             "type".to_string(),
-            SExpression::String("button".to_string()),
+            SExpression::String(("button".to_string()).into()),
         );
         object.insert(
             "action".to_string(),
-            SExpression::String("OPEN".to_string()),
+            SExpression::String(("OPEN".to_string()).into()),
         );
         let mut expr = SExpression::Object(object);
 
@@ -5418,13 +5438,13 @@ mod tests {
         if let SExpression::Object(map) = &expr {
             assert_eq!(
                 map.get("action"),
-                Some(&SExpression::String("ADD_ITEM".to_string())),
+                Some(&SExpression::String(("ADD_ITEM".to_string()).into())),
                 "button action= attribute must be substituted"
             );
             // The unrelated "type" entry is untouched.
             assert_eq!(
                 map.get("type"),
-                Some(&SExpression::String("button".to_string()))
+                Some(&SExpression::String(("button".to_string()).into()))
             );
         } else {
             panic!("expected object");
@@ -5443,7 +5463,7 @@ mod tests {
         let mut object = orbital_core_base::schema::SObject::new();
         object.insert(
             "content".to_string(),
-            SExpression::String("OPEN".to_string()),
+            SExpression::String(("OPEN".to_string()).into()),
         );
         let mut expr = SExpression::Object(object);
 
@@ -5452,7 +5472,7 @@ mod tests {
         if let SExpression::Object(map) = &expr {
             assert_eq!(
                 map.get("content"),
-                Some(&SExpression::String("OPEN".to_string())),
+                Some(&SExpression::String(("OPEN".to_string()).into())),
                 "content strings must NOT be substituted by event_subs"
             );
         }
@@ -5620,8 +5640,8 @@ mod tests {
                     event: "OPEN".to_string(),
                     guard: None,
                     effects: Some(vec![SExpression::Array(vec![
-                        SExpression::String("emit".to_string()),
-                        SExpression::String("OPEN".to_string()),
+                        SExpression::String(("emit".to_string()).into()),
+                        SExpression::String(("OPEN".to_string()).into()),
                     ])]),
                     ensures: None,
                 }],
@@ -5661,7 +5681,7 @@ mod tests {
             .as_ref()
             .expect("effects present");
         if let SExpression::Array(items) = &effects[0] {
-            assert_eq!(items[1], SExpression::String("ADD_ITEM".to_string()));
+            assert_eq!(items[1], SExpression::String(("ADD_ITEM".to_string()).into()));
         } else {
             panic!("expected effect array");
         }
@@ -8310,6 +8330,13 @@ mod tests {
                                 { "name": "fieldB", "type": "string", "mergedFrom": "SourceY" },
                                 { "name": "fieldC", "type": "string", "mergedFrom": "SourceY" }
                             ]
+                        },
+                        {
+                            "name": "EmbedSourceAux",
+                            "fields": [
+                                { "name": "id", "type": "string" },
+                                { "name": "value", "type": "string", "mergedFrom": "TextareaItem" }
+                            ]
                         }
                     ],
                     "traits": [
@@ -8426,6 +8453,38 @@ mod tests {
                                         "to": "active",
                                         "event": "INIT",
                                         "effects": [ ["set", "@entity.fieldB", "x"] ]
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "EmbeddingTrait",
+                            "linkedEntity": "EmbedSourceAux",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    {
+                                        "from": "active",
+                                        "to": "active",
+                                        "event": "INIT",
+                                        "effects": [ ["embed", "@trait.EmbeddedTextarea"] ]
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "EmbeddedTextarea",
+                            "linkedEntity": "EmbedSourceAux",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    {
+                                        "from": "active",
+                                        "to": "active",
+                                        "event": "INIT",
+                                        "effects": [ ["set", "@entity.value", "x"] ]
                                     }
                                 ]
                             }
@@ -8629,6 +8688,94 @@ mod tests {
             !names.contains(&"NestedBoundAux".to_string()),
             "a trait's PRE-rebind own binding must not travel once the consumer rebinds it elsewhere; aux: {names:?}"
         );
+    }
+
+    fn inline_refs_consumer(primary: &str, trait_ref: TraitReference) -> Orbital {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_refs_atom(dir.path());
+        let consumer_orbital = Orbital {
+            spec: false,
+            types: None,
+            name: "ConsumerOrbital".to_string(),
+            id: None,
+            uses: Some(vec![refs_uses_decl()]),
+            expects: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(make_entity(primary, &["id"])),
+            auxiliary_entities: None,
+            traits: vec![trait_ref],
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            os_grants: None,
+            design: None,
+            reference: None,
+            config: None,
+        };
+        let mut schema = OrbitalSchema {
+            type_contract_version: None,
+            types: None,
+            store: None,
+            theme_definitions: None,
+            themes: None,
+            site: None,
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
+            theme: None,
+            name: "ConsumerModule".to_string(),
+            version: None,
+            description: None,
+            orbitals: vec![consumer_orbital],
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+            config: None,
+            egress: None,
+            inbound: None,
+            os_grants: None,
+            deployment: None,
+        };
+        let config = InlineConfig {
+            loader_config: LoaderConfig { base_path: dir.path().to_path_buf(), ..Default::default() },
+            skip_inline: false,
+            session: None,
+        };
+        inline_schema(&mut schema, &config, None).expect("inline must succeed");
+        schema.orbitals.remove(0)
+    }
+
+    // G-ORB-536: std-accounting's `ApprovalRequestPipeline -> ExpenseApproval` embeds
+    // `<UiTextarea.traits.TextareaRender linkedEntity={ApprovalRequest} />`; the pulled child is
+    // retargeted with its parent, so the source `ApprovalRequest` (with its merged `value`) must
+    // not travel as a copy nothing reads.
+    #[test]
+    fn a_child_bound_to_the_parents_rebound_entity_does_not_travel_that_entity() {
+        let orbital = inline_refs_consumer("HostEntity", refs_trait_ref("EmbeddingTrait", Some("HostEntity")));
+        let names = aux_names(&orbital);
+        assert!(
+            !names.contains(&"EmbedSourceAux".to_string()),
+            "a hoisted child retargeted with its parent's rebind must not carry the pre-rebind entity; aux: {names:?}"
+        );
+        let child = orbital.traits.iter().find_map(|t| match t {
+            TraitReference::Inline(d) if d.name == "EmbeddedTextarea" => Some(d),
+            _ => None,
+        });
+        assert_eq!(child.and_then(|d| d.linked_entity.as_deref()), Some("HostEntity"));
+    }
+
+    #[test]
+    fn control_a_child_of_an_unrebound_parent_travels_its_entity_with_the_field_it_reads() {
+        let orbital = inline_refs_consumer("HostEntity", refs_trait_ref("EmbeddingTrait", None));
+        let traveled = orbital.auxiliary_entities.iter().flatten().find_map(|e| match e {
+            EntityRef::Inline(d) if d.name == "EmbedSourceAux" => Some(d),
+            _ => None,
+        });
+        let fields: Vec<String> = traveled.map(field_names).unwrap_or_default();
+        assert!(fields.contains(&"value".to_string()), "fields: {fields:?}");
     }
 
     // ------------------------------------------------------------------

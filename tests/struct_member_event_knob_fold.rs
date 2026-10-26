@@ -163,7 +163,7 @@ fn member_events(td: &TraitDefinition, knob: &str) -> Vec<String> {
         .iter()
         .map(|e| match e {
             SExpression::Object(map) => match map.get("event") {
-                Some(SExpression::String(s)) => s.clone(),
+                Some(SExpression::String(s)) => s.to_string(),
                 other => panic!("event member must be a string, got {other:?}"),
             },
             other => panic!("descriptor must be an object, got {other:?}"),

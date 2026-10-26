@@ -86,24 +86,24 @@ fn make_entity_with_fields(name: &str, field_names: &[&str]) -> EntityDefinition
 
 fn filter_group_effect(entity_name: &str, filters: Vec<&str>) -> SExpression {
     SExpression::Array(vec![
-        SExpression::String("render-ui".to_string()),
-        SExpression::String("filter".to_string()),
+        SExpression::String(("render-ui".to_string()).into()),
+        SExpression::String(("filter".to_string()).into()),
         SExpression::Object(
             [
                 (
                     "type".to_string(),
-                    SExpression::String("filter-group".to_string()),
+                    SExpression::String(("filter-group".to_string()).into()),
                 ),
                 (
                     "entity".to_string(),
-                    SExpression::String(entity_name.to_string()),
+                    SExpression::String(entity_name.to_string().into()),
                 ),
                 (
                     "filters".to_string(),
                     SExpression::Array(
                         filters
                             .into_iter()
-                            .map(|f| SExpression::String(f.to_string()))
+                            .map(|f| SExpression::String(f.to_string().into()))
                             .collect(),
                     ),
                 ),
@@ -255,27 +255,27 @@ fn pattern_prop_without_marker_is_not_validated() {
     // strings, the validator should emit no UnresolvedPatternFieldRef
     // warnings.
     let effect = SExpression::Array(vec![
-        SExpression::String("render-ui".to_string()),
-        SExpression::String("main".to_string()),
+        SExpression::String(("render-ui".to_string()).into()),
+        SExpression::String(("main".to_string()).into()),
         SExpression::Object(
             [
                 (
                     "type".to_string(),
-                    SExpression::String("game-menu".to_string()),
+                    SExpression::String(("game-menu".to_string()).into()),
                 ),
                 (
                     "entity".to_string(),
-                    SExpression::String("Product".to_string()),
+                    SExpression::String(("Product".to_string()).into()),
                 ),
                 (
                     "title".to_string(),
-                    SExpression::String("Main Menu".to_string()),
+                    SExpression::String(("Main Menu".to_string()).into()),
                 ),
                 (
                     "options".to_string(),
                     SExpression::Array(vec![
-                        SExpression::String("arbitrary-not-a-field".to_string()),
-                        SExpression::String("another-random-string".to_string()),
+                        SExpression::String(("arbitrary-not-a-field".to_string()).into()),
+                        SExpression::String(("another-random-string".to_string()).into()),
                     ]),
                 ),
             ]
@@ -308,25 +308,25 @@ fn data_grid_image_field_valid_scalar() {
     );
 
     let effect = SExpression::Array(vec![
-        SExpression::String("render-ui".to_string()),
-        SExpression::String("main".to_string()),
+        SExpression::String(("render-ui".to_string()).into()),
+        SExpression::String(("main".to_string()).into()),
         SExpression::Object(
             [
                 (
                     "type".to_string(),
-                    SExpression::String("data-grid".to_string()),
+                    SExpression::String(("data-grid".to_string()).into()),
                 ),
                 (
                     "entity".to_string(),
-                    SExpression::String("Photo".to_string()),
+                    SExpression::String(("Photo".to_string()).into()),
                 ),
                 (
                     "fields".to_string(),
-                    SExpression::Array(vec![SExpression::String("url".to_string())]),
+                    SExpression::Array(vec![SExpression::String(("url".to_string()).into())]),
                 ),
                 (
                     "imageField".to_string(),
-                    SExpression::String("thumbnail".to_string()),
+                    SExpression::String(("thumbnail".to_string()).into()),
                 ),
             ]
             .into_iter()
@@ -355,25 +355,25 @@ fn data_grid_image_field_invalid_scalar_warns() {
     );
 
     let effect = SExpression::Array(vec![
-        SExpression::String("render-ui".to_string()),
-        SExpression::String("main".to_string()),
+        SExpression::String(("render-ui".to_string()).into()),
+        SExpression::String(("main".to_string()).into()),
         SExpression::Object(
             [
                 (
                     "type".to_string(),
-                    SExpression::String("data-grid".to_string()),
+                    SExpression::String(("data-grid".to_string()).into()),
                 ),
                 (
                     "entity".to_string(),
-                    SExpression::String("Photo".to_string()),
+                    SExpression::String(("Photo".to_string()).into()),
                 ),
                 (
                     "fields".to_string(),
-                    SExpression::Array(vec![SExpression::String("url".to_string())]),
+                    SExpression::Array(vec![SExpression::String(("url".to_string()).into())]),
                 ),
                 (
                     "imageField".to_string(),
-                    SExpression::String("doesnotexist".to_string()),
+                    SExpression::String(("doesnotexist".to_string()).into()),
                 ),
             ]
             .into_iter()

@@ -11,7 +11,7 @@ fn literal_events(value: Option<&SExpression>) -> Option<Vec<String>> {
         Some(SExpression::Array(items)) => items
             .iter()
             .map(|item| match item {
-                SExpression::String(s) => Some(s.clone()),
+                SExpression::String(s) => Some(s.to_string()),
                 _ => None,
             })
             .collect(),

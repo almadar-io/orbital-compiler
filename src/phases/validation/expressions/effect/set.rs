@@ -918,7 +918,7 @@ mod enum_tests {
     fn set(field: &str, value: SExpression) -> Vec<SExpression> {
         vec![
             SExpression::String("set".into()),
-            SExpression::String(format!("@entity.{field}")),
+            SExpression::string(format!("@entity.{field}")),
             value,
         ]
     }
@@ -1037,7 +1037,7 @@ mod return_type_tests {
         call.extend(args.iter().map(|a| SExpression::String((*a).into())));
         vec![
             SExpression::String("set".into()),
-            SExpression::String(format!("@entity.{field}")),
+            SExpression::string(format!("@entity.{field}")),
             SExpression::Array(call),
         ]
     }
@@ -1267,7 +1267,7 @@ mod required_field_from_optional_knob_tests {
     fn set_effect(field: &str, value: &str) -> SExpression {
         SExpression::Array(vec![
             SExpression::String("set".into()),
-            SExpression::String(format!("@entity.{field}")),
+            SExpression::string(format!("@entity.{field}")),
             SExpression::String(value.into()),
         ])
     }

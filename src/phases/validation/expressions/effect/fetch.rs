@@ -30,7 +30,7 @@ pub(crate) fn validate_fetch(
 
     // Check entity name
     let entity_name = if let SExpression::String(name) = &arr[1] {
-        if !known_entities.is_empty() && !known_entities.contains(name) {
+        if !known_entities.is_empty() && !known_entities.contains(name.as_str()) {
             result.add_error(
                 ValidationError::error(
                     ErrorCode::EffectFetchInvalidEntity,
@@ -288,7 +288,7 @@ pub(crate) fn parse_fetch_include_literals(include_expr: &SExpression) -> Option
                 .iter()
                 .filter_map(|item| {
                     if let SExpression::String(s) = item {
-                        Some(s.clone())
+                        Some(s.to_string())
                     } else {
                         None
                     }
@@ -426,7 +426,7 @@ pub(crate) fn validate_fetch_stream(
     }
 
     if let SExpression::String(name) = &arr[1] {
-        if !known_entities.is_empty() && !known_entities.contains(name) {
+        if !known_entities.is_empty() && !known_entities.contains(name.as_str()) {
             result.add_error(
                 ValidationError::error(
                     ErrorCode::EffectFetchInvalidEntity,
@@ -467,7 +467,7 @@ pub(crate) fn validate_fetch_object(
     let mut result = ValidationResult::new();
 
     if let SExpression::String(entity_name) = entity {
-        if !known_entities.is_empty() && !known_entities.contains(entity_name) {
+        if !known_entities.is_empty() && !known_entities.contains(entity_name.as_str()) {
             result.add_error(
                 ValidationError::error(
                     ErrorCode::EffectFetchInvalidEntity,

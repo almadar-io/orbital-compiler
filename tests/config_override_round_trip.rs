@@ -205,18 +205,18 @@ fn config_override_substitutes_string_param() {
 
     assert_eq!(
         obj.get("slot"),
-        Some(&SExpression::String("content".to_string())),
+        Some(&SExpression::String(("content".to_string()).into())),
         "@config.slot must be substituted with the literal 'content'"
     );
     // The other two bindings must remain — they weren't in the config map.
     assert_eq!(
         obj.get("filterFields"),
-        Some(&SExpression::String("@config.filterFields".to_string())),
+        Some(&SExpression::String(("@config.filterFields".to_string()).into())),
         "unmatched @config bindings must be left as-is"
     );
     assert_eq!(
         obj.get("label"),
-        Some(&SExpression::String("@config.label".to_string())),
+        Some(&SExpression::String(("@config.label".to_string()).into())),
         "unmatched @config bindings must be left as-is"
     );
 }
@@ -238,17 +238,17 @@ fn config_override_leaves_binding_when_param_missing() {
 
     assert_eq!(
         obj.get("slot"),
-        Some(&SExpression::String("@config.slot".to_string())),
+        Some(&SExpression::String(("@config.slot".to_string()).into())),
         "missing config must leave @config.slot binding as-is"
     );
     assert_eq!(
         obj.get("filterFields"),
-        Some(&SExpression::String("@config.filterFields".to_string())),
+        Some(&SExpression::String(("@config.filterFields".to_string()).into())),
         "missing config must leave @config.filterFields binding as-is"
     );
     assert_eq!(
         obj.get("label"),
-        Some(&SExpression::String("@config.label".to_string())),
+        Some(&SExpression::String(("@config.label".to_string()).into())),
         "missing config must leave @config.label binding as-is"
     );
 }
@@ -273,8 +273,8 @@ fn config_override_substitutes_array_param() {
     let obj = extract_render_ui_object(&payload);
 
     let expected = SExpression::Array(vec![
-        SExpression::String("status".to_string()),
-        SExpression::String("category".to_string()),
+        SExpression::String(("status".to_string()).into()),
+        SExpression::String(("category".to_string()).into()),
     ]);
     assert_eq!(
         obj.get("filterFields"),
@@ -284,11 +284,11 @@ fn config_override_substitutes_array_param() {
     // `slot` and `label` are still bindings — not in config map.
     assert_eq!(
         obj.get("slot"),
-        Some(&SExpression::String("@config.slot".to_string()))
+        Some(&SExpression::String(("@config.slot".to_string()).into()))
     );
     assert_eq!(
         obj.get("label"),
-        Some(&SExpression::String("@config.label".to_string()))
+        Some(&SExpression::String(("@config.label".to_string()).into()))
     );
 }
 
@@ -311,8 +311,8 @@ fn config_override_keeps_an_empty_list_an_operator_reads_a_reference_to_its_knob
     assert_eq!(
         obj.get("count"),
         Some(&SExpression::Array(vec![
-            SExpression::String("array/len".to_string()),
-            SExpression::String("@config.filterFields".to_string()),
+            SExpression::String(("array/len".to_string()).into()),
+            SExpression::String(("@config.filterFields".to_string()).into()),
         ])),
         "an operator's argument stays a reference to the knob that types it"
     );
@@ -326,8 +326,8 @@ fn config_override_keeps_an_empty_list_an_operator_reads_a_reference_to_its_knob
 #[test]
 fn config_override_substitutes_a_list_with_elements_and_a_scalar_an_operator_reads() {
     for (default, expected) in [
-        (r#"["status"]"#, SExpression::Array(vec![SExpression::String("status".to_string())])),
-        (r#""status""#, SExpression::String("status".to_string())),
+        (r#"["status"]"#, SExpression::Array(vec![SExpression::String(("status".to_string()).into())])),
+        (r#""status""#, SExpression::String(("status".to_string()).into())),
     ] {
         let config_fragment = format!(
             r#",
@@ -339,7 +339,7 @@ fn config_override_substitutes_a_list_with_elements_and_a_scalar_an_operator_rea
         let obj = extract_render_ui_object(&extract_render_ui_payload(&composer_path));
         assert_eq!(
             obj.get("count"),
-            Some(&SExpression::Array(vec![SExpression::String("array/len".to_string()), expected])),
+            Some(&SExpression::Array(vec![SExpression::String(("array/len".to_string()).into()), expected])),
             "control: {default} types itself, so it is substituted"
         );
     }
@@ -517,7 +517,7 @@ fn config_override_propagates_through_variation_chain() {
     let title = two_lvl_resolved_title(&consumer_path);
     assert_eq!(
         title,
-        SExpression::String("@item.dishName".to_string()),
+        SExpression::String(("@item.dishName".to_string()).into()),
         "2-level config override (consumer → variation → base) must reach the \
          render-ui binding; got {title:?}. If this is `@item.variationVal` the \
          consumer override was lost; if `@config.titleBinding` it was never \
@@ -534,7 +534,7 @@ fn config_default_carries_through_variation_chain() {
     let title = two_lvl_resolved_title(&consumer_path);
     assert_eq!(
         title,
-        SExpression::String("@item.variationVal".to_string()),
+        SExpression::String(("@item.variationVal".to_string()).into()),
         "with no consumer override, the variation's config value must carry \
          through the chain and bake at the top level; got {title:?}"
     );
@@ -701,7 +701,7 @@ fn sibling_forward_resolves_through_three_deep_hoisted_chain() {
         hoisted_chain_resolved_content(HOISTED_CHAIN_ATOM, HOISTED_CHAIN_CONSUMER, "Typography4");
     assert_eq!(
         content,
-        SExpression::String("FeedTitle".to_string()),
+        SExpression::String(("FeedTitle".to_string()).into()),
         "content must resolve through Stack5 -> Stack8 -> Feed to FeedTitle's \
          declared title, not stay an unresolved @config.content/@config.title \
          binding: {content:?}"
@@ -790,7 +790,7 @@ fn sibling_forward_switches_key_through_relaying_rung() {
         hoisted_chain_resolved_content(KEY_SWITCH_ATOM, KEY_SWITCH_CONSUMER, "Typography4");
     assert_eq!(
         content,
-        SExpression::String("X".to_string()),
+        SExpression::String(("X".to_string()).into()),
         "content must resolve through the key switch (title -> heading) to \
          Feed's declared heading value 'X': {content:?}"
     );
@@ -942,7 +942,7 @@ fn ref_entry_call_site_config_forward_resolves_through_embedder_chain() {
     let content = ref_forward_trait_content(&schema, "Typography4");
     assert_eq!(
         content,
-        SExpression::String("Activity Timeline".to_string()),
+        SExpression::String(("Activity Timeline".to_string()).into()),
         "Typography4's call-site `content: @config.title` must resolve through \
          Stack5 -> Stack8 -> Feed to Feed's declared title, not stay an \
          unresolved @config.title binding: {content:?}"
@@ -959,7 +959,7 @@ fn ref_entry_call_site_config_forward_dangling_key_stays_unresolved_and_is_flagg
     let content = ref_forward_trait_content(&schema, "Typography16");
     assert_eq!(
         content,
-        SExpression::String("@config.subtitle".to_string()),
+        SExpression::String(("@config.subtitle".to_string()).into()),
         "an undeclared forward must stay a literal @config.subtitle binding, \
          not resolve to garbage or vanish: {content:?}"
     );

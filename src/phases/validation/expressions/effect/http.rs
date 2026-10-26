@@ -562,7 +562,7 @@ fn check_headers(expr: &SExpression, grant: bool, path: &str, ctx: &ExprReturnCt
             RetryOperand::Literal(value) => {
                 let mut header = ValueMap::new();
                 header.insert(name.clone(), value);
-                parse_http_headers(Some(&Value::Object(header))).err().map(|error| error.message())
+                parse_http_headers(Some(&Value::object(header))).err().map(|error| error.message())
             }
             RetryOperand::Typed(ty) if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::String) => Some(format!("HTTP header `{name}` must evaluate to a string")),
             RetryOperand::Items(_) => Some(format!("HTTP header `{name}` must evaluate to a string")),

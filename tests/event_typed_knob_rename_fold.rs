@@ -130,7 +130,7 @@ fn click_event_value(td: &TraitDefinition) -> String {
         .and_then(|c| c.get("clickEvent"))
         .and_then(|cf| cf.default.as_ref())
     {
-        Some(SExpression::String(s)) => s.clone(),
+        Some(SExpression::String(s)) => s.clone().into_inner(),
         other => panic!("clickEvent default must be a string, got {other:?}"),
     }
 }

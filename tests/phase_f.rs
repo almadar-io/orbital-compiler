@@ -20,7 +20,7 @@ use orbital_core_base::schema::{
 // ============================================================================
 
 fn s(s: &str) -> SExpression {
-    SExpression::String(s.to_string())
+    SExpression::String(s.to_string().into())
 }
 
 fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {

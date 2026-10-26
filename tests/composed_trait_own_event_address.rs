@@ -98,7 +98,7 @@ fn effect_event(schema: &OrbitalSchema) -> String {
         panic!("tab-watch request: {:?}", items[1])
     };
     match args.get("event") {
-        Some(SExpression::String(s)) => s.clone(),
+        Some(SExpression::String(s)) => s.clone().into_inner(),
         other => panic!("event arg: {other:?}"),
     }
 }
@@ -110,7 +110,7 @@ fn config_event(schema: &OrbitalSchema) -> String {
         .and_then(|c| c.get("itemEvent"))
         .and_then(|f| f.default.clone())
     {
-        Some(SExpression::String(s)) => s,
+        Some(SExpression::String(s)) => s.into_inner(),
         other => panic!("itemEvent default: {other:?}"),
     }
 }

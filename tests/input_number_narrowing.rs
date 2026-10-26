@@ -451,11 +451,11 @@ fn narrowed_display_buffer_set_gets_str_concat() {
     let effects = action_transition_effects(&trait_def);
 
     let expected = orbital_core_base::schema::SExpression::Array(vec![
-        orbital_core_base::schema::SExpression::String("set".to_string()),
-        orbital_core_base::schema::SExpression::String("@entity.value".to_string()),
+        orbital_core_base::schema::SExpression::String(("set".to_string()).into()),
+        orbital_core_base::schema::SExpression::String(("@entity.value".to_string()).into()),
         orbital_core_base::schema::SExpression::Array(vec![
-            orbital_core_base::schema::SExpression::String("str/concat".to_string()),
-            orbital_core_base::schema::SExpression::String("?value".to_string()),
+            orbital_core_base::schema::SExpression::String(("str/concat".to_string()).into()),
+            orbital_core_base::schema::SExpression::String(("?value".to_string()).into()),
         ]),
     ]);
     assert_eq!(
@@ -478,9 +478,9 @@ fn unnarrowed_number_field_set_is_untouched() {
     let effects = action_transition_effects(&trait_def);
 
     let untouched = orbital_core_base::schema::SExpression::Array(vec![
-        orbital_core_base::schema::SExpression::String("set".to_string()),
-        orbital_core_base::schema::SExpression::String("@entity.count".to_string()),
-        orbital_core_base::schema::SExpression::String("?value".to_string()),
+        orbital_core_base::schema::SExpression::String(("set".to_string()).into()),
+        orbital_core_base::schema::SExpression::String(("@entity.count".to_string()).into()),
+        orbital_core_base::schema::SExpression::String(("?value".to_string()).into()),
     ]);
     assert_eq!(
         effects[1], untouched,

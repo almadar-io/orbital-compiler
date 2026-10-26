@@ -153,8 +153,8 @@ mod tests {
     #[test]
     fn emit_with_valid_identifier_stays_clean() {
         let arr = vec![
-            SExpression::String("emit".to_string()),
-            SExpression::String("TOPIC_SAVED".to_string()),
+            SExpression::String(("emit".to_string()).into()),
+            SExpression::String(("TOPIC_SAVED".to_string()).into()),
         ];
 
         assert!(validate_emit(&arr, "test.path").errors.is_empty());

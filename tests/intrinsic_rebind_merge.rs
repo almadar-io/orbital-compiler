@@ -236,3 +236,57 @@ fn fields_remap_satisfies_renamed_data_field() {
         "a `fields`-remapped DATA field (payload→body) must satisfy the rebind"
     );
 }
+
+// G-ORB-537: std-coding-academy composes std-class-roster's `RosterEntryRoster` with no rebind over its own
+// `RosterEntry`, an AUXILIARY of an orbital whose primary is `ClassSession`; the roster's `@intrinsic page`
+// must land there as it does on a same-named primary. DATA (`payload`) still never carries.
+fn no_rebind_consumer(primary: &str, aux: Option<&str>) -> String {
+    let entity = |name: &str| serde_json::json!({
+        "name": name, "persistence": "persistent",
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+    });
+    serde_json::json!({
+        "name": "test-widget-no-rebind", "version": "1.0.0",
+        "orbitals": [{
+            "name": "NoRebindOrbital",
+            "uses": [ { "from": "./base.orb", "as": "Base" } ],
+            "entity": entity(primary),
+            "auxiliaryEntities": aux.map(|a| vec![entity(a)]).unwrap_or_default(),
+            "traits": [ { "ref": "Base.traits.WidgetReview", "name": "OwnReview" } ]
+        }]
+    })
+    .to_string()
+}
+
+fn entity_field_names(schema: &OrbitalSchema, name: &str) -> Vec<String> {
+    let orbital = &schema.orbitals[0];
+    std::iter::once(&orbital.entity)
+        .chain(orbital.auxiliary_entities.iter().flatten())
+        .find_map(|e| match e {
+            EntityRef::Inline(def) if def.name == name => Some(def.fields.iter().filter_map(|f| f.name.clone()).collect()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{name} is declared"))
+}
+
+#[test]
+fn intrinsic_field_carried_onto_a_same_named_auxiliary_without_a_rebind() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_chain(dir.path());
+    let path = dir.path().join("consumer.orb");
+    std::fs::write(&path, no_rebind_consumer("Session", Some("WidgetView"))).expect("write consumer");
+    let fields = entity_field_names(&inline(&path), "WidgetView");
+    assert!(fields.contains(&"viewState".to_string()), "fields: {fields:?}");
+    assert!(!fields.contains(&"payload".to_string()), "DATA never carries without a rebind: {fields:?}");
+}
+
+#[test]
+fn control_intrinsic_field_carried_onto_a_same_named_primary_and_never_onto_another_entity() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_chain(dir.path());
+    let path = dir.path().join("consumer.orb");
+    std::fs::write(&path, no_rebind_consumer("WidgetView", Some("Session"))).expect("write consumer");
+    let schema = inline(&path);
+    assert!(entity_field_names(&schema, "WidgetView").contains(&"viewState".to_string()));
+    assert_eq!(entity_field_names(&schema, "Session"), vec!["id".to_string()]);
+}

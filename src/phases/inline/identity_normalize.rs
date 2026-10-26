@@ -238,8 +238,8 @@ fn normalize_config_ref_tokens(
             _ => None,
         };
         if let Some(cur) = cur {
-            if cf.default.as_ref() != Some(&SExpression::String(cur.clone())) {
-                cf.default = Some(SExpression::String(cur));
+            if cf.default.as_ref() != Some(&SExpression::string(cur.clone())) {
+                cf.default = Some(SExpression::string(cur));
             }
         }
     }
@@ -387,7 +387,7 @@ fn rewrite_trait_embed_in_sexpr(expr: &mut SExpression, subs: &HashMap<String, S
                 let split_at = rest.find(['.', '[']).unwrap_or(rest.len());
                 let (name, suffix) = rest.split_at(split_at);
                 if let Some(to) = subs.get(name) {
-                    *s = format!("@trait.{}{}", to, suffix);
+                    *s = format!("@trait.{}{}", to, suffix).into();
                 }
             }
         }
@@ -465,16 +465,16 @@ mod tests {
         assert_eq!(
             effects[0],
             SExpression::Array(vec![
-                SExpression::String("persist".into()),
-                SExpression::String("create".into()),
-                SExpression::String("Record".into()),
+                SExpression::string("persist"),
+                SExpression::string("create"),
+                SExpression::string("Record"),
             ])
         );
         assert_eq!(
             effects[1],
             SExpression::Array(vec![
-                SExpression::String("fetch".into()),
-                SExpression::String("Record".into()),
+                SExpression::string("fetch"),
+                SExpression::string("Record"),
             ])
         );
     }
@@ -559,9 +559,9 @@ mod tests {
         assert_eq!(
             *effect,
             SExpression::Array(vec![
-                SExpression::String("render-ui".into()),
-                SExpression::String("main".into()),
-                SExpression::String("@trait.BrowseView".into()),
+                SExpression::string("render-ui"),
+                SExpression::string("main"),
+                SExpression::string("@trait.BrowseView"),
             ])
         );
     }
@@ -608,16 +608,16 @@ mod tests {
         let config = td.config.as_ref().unwrap();
         assert_eq!(
             config["targetEntity"].default,
-            Some(SExpression::String("Record".into()))
+            Some(SExpression::string("Record"))
         );
         assert_eq!(
             config["targetTrait"].default,
-            Some(SExpression::String("@trait.Target".into()))
+            Some(SExpression::string("@trait.Target"))
         );
         // event ref resolves by id to the event's current key
         assert_eq!(
             config["targetEvent"].default,
-            Some(SExpression::String("SAVE".into()))
+            Some(SExpression::string("SAVE"))
         );
     }
 
@@ -658,9 +658,9 @@ mod tests {
         };
         assert_eq!(
             default_of(0),
-            Some(SExpression::String("NOTE_SEARCH".into()))
+            Some(SExpression::string("NOTE_SEARCH"))
         );
-        assert_eq!(default_of(1), Some(SExpression::String("SEARCH".into())));
+        assert_eq!(default_of(1), Some(SExpression::string("SEARCH")));
     }
 
     /// No side-map ids present → the schema passes through byte-identical.

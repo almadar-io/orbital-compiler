@@ -176,7 +176,7 @@ fn trait_form_reference_resolves_forward_against_the_home_orbital_when_the_consu
     assert_eq!(
         config_default(local, "columns"),
         Some(SExpression::Array(vec![SExpression::String(
-            "upstreamCol".to_string()
+            ("upstreamCol".to_string()).into()
         )])),
         "columns must resolve to HomeOrbital's declared browseColumns default, \
          not stay an unresolved @config.browseColumns forward"
@@ -189,7 +189,7 @@ fn trait_form_reference_resolves_forward_against_the_home_orbital_when_the_consu
 
     assert_eq!(
         config_default(local, "subtitle"),
-        Some(SExpression::String("Upstream App".to_string())),
+        Some(SExpression::String(("Upstream App".to_string()).into())),
         "subtitle must resolve to the upstream file's own app-level appName default"
     );
     assert_eq!(
@@ -217,7 +217,7 @@ fn trait_form_reference_prefers_the_consumers_own_orbital_declaration_over_the_h
     assert_eq!(
         config_default(local, "columns"),
         Some(SExpression::Array(vec![SExpression::String(
-            "consumerCol".to_string()
+            ("consumerCol".to_string()).into()
         )])),
         "the consumer's own orbital-level browseColumns must win over HomeOrbital's"
     );
@@ -241,7 +241,7 @@ fn trait_form_reference_honors_the_uses_config_override_of_an_upstream_app_knob(
 
     assert_eq!(
         config_default(local, "subtitle"),
-        Some(SExpression::String("Override App".to_string())),
+        Some(SExpression::String(("Override App".to_string()).into())),
         "the uses-config override of appName must win over \
          the upstream file's own appName default"
     );
@@ -252,7 +252,7 @@ fn trait_form_reference_honors_the_uses_config_override_of_an_upstream_app_knob(
     assert_eq!(
         config_default(local, "columns"),
         Some(SExpression::Array(vec![SExpression::String(
-            "upstreamCol".to_string()
+            ("upstreamCol".to_string()).into()
         )])),
     );
 

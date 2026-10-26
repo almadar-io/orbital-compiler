@@ -372,7 +372,7 @@ fn orbital_ref_app_level_forward_resolves_from_the_alias_schema_not_the_consumer
     let title = title.expect("LocalShellHeader.config.title present");
     assert_eq!(
         title.default,
-        Some(orbital_core_base::schema::SExpression::String("Probe".to_string())),
+        Some(orbital_core_base::schema::SExpression::String(("Probe".to_string()).into())),
         "app-level forward must resolve to the `uses … {{ config }}` override, from the ALIAS's OWN schema (folded), not the consumer's — got: {:#?}",
         title
     );
@@ -407,7 +407,7 @@ fn orbital_ref_app_level_forward_without_uses_override_keeps_upstream_default() 
     let title = title.expect("LocalShellHeader.config.title present");
     assert_eq!(
         title.default,
-        Some(orbital_core_base::schema::SExpression::String("App".to_string())),
+        Some(orbital_core_base::schema::SExpression::String(("App".to_string()).into())),
         "with no `uses … {{ config }}` override, the alias's own declared app default must resolve: {:#?}",
         title
     );

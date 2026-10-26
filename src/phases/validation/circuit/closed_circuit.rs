@@ -319,8 +319,8 @@ fn parse_render_ui_effect(
         };
 
         Some(RenderUIInfo {
-            slot,
-            pattern_type,
+            slot: slot.into_inner(),
+            pattern_type: pattern_type.map(|v| v.into_inner()),
             props,
             to_state: transition.to.clone(),
             path: format!(
@@ -2469,7 +2469,7 @@ fn resolve_value_literal_candidates(
                             if let (Some(SExpression::String(name)), Some(value)) =
                                 (pair.first(), pair.get(1))
                             {
-                                scope.insert(name.clone(), value.clone());
+                                scope.insert(name.clone().into_inner(), value.clone());
                             }
                         }
                     }
@@ -2514,7 +2514,7 @@ fn collect_entity_field_literal_candidates(
                             if let (Some(SExpression::String(name)), Some(value)) =
                                 (pair.first(), pair.get(1))
                             {
-                                lets.insert(name.clone(), value.clone());
+                                lets.insert(name.clone().into_inner(), value.clone());
                             }
                         }
                     }
@@ -2866,14 +2866,14 @@ fn paints_main_layout(trait_def: &TraitDefinition) -> bool {
     let resolve = |t: &str| -> Option<String> {
         match t.strip_prefix("@config.") {
             None => Some(t.to_string()),
-            Some(knob) => trait_def
+            Some(knob) => (trait_def
                 .config
                 .as_ref()
                 .and_then(|c| c.get(knob))
                 .and_then(|f| match &f.default {
                     Some(SExpression::String(v)) => Some(v.clone()),
                     _ => None,
-                }),
+                })).map(|v| v.into_inner()),
         }
     };
     fn is_layout(node: &SExpression, resolve: &dyn Fn(&str) -> Option<String>) -> bool {
