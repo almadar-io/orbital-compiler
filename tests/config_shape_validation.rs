@@ -100,29 +100,6 @@ fn metric_spec_items() -> FieldDefinition {
             derived: None,
         },
     );
-    FieldDefinition {
-        nullable: None,
-        additional_properties: None,
-        mock: None,
-        merged_from: None,
-        name: None,
-        field_type: FieldType::Object,
-        required: None,
-        primary_key: None,
-        unique: None,
-        default: None,
-        values: None,
-        relation: None,
-        items: None,
-        properties: Some(props),
-        intrinsic: None,
-        description: None,
-        synonyms: None,
-        projected_from: None,
-        record: None,
-        derived: None,
-        },
-    );
     props.insert(
         "value".to_string(),
         FieldDefinition {

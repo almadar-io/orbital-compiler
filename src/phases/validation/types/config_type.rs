@@ -4169,6 +4169,7 @@ mod required_member_tests {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         };
         let mut props = HashMap::new();
         props.insert("id".to_string(), required_string("id"));

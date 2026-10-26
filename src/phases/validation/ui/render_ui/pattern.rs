@@ -871,6 +871,7 @@ mod entity_prop_contract_tests {
                     synonyms: None,
                     projected_from: None,
                     record: None,
+                    derived: None,
                 })
                 .collect(),
             collection: None,

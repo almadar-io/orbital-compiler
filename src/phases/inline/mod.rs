@@ -2253,8 +2253,19 @@ fn inline_orbital(
                             union_reference(imported_entity, referenced);
                         }
                     }
-                    for aux_entity in
-                        ctx.get_aux_entities_for_trait_orbital(&alias, &name, ref_id.as_deref())
+                    // The source orbital's PRIMARY entity is a candidate too: a board whose first
+                    // `entity` is a persistent row type and whose trait is bound to a later runtime
+                    // entity (std-llm-spend-board's `LlmBalanceSnapshot`, std-analytics-collector's
+                    // `AnalyticsEvent`) names it only as a fetch/persist target. It travels under the
+                    // same reference gate as an auxiliary, with its policies, store binding, `@index`
+                    // paths and `@derived` fields (the whole definition), and the host's own
+                    // same-named entity wins (`seen_aux_names`).
+                    let source_primary =
+                        ctx.get_entity_for_trait_orbital(&alias, &name, ref_id.as_deref());
+                    for aux_entity in ctx
+                        .get_aux_entities_for_trait_orbital(&alias, &name, ref_id.as_deref())
+                        .into_iter()
+                        .chain(source_primary)
                     {
                         // An explicit rebind names the entity this trait binds — the consumer's
                         // own or a sibling's, resolved by the rebind merge above. A same-named
@@ -4783,6 +4794,7 @@ mod tests {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         };
         EntityDefinition {
             timestamps: None,
@@ -8617,6 +8629,229 @@ mod tests {
             !names.contains(&"NestedBoundAux".to_string()),
             "a trait's PRE-rebind own binding must not travel once the consumer rebinds it elsewhere; aux: {names:?}"
         );
+    }
+
+    // ------------------------------------------------------------------
+    // G-ORB-531: a trait-level import carries the persistent entities the
+    // trait names even when one is the source orbital's PRIMARY entity and
+    // the trait is bound to a later one (std-llm-spend-board: primary
+    // `Snapshot`, trait bound to the runtime `Board`). The whole definition
+    // travels (policy, store binding, `@index`, `@derived`). Collision rule:
+    // the host's own same-named entity wins and is neither duplicated nor
+    // overwritten — the rule the auxiliary carry and `drop_shadowed_auxiliaries`
+    // already apply, and the one orbital imports apply to "this orbital's
+    // OWN names" (`entity_ids`).
+    // ------------------------------------------------------------------
+
+    /// A source orbital whose primary `Snapshot` is persistent (with a store, a create policy, an `@index` path and a
+    /// `@derived` field) and whose traits are bound to the later runtime `Board`: `Spend` fetches and persists into
+    /// `Snapshot`, `Idle` names no entity but its own.
+    fn write_board_atom(dir: &std::path::Path) {
+        let board_orb = r#"{
+            "name": "BoardModule",
+            "version": "1.0.0",
+            "orbitals": [
+                {
+                    "name": "BoardOrbital",
+                    "entity": {
+                        "name": "Snapshot",
+                        "persistence": "persistent",
+                        "collection": "snapshots",
+                        "store": "SnapStore",
+                        "create_policy": ["=", "@user.role", "admin"],
+                        "indexes": [ { "fields": ["provider"], "orderBy": "at:desc" } ],
+                        "fields": [
+                            { "name": "id", "type": "string" },
+                            { "name": "provider", "type": "string" },
+                            { "name": "at", "type": "number" },
+                            { "name": "providerKey", "type": "string", "derived": ["str/lower", ["object/get", "@entity", "provider"]] }
+                        ]
+                    },
+                    "auxiliaryEntities": [
+                        {
+                            "name": "Board",
+                            "persistence": "runtime",
+                            "fields": [ { "name": "id", "type": "string" } ]
+                        }
+                    ],
+                    "traits": [
+                        {
+                            "name": "Spend",
+                            "linkedEntity": "Board",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    {
+                                        "from": "active",
+                                        "to": "active",
+                                        "event": "INIT",
+                                        "effects": [
+                                            ["fetch", "Snapshot", {}],
+                                            ["persist", "create", "Snapshot", { "id": "s1", "provider": "A" }]
+                                        ]
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "Idle",
+                            "linkedEntity": "Board",
+                            "stateMachine": {
+                                "states": [ { "name": "active", "isInitial": true } ],
+                                "events": [],
+                                "transitions": [
+                                    { "from": "active", "to": "active", "event": "INIT", "effects": [] }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
+            "ledger": { "schemaVersion": 1, "entries": {} }
+        }"#;
+        std::fs::write(dir.join("board.orb"), board_orb).expect("write board.orb");
+    }
+
+    fn board_trait_ref(name: &str, local_name: &str) -> TraitReference {
+        TraitReference::Reference {
+            dispatch: None,
+            type_args: None,
+            id: None,
+            reference: Some(format!("Board.traits.{name}")),
+            ref_id: None,
+            name: Some(local_name.to_string()),
+            linked_entity: None,
+            linked_entity_id: None,
+            config: None,
+            events: None,
+            event_ids: None,
+            fields: None,
+            listens: None,
+            emits_scope: None,
+        }
+    }
+
+    /// Inline one consumer orbital (primary `host`) importing the given `Board.traits.*` refs.
+    fn inline_board_consumer(host: EntityDefinition, traits: Vec<TraitReference>) -> Orbital {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_board_atom(dir.path());
+        let orbital = Orbital {
+            spec: false,
+            types: None,
+            name: "ConsumerOrbital".to_string(),
+            id: None,
+            uses: Some(vec![orbital_core_base::schema::UseDeclaration {
+                lazy: None,
+                from: "./board.orb".to_string(),
+                alias: "Board".to_string(),
+                config: None,
+            }]),
+            expects: None,
+            theme: None,
+            services: None,
+            entity: EntityRef::Inline(host),
+            auxiliary_entities: None,
+            traits,
+            pages: None,
+            emits: None,
+            listens: None,
+            exposes: None,
+            domain_context: None,
+            os_grants: None,
+            design: None,
+            reference: None,
+            config: None,
+        };
+        let mut schema = OrbitalSchema {
+            type_contract_version: None,
+            types: None,
+            store: None,
+            theme_definitions: None,
+            themes: None,
+            site: None,
+            public_dir: None,
+            locales: None,
+            lazy_pages: None,
+            theme: None,
+            name: "ConsumerModule".to_string(),
+            version: None,
+            description: None,
+            orbitals: vec![orbital],
+            metadata: None,
+            ledger: None,
+            schema_version: None,
+            config: None,
+            egress: None,
+            inbound: None,
+            os_grants: None,
+            deployment: None,
+        };
+        let config = InlineConfig {
+            loader_config: LoaderConfig {
+                base_path: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            skip_inline: false,
+            session: None,
+        };
+        inline_schema(&mut schema, &config, None).expect("inline must succeed");
+        schema.orbitals.remove(0)
+    }
+
+    fn aux_named<'a>(orbital: &'a Orbital, name: &str) -> Vec<&'a EntityDefinition> {
+        orbital
+            .auxiliary_entities
+            .iter()
+            .flatten()
+            .filter_map(|e| match e {
+                EntityRef::Inline(def) if def.name == name => Some(def),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_trait_import_carries_the_source_primary_entity_it_names_with_its_whole_definition() {
+        let orbital = inline_board_consumer(make_entity("HostEntity", &["id"]), vec![board_trait_ref("Spend", "Spend")]);
+        let carried = aux_named(&orbital, "Snapshot");
+        assert_eq!(carried.len(), 1, "Snapshot is a fetch/persist target and must travel; aux: {:?}", aux_names(&orbital));
+        let snapshot = carried[0];
+        assert_eq!(snapshot.store.as_deref(), Some("SnapStore"), "the store binding travels");
+        assert!(snapshot.create_policy.is_some(), "the declared policy travels");
+        assert_eq!(snapshot.indexes.as_ref().map(Vec::len), Some(1), "the @index paths travel");
+        assert!(
+            snapshot.fields.iter().any(|f| f.name.as_deref() == Some("providerKey") && f.derived.is_some()),
+            "the @derived field travels with its expression"
+        );
+        assert!(aux_names(&orbital).contains(&"Board".to_string()), "the trait's own bound entity still travels");
+    }
+
+    #[test]
+    fn control_a_source_primary_nothing_names_does_not_travel() {
+        let orbital = inline_board_consumer(make_entity("HostEntity", &["id"]), vec![board_trait_ref("Idle", "Idle")]);
+        assert!(aux_named(&orbital, "Snapshot").is_empty(), "an unreferenced primary stays behind; aux: {:?}", aux_names(&orbital));
+    }
+
+    #[test]
+    fn the_hosts_own_same_named_entity_is_not_duplicated_or_overwritten() {
+        let orbital = inline_board_consumer(make_entity("Snapshot", &["id", "hostOnly"]), vec![board_trait_ref("Spend", "Spend")]);
+        let EntityRef::Inline(host) = &orbital.entity else {
+            panic!("expected inline primary entity");
+        };
+        assert_eq!(field_names(host), vec!["id".to_string(), "hostOnly".to_string()], "the host's definition is untouched");
+        assert!(host.store.is_none(), "the source's store binding does not overwrite the host's entity");
+        assert!(aux_named(&orbital, "Snapshot").is_empty(), "no second Snapshot beside the host's; aux: {:?}", aux_names(&orbital));
+    }
+
+    #[test]
+    fn a_second_import_of_the_same_trait_does_not_duplicate_the_entity() {
+        let orbital = inline_board_consumer(
+            make_entity("HostEntity", &["id"]),
+            vec![board_trait_ref("Spend", "SpendOne"), board_trait_ref("Spend", "SpendTwo")],
+        );
+        assert_eq!(aux_named(&orbital, "Snapshot").len(), 1, "one copy however many imports name it; aux: {:?}", aux_names(&orbital));
+        assert_eq!(aux_named(&orbital, "Board").len(), 1);
     }
 
     // ------------------------------------------------------------------

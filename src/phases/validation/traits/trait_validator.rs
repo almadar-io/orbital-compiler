@@ -1334,6 +1334,7 @@ mod tests {
                     synonyms: None,
                     projected_from: None,
                     record: None,
+                    derived: None,
                 })
                 .collect(),
             instances: None,
