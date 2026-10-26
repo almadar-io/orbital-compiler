@@ -1383,6 +1383,12 @@ pub enum ErrorCode {
     /// A `fetch` with an equality or range filter on an entity whose store driver declares `queryCapabilities.indexes:
     /// "none"` (no push-down, the kernel scans) and no declared `@index` path covers it. Warning severity.
     FetchUnindexed,
+    /// A `fetch` of a persistent entity names no `limit` (and is not by `id` or `nearest`), so it reads every row.
+    /// The cap is the fetch's own `limit`. Warning severity.
+    FetchUnbounded,
+    /// A `set @entity.<field>` or a `persist create|update|upsert` payload writes a field declared `@derived`: the
+    /// kernel computes it on every write. Error severity.
+    DerivedFieldWritten,
     /// A trait's `config.groupByField` + `config.columns[].key` bucket rows
     /// of the linked entity by strict key equality, but the field's declared
     /// enum allows a value no column key names — those rows match no column
@@ -1948,6 +1954,8 @@ impl ErrorCode {
             ErrorCode::IndexPathDuplicate => "ORB_INDEX_PATH_DUPLICATE",
             ErrorCode::FetchNeedsCompositeIndex => "ORB_FETCH_NEEDS_COMPOSITE_INDEX",
             ErrorCode::FetchUnindexed => "ORB_FETCH_UNINDEXED",
+            ErrorCode::FetchUnbounded => "ORB_FETCH_UNBOUNDED",
+            ErrorCode::DerivedFieldWritten => "ORB_DERIVED_FIELD_WRITTEN",
             ErrorCode::RenderGroupbyEnumColumnGap => "ORB_RENDER_GROUPBY_ENUM_COLUMN_GAP",
             ErrorCode::EmbedConfigForwardMultiReferrer => "ORB_EMBED_CONFIG_FORWARD_MULTI_REFERRER",
             ErrorCode::ThemePinContradictsApp => "ORB_THEME_PIN_CONTRADICTS_APP",
@@ -2424,7 +2432,9 @@ impl ErrorCode {
             | ErrorCode::IndexPathInvalid
             | ErrorCode::IndexPathDuplicate
             | ErrorCode::FetchNeedsCompositeIndex
-            | ErrorCode::FetchUnindexed => "entity",
+            | ErrorCode::FetchUnindexed
+            | ErrorCode::FetchUnbounded
+            | ErrorCode::DerivedFieldWritten => "entity",
             ErrorCode::RenderGroupbyEnumColumnGap => "render_ui",
             ErrorCode::EmbedConfigForwardMultiReferrer => "cross",
             ErrorCode::ThemePinContradictsApp => "schema",

@@ -2819,6 +2819,7 @@ fn param_sub_field(sub: &ParamSub) -> Option<FieldDefinition> {
         synonyms: None,
         projected_from: None,
         record: None,
+        derived: None,
     })
 }
 

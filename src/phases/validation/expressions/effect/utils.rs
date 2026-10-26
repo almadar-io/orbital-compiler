@@ -989,6 +989,7 @@ mod tests {
                         synonyms: None,
                         projected_from: None,
                         record: None,
+                        derived: None,
                     },
                     FieldDefinition {
                         nullable: None,
@@ -1015,6 +1016,7 @@ mod tests {
                         synonyms: None,
                         projected_from: None,
                         record: None,
+                        derived: None,
                     },
                 ],
                 instances: None,
@@ -1124,6 +1126,7 @@ mod tests {
                         synonyms: None,
                         projected_from: None,
                         record: None,
+                        derived: None,
                     },
                     FieldDefinition {
                         nullable: None,
@@ -1150,6 +1153,7 @@ mod tests {
                         synonyms: None,
                         projected_from: None,
                         record: None,
+                        derived: None,
                     },
                 ],
                 instances: None,

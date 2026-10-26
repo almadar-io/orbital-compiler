@@ -1653,6 +1653,7 @@ mod tests {
                 synonyms: None,
                 projected_from: None,
                 record: None,
+                derived: None,
             }],
             id: None,
             invariants: None,
@@ -2681,6 +2682,7 @@ mod tests {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         });
         e
     }
@@ -3454,6 +3456,7 @@ mod tests {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         }
     }
 

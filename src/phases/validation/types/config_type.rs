@@ -1514,6 +1514,7 @@ fn check_config_default_shape(
                 synonyms: None,
                 projected_from: None,
                 record: None,
+                derived: None,
             };
             let ancestors = root_ancestor_map(field, Some(&root_struct));
             let mut probe = ValidationResult::new();
@@ -3981,6 +3982,7 @@ mod recursive_type_literal_tests {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         };
         let sub_menu_array = FieldDefinition {
             nullable: None,
@@ -4002,6 +4004,7 @@ mod recursive_type_literal_tests {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         };
         let label = FieldDefinition {
             nullable: None,
@@ -4023,6 +4026,7 @@ mod recursive_type_literal_tests {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         };
         let mut props = HashMap::new();
         props.insert("label".to_string(), label);
@@ -4047,6 +4051,7 @@ mod recursive_type_literal_tests {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         };
         ConfigField {
             nullable: None,
@@ -4188,6 +4193,7 @@ mod required_member_tests {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         }
     }
 

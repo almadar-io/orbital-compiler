@@ -700,6 +700,7 @@ mod render_ui_pattern_contract_reference_tests {
                 synonyms: None,
                 projected_from: None,
                 record: None,
+                derived: None,
             }],
             id: None,
             invariants: None,

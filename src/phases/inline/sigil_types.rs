@@ -148,6 +148,7 @@ pub(crate) fn field_of(p: &PayloadField) -> FieldDefinition {
         synonyms: None,
         projected_from: None,
         record: None,
+        derived: None,
     }
 }
 

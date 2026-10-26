@@ -43,6 +43,7 @@ fn metric_spec_items() -> FieldDefinition {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         },
     );
     props.insert(
@@ -67,6 +68,7 @@ fn metric_spec_items() -> FieldDefinition {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         },
     );
     props.insert(
@@ -95,6 +97,7 @@ fn metric_spec_items() -> FieldDefinition {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         },
     );
     FieldDefinition {
@@ -117,6 +120,84 @@ fn metric_spec_items() -> FieldDefinition {
         synonyms: None,
         projected_from: None,
         record: None,
+        derived: None,
+        },
+    );
+    props.insert(
+        "value".to_string(),
+        FieldDefinition {
+            nullable: None,
+            additional_properties: None,
+            mock: None,
+            merged_from: None,
+            name: Some("value".to_string()),
+            field_type: FieldType::Number,
+            required: None,
+            primary_key: None,
+            unique: None,
+            default: None,
+            values: None,
+            relation: None,
+            items: None,
+            properties: None,
+            intrinsic: None,
+            description: None,
+            synonyms: None,
+            projected_from: None,
+            record: None,
+            derived: None,
+        },
+    );
+    props.insert(
+        "format".to_string(),
+        FieldDefinition {
+            nullable: None,
+            additional_properties: None,
+            mock: None,
+            merged_from: None,
+            name: Some("format".to_string()),
+            field_type: FieldType::String,
+            required: None,
+            primary_key: None,
+            unique: None,
+            default: None,
+            values: Some(vec![
+                "number".to_string(),
+                "currency".to_string(),
+                "percent".to_string(),
+            ]),
+            relation: None,
+            items: None,
+            properties: None,
+            intrinsic: None,
+            description: None,
+            synonyms: None,
+            projected_from: None,
+            record: None,
+            derived: None,
+        },
+    );
+    FieldDefinition {
+        nullable: None,
+        additional_properties: None,
+        mock: None,
+        merged_from: None,
+        name: None,
+        field_type: FieldType::Object,
+        required: None,
+        primary_key: None,
+        unique: None,
+        default: None,
+        values: None,
+        relation: None,
+        items: None,
+        properties: Some(props),
+        intrinsic: None,
+        description: None,
+        synonyms: None,
+        projected_from: None,
+        record: None,
+        derived: None,
     }
 }
 
@@ -160,6 +241,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         }],
         instances: None,
         id: None,
@@ -388,6 +470,7 @@ fn bare_string_in_array_of_objects_fails() {
                 synonyms: None,
                 projected_from: None,
                 record: None,
+                derived: None,
             },
         );
     }
@@ -411,6 +494,7 @@ fn bare_string_in_array_of_objects_fails() {
         synonyms: None,
         projected_from: None,
         record: None,
+        derived: None,
     };
     let mut config = HashMap::new();
     config.insert(
@@ -714,6 +798,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
             synonyms: None,
             projected_from: None,
             record: None,
+            derived: None,
         },
     );
     let format_items = FieldDefinition {
@@ -736,6 +821,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
         synonyms: None,
         projected_from: None,
         record: None,
+        derived: None,
     };
     let mut config = HashMap::new();
     config.insert(
@@ -947,6 +1033,7 @@ fn string_value_field() -> FieldDefinition {
         synonyms: None,
         projected_from: None,
         record: None,
+        derived: None,
     }
 }
 
@@ -1091,6 +1178,7 @@ fn sexpr_args_slot(item_type: FieldType, default: Vec<SExpression>) -> OrbitalSc
         synonyms: None,
         projected_from: None,
         record: None,
+        derived: None,
     };
     let mut config = HashMap::new();
     config.insert(
