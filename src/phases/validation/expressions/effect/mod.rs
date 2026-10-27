@@ -96,6 +96,62 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
     ctx.merge(validate_placement(schema));
 }
 
+/// `schema` with each inline trait's guards and effects marked where the static check proved an operator's argument
+/// types (G-CROSS-335). `@payload` and `@user` reads are left unproven: a cascade delivery is not yet checked against
+/// its emitter's declared type at entry, and a listener's declared payload is only a view of it.
+pub fn mark_proven_program(schema: &mut OrbitalSchema) {
+    use orbital_core_base::schema::TraitReference;
+    let definitions = super::entity_definitions_of(schema);
+    let mut marked = Vec::new();
+    for (i, orbital) in schema.orbitals.iter().enumerate() {
+        for (j, trait_ref) in orbital.traits.iter().enumerate() {
+            if let TraitReference::Inline(trait_def) = trait_ref {
+                marked.push((i, j, mark_proven_trait(schema, trait_def, &definitions)));
+            }
+        }
+    }
+    for (i, j, trait_def) in marked {
+        schema.orbitals[i].traits[j] = TraitReference::Inline(trait_def);
+    }
+}
+
+fn mark_proven_trait(
+    schema: &OrbitalSchema,
+    trait_def: &TraitDefinition,
+    definitions: &HashMap<String, EntityDefinition>,
+) -> TraitDefinition {
+    let scopes = TraitScopes::new(schema, trait_def, definitions);
+    let entity = &scopes.entity_field_types;
+    let no_payload: HashMap<String, String> = HashMap::new();
+    let unproven_inputs = |mut types: set::BindingTypes| {
+        types.payload.clear();
+        types.prev_payload = None;
+        types.user = orbital_core_base::ir::OirType::Struct { additional: None, fields: Vec::new() };
+        types
+    };
+    let mark = |expr: &orbital_core_base::schema::SExpression,
+                guard: Option<&orbital_core_base::schema::SExpression>,
+                types: &set::BindingTypes| {
+        operator_args::mark_proven_operator_args(expr, guard, entity, &no_payload, types, Some(schema))
+    };
+    let mut out = trait_def.clone();
+    for (transition, original) in out.state_machine.transitions.iter_mut().zip(&trait_def.state_machine.transitions) {
+        let types = unproven_inputs(scopes.types_for(schema, trait_def, &original.event));
+        transition.guard = original.guard.as_ref().map(|guard| mark(guard, None, &types));
+        if let Some(effects) = &original.effects {
+            transition.effects = Some(effects.iter().map(|e| mark(e, original.guard.as_ref(), &types)).collect());
+        }
+    }
+    if let (Some(ticks), Some(originals)) = (out.ticks.as_mut(), trait_def.ticks.as_ref()) {
+        let types = unproven_inputs(scopes.tick_types.clone());
+        for (tick, original) in ticks.iter_mut().zip(originals) {
+            tick.guard = original.guard.as_ref().map(|guard| mark(guard, None, &types));
+            tick.effects = original.effects.iter().map(|e| mark(e, original.guard.as_ref(), &types)).collect();
+        }
+    }
+    out
+}
+
 /// The binding types one trait's effects are checked against: the linked entity's fields, and the payload of each
 /// triggering event (a tick has none). One construction shared by the per-effect checks and the `--final` key facts.
 pub(crate) struct TraitScopes {
@@ -817,4 +873,75 @@ pub(crate) fn validate_final_cancel_keys(schema: &OrbitalSchema) -> ValidationRe
         }
     }
     result
+}
+
+#[cfg(test)]
+mod proven_program_tests {
+    use super::*;
+    use orbital_core_base::schema::{SExpression, TraitReference};
+
+    fn program() -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "Tasks",
+                "entity": { "name": "Task", "persistence": "runtime", "fields": [
+                    { "name": "id", "type": "string", "required": true },
+                    { "name": "title", "type": "string" }
+                ]},
+                "traits": [{
+                    "name": "Edit",
+                    "linkedEntity": "Task",
+                    "stateMachine": {
+                        "initial": "idle",
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "events": [{ "key": "RENAME", "payloadSchema": [{ "name": "to", "type": "string" }] }],
+                        "transitions": [{
+                            "from": "idle", "to": "idle", "event": "RENAME",
+                            "effects": [
+                                ["set", "@entity.title", ["str/upper", "@entity.title"]],
+                                ["set", "@entity.title", ["str/upper", "@payload.to"]]
+                            ]
+                        }]
+                    }
+                }],
+                "pages": []
+            }]
+        }))
+        .expect("fixture deserializes")
+    }
+
+    fn effects(schema: &OrbitalSchema) -> Vec<SExpression> {
+        let TraitReference::Inline(trait_def) = &schema.orbitals[0].traits[0] else { panic!("inline trait") };
+        trait_def.state_machine.transitions[0].effects.clone().unwrap_or_default()
+    }
+
+    fn parse(json: &str) -> SExpression {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn an_entity_read_is_marked_and_a_payload_read_is_not() {
+        let mut schema = program();
+        mark_proven_program(&mut schema);
+        let marked = effects(&schema);
+        assert_eq!(marked[0], parse(r#"["set", "@entity.title", ["proven", [0], ["str/upper", "@entity.title"]]]"#));
+        assert_eq!(
+            marked[1],
+            parse(r#"["set", "@entity.title", ["str/upper", "@payload.to"]]"#),
+            "a delivered payload is not checked against its emitter's type at entry yet"
+        );
+    }
+
+    #[test]
+    fn marking_twice_marks_once() {
+        let mut schema = program();
+        mark_proven_program(&mut schema);
+        let once = effects(&schema);
+        let mut stripped: SExpression = serde_json::from_value(serde_json::to_value(&schema).unwrap()).unwrap();
+        stripped.strip_proven();
+        let mut again: OrbitalSchema = serde_json::from_value(serde_json::to_value(&stripped).unwrap()).unwrap();
+        mark_proven_program(&mut again);
+        assert_eq!(effects(&again), once);
+    }
 }

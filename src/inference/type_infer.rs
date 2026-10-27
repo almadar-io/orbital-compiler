@@ -147,6 +147,11 @@ struct Inferer<'c> {
     named_types: RefCell<std::sync::Arc<std::collections::BTreeMap<String, OirType>>>,
     /// The type inferred for each `["typed", value, "#slot:<n>"]` the typed-arguments pass tagged.
     slots: RefCell<Vec<(String, Option<OirType>)>>,
+    /// Per call (keyed by [`ProvenKey`]), whether each argument position was proven: its type determined and bound by
+    /// the signature on every visit of the call.
+    proven: RefCell<std::collections::HashMap<ProvenKey, Vec<bool>>>,
+    /// Whether calls record [`Self::proven`]; off for validation, which only reports.
+    record: std::cell::Cell<bool>,
 }
 
 struct ScopeState {
@@ -178,6 +183,8 @@ impl<'c> Inferer<'c> {
             children: RefCell::new(Vec::new()),
             named_types: RefCell::new(std::sync::Arc::default()),
             slots: RefCell::new(Vec::new()),
+            proven: RefCell::new(std::collections::HashMap::new()),
+            record: std::cell::Cell::new(false),
         }
     }
 
@@ -1294,6 +1301,22 @@ impl<'c> Inferer<'c> {
         bindings.use_named_types(std::sync::Arc::clone(&known));
     }
 
+    /// Keeps, per call, the positions proven on every visit: a call inferred again (a lambda read twice, another
+    /// narrowing) is proven only where each visit proved it.
+    fn record_proven(&self, name: &str, args: &[&OirExpr], at: Vec<bool>) {
+        if !self.record.get() || args.is_empty() {
+            return;
+        }
+        let key = ProvenKey { printed: printed(name, args), arity: args.len() };
+        let mut proven = self.proven.borrow_mut();
+        match proven.get_mut(&key) {
+            Some(seen) => seen.iter_mut().zip(at).for_each(|(seen, now)| *seen &= now),
+            None => {
+                proven.insert(key, at);
+            }
+        }
+    }
+
     fn call(&self, name: &str, args: &[&OirExpr]) -> Option<OirType> {
         let signature = signature_of(name)?;
         self.call_signed(name, &signature, args)
@@ -1308,6 +1331,10 @@ impl<'c> Inferer<'c> {
         let name_fn = name;
         let mut bindings = CallBindings::new();
         bindings.use_named_types(std::sync::Arc::clone(&self.named_types.borrow()));
+        // A proof binds apart, in the strict mode: every value of the argument's type fits (G-CROSS-335).
+        let recording = self.record.get();
+        let mut proof = CallBindings::new();
+        proof.use_named_types(std::sync::Arc::clone(&self.named_types.borrow()));
         let mut sound = true;
         // An argument whose type is not determined is a finding, but it refutes only what depends on it: a result
         // its variable does not reach (a reduce's accumulator over a list of unknown items) stays determined.
@@ -1374,11 +1401,17 @@ impl<'c> Inferer<'c> {
             .map(|ty| self.unfold(ty));
         let mut integral = vec![false; args.len()];
         let mut arg_types: Vec<Option<OirType>> = vec![None; args.len()];
+        let mut proven_at = vec![false; args.len()];
         for (index, arg) in args.iter().enumerate() {
+            let mut determined = false;
             let short_circuited = short_circuited(name, args, index).then(|| self.diagnostics.borrow().len());
             if let Some(declared) = &declared_node {
                 self.register_named_types(declared, &mut bindings);
                 signature.bind_declared_node(&mut bindings, index, declared.clone());
+                if recording {
+                    self.register_named_types(declared, &mut proof);
+                    signature.bind_declared_node(&mut proof, index, declared.clone());
+                }
             }
             let refined = self.refinements.borrow().len();
             let guards = {
@@ -1479,6 +1512,9 @@ impl<'c> Inferer<'c> {
                     let known = self.known(other);
                     if let Some(Known::Type(ty)) = &known {
                         self.register_named_types(ty, &mut bindings);
+                        if recording {
+                            self.register_named_types(ty, &mut proof);
+                        }
                     }
                     arg_types[index] = match &known {
                         Some(Known::Type(ty)) => Some(ty.clone()),
@@ -1494,6 +1530,9 @@ impl<'c> Inferer<'c> {
                         texts: Self::literal_texts(other),
                         lambda: None,
                     };
+                    determined = recording
+                        && matches!(&actual.known, Some(Known::Type(_)))
+                        && signature.bind(&mut proof, index, &actual, Mode::Proof).is_ok();
                     signature.bind(&mut bindings, index, &actual, Mode::Static)
                 }
             };
@@ -1504,6 +1543,7 @@ impl<'c> Inferer<'c> {
                 self.diagnostics.borrow_mut().truncate(mark);
                 continue;
             }
+            proven_at[index] = determined && outcome.is_ok();
             if let Err(mismatch) = outcome {
                 sound = false;
                 refuted |= !matches!(mismatch, Mismatch::Undetermined { .. });
@@ -1533,6 +1573,10 @@ impl<'c> Inferer<'c> {
                 expression: printed(name, args),
                 argument: printed_arg(args.get(index)),
             });
+        }
+        if recording {
+            let proof_sound = sound && signature.finish(&proof, args.len()).is_ok();
+            self.record_proven(name, args, if proof_sound { proven_at } else { vec![false; args.len()] });
         }
         self.void
             .set(sound && (signature.returns_void() || signature.result_is_void(&bindings)));
@@ -2855,6 +2899,59 @@ pub fn missing_failable_result<C: TypeCtx>(expr: &OirExpr, condition: Option<&Oi
 
 pub fn check_oir_expr<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> Vec<Diagnostic> {
     check_oir_expr_under(expr, None, ctx)
+}
+
+/// A call as the checker reads it: its printed form (operator and arguments) and its arity. Calls printed alike in
+/// one expression share a key, so a position is proven only where every such call proved it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ProvenKey {
+    printed: String,
+    arity: usize,
+}
+
+impl ProvenKey {
+    /// The key of the call `expr` lowers to, named as the checker binds it; `None` for anything else, and for a
+    /// branch the checker reads statically (a literal condition).
+    pub fn of(expr: &OirExpr) -> Option<Self> {
+        let (name, args): (&str, Vec<&OirExpr>) = match expr {
+            OirExpr::BinaryOp { op, left, right } => (binary_name(op), vec![left, right]),
+            OirExpr::UnaryOp { op: OirUnaryOp::Not, operand } => ("not", vec![operand]),
+            OirExpr::UnaryOp { op: OirUnaryOp::Neg, operand } => ("-", vec![operand]),
+            OirExpr::Conditional { condition, then_branch, else_branch } if live_branch(expr).is_none() => {
+                ("if", vec![condition, then_branch, else_branch])
+            }
+            OirExpr::Call { function, args } => (function.as_str(), args.iter().collect()),
+            _ => return None,
+        };
+        (!args.is_empty()).then(|| Self { printed: printed(name, &args), arity: args.len() })
+    }
+
+    pub fn arity(&self) -> usize {
+        self.arity
+    }
+}
+
+/// The argument positions of each call in `expr` whose type the static check proved where `condition` holds
+/// (EXEC-EVAL-5): determined, and bound by the operator's signature on every visit. Positions not listed are checked
+/// at run time. Only calls with at least one proven position are answered.
+pub fn proven_calls_under<C: TypeCtx>(
+    expr: &OirExpr,
+    condition: Option<&OirExpr>,
+    ctx: &C,
+) -> std::collections::HashMap<ProvenKey, Vec<usize>> {
+    let inferer = Inferer::new(ctx);
+    inferer.assume(condition);
+    inferer.record.set(true);
+    inferer.infer(expr);
+    inferer
+        .proven
+        .into_inner()
+        .into_iter()
+        .filter_map(|(key, at)| {
+            let positions: Vec<usize> = at.iter().enumerate().filter(|(_, p)| **p).map(|(i, _)| i).collect();
+            (!positions.is_empty()).then_some((key, positions))
+        })
+        .collect()
 }
 
 /// The diagnostics of `expr` where `condition` holds, as a transition's guard holds for its effects.

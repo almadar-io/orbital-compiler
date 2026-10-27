@@ -47,6 +47,113 @@ pub(crate) fn validate_operator_arg_types_under(
     result
 }
 
+/// `expr` with each value-operator call whose argument types the static check proved wrapped as
+/// `["proven", [positions], call]` (G-CROSS-335), so the kernel skips the run-time check at those positions. Each
+/// maximal value or effect expression is inferred as one tree where `guard` holds, as the check reads it.
+pub(crate) fn mark_proven_operator_args(
+    expr: &SExpression,
+    guard: Option<&SExpression>,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+    payload_field_types: &HashMap<String, String>,
+    types: &BindingTypes,
+    schema: Option<&orbital_core_base::schema::OrbitalSchema>,
+) -> SExpression {
+    let ctx = ExprReturnCtx {
+        entity: entity_field_types,
+        payload: payload_field_types,
+        types: Some(types),
+        schema,
+    };
+    let condition = guard.and_then(|guard| orbital_core_eval::lower::lower_sexpr_keeping_typed(guard).ok());
+    prove(expr, &ctx, condition.as_ref())
+}
+
+/// The walk of [`collect`]: each maximal value or effect expression is inferred as one tree and marked.
+fn prove(expr: &SExpression, ctx: &ExprReturnCtx<'_>, condition: Option<&OirExpr>) -> SExpression {
+    match expr {
+        SExpression::Object(fields) => {
+            SExpression::Object(fields.iter().map(|(k, v)| (k.clone(), prove(v, ctx, condition))).collect())
+        }
+        SExpression::Array(items) => {
+            if let Some(SExpression::String(head)) = items.first() {
+                match head.as_str() {
+                    "quote" | "quasiquote" => return expr.clone(),
+                    "fn" | "lambda" => {
+                        let mut items = items.clone();
+                        if let Some(body) = items.last_mut().filter(|_| expr_len(expr) >= 3) {
+                            *body = prove(body, ctx, condition);
+                        }
+                        return SExpression::Array(items);
+                    }
+                    name if is_effect(name) || is_value_operator(name) => {
+                        let mut rows = Vec::new();
+                        let read = with_fetch_filter_rows(expr, ctx, &mut rows);
+                        let Ok(oir) = orbital_core_eval::lower::lower_sexpr_keeping_typed(&read) else {
+                            return expr.clone();
+                        };
+                        let proven = crate::type_infer::proven_calls_under(&oir, condition, ctx);
+                        return if proven.is_empty() { expr.clone() } else { wrap(expr, &proven) };
+                    }
+                    _ => {}
+                }
+            }
+            SExpression::Array(items.iter().map(|item| prove(item, ctx, condition)).collect())
+        }
+        other => other.clone(),
+    }
+}
+
+fn expr_len(expr: &SExpression) -> usize {
+    match expr {
+        SExpression::Array(items) => items.len(),
+        _ => 0,
+    }
+}
+
+/// `expr` with every value-operator call `proven` names wrapped at its proven positions. A call is matched by the key
+/// of what it lowers to, and only where the call and its lowering agree on arity (a variadic `+` lowered to nested
+/// operations does not).
+fn wrap(
+    expr: &SExpression,
+    proven: &HashMap<crate::type_infer::ProvenKey, Vec<usize>>,
+) -> SExpression {
+    match expr {
+        SExpression::Object(fields) => {
+            SExpression::Object(fields.iter().map(|(k, v)| (k.clone(), wrap(v, proven))).collect())
+        }
+        SExpression::Array(items) => {
+            let Some(SExpression::String(head)) = items.first() else {
+                return SExpression::Array(items.iter().map(|item| wrap(item, proven)).collect());
+            };
+            if matches!(head.as_str(), "quote" | "quasiquote") {
+                return expr.clone();
+            }
+            let rebuilt = SExpression::Array(
+                std::iter::once(items[0].clone()).chain(items[1..].iter().map(|item| wrap(item, proven))).collect(),
+            );
+            let markable = is_value_operator(head)
+                && !is_effect(head)
+                && !matches!(head.as_str(), "let" | "typed" | "proven" | "fn" | "lambda" | "do" | "list");
+            if !markable {
+                return rebuilt;
+            }
+            let key = orbital_core_eval::lower::lower_sexpr_keeping_typed(expr)
+                .ok()
+                .and_then(|oir| crate::type_infer::ProvenKey::of(&oir))
+                .filter(|key| key.arity() == items.len() - 1);
+            match key.and_then(|key| proven.get(&key)) {
+                Some(positions) => SExpression::Array(vec![
+                    SExpression::string("proven"),
+                    SExpression::Array(positions.iter().map(|&p| SExpression::Number(p as f64)).collect()),
+                    rebuilt,
+                ]),
+                None => rebuilt,
+            }
+        }
+        other => other.clone(),
+    }
+}
+
 /// Walks the program for the maximal value expressions and checks each as one tree. `covered` is true inside
 /// a value expression already checked as a whole; only an effect found inside it starts a new check.
 fn collect(
@@ -1333,5 +1440,96 @@ mod tests {
                 0
             );
         }
+    }
+
+    fn marked(json: &str, entity: HashMap<String, EntityFieldMeta>, guard: Option<&str>) -> SExpression {
+        let guard = guard.map(parse);
+        mark_proven_operator_args(&parse(json), guard.as_ref(), &entity, &HashMap::new(), &no_types(), None)
+    }
+
+    #[test]
+    fn a_call_whose_argument_type_is_proven_is_marked_at_that_position() {
+        assert_eq!(
+            marked(r#"["str/upper", "@entity.name"]"#, field("name", "string"), None),
+            parse(r#"["proven", [0], ["str/upper", "@entity.name"]]"#)
+        );
+    }
+
+    #[test]
+    fn an_undetermined_or_mismatched_argument_is_never_marked() {
+        let undetermined = r#"["str/upper", "@payload.x"]"#;
+        assert_eq!(marked(undetermined, HashMap::new(), None), parse(undetermined));
+        let mismatched = r#"["str/upper", "@entity.count"]"#;
+        assert_eq!(marked(mismatched, field("count", "number"), None), parse(mismatched));
+    }
+
+    #[test]
+    fn only_the_proven_positions_of_a_call_are_listed() {
+        assert_eq!(
+            marked(r#"["str/concat", "@entity.name", "@payload.x"]"#, field("name", "string"), None),
+            parse(r#"["proven", [0], ["str/concat", "@entity.name", "@payload.x"]]"#)
+        );
+    }
+
+    #[test]
+    fn nested_calls_are_marked_each_on_its_own() {
+        assert_eq!(
+            marked(r#"["str/upper", ["str/trim", "@entity.name"]]"#, field("name", "string"), None),
+            parse(r#"["proven", [0], ["str/upper", ["proven", [0], ["str/trim", "@entity.name"]]]]"#)
+        );
+    }
+
+    fn payload_typed(ty: orbital_core_base::ir::OirType) -> BindingTypes {
+        let mut types = no_types();
+        types.payload.insert("v".to_string(), ty);
+        types
+    }
+
+    #[test]
+    fn an_uninformative_argument_is_never_proven_though_the_static_check_admits_it() {
+        use orbital_core_base::ir::OirType;
+        let effect = parse(r#"["str/upper", "@payload.v"]"#);
+        let json = mark_proven_operator_args(&effect, None, &HashMap::new(), &HashMap::new(), &payload_typed(OirType::Json), None);
+        assert_eq!(json, effect, "a json value could be any kind at run time");
+        let string = mark_proven_operator_args(&effect, None, &HashMap::new(), &HashMap::new(), &payload_typed(OirType::String), None);
+        assert_eq!(string, parse(r#"["proven", [0], ["str/upper", "@payload.v"]]"#), "control: a declared string is proven");
+    }
+
+    #[test]
+    fn a_date_at_a_string_position_is_never_proven() {
+        let effect = r#"["str/upper", "@entity.due"]"#;
+        assert_eq!(marked(effect, field("due", "date"), None), parse(effect));
+    }
+
+    #[test]
+    fn a_lambda_body_is_marked_only_where_its_parameter_type_is_known() {
+        let typed = marked(r#"["array/map", ["list", "a", "b"], ["fn", "t", ["str/upper", "@t"]]]"#, HashMap::new(), None);
+        assert_eq!(
+            typed,
+            parse(r#"["proven", [0], ["array/map", ["list", "a", "b"], ["fn", "t", ["proven", [0], ["str/upper", "@t"]]]]]"#)
+        );
+        let untyped = r#"["array/map", "@payload.xs", ["fn", "t", ["str/upper", "@t"]]]"#;
+        assert_eq!(marked(untyped, HashMap::new(), None), parse(untyped), "control: unknown elements");
+    }
+
+    #[test]
+    fn a_variadic_call_lowered_to_nested_operations_is_not_marked() {
+        let three = r#"["+", 1, 2, 3]"#;
+        assert_eq!(marked(three, HashMap::new(), None), parse(three));
+        assert_eq!(marked(r#"["+", 1, 2]"#, HashMap::new(), None), parse(r#"["proven", [0, 1], ["+", 1, 2]]"#));
+    }
+
+    #[test]
+    fn a_value_inside_an_effect_is_marked_and_the_effect_is_not() {
+        assert_eq!(
+            marked(r#"["set", "@entity.name", ["str/upper", "@entity.name"]]"#, field("name", "string"), None),
+            parse(r#"["set", "@entity.name", ["proven", [0], ["str/upper", "@entity.name"]]]"#)
+        );
+    }
+
+    #[test]
+    fn a_quoted_body_is_left_as_written() {
+        let quoted = r#"["quote", ["str/upper", "@entity.name"]]"#;
+        assert_eq!(marked(quoted, field("name", "string"), None), parse(quoted));
     }
 }

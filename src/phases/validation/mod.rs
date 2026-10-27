@@ -600,32 +600,10 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
 
     // Collect entity names, trait names, page paths, and service names from orbitals
     // Note: Traits are now only defined inline within orbitals, not at schema level.
-    // PRIMARY entity names declared in MORE than one orbital (the same
-    // grouping ORB_X_DUPLICATE_ENTITY reports; auxiliary entities repeat
-    // legitimately — every orbital's filter pulls FilterTarget). A duplicated
-    // name's definition is ambiguous (which orbital's field list?), so it is
-    // removed from `entity_definitions` below: field-level binding checks
-    // skip definitions they can't resolve, leaving ORB_X_DUPLICATE_ENTITY (the
-    // std lint's) as the single actionable error instead of a phantom FIELD_NOT_FOUND
-    // cascade validated against whichever same-named entity happened to win
-    // the map insert.
-    let mut primary_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let mut duplicated_entities: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
-    for orbital in &schema.orbitals {
-        if let Some(entity) = orbital.entity.as_inline() {
-            if !primary_names.insert(entity.name.as_str()) {
-                duplicated_entities.insert(entity.name.clone());
-            }
-        }
-    }
-
     for orbital in &schema.orbitals {
         // Entity name and definition (only for inline entities, not references)
         if let Some(entity) = orbital.entity.as_inline() {
             ctx.entity_names.insert(entity.name.clone());
-            ctx.entity_definitions
-                .insert(entity.name.clone(), entity.clone());
         }
 
         // Gap #22 — auxiliary entities are imported atom entities surfaced
@@ -638,8 +616,6 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
             for aux_ref in aux_list {
                 if let Some(aux_entity) = aux_ref.as_inline() {
                     ctx.entity_names.insert(aux_entity.name.clone());
-                    ctx.entity_definitions
-                        .insert(aux_entity.name.clone(), aux_entity.clone());
                 }
             }
         }
@@ -718,12 +694,35 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
         ctx.page_init_payloads.entry(lazy.path.clone()).or_default();
     }
 
-    // Ambiguous (duplicated-primary) definitions carry no field authority —
-    // see the comment above `duplicated_entities`. Names stay registered so
-    // existence checks (linkedEntity, fetch targets) still pass.
-    for name in &duplicated_entities {
-        ctx.entity_definitions.remove(name);
+    ctx.entity_definitions = entity_definitions_of(schema);
+}
+
+/// The field authority of each entity the program declares inline (primary and auxiliary). A primary name declared
+/// in more than one orbital (the grouping ORB_X_DUPLICATE_ENTITY reports; auxiliary entities repeat legitimately) is
+/// ambiguous, which orbital's field list being unknown, and carries none, so field-level checks leave the duplicate
+/// finding as the one actionable error; its name stays registered elsewhere, so existence checks
+/// (linkedEntity, fetch targets) still pass.
+pub(crate) fn entity_definitions_of(schema: &OrbitalSchema) -> std::collections::HashMap<String, EntityDefinition> {
+    let mut primary_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut duplicated: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut definitions = std::collections::HashMap::new();
+    for orbital in &schema.orbitals {
+        if let Some(entity) = orbital.entity.as_inline() {
+            if !primary_names.insert(entity.name.as_str()) {
+                duplicated.insert(entity.name.clone());
+            }
+            definitions.insert(entity.name.clone(), entity.clone());
+        }
+        for aux in orbital.auxiliary_entities.iter().flatten() {
+            if let Some(aux) = aux.as_inline() {
+                definitions.insert(aux.name.clone(), aux.clone());
+            }
+        }
     }
+    for name in &duplicated {
+        definitions.remove(name);
+    }
+    definitions
 }
 
 /// Collect INIT payload requirements for a page from its traits
