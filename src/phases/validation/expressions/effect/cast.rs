@@ -1,5 +1,5 @@
 //! `(as value TypeName)`: the explicit cast. The conversion relation is `type_compat::sub`; a cast is legal
-//! wherever it returns any coercion, including `Explicit`, and only a nominal type is a cast target.
+//! wherever it returns any coercion, including `Explicit`; a declared type is a checked narrowing.
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::set::ExprReturnCtx;
@@ -18,17 +18,8 @@ pub(super) fn check_cast(
     let Some(name) = arr[2].as_str() else {
         return result;
     };
+    // A declared type is a checked narrowing (null when the value does not fit); the shape check names an undeclared one.
     let Some(target) = orbital_core_base::signature::nominal_type(name) else {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::OperatorArgTypeMismatch,
-                path,
-                format!("`(as …)` converts only to a nominal type (CallKey), not `{name}`"),
-            )
-            .with_suggestion(
-                "Name a nominal type as the second argument, e.g. `(as \"search\" CallKey)`",
-            ),
-        );
         return result;
     };
     let Ok(expr) = crate::phases::resolve::resolve_sexpr_standalone(&arr[1]) else {

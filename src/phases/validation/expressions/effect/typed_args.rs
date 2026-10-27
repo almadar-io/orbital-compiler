@@ -131,7 +131,7 @@ fn record_parse_shapes(expr: &SExpression, aliases: &Aliases, version: Option<u3
                 other => return Ok(other),
             };
             if let [SExpression::String(head), _, SExpression::String(shape)] = out.as_slice() {
-                if head == "json/parse" {
+                if head == "json/parse" || head == "as" {
                     if let Some(declared) = DeclaredShape::of_alias(shape, aliases) {
                         out[2] =
                             SExpression::string(recorded_type(declared.name, declared.ty, aliases, version.or(declared.version)));
@@ -585,6 +585,19 @@ mod tests {
             ["Row", "RowCell"],
             "transitively, the recursive one once"
         );
+    }
+
+    #[test]
+    fn a_cast_naming_a_program_alias_records_its_type_and_a_nominal_cast_is_left_as_written() {
+        let cast = |shape: &str| {
+            let effect = json!(["set", "@entity.count", ["as", "@payload.via", shape]]);
+            let mut schema = with_row_types(program(json!({ "name": "via", "type": "string" }), effect));
+            record_declared_list_types(&mut schema);
+            effect_of(&schema)[2][2].clone()
+        };
+        let recorded = DeclaredShape::parse(cast("Point").as_str().expect("recorded descriptor")).expect("an alias records its type");
+        assert_eq!(recorded.name.as_deref(), Some("Point"));
+        assert_eq!(cast("CallKey"), json!("CallKey"), "control: a nominal type is not an alias");
     }
 
     #[test]

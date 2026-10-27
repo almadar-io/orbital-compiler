@@ -3763,6 +3763,32 @@ mod tests {
     }
 
     #[test]
+    fn a_cast_to_a_declared_shape_narrows_to_its_optional_and_an_undeclared_name_is_refused() {
+        struct Declared;
+        impl TypeCtx for Declared {
+            fn binding_type(&self, binding: &OirBinding) -> Option<OirType> {
+                matches!(&binding.root, OirBindingRoot::Local(name) if name.as_str() == "v")
+                    .then(|| OirType::optional(OirType::map(OirType::String, OirType::Number)))
+            }
+            fn named_type(&self, name: &str) -> Option<OirType> {
+                (name == "Pt").then(|| OirType::Struct { fields: vec![OirField::new("x", OirType::Number)].into(), additional: None })
+            }
+            fn declared_type(&self, name: &str) -> Option<bool> {
+                Some(name == "Pt")
+            }
+        }
+        let cast = |shape: &str| call("as", vec![local("v"), text(shape)]);
+        assert_eq!(
+            infer_oir_expr_type(&cast("Pt"), &Declared).map(|t| t.is_optional()),
+            Some(true),
+            "a value that may not be of the shape narrows to null"
+        );
+        let legal = check_oir_expr(&cast("Pt"), &Declared);
+        assert!(legal.is_empty(), "a declared shape is a legal target: {legal:?}");
+        assert!(!check_oir_expr(&cast("Nope"), &Declared).is_empty(), "control: a name no type declares");
+    }
+
+    #[test]
     fn a_key_the_record_is_shown_to_hold_reads_a_value() {
         let m = || checked_local(OirExpr::Object { fields: Default::default() }, OirType::map(OirType::String, OirType::Number));
         let keys = || checked_local(list_of(vec![]), OirType::array(OirType::String));
