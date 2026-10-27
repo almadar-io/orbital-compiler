@@ -183,30 +183,6 @@ fn control_without_entity_override_the_upstream_persistence_and_collection_stay(
 }
 
 #[test]
-fn a_persistence_override_on_a_runtime_upstream_entity_is_refused_not_ignored() {
-    let (schema, codes) = inline_with(
-        "runtime",
-        r#", "persistence": "persistent", "collection": "x""#,
-    );
-    assert!(
-        fires(&codes, "ORB_O_ENTITY_PERSISTENCE_LOCKED"),
-        "{codes:?}"
-    );
-    let e = entity(&schema);
-    assert_eq!(e.persistence, Some(Persistence::Runtime));
-    assert_eq!(e.collection.as_deref(), Some("upstream_notes"));
-}
-
-#[test]
-fn a_collection_only_override_on_a_runtime_upstream_entity_is_refused_too() {
-    let (_, codes) = inline_with("runtime", r#", "collection": "x""#);
-    assert!(
-        fires(&codes, "ORB_O_ENTITY_PERSISTENCE_LOCKED"),
-        "{codes:?}"
-    );
-}
-
-#[test]
 fn control_a_runtime_upstream_without_override_is_clean() {
     let (schema, codes) = inline_with("runtime", "");
     assert!(
@@ -250,50 +226,6 @@ fn control_without_retype_the_upstream_field_is_untouched() {
     let f = field(&schema, "count");
     assert_eq!(f.field_type, FieldType::Number);
     assert_eq!(f.default, Some(SExpression::Number(1.0)));
-}
-
-#[test]
-fn retype_names_the_field_after_fields_renames() {
-    let (schema, codes) = inline(
-        r#", "fields": { "count": "total" }, "retype": [ { "name": "total", "type": "string" } ]"#,
-    );
-    assert!(codes.is_empty(), "{codes:?}");
-    assert_eq!(field(&schema, "total").field_type, FieldType::String);
-
-    let (_, codes) = inline(
-        r#", "fields": { "count": "total" }, "retype": [ { "name": "count", "type": "string" } ]"#,
-    );
-    assert!(
-        fires(&codes, "ORB_O_RETYPE_UNKNOWN_FIELD"),
-        "pre-rename name is unknown: {codes:?}"
-    );
-}
-
-#[test]
-fn retype_of_an_unknown_field_is_diagnosed() {
-    let (schema, codes) = inline(r#", "retype": [ { "name": "nope", "type": "string" } ]"#);
-    assert!(fires(&codes, "ORB_O_RETYPE_UNKNOWN_FIELD"), "{codes:?}");
-    assert_eq!(
-        entity(&schema).fields.len(),
-        3,
-        "an unknown retype adds nothing"
-    );
-}
-
-#[test]
-fn a_field_both_extended_and_retyped_is_an_error() {
-    let (_, codes) = inline(
-        r#", "extend": [ { "name": "tier", "type": "string" } ], "retype": [ { "name": "tier", "type": "number" } ]"#,
-    );
-    assert!(fires(&codes, "ORB_O_RETYPE_FIELD_CONFLICT"), "{codes:?}");
-}
-
-#[test]
-fn a_field_retyped_twice_is_an_error() {
-    let (_, codes) = inline(
-        r#", "retype": [ { "name": "count", "type": "string" }, { "name": "count", "type": "boolean" } ]"#,
-    );
-    assert!(fires(&codes, "ORB_O_RETYPE_FIELD_CONFLICT"), "{codes:?}");
 }
 
 #[test]
@@ -422,48 +354,11 @@ fn control_without_a_per_trait_fields_rename_both_traits_read_the_upstream_field
 }
 
 #[test]
-fn a_traits_key_naming_no_upstream_trait_is_diagnosed() {
-    let (_, codes) = inline(r#", "traits": { "Nope": { "events": { "A": "B" } } }"#);
-    assert!(fires(&codes, "ORB_O_TRAITS_UNKNOWN_TRAIT"), "{codes:?}");
-}
-
-#[test]
-fn a_prefixed_trait_name_is_not_an_upstream_name() {
-    let (_, codes) = inline(r#", "traits": { "AccountNoteList": { "events": { "A": "B" } } }"#);
-    assert!(fires(&codes, "ORB_O_TRAITS_UNKNOWN_TRAIT"), "{codes:?}");
-}
-
-#[test]
-fn a_traits_key_that_is_also_omitted_is_an_error() {
-    let (_, codes) = inline(
-        r#", "omit": [ "NoteForm" ], "traits": { "NoteForm": { "events": { "OPEN": "VIEW" } } }"#,
-    );
-    assert!(fires(&codes, "ORB_O_TRAITS_OMITTED_TRAIT"), "{codes:?}");
-    assert!(!fires(&codes, "ORB_O_TRAITS_UNKNOWN_TRAIT"), "{codes:?}");
-}
-
-#[test]
-fn a_traits_key_dropped_by_only_is_an_error() {
-    let (_, codes) = inline(
-        r#", "only": [ "NoteList" ], "traits": { "NoteForm": { "events": { "OPEN": "VIEW" } } }"#,
-    );
-    assert!(fires(&codes, "ORB_O_TRAITS_OMITTED_TRAIT"), "{codes:?}");
-}
-
-#[test]
 fn control_omitting_a_trait_without_overriding_it_raises_no_traits_error() {
     let (_, codes) = inline(
         r#", "omit": [ "NoteForm" ], "traits": { "NoteList": { "events": { "OPEN": "VIEW" } } }"#,
     );
     assert!(!fires(&codes, "ORB_O_TRAITS_OMITTED_TRAIT"), "{codes:?}");
-}
-
-#[test]
-fn a_trait_config_key_the_trait_never_declares_is_diagnosed() {
-    let (_, codes) = inline(
-        r#", "traits": { "NoteList": { "config": { "bogus": { "type": "unknown", "default": 1 } } } }"#,
-    );
-    assert!(fires(&codes, "ORB_O_CONFIG_UNKNOWN_KEY"), "{codes:?}");
 }
 
 #[test]

@@ -24,9 +24,6 @@ const TOTAL_REF: &str = "@payload.totalCount";
 struct FetchOptionsSeen {
     ids_events: HashSet<String>,
     no_total_events: HashSet<String>,
-    ids_with_include: Vec<usize>,
-    /// Transitions holding a `deliver: ids` fetch that declares no success event.
-    ids_without_success: Vec<usize>,
 }
 
 /// What a received event carries: the rows by reference, no total, or both.
@@ -164,7 +161,7 @@ pub(crate) fn validate_fetch_deliver(schema: &OrbitalSchema) -> ValidationResult
         }
     }
     let mut receivers: HashMap<(usize, String), Received> = HashMap::new();
-    for (index, (path, fetcher_orbital, td)) in traits.iter().enumerate() {
+    for (index, (_, fetcher_orbital, td)) in traits.iter().enumerate() {
         let source = BusEventSource {
             orbital: Some(fetcher_orbital.name.clone()),
             orbital_id: fetcher_orbital.id.clone(),
@@ -175,33 +172,11 @@ pub(crate) fn validate_fetch_deliver(schema: &OrbitalSchema) -> ValidationResult
         let mut seen = FetchOptionsSeen {
             ids_events: HashSet::new(),
             no_total_events: HashSet::new(),
-            ids_with_include: Vec::new(),
-            ids_without_success: Vec::new(),
         };
-        for (i, transition) in td.state_machine.transitions.iter().enumerate() {
+        for transition in &td.state_machine.transitions {
             for effect in transition.effects.iter().flatten() {
-                collect_fetches(effect, i, &mut seen);
+                collect_fetches(effect, &mut seen);
             }
-        }
-        for i in &seen.ids_with_include {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::FetchDeliverIdsEntityRefs,
-                    format!("{path}.stateMachine.transitions[{i}].effects"),
-                    "`deliver: ids` with `include`: included relations are row content, and `ids` delivers no rows",
-                )
-                .with_suggestion("Drop `include`, or drop `deliver: ids`"),
-            );
-        }
-        for i in &seen.ids_without_success {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::FetchDeliverIdsNoSuccess,
-                    format!("{path}.stateMachine.transitions[{i}].effects"),
-                    "`deliver: ids` without `emit.success`: the reference is only usable passed whole to a `render-ui` prop, and no event carries it",
-                )
-                .with_suggestion("Declare `emit: { success: <Event> }` and pass `@payload.data` whole to a `render-ui` prop in that event's arm, or drop `deliver: ids`"),
-            );
         }
         let events: HashSet<&String> = seen
             .ids_events
@@ -326,7 +301,7 @@ fn report(result: &mut ValidationResult, base: &str, arm: &str, uses: Vec<Restri
     }
 }
 
-fn collect_fetches(expr: &SExpression, transition: usize, seen: &mut FetchOptionsSeen) {
+fn collect_fetches(expr: &SExpression, seen: &mut FetchOptionsSeen) {
     let SExpression::Array(items) = expr else {
         return;
     };
@@ -344,14 +319,8 @@ fn collect_fetches(expr: &SExpression, transition: usize, seen: &mut FetchOption
             };
             let is = |key: &str, value: &str| matches!(options.get(key), Some(SExpression::String(s)) if s == value);
             if is("deliver", "ids") {
-                if options.contains_key("include") {
-                    seen.ids_with_include.push(transition);
-                }
-                match &success {
-                    Some(event) => {
-                        seen.ids_events.insert(event.clone().into_inner());
-                    }
-                    None => seen.ids_without_success.push(transition),
+                if let Some(event) = &success {
+                    seen.ids_events.insert(event.clone().into_inner());
                 }
             }
             if is("total", "none") {
@@ -362,7 +331,7 @@ fn collect_fetches(expr: &SExpression, transition: usize, seen: &mut FetchOption
         }
     }
     for item in items {
-        collect_fetches(item, transition, seen);
+        collect_fetches(item, seen);
     }
 }
 
@@ -804,61 +773,6 @@ mod tests {
         assert_eq!(codes(&s), vec![ErrorCode::FetchTotalNoneRead]);
     }
 
-    fn bare_fetch(options: &str) -> OrbitalSchema {
-        schema_json(&format!(
-            r#"{{ "name": "T", "stateMachine": {{ "states": [{{ "name": "idle", "isInitial": true }}],
-              "transitions": [{{ "from": "idle", "to": "idle", "event": "INIT",
-                "effects": [["fetch", "Item", {options}]] }}] }} }}"#
-        ))
-    }
-
-    #[test]
-    fn ids_without_a_success_event_is_an_error() {
-        assert_eq!(
-            codes(&bare_fetch(r#"{ "deliver": "ids" }"#)),
-            vec![ErrorCode::FetchDeliverIdsNoSuccess]
-        );
-        // a failure-only emit still carries no result
-        assert_eq!(
-            codes(&bare_fetch(r#"{ "deliver": "ids", "emit": { "failure": "Bad" } }"#)),
-            vec![ErrorCode::FetchDeliverIdsNoSuccess]
-        );
-    }
-
-    #[test]
-    fn control_a_rows_fetch_without_a_success_event_and_an_ids_fetch_with_one_validate() {
-        assert!(codes(&bare_fetch(r#"{ "limit": 5 }"#)).is_empty());
-        assert!(codes(&bare_fetch(r#"{ "deliver": "rows" }"#)).is_empty());
-        assert!(codes(&bare_fetch(r#"{ "deliver": "ids", "emit": { "success": "Loaded" } }"#)).is_empty());
-    }
-
-    #[test]
-    fn invalid_option_values_are_errors_and_valid_ones_pass() {
-        use crate::phases::validation::effect::validate_fetch;
-        use std::collections::{HashMap, HashSet};
-        let run = |options: serde_json::Value| {
-            let arr: Vec<SExpression> =
-                serde_json::from_value(serde_json::json!(["fetch", "Item", options])).unwrap();
-            let known: HashSet<String> = ["Item".to_string()].into();
-            validate_fetch(&arr, "p", &known, &HashMap::new(), None)
-                .errors
-                .iter()
-                .filter(|e| e.code == ErrorCode::EffectFetchInvalidOption)
-                .count()
-        };
-        assert_eq!(run(serde_json::json!({ "deliver": "bytes" })), 1);
-        assert_eq!(run(serde_json::json!({ "total": "approx" })), 1);
-        assert_eq!(run(serde_json::json!({ "deliver": 1, "total": "x" })), 2);
-        assert_eq!(
-            run(serde_json::json!({ "deliver": "ids", "total": "none" })),
-            0
-        );
-        assert_eq!(
-            run(serde_json::json!({ "deliver": "rows", "total": "exact" })),
-            0
-        );
-    }
-
     #[test]
     fn ids_passed_whole_as_a_render_ui_prop_is_accepted() {
         let t = trait_with(
@@ -945,16 +859,6 @@ mod tests {
     fn a_sibling_payload_field_is_not_the_data_reference() {
         let t = trait_with(IDS, r#"["set", "@entity.x", "@payload.dataset"]"#, None);
         assert!(codes(&t).is_empty());
-    }
-
-    #[test]
-    fn ids_with_include_is_an_error() {
-        let t = trait_with(
-            r#""deliver": "ids", "include": ["owner"]"#,
-            r#"["render-ui", "main", null]"#,
-            None,
-        );
-        assert_eq!(codes(&t), vec![ErrorCode::FetchDeliverIdsEntityRefs]);
     }
 
     #[test]
@@ -1753,12 +1657,12 @@ mod tests {
             .errors
             .iter()
             .map(|e| e.code.clone())
-            .filter(|c| matches!(c, ErrorCode::EffectFetchInvalidOption | ErrorCode::OperatorArgTypeMismatch))
+            .filter(|c| matches!(c, ErrorCode::OperatorArgTypeMismatch))
             .collect()
     }
 
     #[test]
-    fn a_well_formed_nearest_validates_and_each_malformed_one_is_refused() {
+    fn a_well_formed_nearest_validates_and_a_mistyped_one_is_refused() {
         let nearest = |body: &str| format!(r#""nearest": {{ {body} }}"#);
         let good = nearest(r#""field": "embedding", "vector": "@entity.embedding", "k": 3"#);
         assert!(nearest_codes(&good).is_empty(), "{:?}", nearest_codes(&good));
@@ -1767,23 +1671,6 @@ mod tests {
         let dynamic_k = nearest(r#""field": "embedding", "vector": "@entity.embedding", "k": "@entity.count""#);
         assert!(nearest_codes(&dynamic_k).is_empty());
 
-        let opt = vec![ErrorCode::EffectFetchInvalidOption];
-        for combined in [r#""limit": 5"#, r#""offset": 1"#, r#""orderBy": "title""#, r#""id": "@entity.id""#] {
-            assert_eq!(nearest_codes(&format!("{good}, {combined}")), opt, "{combined}");
-        }
-        for body in [
-            r#""field": "title", "vector": "@entity.embedding", "k": 3"#,
-            r#""field": "nope", "vector": "@entity.embedding", "k": 3"#,
-            r#""vector": "@entity.embedding", "k": 3"#,
-            r#""field": "embedding", "k": 3"#,
-            r#""field": "embedding", "vector": "@entity.embedding""#,
-            r#""field": "embedding", "vector": "@entity.embedding", "k": 0"#,
-            r#""field": "embedding", "vector": "@entity.embedding", "k": 1.5"#,
-            r#""field": "embedding", "vector": "@entity.embedding", "k": -2"#,
-            r#""field": "embedding", "vector": "@entity.embedding", "k": 3, "metric": "dot""#,
-        ] {
-            assert_eq!(nearest_codes(&nearest(body)), opt, "{body}");
-        }
         for body in [
             r#""field": "embedding", "vector": "@entity.title", "k": 3"#,
             r#""field": "embedding", "vector": "@entity.embedding", "k": "@entity.title""#,

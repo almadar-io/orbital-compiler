@@ -364,7 +364,7 @@ pub(crate) fn produced_payload(
     if op_name == "random-bytes" {
         return random_bytes_payload(args);
     }
-    if matches!(op_name, "call-service" | "call_service") {
+    if op_name == "call-service" {
         return keyed_call_service_payload(args, registry);
     }
     let produces = get_operator(op_name)?.effect.as_ref()?.produces.as_ref()?;

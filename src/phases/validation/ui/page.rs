@@ -54,14 +54,6 @@ mod endpoint_tests {
         page
     }
 
-    fn http(path: &str, traits: &[&str]) -> Value {
-        endpoint(
-            "http",
-            json!({"host": "0.0.0.0", "port": 8080, "path": path}),
-            traits,
-        )
-    }
-
     fn grants() -> Value {
         json!({"net": [{"target": "0.0.0.0:8080", "kinds": ["listen"]}]})
     }
@@ -116,67 +108,6 @@ mod endpoint_tests {
             Value::Null,
         );
         assert!(!codes.contains(&ErrorCode::TraitUnmounted), "{codes:?}");
-    }
-
-    #[test]
-    fn a_trait_mounted_only_on_an_endpoint_renders_nothing() {
-        let page = json!([route("/t", &["V"]), http("/", &["S"])]);
-        let codes = one(
-            vec![trait_json("V", "INIT", true), trait_json("S", "INIT", true)],
-            page,
-            grants(),
-        );
-        assert!(
-            codes.contains(&ErrorCode::TraitEndpointRenders),
-            "{codes:?}"
-        );
-        let page = json!([route("/t", &["V"]), http("/", &["S"])]);
-        let codes = one(
-            vec![trait_json("V", "INIT", true), trait_json("S", "GO", false)],
-            page,
-            grants(),
-        );
-        for code in [
-            ErrorCode::TraitEndpointRenders,
-            ErrorCode::TraitMissingRenderUI,
-            ErrorCode::TraitUnmounted,
-        ] {
-            assert!(!codes.contains(&code), "{code:?} in {codes:?}");
-        }
-    }
-
-    #[test]
-    fn a_boot_trait_that_renders_errors() {
-        let page = json!([route("/t", &["V"]), endpoint("boot", Value::Null, &["B"])]);
-        let codes = one(
-            vec![trait_json("V", "INIT", true), trait_json("B", "INIT", true)],
-            page,
-            Value::Null,
-        );
-        assert!(
-            codes.contains(&ErrorCode::TraitEndpointRenders),
-            "{codes:?}"
-        );
-    }
-
-    #[test]
-    fn one_trait_on_a_route_and_an_endpoint_errors() {
-        let page = json!([route("/t", &["T"]), http("/", &["T"])]);
-        let codes = one(vec![trait_json("T", "INIT", true)], page, grants());
-        assert!(
-            codes.contains(&ErrorCode::TraitOnRouteAndEndpoint),
-            "{codes:?}"
-        );
-        assert!(
-            !codes.contains(&ErrorCode::TraitEndpointRenders),
-            "{codes:?}"
-        );
-        let page = json!([route("/t", &["T"]), route("/u", &["T"])]);
-        let codes = one(vec![trait_json("T", "INIT", true)], page, Value::Null);
-        assert!(
-            !codes.contains(&ErrorCode::TraitOnRouteAndEndpoint),
-            "{codes:?}"
-        );
     }
 
     #[test]

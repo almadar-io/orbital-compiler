@@ -7,12 +7,6 @@
 //! (`phases::inline::inline_schema_with_orbital_diagnostics`) into proper
 //! `ValidationError`s.
 //!
-//! - `ORB_O_CONFIG_UNKNOWN_KEY`: an orbital reference's call-site `config {}`
-//!   names a key the upstream orbital never declared. The override silently
-//!   no-ops.
-//! - `ORB_O_OMIT_EMBEDDED_TRAIT`: an orbital reference's `omit {}` / `only {}`
-//!   drops a trait that a surviving trait still embeds via `@trait.<X>` — the
-//!   embed token has nothing left to render.
 //! - `ORB_O_ROLE_TARGET_NOT_MEMBER`: a `roles {}` remap target is not a
 //!   member of the CONSUMER roster's vocabulary.
 //! - `ORB_O_ROLE_UNKNOWN_UPSTREAM`: a `roles {}` key names no value in any
@@ -23,8 +17,6 @@
 //!   upstream closure's out-of-orbital universe.
 //! - `ORB_O_ENTITY_TARGET_UNKNOWN`: an `entities {}` value names no entity
 //!   the consumer schema declares.
-//! - `ORB_O_PAGE_UNKNOWN_PATH`: a `pages {}` / `mounts {}` key names no page
-//!   path the imported orbital declares.
 //! - `ORB_U_CONFIG_UNKNOWN_KEY`: a `uses A from "…" { config { … } }`
 //!   override names a key the imported behavior's app-level `config {}`
 //!   never declared.
@@ -77,40 +69,6 @@ pub fn validate_orbital_ref_diagnostics(
     let (roster_entities, roster_fields) = consumer_role_vocabulary(schema);
 
     for diag in diagnostics {
-        for key in &diag.unknown_config_keys {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::OrbitalRefConfigUnknownKey,
-                    format!("{}.config({})", diag.path, key),
-                    format!(
-                        "Call-site config key '{}' does not match any config knob declared by upstream orbital '{}'. It silently no-ops.",
-                        key, diag.reference
-                    ),
-                )
-                .with_suggestion(format!(
-                    "Remove '{}' or declare it in the upstream orbital's `config {{}}` block.",
-                    key
-                )),
-            );
-        }
-
-        for (surviving_trait, omitted_trait) in &diag.omitted_but_embedded {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::OrbitalRefOmitEmbeddedTrait,
-                    format!("{}.omit({})", diag.path, omitted_trait),
-                    format!(
-                        "Orbital reference '{}' omits trait '{}', but trait '{}' still embeds it via '@trait.{}'. The embed has nothing left to render.",
-                        diag.reference, omitted_trait, surviving_trait, omitted_trait
-                    ),
-                )
-                .with_suggestion(format!(
-                    "Keep '{}' (drop it from omit, or add it to only), or remove the '@trait.{}' embed from '{}'.",
-                    omitted_trait, omitted_trait, surviving_trait
-                )),
-            );
-        }
-
         for literal in &diag.role_unknown_upstream {
             result.add_error(
                 ValidationError::error(
@@ -229,134 +187,6 @@ pub fn validate_orbital_ref_diagnostics(
             );
         }
 
-        for key in &diag.page_unknown_path {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::OrbitalRefPageUnknownPath,
-                    format!("{}.pages({})", diag.path, key),
-                    format!(
-                        "`pages {{}}` / `mounts {{}}` key '{}' names no page path upstream orbital '{}' declares.",
-                        key, diag.reference
-                    ),
-                )
-                .with_suggestion(format!(
-                    "Match '{}' to a path the upstream orbital's `pages {{}}` actually declares.",
-                    key
-                )),
-            );
-        }
-
-        for field in &diag.mock_unknown_field {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::OrbitalRefMockUnknownField,
-                    format!("{}.mock({})", diag.path, field),
-                    format!(
-                        "`mock {{}}` names '{}', which the entity materialized from '{}' does not declare.",
-                        field, diag.reference
-                    ),
-                )
-                .with_suggestion(
-                    "Name a field of the imported primary entity as it is after `fields {}` renames, or an `extend {}` field.".to_string(),
-                ),
-            );
-        }
-
-        for field in &diag.retype_unknown_field {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::OrbitalRefRetypeUnknownField,
-                    format!("{}.retype({})", diag.path, field),
-                    format!(
-                        "`retype {{}}` names '{}', which the entity materialized from '{}' does not declare.",
-                        field, diag.reference
-                    ),
-                )
-                .with_suggestion(
-                    "Name a field the upstream primary entity already declares, as it is after `fields {}` renames; add a new field with `extend {}`.".to_string(),
-                ),
-            );
-        }
-
-        for (field, reason) in &diag.retype_conflict {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::OrbitalRefRetypeFieldConflict,
-                    format!("{}.retype({})", diag.path, field),
-                    format!("`retype {{}}` field '{}' is {}.", field, reason),
-                )
-                .with_suggestion(
-                    "Declare the field once: either `extend {}` it or `retype {}` it, and list it once.".to_string(),
-                ),
-            );
-        }
-
-        if let Some(mode) = &diag.entity_persistence_locked {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::OrbitalRefEntityPersistenceLocked,
-                    format!("{}.entity", diag.path),
-                    format!(
-                        "The `entity [..]` persistence/collection override has no effect: the primary entity of '{}' is `{}`, and only a `persistent` entity allows its persistence or collection to be overridden.",
-                        diag.reference, mode
-                    ),
-                )
-                .with_suggestion(
-                    "Remove the persistence/collection from the `entity` line, or import an orbital whose entity is persistent.".to_string(),
-                ),
-            );
-        }
-
-        for name in &diag.traits_unknown_trait {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::OrbitalRefTraitsUnknownTrait,
-                    format!("{}.traits({})", diag.path, name),
-                    format!(
-                        "`traits {{}}` key '{}' names no trait of upstream orbital '{}'.",
-                        name, diag.reference
-                    ),
-                )
-                .with_suggestion(
-                    "Key each entry by the trait's UPSTREAM name (before the import prefix)."
-                        .to_string(),
-                ),
-            );
-        }
-
-        for name in &diag.traits_omitted_trait {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::OrbitalRefTraitsOmittedTrait,
-                    format!("{}.traits({})", diag.path, name),
-                    format!(
-                        "`traits {{}}` overrides '{}', but `omit {{}}` / `only {{}}` drops that trait from the import.",
-                        name
-                    ),
-                )
-                .with_suggestion(format!(
-                    "Remove the `traits {{ {name} {{ … }} }}` entry, or keep '{name}' in the import."
-                )),
-            );
-        }
-
-        for (trait_name, key) in &diag.traits_unknown_config_key {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::OrbitalRefConfigUnknownKey,
-                    format!("{}.traits({}).config({})", diag.path, trait_name, key),
-                    format!(
-                        "`traits {{ {} }}` config key '{}' does not match any knob the upstream trait declares. It silently no-ops.",
-                        trait_name, key
-                    ),
-                )
-                .with_suggestion(format!(
-                    "Remove '{}' or use a knob declared in '{}''s `config {{}}` block.",
-                    key, trait_name
-                )),
-            );
-        }
-
         for (position, name) in &diag.field_rename_unapplied {
             result.add_error(
                 ValidationError::error(
@@ -417,21 +247,13 @@ fn is_orbital_ref_root(code: ErrorCode) -> bool {
 
 /// The `ORB_O_*`/`ORB_U_*` root codes, by value.
 const ORBITAL_REF_ROOTS: &[ErrorCode] = &[
-    ErrorCode::OrbitalRefConfigUnknownKey,
-    ErrorCode::OrbitalRefOmitEmbeddedTrait,
     ErrorCode::OrbitalRefRoleUnknownUpstream,
     ErrorCode::OrbitalRefRoleTargetNotMember,
     ErrorCode::OrbitalRefEntityUnmapped,
     ErrorCode::OrbitalRefEntityUnknownKey,
     ErrorCode::OrbitalRefEntityExpectAmbiguous,
     ErrorCode::OrbitalRefEntityTargetUnknown,
-    ErrorCode::OrbitalRefPageUnknownPath,
     ErrorCode::OrbitalRefFieldRenameUnapplied,
-    ErrorCode::OrbitalRefRetypeUnknownField,
-    ErrorCode::OrbitalRefRetypeFieldConflict,
-    ErrorCode::OrbitalRefEntityPersistenceLocked,
-    ErrorCode::OrbitalRefTraitsUnknownTrait,
-    ErrorCode::OrbitalRefTraitsOmittedTrait,
     ErrorCode::UsesConfigUnknownKey,
 ];
 

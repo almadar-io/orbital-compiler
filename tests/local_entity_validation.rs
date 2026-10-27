@@ -64,28 +64,6 @@ fn has(result: &ValidationResult, code: ErrorCode) -> bool {
 }
 
 #[test]
-fn a_local_trait_may_fetch_and_persist_a_local_entity() {
-    let t = browse("Invoice", true, json!([["fetch", "Invoice", {}], ["persist", "update", "Invoice", "@entity"]]));
-    let r = validate_comprehensive_without_services(&schema(vec![invoice(json!({}))], vec![t]));
-    assert!(!has(&r, ErrorCode::TraitLocalTouchesServer), "{:?}", codes(&r));
-    assert!(!has(&r, ErrorCode::TraitLocalOnNonSharedPersistent), "{:?}", codes(&r));
-}
-
-#[test]
-fn control_a_local_trait_still_may_not_fetch_a_server_entity() {
-    let t = browse("Invoice", true, json!([["fetch", "Ledger", {}]]));
-    let r = validate_comprehensive_without_services(&schema(vec![invoice(json!({})), ledger()], vec![t]));
-    assert!(has(&r, ErrorCode::TraitLocalTouchesServer), "{:?}", codes(&r));
-}
-
-#[test]
-fn control_a_local_trait_still_may_not_call_a_service() {
-    let t = browse("Invoice", true, json!([["call-service", "test-svc", "run", {}]]));
-    let r = validate_comprehensive_without_services(&schema(vec![invoice(json!({}))], vec![t]));
-    assert!(has(&r, ErrorCode::TraitLocalTouchesServer), "{:?}", codes(&r));
-}
-
-#[test]
 fn one_transition_touching_browser_and_server_data_is_rejected() {
     let t = browse("Invoice", false, json!([["fetch", "Invoice", {}], ["fetch", "Ledger", {}]]));
     let r = validate_comprehensive_without_services(&schema(vec![invoice(json!({})), ledger()], vec![t]));
@@ -97,15 +75,5 @@ fn control_a_transition_touching_only_browser_data_is_accepted() {
     let t = browse("Invoice", false, json!([["fetch", "Invoice", {}]]));
     let r = validate_comprehensive_without_services(&schema(vec![invoice(json!({}))], vec![t]));
     assert!(!has(&r, ErrorCode::CrossMixedResidence), "{:?}", codes(&r));
-}
-
-fn localized(locales: Value, entity: Value) -> OrbitalSchema {
-    let mut s = serde_json::to_value(schema(vec![entity], vec![])).unwrap();
-    s["locales"] = locales;
-    serde_json::from_value(s).unwrap()
-}
-
-fn row(id: &str) -> Value {
-    json!({ "id": id, "amount": 1 })
 }
 

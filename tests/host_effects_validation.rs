@@ -50,57 +50,11 @@ fn routes() -> Value {
 }
 
 #[test]
-fn control_a_well_formed_call_of_each_effect_raises_none_of_the_host_codes() {
-    let r = check(json!([
-        ["random-bytes", 32, routes()],
-        ["credential-status", "@config.tok", { "emit": { "success": "KNOWN" } }],
-        ["credential-forget", "@config.tok"]
-    ]));
-    for code in [ErrorCode::HostEffectArity, ErrorCode::HostEffectOptionUnknown, ErrorCode::RandomBytesCount] {
-        assert!(!fires(&r, code), "{code:?}: {:?}", r.errors);
-    }
-}
-
-#[test]
-fn the_wrong_number_of_arguments_is_an_arity_error() {
-    for effect in [
-        json!(["random-bytes"]),
-        json!(["random-bytes", 8, {}, {}]),
-        json!(["credential-status"]),
-        json!(["credential-forget", "@config.tok", {}, {}]),
-    ] {
-        assert!(fires(&check(json!([effect.clone()])), ErrorCode::HostEffectArity), "{effect}");
-    }
-}
-
-#[test]
-fn only_emit_is_an_option_and_only_success_and_failure_are_emit_keys() {
-    let r = check(json!([["credential-forget", "@config.tok", { "key": "k" }]]));
-    assert!(fires(&r, ErrorCode::HostEffectOptionUnknown));
-    let r = check(json!([["random-bytes", 8, "not-an-object"]]));
-    assert!(fires(&r, ErrorCode::HostEffectOptionUnknown));
+fn only_success_and_failure_are_emit_keys() {
     for key in ["cancelled", "onMessage"] {
         let r = check(json!([["credential-status", "@config.tok", { "emit": { key: "DRAWN" } }]]));
         assert!(fires(&r, ErrorCode::EffectEmitKeyInvalid), "emit.{key}");
     }
-}
-
-#[test]
-fn a_literal_count_outside_one_to_1024_is_refused() {
-    for bad in [json!(0), json!(1025), json!(1.5), json!(-1)] {
-        assert!(fires(&check(json!([["random-bytes", bad.clone()]])), ErrorCode::RandomBytesCount), "{bad}");
-    }
-    for good in [json!(1), json!(1024)] {
-        assert!(!fires(&check(json!([["random-bytes", good.clone()]])), ErrorCode::RandomBytesCount), "{good}");
-    }
-    assert!(!fires(&check(json!([["random-bytes", "@payload.n"]])), ErrorCode::RandomBytesCount));
-}
-
-#[test]
-fn only_the_tables_closed_calls_are_held_to_the_host_effect_shape() {
-    let r = check(json!([["fetch", "Item", { "key": "k", "cancelled": "X", "emit": { "success": "LOADED" } }]]));
-    assert!(!fires(&r, ErrorCode::HostEffectOptionUnknown) && !fires(&r, ErrorCode::HostEffectArity), "control: fetch is a data effect: {:?}", r.errors);
-    assert!(fires(&check(json!([["access-check", {}, { "cancelled": "X" }]])), ErrorCode::HostEffectOptionUnknown));
 }
 
 #[test]
@@ -193,23 +147,19 @@ fn os_keys_extend_success_failure_and_stream_messages_only_when_keyed() {
 }
 
 #[test]
-fn random_bytes_takes_a_string_key_and_only_it_and_emit() {
+fn random_bytes_takes_a_string_key() {
     let keyed = |key: Value| json!([["random-bytes", 8, { "key": key, "emit": { "success": "DRAWN_KEYED", "failure": "DRAW_FAILED" } }]]);
     let ok = check(keyed(json!("@entity.id")));
-    assert!(!fires(&ok, ErrorCode::HostEffectOptionUnknown) && !fires(&ok, ErrorCode::CallServiceKeyType), "{:?}", ok.errors);
+    assert!(!fires(&ok, ErrorCode::CallServiceKeyType), "{:?}", ok.errors);
     assert!(!fires(&ok, ErrorCode::EmitPayloadNotProduced), "{:?}", ok.errors);
     assert!(fires(&check(keyed(json!(5))), ErrorCode::CallServiceKeyType));
     assert!(fires(&check(keyed(json!(""))), ErrorCode::CallServiceKeyType));
-    let other = check(json!([["random-bytes", 8, { "cancelled": "X" }]]));
-    assert!(fires(&other, ErrorCode::HostEffectOptionUnknown));
-    let status = check(json!([["credential-status", "@config.tok", { "key": "k" }]]));
-    assert!(fires(&status, ErrorCode::HostEffectOptionUnknown), "only random-bytes is keyed here");
     let unkeyed = check(json!([["random-bytes", 8, { "emit": { "success": "DRAWN_KEYED" } }]]));
     assert!(fires(&unkeyed, ErrorCode::EmitPayloadNotProduced), "an unkeyed call produces no key");
 }
 
 #[test]
-fn a_literal_credential_request_names_only_declared_parameters_and_all_required_ones() {
+fn every_credential_effect_is_a_known_effect() {
     let ok = check(json!([
         ["credential-list", {}, routes()],
         ["credential-list", { "service": "llm" }, routes()],
@@ -220,54 +170,21 @@ fn a_literal_credential_request_names_only_declared_parameters_and_all_required_
         ["credential-rotate"],
         ["credential-test", "@payload.request"]
     ]));
-    assert!(!fires(&ok, ErrorCode::CredentialRequestInvalid), "{:?}", ok.errors);
     assert!(!fires(&ok, ErrorCode::EffectUnknownType), "every credential effect is a known effect: {:?}", ok.errors);
-    for bad in [
-        json!(["credential-set", { "service": "a", "envVar": "B" }]),
-        json!(["credential-set", { "service": "a", "envVar": "B", "value": "v", "force": true }]),
-        json!(["credential-remove", {}]),
-        json!(["credential-list", { "name": "x" }]),
-        json!(["credential-mode", 5]),
-        json!(["credential-test", "plain text"]),
-    ] {
-        assert!(fires(&check(json!([bad.clone()])), ErrorCode::CredentialRequestInvalid), "{bad}");
-    }
 }
 
 #[test]
-fn the_credential_effects_take_one_request_and_optional_routes_and_their_payloads_are_checked() {
-    for effect in [json!(["credential-list"]), json!(["credential-set", {}, {}, {}]), json!(["credential-rotate", {}, {}])] {
-        assert!(fires(&check(json!([effect.clone()])), ErrorCode::HostEffectArity), "{effect}");
-    }
-    let r = check(json!([["credential-rotate", { "key": "k" }]]));
-    assert!(fires(&r, ErrorCode::HostEffectOptionUnknown));
+fn the_credential_effect_payloads_are_checked() {
     let ok = check(json!([["credential-rotate", { "emit": { "success": "DRAWN", "failure": "DRAW_FAILED" } }]]));
     assert!(fires(&ok, ErrorCode::EmitPayloadNotProduced), "DRAWN reads `value`, which rotate does not produce");
 }
 
 mod oauth {
-    //! `ORB_OAUTH_*`: every code has a positive case and a control that stays silent.
+    //! `oauth-authorize` key and emit options.
     use super::*;
-
-    const CODES: [ErrorCode; 6] = [
-        ErrorCode::OAuthClientInvalid,
-        ErrorCode::OAuthOpUnknown,
-        ErrorCode::OAuthEndpointMismatch,
-        ErrorCode::OAuthRequestConflict,
-        ErrorCode::OAuthProviderUnknown,
-        ErrorCode::OAuthOptionUnknown,
-    ];
 
     fn client() -> Value {
         json!({ "tag": "google", "mode": "real", "issuer": "https://idp.example.com", "clientId": "tok", "clientSecret": "tok", "clientAuth": "post" })
-    }
-
-    fn token_call(auth: Value) -> Value {
-        json!(["http", "POST", "oauth-endpoint", "token", { "auth": auth }, { "emit": { "success": "KNOWN", "failure": "DRAW_FAILED" } }])
-    }
-
-    fn connect() -> Value {
-        json!({ "scheme": "oauth-client", "op": "connect", "client": client(), "provider": "google", "code": "@payload.code", "state": "@payload.state" })
     }
 
     fn with_egress(effects: Value) -> ValidationResult {
@@ -276,151 +193,16 @@ mod oauth {
         validate_comprehensive_without_services(&serde_json::from_value(schema).expect("schema"))
     }
 
-    fn fired(r: &ValidationResult) -> Vec<ErrorCode> {
-        CODES.into_iter().filter(|code| fires(r, *code)).collect()
-    }
-
     #[test]
-    fn control_well_formed_oauth_calls_raise_no_oauth_code() {
-        let r = with_egress(json!([
-            token_call(connect()),
-            ["http", "GET", "https://idp.example.com", "/.well-known/openid-configuration",
-                { "auth": { "scheme": "oauth-client", "op": "discovery", "client": client() } }],
-            ["oauth-authorize", client(), { "redirectUri": "https://app/cb", "scope": ["openid"] }, { "emit": { "success": "KNOWN" } }],
-            ["oauth-connection-status", "google", { "emit": { "success": "KNOWN" } }],
-            ["oauth-connection-forget", "github"]
-        ]));
-        assert!(fired(&r).is_empty(), "{:?}", r.errors);
-        assert!(!fires(&r, ErrorCode::HttpEgressUndeclared), "{:?}", r.errors);
-    }
-
-    #[test]
-    fn a_malformed_client_is_refused() {
-        let mut cases = Vec::new();
-        for (what, edit) in [
-            ("unknown key", json!({ "bogus": 1 })),
-            ("bad tag", json!({ "tag": "okta" })),
-            ("bad mode", json!({ "mode": "fake" })),
-            ("bad clientAuth", json!({ "clientAuth": "digest" })),
-            ("both", json!({ "endpoints": { "authorization": "https://idp.example.com/a", "token": "https://idp.example.com/t" } })),
-        ] {
-            let mut c = client();
-            for (k, v) in edit.as_object().unwrap() {
-                c[k] = v.clone();
-            }
-            cases.push((what, c));
-        }
-        let mut neither = client();
-        neither.as_object_mut().unwrap().remove("issuer");
-        cases.push(("neither", neither));
-        let mut no_id = client();
-        no_id.as_object_mut().unwrap().remove("clientId");
-        cases.push(("no clientId", no_id));
-        for (what, c) in cases {
-            let mut auth = connect();
-            auth["client"] = c;
-            assert!(fires(&with_egress(json!([token_call(auth)])), ErrorCode::OAuthClientInvalid), "{what}");
-        }
-    }
-
-    #[test]
-    fn an_unknown_op_or_a_wrong_input_set_is_refused() {
-        let mut auth = connect();
-        auth["op"] = json!("rotate");
-        assert!(fires(&with_egress(json!([token_call(auth)])), ErrorCode::OAuthOpUnknown));
-        let mut auth = connect();
-        auth.as_object_mut().unwrap().remove("provider");
-        assert!(fires(&with_egress(json!([token_call(auth)])), ErrorCode::OAuthOpUnknown), "connect needs provider");
-        let mut auth = json!({ "scheme": "oauth-client", "op": "code", "client": client(), "code": "c", "state": "s", "provider": "google" });
-        assert!(fires(&with_egress(json!([token_call(auth.clone())])), ErrorCode::OAuthOpUnknown), "code takes no provider");
-        auth.as_object_mut().unwrap().remove("provider");
-        assert!(!fires(&with_egress(json!([token_call(auth)])), ErrorCode::OAuthOpUnknown));
-    }
-
-    #[test]
-    fn the_target_word_and_method_must_serve_the_op() {
-        let wrong_word = json!(["http", "POST", "oauth-endpoint", "userinfo", { "auth": connect() }]);
-        assert!(fires(&with_egress(json!([wrong_word])), ErrorCode::OAuthEndpointMismatch));
-        let wrong_method = json!(["http", "GET", "oauth-endpoint", "token", { "auth": connect() }]);
-        assert!(fires(&with_egress(json!([wrong_method])), ErrorCode::OAuthEndpointMismatch));
-        let literal = json!(["http", "POST", "https://idp.example.com", "/token", { "auth": connect() }]);
-        assert!(fires(&with_egress(json!([literal])), ErrorCode::OAuthEndpointMismatch), "connect is not sent to a literal origin");
-        let bearer = json!(["http", "POST", "oauth-endpoint", "token", { "auth": { "scheme": "bearer", "credential": "tok" } }]);
-        assert!(fires(&with_egress(json!([bearer])), ErrorCode::OAuthEndpointMismatch));
-        let discovery = json!(["http", "GET", "oauth-endpoint", "token", { "auth": { "scheme": "oauth-client", "op": "discovery", "client": client() } }]);
-        assert!(fires(&with_egress(json!([discovery])), ErrorCode::OAuthEndpointMismatch));
-    }
-
-    #[test]
-    fn op_code_routes_by_clients_and_no_other_op_does() {
-        let mut github = client();
-        github["tag"] = json!("github");
-        let routed = |clients: Value| json!({"scheme":"oauth-client","op":"code","clients":clients,"code":"@payload.code","state":"@payload.state"});
-        let ok = with_egress(json!([token_call(routed(json!({"google": client(), "github": github.clone()})))]));
-        assert!(fired(&ok).is_empty(), "{:?}", ok.errors);
-        let wrong_key = with_egress(json!([token_call(routed(json!({"github": client()})))]));
-        assert!(fires(&wrong_key, ErrorCode::OAuthClientInvalid));
-        let unknown_tag = with_egress(json!([token_call(routed(json!({"okta": client()})))]));
-        assert!(fires(&unknown_tag, ErrorCode::OAuthProviderUnknown));
-        let mut both = routed(json!({"google": client()}));
-        both["client"] = client();
-        assert!(fires(&with_egress(json!([token_call(both)])), ErrorCode::OAuthClientInvalid));
-        let mut refresh = json!({"scheme":"oauth-client","op":"refresh","clients":{"google": client()},"refreshToken":"R"});
-        assert!(fires(&with_egress(json!([token_call(refresh.clone())])), ErrorCode::OAuthOpUnknown));
-        refresh.as_object_mut().unwrap().remove("clients");
-        refresh["client"] = client();
-        assert!(!fires(&with_egress(json!([token_call(refresh)])), ErrorCode::OAuthOpUnknown));
-    }
-
-    #[test]
-    fn oauth_authorize_takes_a_key_and_only_it_and_emit() {
+    fn oauth_authorize_takes_a_string_key() {
         let keyed = json!(["oauth-authorize", client(), {"redirectUri":"https://app/cb"}, {"key":"@entity.id","emit":{"success":"KNOWN"}}]);
         let r = with_egress(json!([keyed]));
-        assert!(!fires(&r, ErrorCode::HostEffectOptionUnknown) && !fires(&r, ErrorCode::CallServiceKeyType), "{:?}", r.errors);
-        let other = json!(["oauth-authorize", client(), {"redirectUri":"https://app/cb"}, {"cancelled":"X"}]);
-        assert!(fires(&with_egress(json!([other])), ErrorCode::HostEffectOptionUnknown));
+        assert!(!fires(&r, ErrorCode::CallServiceKeyType), "{:?}", r.errors);
         let empty = json!(["oauth-authorize", client(), {"redirectUri":"https://app/cb"}, {"key":""}]);
         assert!(fires(&with_egress(json!([empty])), ErrorCode::CallServiceKeyType));
-        let status = json!(["oauth-connection-status", "google", {"key":"k"}]);
-        assert!(fires(&with_egress(json!([status])), ErrorCode::HostEffectOptionUnknown), "only authorize is keyed");
     }
 
-    #[test]
-    fn an_oauth_request_carries_only_auth() {
-        let call = json!(["http", "POST", "oauth-endpoint", "token", { "auth": connect(), "json": { "a": 1 } }]);
-        assert!(fires(&with_egress(json!([call])), ErrorCode::OAuthRequestConflict));
-    }
-
-    #[test]
-    fn an_unknown_provider_word_is_refused_on_the_effects_and_on_connect() {
-        for effect in [
-            json!(["oauth-connection-status", "okta"]),
-            json!(["oauth-connection-forget", 7]),
-        ] {
-            assert!(fires(&with_egress(json!([effect.clone()])), ErrorCode::OAuthProviderUnknown), "{effect}");
-        }
-        let mut auth = connect();
-        auth["provider"] = json!("okta");
-        assert!(fires(&with_egress(json!([token_call(auth)])), ErrorCode::OAuthProviderUnknown));
-    }
-
-    #[test]
-    fn oauth_authorize_options_are_closed_and_need_a_redirect() {
-        let unknown = json!(["oauth-authorize", client(), { "redirectUri": "https://app/cb", "state": "mine" }]);
-        assert!(fires(&with_egress(json!([unknown])), ErrorCode::OAuthOptionUnknown));
-        let missing = json!(["oauth-authorize", client(), { "scope": ["openid"] }]);
-        assert!(fires(&with_egress(json!([missing])), ErrorCode::OAuthOptionUnknown));
-        assert!(fires(&with_egress(json!([["oauth-authorize", client()]])), ErrorCode::HostEffectArity));
-        assert!(fires(&with_egress(json!([["oauth-connection-status"]])), ErrorCode::HostEffectArity));
-    }
-
-    #[test]
-    fn an_issuer_outside_egress_is_undeclared() {
-        let r = check(json!([token_call(connect())]));
-        assert!(fires(&r, ErrorCode::HttpEgressUndeclared), "the issuer is not in egress: {:?}", r.errors);
-    }
 }
-
 
 mod os_grants {
     //! `ORB_OS_*` and `ORB_PLACEMENT_*`: every code has a positive case and a control that stays silent.
@@ -761,41 +543,6 @@ mod os_grants {
         assert!(fires(&app, ErrorCode::OsGrantEntryInvalid), "{:?}", app.errors);
     }
 
-    #[test]
-    fn an_os_call_on_a_client_leg_is_rejected() {
-        let call = json!([["os/read-file", "/data/a"]]);
-        let local = run(Value::Null, Value::Null, vec![orbital("Orders", read_data(), true, call.clone())]);
-        assert!(fires(&local, ErrorCode::TraitLocalTouchesServer), "{:?}", local.errors);
-        let server = run(Value::Null, Value::Null, vec![orbital("Orders", read_data(), false, call)]);
-        assert!(!fires(&server, ErrorCode::TraitLocalTouchesServer), "{:?}", server.errors);
-    }
-
-    fn two(deployment: Value) -> ValidationResult {
-        run(
-            Value::Null,
-            deployment,
-            vec![orbital("Orders", Value::Null, false, json!([])), orbital("Billing", Value::Null, false, json!([]))],
-        )
-    }
-
-    #[test]
-    fn a_deployment_places_every_orbital_exactly_once_in_a_non_empty_unit() {
-        let ok = two(json!({ "api": ["Orders"], "web": ["Billing"] }));
-        for code in [
-            ErrorCode::PlacementOrbitalUnknown,
-            ErrorCode::PlacementOrbitalDuplicate,
-            ErrorCode::PlacementOrbitalUnplaced,
-            ErrorCode::PlacementUnitEmpty,
-        ] {
-            assert!(!fires(&ok, code), "{code:?}: {:?}", ok.errors);
-        }
-        assert!(!fires(&two(Value::Null), ErrorCode::PlacementOrbitalUnplaced), "no deployment = one unit");
-        assert!(fires(&two(json!({ "api": ["Orders"] })), ErrorCode::PlacementOrbitalUnplaced));
-        assert!(fires(&two(json!({ "api": ["Orders", "Billing"], "web": [] })), ErrorCode::PlacementUnitEmpty));
-        assert!(fires(&two(json!({ "api": ["Orders", "Billing", "Ghost"] })), ErrorCode::PlacementOrbitalUnknown));
-        assert!(fires(&two(json!({ "api": ["Orders", "Billing"], "web": ["Billing"] })), ErrorCode::PlacementOrbitalDuplicate));
-        assert!(fires(&two(json!({ "api": ["Orders", "Orders", "Billing"] })), ErrorCode::PlacementOrbitalDuplicate));
-    }
 }
 
 mod redis {
@@ -849,41 +596,6 @@ mod redis {
         Value::Array(effect)
     }
 
-    const CODES: [ErrorCode; 6] = [
-        ErrorCode::RedisCallInvalid,
-        ErrorCode::HostEffectArity,
-        ErrorCode::HostEffectOptionUnknown,
-        ErrorCode::HttpEgressUndeclared,
-        ErrorCode::HttpOriginNotStatic,
-        ErrorCode::EmitPayloadNotProduced,
-    ];
-
-    fn fired(r: &ValidationResult) -> Vec<ErrorCode> {
-        CODES.into_iter().filter(|code| fires(r, *code)).collect()
-    }
-
-    #[test]
-    fn control_well_formed_calls_raise_none_of_the_redis_codes() {
-        let r = check(json!([
-            call(json!("redis://cache.internal:6379"), json!(["GET", "@payload.k"]), vec![routes()]),
-            call(json!("@config.origin"), json!(["SET", "k", "v", "PX", "1000"]), vec![json!({ "auth": "@config.pw", "user": "app", "db": 2 }), routes()]),
-            call(json!("redis://cache.internal:6379"), json!(["INCR", "k"]), vec![json!({ "auth": { "credential": "@config.pw", "scope": "app" }, "key": "@entity.id", "emit": { "success": "GOT_KEYED", "failure": "FAILED" } })]),
-            call(json!("redis://cache.internal"), json!(["PING"]), vec![]),
-        ]));
-        assert!(fired(&r).is_empty(), "{:?}", r.errors);
-        assert!(!fires(&r, ErrorCode::HttpEgressUndeclared), "{:?}", r.errors);
-    }
-
-    #[test]
-    fn an_origin_outside_egress_is_undeclared_and_an_http_entry_never_authorizes_it() {
-        let call = call(json!("redis://other.internal:6379"), json!(["PING"]), vec![]);
-        assert!(fires(&check(json!([call.clone()])), ErrorCode::HttpEgressUndeclared));
-        let http_only = app(json!([call]), json!(["https://other.internal"]), "string");
-        assert!(fires(&http_only, ErrorCode::HttpEgressUndeclared));
-        let rediss = app(json!([self::call(json!("rediss://cache.internal:6379"), json!(["PING"]), vec![])]), json!(["redis://cache.internal:6379"]), "string");
-        assert!(fires(&rediss, ErrorCode::HttpEgressUndeclared), "rediss is a different scheme from redis");
-    }
-
     #[test]
     fn the_origin_is_a_redis_origin_without_a_path() {
         for origin in ["https://cache.internal", "postgres://cache.internal:5432", "redis://cache.internal:6379/0", "cache.internal"] {
@@ -897,14 +609,6 @@ mod redis {
     }
 
     #[test]
-    fn an_origin_computed_at_run_time_is_static_only_when_egress_is_declared() {
-        let dynamic = call(json!("@payload.host"), json!(["PING"]), vec![]);
-        assert!(!fires(&check(json!([dynamic.clone()])), ErrorCode::HttpOriginNotStatic), "the driver refuses what egress does not list");
-        let none = app(json!([dynamic]), json!([]), "string");
-        assert!(fires(&none, ErrorCode::HttpOriginNotStatic));
-    }
-
-    #[test]
     fn the_command_is_a_non_empty_list_of_text() {
         for command in [json!([]), json!([""]), json!(["SET", "k", 5]), json!(["SET", "k", true]), json!(["GET", null]), json!(["GET", { "a": 1 }])] {
             let r = check(json!([call(json!("redis://cache.internal"), command.clone(), vec![])]));
@@ -915,24 +619,13 @@ mod redis {
     }
 
     #[test]
-    fn the_wrong_number_of_arguments_is_an_arity_error() {
-        for effect in [json!(["redis"]), json!(["redis", "redis://cache.internal"]), json!(["redis", "redis://cache.internal", ["PING"], {}, {}, {}])] {
-            assert!(fires(&check(json!([effect.clone()])), ErrorCode::HostEffectArity), "{effect}");
-        }
-    }
-
-    #[test]
-    fn the_options_are_closed_objects_that_share_one_namespace() {
-        let unknown = check(json!([call(json!("redis://cache.internal"), json!(["PING"]), vec![json!({ "timeout": 5 })])]));
-        assert!(fires(&unknown, ErrorCode::HostEffectOptionUnknown));
+    fn the_options_share_one_namespace() {
         let cancelled = check(json!([call(json!("redis://cache.internal"), json!(["PING"]), vec![json!({ "emit": { "cancelled": "GOT" } })])]));
         assert!(fires(&cancelled, ErrorCode::EffectEmitKeyInvalid), "a redis call is not cancellable");
-        let not_object = check(json!([call(json!("redis://cache.internal"), json!(["PING"]), vec![json!("x")])]));
-        assert!(fires(&not_object, ErrorCode::HostEffectOptionUnknown));
         let twice = check(json!([call(json!("redis://cache.internal"), json!(["PING"]), vec![json!({ "db": 1 }), json!({ "db": 2 })])]));
         assert!(fires(&twice, ErrorCode::RedisCallInvalid));
         let split = check(json!([call(json!("redis://cache.internal"), json!(["PING"]), vec![json!({ "db": 1 }), json!({ "key": "k" })])]));
-        assert!(!fires(&split, ErrorCode::RedisCallInvalid) && !fires(&split, ErrorCode::HostEffectOptionUnknown), "{:?}", split.errors);
+        assert!(!fires(&split, ErrorCode::RedisCallInvalid), "{:?}", split.errors);
     }
 
     #[test]
@@ -1029,11 +722,8 @@ mod postgres {
         json!({ "emit": { "success": "ROWS", "failure": "FAILED" } })
     }
 
-    const CODES: [ErrorCode; 5] = [
+    const CODES: [ErrorCode; 2] = [
         ErrorCode::PostgresCallInvalid,
-        ErrorCode::HostEffectArity,
-        ErrorCode::HostEffectOptionUnknown,
-        ErrorCode::HttpEgressUndeclared,
         ErrorCode::EmitPayloadNotProduced,
     ];
 
@@ -1052,10 +742,7 @@ mod postgres {
     }
 
     #[test]
-    fn an_origin_outside_egress_or_of_the_wrong_scheme_is_refused() {
-        let outside = call(json!("postgres://other.internal"), json!("SELECT 1"), json!([]), vec![user()]);
-        assert!(fires(&check(json!([outside.clone()])), ErrorCode::HttpEgressUndeclared));
-        assert!(fires(&app(json!([outside]), json!(["https://other.internal"]), "array"), ErrorCode::HttpEgressUndeclared));
+    fn an_origin_of_the_wrong_scheme_is_refused() {
         for origin in ["redis://db.internal:5432", "https://db.internal", "postgres://db.internal:5432/main"] {
             let r = app(json!([call(json!(origin), json!("SELECT 1"), json!([]), vec![user()])]), json!(["postgres://db.internal:5432", "redis://db.internal:5432", "https://db.internal"]), "array");
             assert!(fires(&r, ErrorCode::PostgresCallInvalid), "{origin}: {:?}", r.errors);
@@ -1073,24 +760,19 @@ mod postgres {
     }
 
     #[test]
-    fn the_params_are_a_list_and_the_arity_is_four_to_six() {
+    fn the_params_are_a_list() {
         for params in [json!("x"), json!(5), json!({ "a": 1 })] {
             let r = check(json!([call(json!("postgres://db.internal:5432"), json!("SELECT $1"), params.clone(), vec![user()])]));
             assert!(fires(&r, ErrorCode::PostgresCallInvalid), "{params}");
         }
-        for effect in [json!(["postgres"]), json!(["postgres", "postgres://db.internal:5432", "SELECT 1"]), json!(["postgres", "postgres://db.internal:5432", "SELECT 1", [], {}, {}, {}])] {
-            assert!(fires(&check(json!([effect.clone()])), ErrorCode::HostEffectArity), "{effect}");
-        }
     }
 
     #[test]
-    fn the_options_are_closed_share_one_namespace_and_name_a_user() {
+    fn the_options_share_one_namespace_and_name_a_user() {
         let sql = json!("SELECT 1");
         let c = |opts: Vec<Value>| check(json!([call(json!("postgres://db.internal:5432"), sql.clone(), json!([]), opts)]));
         assert!(fires(&c(vec![]), ErrorCode::PostgresCallInvalid), "a user is required");
-        assert!(fires(&c(vec![json!({ "user": "a", "timeout": 1 })]), ErrorCode::HostEffectOptionUnknown));
         assert!(fires(&c(vec![json!({ "user": "a", "emit": { "cancelled": "ROWS" } })]), ErrorCode::EffectEmitKeyInvalid));
-        assert!(fires(&c(vec![json!("x")]), ErrorCode::HostEffectOptionUnknown));
         assert!(fires(&c(vec![json!({ "user": "a" }), json!({ "user": "b" })]), ErrorCode::PostgresCallInvalid), "given twice");
         assert!(!fires(&c(vec![json!({ "user": "a" }), json!({ "key": "k" })]), ErrorCode::PostgresCallInvalid));
         for bad in [json!({ "user": "a", "timeoutMs": 0 }), json!({ "user": "a", "timeoutMs": 1.5 }), json!({ "user": "a", "tls": "yes" }), json!({ "user": "" }), json!({ "user": "a", "database": "" })] {
@@ -1111,15 +793,12 @@ mod postgres {
 }
 
 #[test]
-fn access_check_takes_one_request_and_optional_routes_and_its_verdict_payload_is_checked() {
+fn the_access_check_verdict_payload_is_checked() {
     let request = json!({ "entity": "Row", "action": "read", "row": {}, "viewer": null });
     let ok = check(json!([["access-check", request.clone(), { "emit": { "success": "VERDICT", "failure": "DRAW_FAILED" } }]]));
-    for code in [ErrorCode::HostEffectArity, ErrorCode::HostEffectOptionUnknown, ErrorCode::EmitPayloadNotProduced] {
+    for code in [ErrorCode::EmitPayloadNotProduced] {
         assert!(!fires(&ok, code), "{code:?}: {:?}", ok.errors);
     }
-    assert!(fires(&check(json!([["access-check"]])), ErrorCode::HostEffectArity));
-    assert!(fires(&check(json!([["access-check", request.clone(), {}, {}]])), ErrorCode::HostEffectArity));
-    assert!(fires(&check(json!([["access-check", request.clone(), { "key": "k" }]])), ErrorCode::HostEffectOptionUnknown));
     let spoiled = check(json!([["access-check", request, { "emit": { "success": "SPOILED" } }]]));
     assert!(fires(&spoiled, ErrorCode::EmitPayloadNotProduced), "{:?}", spoiled.errors);
 }

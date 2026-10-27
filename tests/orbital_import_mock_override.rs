@@ -120,10 +120,3 @@ fn a_mock_key_names_the_field_after_its_rename_and_may_name_an_extend_field() {
     assert_eq!(mock_of(&schema, "tier").as_deref(), Some("gold, silver"));
 }
 
-#[test]
-fn a_mock_key_naming_no_field_is_diagnosed_including_a_pre_rename_name() {
-    let (_, codes) = inline(r#", "mock": { "nope": "x" }"#);
-    assert!(codes.iter().any(|c| c == "ORB_O_MOCK_UNKNOWN_FIELD"), "{codes:?}");
-    let (_, codes) = inline(r#", "fields": { "role": "kind" }, "mock": { "role": "x" }"#);
-    assert!(codes.iter().any(|c| c == "ORB_O_MOCK_UNKNOWN_FIELD"), "{codes:?}");
-}

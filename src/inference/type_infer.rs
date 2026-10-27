@@ -1243,6 +1243,13 @@ impl<'c> Inferer<'c> {
         {
             return true;
         }
+        if !failable.unless_nominal.is_empty()
+            && failable.unless_nominal.iter().all(|&index| {
+                matches!(args.get(index), Some(OirExpr::String { value }) if orbital_core_base::signature::nominal_type(value).is_some())
+            })
+        {
+            return true;
+        }
         if !failable.unless_literal.is_empty() {
             return failable.unless_literal.iter().all(|&index| literal(index));
         }

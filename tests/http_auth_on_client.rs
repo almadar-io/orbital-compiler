@@ -61,7 +61,6 @@ fn an_authenticated_http_in_a_local_trait_is_refused() {
 fn control_a_keyless_http_in_a_local_trait_is_allowed() {
     let found = codes(&program(Some("client"), "runtime", json!([keyless()]), json!([])));
     assert!(!found.contains(&ErrorCode::HttpAuthOnClient), "{found:?}");
-    assert!(!found.contains(&ErrorCode::TraitLocalTouchesServer), "{found:?}");
 }
 
 #[test]
@@ -74,7 +73,6 @@ fn an_authenticated_http_in_a_browser_run_tick_is_refused() {
 fn control_a_keyless_http_in_a_browser_run_tick_is_allowed() {
     let found = codes(&program(Some("optimistic"), "runtime", json!([]), tick(json!([keyless()]), false)));
     assert!(!found.contains(&ErrorCode::HttpAuthOnClient), "{found:?}");
-    assert!(!found.contains(&ErrorCode::TraitClientTickServerEffect), "{found:?}");
 }
 
 #[test]

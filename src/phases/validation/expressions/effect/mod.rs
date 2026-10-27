@@ -32,7 +32,7 @@ mod set;
 mod typed_args;
 mod utils;
 
-pub(crate) use call_service::{validate_call_service, validate_call_service_object};
+pub(crate) use call_service::validate_call_service;
 pub(crate) use host_effects::validate_host_effects;
 pub(crate) use oauth::validate_oauth_effects;
 pub(crate) use http::validate_http_effects;
@@ -41,16 +41,15 @@ pub(crate) use http_site::validate_http_auth_placement;
 pub(crate) use emit::{extract_emit_object_ref, validate_emit, validate_emit_config};
 pub(crate) use emit_declaration::{collect_declared_emits, nested_effects, scope_let_locals};
 #[cfg(test)]
-pub(crate) use emit_declaration::{validate_effect, validate_emit_against_declaration};
+pub(crate) use emit_declaration::validate_effect;
 pub(crate) use fetch::{
     parse_fetch_include_literals, resolve_fetch_include_field, validate_fetch,
-    validate_fetch_object,
 };
 pub(crate) use navigate::{validate_navigate, validate_send_server};
 pub(crate) use keyed_call::validate_call_key_literals_are_used;
 use keyed_call::CallKeyFacts;
 pub(crate) use operator_args::{validate_operator_arg_types, validate_operator_arg_types_under};
-pub(crate) use os_grants::{validate_final_os_targets, validate_os_grants, validate_placement};
+pub(crate) use os_grants::{validate_final_os_targets, validate_os_grants};
 pub(crate) use os_watch::{validate_os_effect, validate_os_watch};
 pub(crate) use persist::{persist_entity_index, validate_persist};
 pub(crate) use program_eval::validate_program_eval;
@@ -58,8 +57,8 @@ pub(crate) use postgres::validate_postgres_effects;
 pub(crate) use redis::validate_redis_effects;
 pub(crate) use r#ref::validate_ref;
 pub(crate) use set::{
-    entity_field_type_map, expr_return_incompatible_given, expr_return_incompatible_in_ctx, validate_set, validate_set_enum_value,
-    validate_set_object, validate_set_required_field_from_optional_knob, validate_set_return_type,
+    entity_field_type_map, expr_return_incompatible_given, expr_return_incompatible_in_ctx, validate_set,
+    validate_set_required_field_from_optional_knob, validate_set_return_type,
     validate_set_value_type, BindingTypes, EntityFieldMeta, ExprReturnCtx,
 };
 pub use typed_args::record_declared_list_types;
@@ -93,20 +92,24 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
     ctx.merge(validate_postgres_effects(schema));
     ctx.merge(validate_oauth_effects(schema));
     ctx.merge(validate_os_grants(schema));
-    ctx.merge(validate_placement(schema));
 }
 
 /// `schema` with each inline trait's guards and effects marked where the static check proved an operator's argument
 /// types (G-CROSS-335). `@payload` and `@user` reads are left unproven: a cascade delivery is not yet checked against
 /// its emitter's declared type at entry, and a listener's declared payload is only a view of it.
 pub fn mark_proven_program(schema: &mut OrbitalSchema) {
+    mark_proven_schema(schema, false);
+}
+
+/// `trust_payload` keeps the declared payload types (a survey of what typed inputs would let the check prove).
+fn mark_proven_schema(schema: &mut OrbitalSchema, trust_payload: bool) {
     use orbital_core_base::schema::TraitReference;
     let definitions = super::entity_definitions_of(schema);
     let mut marked = Vec::new();
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         for (j, trait_ref) in orbital.traits.iter().enumerate() {
             if let TraitReference::Inline(trait_def) = trait_ref {
-                marked.push((i, j, mark_proven_trait(schema, trait_def, &definitions)));
+                marked.push((i, j, mark_proven_trait(schema, trait_def, &definitions, trust_payload)));
             }
         }
     }
@@ -119,11 +122,15 @@ fn mark_proven_trait(
     schema: &OrbitalSchema,
     trait_def: &TraitDefinition,
     definitions: &HashMap<String, EntityDefinition>,
+    trust_payload: bool,
 ) -> TraitDefinition {
     let scopes = TraitScopes::new(schema, trait_def, definitions);
     let entity = &scopes.entity_field_types;
     let no_payload: HashMap<String, String> = HashMap::new();
     let unproven_inputs = |mut types: set::BindingTypes| {
+        if trust_payload {
+            return types;
+        }
         types.payload.clear();
         types.prev_payload = None;
         types.user = orbital_core_base::ir::OirType::Struct { additional: None, fields: Vec::new() };
@@ -723,10 +730,8 @@ pub(crate) fn collect_payload_field_types(
 #[derive(Clone)]
 pub(crate) struct DeclaredEmit {
     pub(crate) event: String,
-    pub(crate) is_external: bool,
     #[allow(dead_code)] // collected + constructed by tests; not read by validators yet
     pub(crate) payload_fields: Vec<String>,
-    pub(crate) required_fields: Vec<String>,
 }
 
 #[cfg(test)]
@@ -925,12 +930,22 @@ mod proven_program_tests {
         let mut schema = program();
         mark_proven_program(&mut schema);
         let marked = effects(&schema);
-        assert_eq!(marked[0], parse(r#"["set", "@entity.title", ["proven", [0], ["str/upper", "@entity.title"]]]"#));
+        assert_eq!(marked[0], parse(r#"["set", "@entity.title", ["proven", [0], "str/upper", "@entity.title"]]"#));
         assert_eq!(
             marked[1],
             parse(r#"["set", "@entity.title", ["str/upper", "@payload.to"]]"#),
             "a delivered payload is not checked against its emitter's type at entry yet"
         );
+    }
+
+    /// Writes the program at `ALMADAR_PROOF_SURVEY` marked as if its payloads were typed to `<path>.marked.json`.
+    #[test]
+    #[ignore]
+    fn survey_proven_positions_with_typed_payloads() {
+        let Ok(path) = std::env::var("ALMADAR_PROOF_SURVEY") else { return };
+        let mut schema: OrbitalSchema = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        mark_proven_schema(&mut schema, true);
+        std::fs::write(format!("{path}.marked.json"), serde_json::to_string(&schema).unwrap()).unwrap();
     }
 
     #[test]

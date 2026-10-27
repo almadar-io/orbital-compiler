@@ -79,12 +79,13 @@ pub(crate) struct FiredEvents {
 }
 
 impl FiredEvents {
-    /// Produced by THIS trait, either way — what the unused-emission check
-    /// (per-emitter reachability) asks.
+    /// Produced by THIS trait, either way.
+    #[cfg(test)]
     pub(crate) fn contains_for_trait(&self, trait_name: &str, event: &str) -> bool {
         let key = (trait_name.to_string(), event.to_string());
         self.by_control.contains(&key) || self.by_effect.contains(&key)
     }
+
 
     /// Produced by ANY trait in the schema, regardless of which one — the
     /// file-scope query `emit_payload`'s declared-but-unfired check
@@ -168,29 +169,6 @@ pub(crate) fn fold_knobs(
         }
         other => other.clone(),
     }
-}
-
-/// Trait names whose event surface is DYNAMIC — the fired name is a binding
-/// (`pageChangeEvent: "@config.event"`), resolved at runtime.
-///
-/// Reachability is undecidable for these in both directions, so neither
-/// consumer may draw a conclusion: `unfired` must not report (the event may
-/// well be fired) and `unused` must not escalate or silence (we cannot prove
-/// either). They keep the pre-existing non-blocking treatment.
-pub(crate) fn collect_dynamic_event_traits(
-    schema: &OrbitalSchema,
-) -> std::collections::HashSet<String> {
-    let mut out: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for orbital in &schema.orbitals {
-        for trait_ref in &orbital.traits {
-            if let TraitReference::Inline(td) = trait_ref {
-                if trait_has_dynamic_event_prop_binding(td) {
-                    out.insert(td.name.clone());
-                }
-            }
-        }
-    }
-    out
 }
 
 /// Set of object-key names that, per the patterns registry, identify a

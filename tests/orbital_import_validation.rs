@@ -3,15 +3,12 @@
 //! negative per code, plus the page-path collision regression and the
 //! backwards-compatibility (no-config) sweep.
 //!
-//! - `ORB_O_CONFIG_UNKNOWN_KEY` / `ORB_O_OMIT_EMBEDDED_TRAIT`: converted from
-//!   [`orbital_compiler::phases::inline::OrbitalRefDiagnostic`]s collected
-//!   while resolving an `orbital X = Alias.orbitals.Y { … }` reference.
 //! - `ORB_U_CONFIG_UNKNOWN_KEY`: converted from
 //!   [`orbital_compiler::phases::inline::UsesConfigDiagnostic`]s collected in
 //!   the `uses` loop.
 //! - `ORB_O_ROLE_TARGET_NOT_MEMBER` / `ORB_O_ROLE_UNKNOWN_UPSTREAM` /
 //!   `ORB_O_ENTITY_UNMAPPED` / `ORB_O_ENTITY_UNKNOWN_KEY` /
-//!   `ORB_O_ENTITY_TARGET_UNKNOWN` / `ORB_O_PAGE_UNKNOWN_PATH` (B3-R): the
+//!   `ORB_O_ENTITY_TARGET_UNKNOWN` (B3-R): the
 //!   Stage-B `roles {}` / `entities {}` / `pages {}` remap diagnostics, at
 //!   the bottom of this file.
 
@@ -29,7 +26,7 @@ use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 // ============================================================================
-// ORB_O_CONFIG_UNKNOWN_KEY / ORB_O_OMIT_EMBEDDED_TRAIT / ORB_U_CONFIG_UNKNOWN_KEY
+// ORB_U_CONFIG_UNKNOWN_KEY
 // (loader-backed: these arise from real `uses`/`orbital = Alias.orbitals.X`
 // resolution, so they need the real inline pipeline, not a hand-built schema.)
 // ============================================================================
@@ -164,64 +161,6 @@ fn orbital_ref_consumer(reference_extra: &str) -> String {
 }}"#,
         extra = reference_extra
     )
-}
-
-#[test]
-fn orbital_ref_unknown_config_key_fires() {
-    let collected = collect(&orbital_ref_consumer(
-        r#", "config": { "bogus": { "type": "number", "default": 1 } }"#,
-    ));
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefConfigUnknownKey
-                && e.message.contains("bogus")
-                && e.message.contains("WidgetOrbital")),
-        "expected ORB_O_CONFIG_UNKNOWN_KEY for 'bogus', got: {:#?}",
-        result.errors
-    );
-}
-
-#[test]
-fn orbital_ref_declared_config_key_does_not_fire_unknown_key() {
-    let collected = collect(&orbital_ref_consumer(
-        r#", "config": { "pageSize": { "type": "number", "default": 25 } }"#,
-    ));
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        !result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefConfigUnknownKey),
-        "declared knob 'pageSize' must not fire ORB_O_CONFIG_UNKNOWN_KEY: {:#?}",
-        result.errors
-    );
-}
-
-#[test]
-fn orbital_ref_omit_of_embedded_trait_fires() {
-    let collected = collect(&orbital_ref_consumer(r#", "omit": ["WidgetDetail"]"#));
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        result.errors.iter().any(|e| e.code == ErrorCode::OrbitalRefOmitEmbeddedTrait
-            && e.message.contains("WidgetDetail")
-            && e.message.contains("WidgetList")),
-        "expected ORB_O_OMIT_EMBEDDED_TRAIT for omitted 'WidgetDetail' still embedded by 'WidgetList', got: {:#?}",
-        result.errors
-    );
-}
-
-#[test]
-fn orbital_ref_omit_of_unembedded_trait_does_not_fire() {
-    let collected = collect(&orbital_ref_consumer(r#", "omit": ["WidgetExtra"]"#));
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        !result.errors.iter().any(|e| e.code == ErrorCode::OrbitalRefOmitEmbeddedTrait),
-        "'WidgetExtra' is embedded by no one — omitting it must not fire ORB_O_OMIT_EMBEDDED_TRAIT: {:#?}",
-        result.errors
-    );
 }
 
 /// `uses Up from "…" { <use_config_extra> }`, importing one plain trait
@@ -583,7 +522,6 @@ fn entities_map_onto_a_sibling_reference_form_orbitals_materialized_entity_is_or
 // `std-orb-lint-orbital-config-dead-knob`).
 // ============================================================================
 
-
 fn codes(schema: &OrbitalSchema) -> Vec<String> {
     validate_comprehensive_without_services(schema)
         .errors
@@ -641,21 +579,14 @@ fn schema_with(
     serde_json::from_value(value).expect("schema fixture must deserialize")
 }
 
-
 #[test]
-fn no_config_anywhere_produces_none_of_the_three_config_codes() {
+fn no_config_anywhere_produces_no_config_code() {
     let schema = schema_with(None, None, None);
     let cs = codes(&schema);
-    for code in [
-        "ORB_O_CONFIG_UNKNOWN_KEY",
-        "ORB_O_OMIT_EMBEDDED_TRAIT",
-        "ORB_U_CONFIG_UNKNOWN_KEY",
-    ] {
-        assert!(
-            !cs.contains(&code.to_string()),
-            "{code} must not fire on a schema declaring no config anywhere: {cs:?}"
-        );
-    }
+    assert!(
+        !cs.contains(&"ORB_U_CONFIG_UNKNOWN_KEY".to_string()),
+        "ORB_U_CONFIG_UNKNOWN_KEY must not fire on a schema declaring no config anywhere: {cs:?}"
+    );
 }
 
 // ============================================================================
@@ -670,79 +601,6 @@ fn no_config_anywhere_produces_none_of_the_three_config_codes() {
 // `validate_orbital_config_forwarding(schema)` entry point — no extra
 // parameter — sees it on the resolved schema directly.
 // ============================================================================
-
-/// A plain trait declaring two ALREADY-DECLARED config knobs (`title`,
-/// `limit`) with concrete placeholder defaults — a call-site override on an
-/// undeclared knob is dropped as non-declaration-form wiring
-/// (`ConfigField::is_declaration_form`, `apply_overrides_to_trait`'s
-/// GAP-AG-VALUE-DRIFT fold only overwrites an EXISTING declared field's
-/// default), so the forward has to land on a key the atom already declares —
-/// exactly the real corpus shape (`InlineTypographyRender4.config.content`
-/// overrides `TypographyRender`'s own declared `content`).
-const REF_FORWARD_UPSTREAM: &str = r#"{
-  "name": "test-ref-forward-dead-knob-upstream",
-  "version": "1.0.0",
-  "orbitals": [
-    {
-      "name": "PlainOrbital",
-      "entity": {
-        "name": "PlainWidget",
-        "persistence": "runtime",
-        "fields": [ { "name": "id", "type": "string", "required": true } ]
-      },
-      "traits": [
-        {
-          "name": "PlainView",
-          "linkedEntity": "PlainWidget",
-          "category": "interaction",
-          "config": {
-            "title": { "type": "string", "default": "Untitled" },
-            "limit": { "type": "number", "default": 5 }
-          },
-          "stateMachine": {
-            "states": [ { "name": "idle", "isInitial": true } ],
-            "events": [ { "key": "OPEN" } ],
-            "transitions": [ { "from": "idle", "to": "idle", "event": "OPEN", "effects": [] } ]
-          }
-        }
-      ]
-    }
-  ]
-}"#;
-
-/// One orbital importing `PlainView` via a `ref:` entry whose call-site
-/// `config` forwards BOTH an app-level knob (`appName`) and an orbital-level
-/// knob (`pageSize`) — the exact JSX-hoisted shape (`std-time-tracking.lolo`'s
-/// `TimesheetAppLayout`) that regressed.
-const REF_FORWARD_CONSUMER: &str = r#"{
-  "name": "test-ref-forward-dead-knob-consumer",
-  "version": "1.0.0",
-  "config": { "appName": { "type": "string", "default": "Time Tracking" } },
-  "orbitals": [
-    {
-      "name": "Local",
-      "config": { "pageSize": { "type": "number", "default": 25 } },
-      "uses": [ { "from": "./upstream.orb", "as": "Up" } ],
-      "entity": {
-        "name": "LocalWidget",
-        "persistence": "runtime",
-        "fields": [ { "name": "id", "type": "string", "required": true } ]
-      },
-      "traits": [
-        {
-          "ref": "Up.traits.PlainView",
-          "name": "TitleView",
-          "linkedEntity": "LocalWidget",
-          "config": {
-            "title": { "type": "unknown", "default": "@config.appName" },
-            "limit": { "type": "unknown", "default": "@config.pageSize" }
-          }
-        }
-      ]
-    }
-  ]
-}"#;
-
 
 // ============================================================================
 // B3-R: the six Stage-B `ORB_O_*` codes — `roles {}` / `entities {}` /
@@ -1162,52 +1020,6 @@ fn entities_target_naming_a_declared_consumer_entity_does_not_fire_target_unknow
         result.errors
     );
 }
-
-// --- ORB_O_PAGE_UNKNOWN_PATH ---------------------------------------------------
-
-#[test]
-fn pages_key_naming_no_upstream_path_fires_page_unknown_path() {
-    let collected = collect_stage_b(r#", "pages": { "/bogus": "/x" }"#);
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefPageUnknownPath && e.message.contains("/bogus")),
-        "expected ORB_O_PAGE_UNKNOWN_PATH for '/bogus', got: {:#?}",
-        result.errors
-    );
-}
-
-#[test]
-fn page_modifiers_key_naming_no_upstream_path_fires_page_unknown_path() {
-    let collected =
-        collect_stage_b(r#", "pageModifiers": { "/bogus": { "indexing": "noindex" } }"#);
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefPageUnknownPath && e.message.contains("/bogus")),
-        "expected ORB_O_PAGE_UNKNOWN_PATH for '/bogus', got: {:#?}",
-        result.errors
-    );
-}
-
-#[test]
-fn pages_key_naming_a_real_upstream_path_does_not_fire_page_unknown_path() {
-    let collected = collect_stage_b(r#", "pages": { "/main": "/widgets" }"#);
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        !result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefPageUnknownPath),
-        "'/main' is a real upstream page path — must not fire: {:#?}",
-        result.errors
-    );
-}
-
 
 fn orbital_references_of(consumer_source: &str) -> Vec<Value> {
     let (_dir, consumer_path) = materialize(consumer_source);

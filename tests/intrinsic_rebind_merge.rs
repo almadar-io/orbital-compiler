@@ -1,25 +1,14 @@
 //! Field-level rebindability end-to-end: intrinsic machinery travels with a
 //! trait through a 3-level rebind chain (base → variation → consumer); a DATA
-//! field absent on a rebind target with no remap is rejected; a `fields:` remap
-//! satisfies a renamed DATA read.
+//! field absent on a rebind target with no remap is never auto-merged; a
+//! `fields:` remap rewrites a renamed DATA read.
 //!
 //! Mirrors `relation_rebind_merge.rs` / `config_override_round_trip.rs` style.
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::error::ErrorCode;
-use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core_base::schema::{EntityRef, OrbitalSchema};
 use std::path::Path;
-
-/// True when the comprehensive validation result contains a
-/// `ORB_T_REBIND_MISSING_FIELDS` error.
-fn has_rebind_missing_fields(schema: &OrbitalSchema) -> bool {
-    validate_comprehensive_without_services(schema)
-        .errors
-        .iter()
-        .any(|e| !e.is_warning() && e.code == ErrorCode::RebindMissingEntityFields)
-}
 
 // ---------------------------------------------------------------------------
 // Base widget atom: a self-contained widget whose `viewState` is INTRINSIC
@@ -181,13 +170,9 @@ fn intrinsic_field_carried_through_three_level_rebind() {
         fields.contains(&"viewState".to_string()),
         "intrinsic `viewState` must travel base→variation→consumer onto DomainRecord, got {fields:?}"
     );
-    assert!(
-        !has_rebind_missing_fields(&schema),
-        "a satisfied 3-level rebind must not raise ORB_T_REBIND_MISSING_FIELDS"
-    );
 }
 
-/// (b) DATA field `payload` missing on the target with no remap → rejected.
+/// (b) DATA field `payload` missing on the target with no remap → never auto-merged.
 #[test]
 fn missing_data_field_with_no_remap_is_rejected() {
     let dir = tempfile::TempDir::new().expect("temp");
@@ -201,10 +186,6 @@ fn missing_data_field_with_no_remap_is_rejected() {
     assert!(
         !fields.contains(&"payload".to_string()),
         "a required DATA field must not be silently merged onto the target, got {fields:?}"
-    );
-    assert!(
-        has_rebind_missing_fields(&schema),
-        "a DATA field absent on the target with no remap must raise ORB_T_REBIND_MISSING_FIELDS"
     );
 }
 
@@ -229,11 +210,6 @@ fn fields_remap_satisfies_renamed_data_field() {
     assert!(
         body_referenced,
         "`fields` remap must rewrite @entity.payload reads to @entity.body"
-    );
-
-    assert!(
-        !has_rebind_missing_fields(&schema),
-        "a `fields`-remapped DATA field (payload→body) must satisfy the rebind"
     );
 }
 

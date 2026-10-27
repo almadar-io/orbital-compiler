@@ -46,12 +46,6 @@ use entity::{
     collect_trait_referenced_entity_fields, inline_entity, merge_imported_entity_fields,
     merge_into_named_entity, trait_referenced_fields_of_entity_recursive,
 };
-// Re-exported (not just used here) so `phases::validation::entity_mutation`'s
-// post-inline ORB_E_MERGED_FIELD_UNREFERENCED rule shares the SAME
-// own-entity-vs-cross-entity field-usage primitive the §52 travel-copy
-// filter gates a traveled auxiliary's merged fields on — one definition,
-// not two.
-pub(crate) use entity::trait_referenced_fields_of_entity;
 use page::inline_pages;
 use r#trait::inline_traits;
 // Re-exported at the `inline` namespace so validation passes (e.g.
@@ -74,6 +68,8 @@ use splice::splice_lambda_trait_refs;
 
 // Test-only helpers exercised directly by the unit tests below; gated so a
 // non-test build doesn't flag them as unused.
+#[cfg(test)]
+use entity::trait_referenced_fields_of_entity;
 #[cfg(test)]
 use r#trait::apply_overrides_to_trait;
 #[cfg(test)]

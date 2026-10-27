@@ -3,14 +3,13 @@
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
 use orbital_core_base::schema::{EntityDefinition, FieldType, SExpression};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Validate fetch effect (array form)
 pub(crate) fn validate_fetch(
     arr: &[SExpression],
     path: &str,
     known_entities: &HashSet<String>,
-    entity_definitions: &HashMap<String, EntityDefinition>,
     declared_emits: Option<&[DeclaredEmit]>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
@@ -55,38 +54,6 @@ pub(crate) fn validate_fetch(
         if let Some(config) = arr.get(2) {
             match config {
                 SExpression::Object(obj) => {
-                    // Valid: { id: ..., filter: ..., include: [...] }
-                    if let Some(include_expr) = obj.get("include") {
-                        result.merge(validate_fetch_include(
-                            include_expr,
-                            path,
-                            entity_name,
-                            entity_definitions,
-                        ));
-                    }
-                    for (key, allowed) in [("deliver", ["rows", "ids"]), ("total", ["exact", "none"])] {
-                        match obj.get(key) {
-                            None => {}
-                            Some(SExpression::String(v)) if allowed.contains(&v.as_str()) => {}
-                            Some(_) => result.add_error(
-                                ValidationError::error(
-                                    ErrorCode::EffectFetchInvalidOption,
-                                    path,
-                                    format!("fetch `{key}` must be one of: {}", allowed.join(", ")),
-                                )
-                                .with_valid_values(allowed.iter().map(|v| v.to_string()).collect()),
-                            ),
-                        }
-                    }
-                    if let Some(nearest) = obj.get("nearest").filter(|n| !n.is_null()) {
-                        result.merge(validate_fetch_nearest(
-                            nearest,
-                            obj,
-                            path,
-                            entity_name,
-                            entity_definitions,
-                        ));
-                    }
                     // fetch is one-shot async — success + failure allowed.
                     if let Some(emit_obj) = extract_emit_object_ref(obj) {
                         result.merge(validate_emit_config(
@@ -153,79 +120,6 @@ pub(crate) fn validate_fetch(
         );
     }
 
-    result
-}
-
-fn nearest_error(path: &str, message: impl Into<String>) -> ValidationError {
-    ValidationError::error(ErrorCode::EffectFetchInvalidOption, path, message).with_suggestion(
-        "Use: { \"nearest\": { \"field\": \"embedding\", \"vector\": <[number]>, \"k\": <positive integer> } }",
-    )
-}
-
-/// The structure of a fetch `nearest` option (EXEC-FETCH-2): `{ field, vector, k }` and nothing else, no `id`,
-/// `orderBy`, `offset` or `limit` beside it, `field` a literal naming a `[number]` field of the fetched entity, and a
-/// literal `k` a positive integer. The expressions' types are checked by [`check_fetch_nearest`].
-fn validate_fetch_nearest(
-    nearest: &SExpression,
-    options: &orbital_core_base::schema::SObject,
-    path: &str,
-    entity_name: &str,
-    entity_definitions: &HashMap<String, EntityDefinition>,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-    for excluded in ["id", "orderBy", "offset", "limit"] {
-        if options.get(excluded).is_some_and(|v| !v.is_null()) {
-            result.add_error(nearest_error(
-                path,
-                format!("fetch `nearest` cannot be combined with `{excluded}`: it returns the nearest k rows, ordered by similarity"),
-            ));
-        }
-    }
-    let SExpression::Object(members) = nearest else {
-        result.add_error(nearest_error(path, "fetch `nearest` must be { field, vector, k }"));
-        return result;
-    };
-    for key in members.keys() {
-        if !["field", "vector", "k"].contains(&key.as_str()) {
-            result.add_error(nearest_error(path, format!("fetch `nearest` has no `{key}`; it takes field, vector and k")));
-        }
-    }
-    for required in ["field", "vector", "k"] {
-        if members.get(required).is_none_or(SExpression::is_null) {
-            result.add_error(nearest_error(path, format!("fetch `nearest` needs `{required}`")));
-        }
-    }
-    match members.get("field") {
-        Some(SExpression::String(field)) => {
-            if let Some(entity_def) = entity_definitions.get(entity_name) {
-                let vectors: Vec<String> = entity_def
-                    .fields
-                    .iter()
-                    .filter(|f| {
-                        f.field_type == FieldType::Array
-                            && f.items.as_ref().is_some_and(|i| i.field_type == FieldType::Number)
-                    })
-                    .filter_map(|f| f.name.clone())
-                    .collect();
-                if !vectors.contains(field) {
-                    result.add_error(
-                        nearest_error(
-                            path,
-                            format!("fetch `nearest.field` '{field}' is not a [number] field of {entity_name}"),
-                        )
-                        .with_valid_values(vectors),
-                    );
-                }
-            }
-        }
-        Some(SExpression::Null) | None => {}
-        Some(_) => result.add_error(nearest_error(path, "fetch `nearest.field` must be a field name literal")),
-    }
-    if let Some(SExpression::Number(k)) = members.get("k") {
-        if *k < 1.0 || k.fract() != 0.0 {
-            result.add_error(nearest_error(path, format!("fetch `nearest.k` must be a positive integer, got {k}")));
-        }
-    }
     result
 }
 
@@ -327,82 +221,6 @@ pub(crate) fn resolve_fetch_include_field(
         })
 }
 
-/// Validate fetch include option references valid relation fields
-pub(crate) fn validate_fetch_include(
-    include_expr: &SExpression,
-    path: &str,
-    entity_name: &str,
-    entity_definitions: &HashMap<String, EntityDefinition>,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-
-    // Get the entity definition to check relation fields
-    let entity_def = entity_definitions.get(entity_name);
-
-    // Parse include array
-    let include_fields: Vec<String> = match parse_fetch_include_literals(include_expr) {
-        Some(fields) => fields,
-        None => {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::EffectFetchInvalidInclude,
-                    path,
-                    "fetch include must be an array of strings",
-                )
-                .with_suggestion("Use: [\"fetch\", \"Entity\", { \"include\": [\"fieldName\"] }]"),
-            );
-            return result;
-        }
-    };
-
-    // Validate each include field is a relation field on the entity
-    if let Some(entity_def) = entity_def {
-        // Base names (Id-suffix stripped) of every relation field, for the
-        // suggestion list on an invalid include.
-        let relation_base_names: HashMap<String, String> = entity_def
-            .fields
-            .iter()
-            .filter(|f| f.field_type == FieldType::Relation && f.name.is_some())
-            .filter_map(|f| {
-                let field_name = f.name.as_ref()?;
-                let base_name = field_name
-                    .strip_suffix("Id")
-                    .unwrap_or(field_name)
-                    .to_string();
-                Some((base_name, field_name.clone()))
-            })
-            .collect();
-
-        for include_field in &include_fields {
-            if resolve_fetch_include_field(entity_def, include_field).is_none() {
-                let valid_options: Vec<String> = relation_base_names.keys().cloned().collect();
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::EffectFetchInvalidInclude,
-                        path,
-                        format!(
-                            "Cannot include '{}' - {} has no relation field for it",
-                            include_field, entity_name
-                        ),
-                    )
-                    .with_suggestion(format!(
-                        "Available relations: {}",
-                        if valid_options.is_empty() {
-                            "none".to_string()
-                        } else {
-                            valid_options.join(", ")
-                        }
-                    ))
-                    .with_valid_values(valid_options),
-                );
-            }
-        }
-    }
-    // If entity definition is not available, skip validation (entity validation will catch it)
-
-    result
-}
-
 /// Validate `fetch-stream` effect — same entity check as `fetch` plus the
 /// emit config allows `{on_message, success, failure}` (the streaming trio).
 pub(crate) fn validate_fetch_stream(
@@ -452,30 +270,6 @@ pub(crate) fn validate_fetch_stream(
                 declared_emits,
                 path,
             ));
-        }
-    }
-
-    result
-}
-
-/// Validate fetch effect (object form)
-pub(crate) fn validate_fetch_object(
-    entity: &SExpression,
-    path: &str,
-    known_entities: &HashSet<String>,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-
-    if let SExpression::String(entity_name) = entity {
-        if !known_entities.is_empty() && !known_entities.contains(entity_name.as_str()) {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::EffectFetchInvalidEntity,
-                    path,
-                    format!("Entity '{}' does not exist", entity_name),
-                )
-                .with_valid_values(known_entities.iter().cloned().collect()),
-            );
         }
     }
 

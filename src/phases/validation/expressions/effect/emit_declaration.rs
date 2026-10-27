@@ -5,11 +5,11 @@ use super::call_service::walk_nested_call_services;
 use super::fetch::validate_fetch_stream;
 use super::validate_send_server;
 use super::{
-    effect_operators, extract_emit_object_ref, validate_call_service, validate_call_service_object,
-    validate_emit, validate_emit_config, validate_fetch, validate_fetch_object, validate_navigate,
+    effect_operators, extract_emit_object_ref, validate_call_service,
+    validate_emit, validate_emit_config, validate_fetch, validate_navigate,
     validate_os_effect, validate_os_watch, validate_persist, validate_program_eval, validate_ref,
-    validate_set, validate_set_enum_value, validate_set_object, validate_set_return_type,
-    validate_set_value_type, DeclaredEmit, EntityFieldMeta,
+    validate_set, validate_set_return_type, validate_set_value_type,
+    DeclaredEmit, EntityFieldMeta,
 };
 use crate::embedded::ServiceRegistryData;
 use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitDefinition};
@@ -27,138 +27,14 @@ pub(crate) fn collect_declared_emits(trait_def: &TraitDefinition) -> Vec<Declare
                 .map(|fields| fields.iter().map(|f| f.name.clone()).collect())
                 .unwrap_or_default();
 
-            let required_fields: Vec<String> = emit
-                .payload_schema
-                .as_ref()
-                .map(|fields| {
-                    fields
-                        .iter()
-                        .filter(|f| f.required.unwrap_or(false))
-                        .map(|f| f.name.clone())
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            let is_external = emit
-                .scope
-                .as_ref()
-                .map(|s| *s == orbital_core_base::schema::EventScope::External)
-                .unwrap_or(false);
-
             declared.push(DeclaredEmit {
                 event: emit.event.clone(),
-                is_external,
                 payload_fields,
-                required_fields,
             });
         }
     }
 
     declared
-}
-
-/// Validate an emit effect against declared emits
-pub(crate) fn validate_emit_against_declaration(
-    effect: &SExpression,
-    path: &str,
-    declared_emits: &[DeclaredEmit],
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-
-    // Only validate emit effects
-    if let SExpression::Array(arr) = effect {
-        if arr.is_empty() {
-            return result;
-        }
-        if let SExpression::String(operator) = &arr[0] {
-            if operator != "emit" {
-                return result;
-            }
-
-            // Get the event name
-            if arr.len() < 2 {
-                return result; // Already validated in validate_emit
-            }
-
-            if let SExpression::String(event_name) = &arr[1] {
-                // Check if the event is declared
-                let declared = declared_emits.iter().find(|e| &e.event == event_name);
-
-                if declared.is_none() {
-                    result.add_error(
-                        ValidationError::error(
-                            ErrorCode::TraitEventUndeclared,
-                            path,
-                            format!(
-                                "Event '{}' is emitted but not declared in trait's emits array",
-                                event_name
-                            ),
-                        )
-                        .with_suggestion(
-                            "Add the event to the trait's 'emits' array with proper payload schema",
-                        )
-                        .with_expected_shape(
-                            r#"{
-  "emits": [
-    {
-      "event": "EVENT_NAME",
-      "scope": "internal" | "external",
-      "description": "What this event means",
-      "payload": [
-        { "name": "fieldName", "type": "string", "required": true }
-      ]
-    }
-  ]
-}"#,
-                        ),
-                    );
-                    return result;
-                }
-
-                let declared = declared.unwrap();
-
-                // For external events, validate payload fields
-                if declared.is_external && arr.len() >= 3 {
-                    if let SExpression::Object(payload_obj) = &arr[2] {
-                        // Check for required fields
-                        for required_field in &declared.required_fields {
-                            if !payload_obj.contains_key(required_field) {
-                                result.add_error(
-                                    ValidationError::error(
-                                        ErrorCode::CrossOrbitalPayloadMismatch,
-                                        path,
-                                        format!(
-                                            "External emit '{}' is missing required payload field '{}'",
-                                            event_name, required_field
-                                        ),
-                                    )
-                                    .with_suggestion(format!(
-                                        "Add the '{}' field to the emit payload",
-                                        required_field
-                                    )),
-                                );
-                            }
-                        }
-                    } else if !declared.required_fields.is_empty() {
-                        // Payload is missing or not an object but there are required fields
-                        result.add_error(
-                            ValidationError::error(
-                                ErrorCode::CrossOrbitalPayloadMismatch,
-                                path,
-                                format!(
-                                    "External emit '{}' requires payload with fields: {:?}",
-                                    event_name, declared.required_fields
-                                ),
-                            )
-                            .with_suggestion("Add a payload object with the required fields"),
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    result
 }
 
 /// Generic constraint: when the operator's canonical metadata declares
@@ -371,8 +247,6 @@ pub(crate) fn validate_effect_in(
             effect,
             path,
             known_entities,
-            entity_definitions,
-            known_services,
             page_init_payloads,
             service_registry,
             declared_emits,
@@ -382,19 +256,11 @@ pub(crate) fn validate_effect_in(
             schema,
             types,
         ));
-        if let Some(declared) = declared_emits {
-            result.merge(validate_emit_against_declaration(effect, path, declared));
-        }
         return result;
     };
 
     let value = |expr: &SExpression, result: &mut ValidationResult| {
-        result.merge(walk_nested_call_services(
-            expr,
-            path,
-            known_services,
-            service_registry,
-        ));
+        result.merge(walk_nested_call_services(expr, path, service_registry));
     };
     let mut scoped = None;
     match head {
@@ -436,8 +302,6 @@ fn validate_leaf_effect(
     effect: &SExpression,
     path: &str,
     known_entities: &HashSet<String>,
-    entity_definitions: &HashMap<String, EntityDefinition>,
-    known_services: &HashSet<String>,
     page_init_payloads: &HashMap<String, PageInitPayload>,
     service_registry: &ServiceRegistryData,
     declared_emits: Option<&[DeclaredEmit]>,
@@ -465,11 +329,10 @@ fn validate_leaf_effect(
                 result.merge(validate_required_emit_success(operator, arr, path));
 
                 match operator.as_str() {
-                    "call-service" | "call_service" => {
+                    "call-service" => {
                         result.merge(validate_call_service(
                             arr,
                             path,
-                            known_services,
                             service_registry,
                             declared_emits,
                         ));
@@ -483,7 +346,6 @@ fn validate_leaf_effect(
                             payload_shapes,
                             schema,
                         ));
-                        result.merge(validate_set_enum_value(arr, path, entity_field_types));
                         result.merge(validate_set_return_type(
                             arr,
                             path,
@@ -494,13 +356,7 @@ fn validate_leaf_effect(
                         ));
                     }
                     "fetch" => {
-                        result.merge(validate_fetch(
-                            arr,
-                            path,
-                            known_entities,
-                            entity_definitions,
-                            declared_emits,
-                        ));
+                        result.merge(validate_fetch(arr, path, known_entities, declared_emits));
                     }
                     "fetch-stream" => {
                         result.merge(validate_fetch_stream(
@@ -515,7 +371,6 @@ fn validate_leaf_effect(
                             arr,
                             path,
                             known_entities,
-                            entity_definitions,
                             declared_emits,
                         ));
                     }
@@ -525,7 +380,7 @@ fn validate_leaf_effect(
                     "emit" => {
                         result.merge(validate_emit(arr, path));
                     }
-                    "render-ui" | "render_ui" => {
+                    "render-ui" => {
                         // render_ui is validated separately in render_ui.rs
                     }
                     "navigate" => {
@@ -606,23 +461,6 @@ fn validate_leaf_effect(
                 }
             }
         }
-        // Object form: { set: { ... } } or { call_service: { ... } }
-        SExpression::Object(obj) => {
-            if let Some(set_target) = obj.get("set") {
-                result.merge(validate_set_object(set_target, path));
-            }
-            if obj.contains_key("call_service") || obj.contains_key("call-service") {
-                result.merge(validate_call_service_object(
-                    obj,
-                    path,
-                    known_services,
-                    service_registry,
-                ));
-            }
-            if let Some(fetch_entity) = obj.get("fetch") {
-                result.merge(validate_fetch_object(fetch_entity, path, known_entities));
-            }
-        }
         _ => {
             // Other forms are not effect-like, skip
         }
@@ -631,30 +469,10 @@ fn validate_leaf_effect(
     // I-8: nested call-service forms inside this effect's arguments get the
     // same name/action/param checks the top-level form gets. The walk starts
     // BELOW the top form so the arms above stay the single validators for it.
-    match effect {
-        SExpression::Array(arr) => {
-            for arg in arr.iter().skip(1) {
-                result.merge(walk_nested_call_services(
-                    arg,
-                    path,
-                    known_services,
-                    service_registry,
-                ));
-            }
+    if let SExpression::Array(arr) = effect {
+        for arg in arr.iter().skip(1) {
+            result.merge(walk_nested_call_services(arg, path, service_registry));
         }
-        SExpression::Object(obj) => {
-            let mut keys: Vec<&String> = obj.keys().collect();
-            keys.sort();
-            for key in keys {
-                result.merge(walk_nested_call_services(
-                    &obj[key],
-                    path,
-                    known_services,
-                    service_registry,
-                ));
-            }
-        }
-        _ => {}
     }
 
     result

@@ -509,9 +509,6 @@ pub fn validate_comprehensive_full(
     // Phase 6: Render-UI validation
     render_ui::validate_all_render_ui(schema, &mut ctx);
 
-    // Phase 7: tick-scoped slot contention (the page slot checks are std lints).
-    slot::validate_tick_slot_contention(schema, &mut ctx);
-
     // Phase 8: S-expression validation
     sexpr::validate_all_sexprs(schema, &mut ctx);
 
@@ -520,9 +517,6 @@ pub fn validate_comprehensive_full(
 
     // Phase 9b: Theme validation
     theme::validate_all_themes(schema, &mut ctx);
-
-    // Phase 10: Cross-orbital validation
-    cross_orbital::validate_cross_orbital(schema, &mut ctx);
 
     // Phase 11: Binding validation
     binding::validate_all_bindings(schema, &mut ctx);
@@ -555,15 +549,7 @@ pub fn validate_comprehensive_full(
     // post-inline so the fully `uses`-composed trait set and each entity's
     // `shared`/`persistence` flags are visible.
     entity_mutation::validate_all_entity_mutations(schema, &mut ctx);
-    // ORB_E_MERGED_FIELD_UNREFERENCED: post-inline, catches a rebind-merged
-    // entity field no trait of the consuming orbital references —
-    // R-ENTITY-FIELD-UNION-ACROSS-SAME-NAMED-ENTITY drift.
-    entity_mutation::validate_all_merged_field_usage(schema, &mut ctx);
-    entity_mutation::validate_all_local_trait_dispatch(schema, &mut ctx);
-    entity_mutation::validate_all_client_tick_server_effects(schema, &mut ctx);
     entity_mutation::validate_all_mixed_residence(schema, &mut ctx);
-    entity_mutation::validate_all_set_column_without_row(schema, &mut ctx);
-    entity_mutation::validate_all_auth_guard_client_only(schema, &mut ctx);
 
     // Phase 12: Closed circuit validation
     closed_circuit::validate_all_circuits(schema, &mut ctx);

@@ -17,7 +17,6 @@ pub(crate) use super::{
 };
 
 use self::binding::validate_all_render_ui_bindings;
-use self::item_actions::{extract_fetch_entity, extract_render_ui_entity};
 pub use self::item_actions::{extract_slot, is_render_ui_effect};
 use self::pattern::validate_pattern;
 use self::sync::ExtraPatterns;
@@ -60,86 +59,8 @@ pub fn validate_trait_render_ui(
     let mut result = ValidationResult::new();
     let mut slots_per_transition: HashMap<usize, HashSet<String>> = HashMap::new();
 
-    // --- Data flow analysis: build reachability of fetched entities across state graph ---
-    // Step 1: Collect which entities are fetched per target state
-    let mut fetched_by_state: HashMap<&str, HashSet<String>> = HashMap::new();
-    for transition in &trait_def.state_machine.transitions {
-        if let Some(effects) = &transition.effects {
-            let fetched: HashSet<String> =
-                effects.iter().filter_map(extract_fetch_entity).collect();
-            if !fetched.is_empty() {
-                fetched_by_state
-                    .entry(transition.to.as_str())
-                    .or_default()
-                    .extend(fetched);
-            }
-        }
-    }
-
-    // Step 2: Build adjacency list (state -> successor states)
-    let mut successors: HashMap<&str, HashSet<&str>> = HashMap::new();
-    for transition in &trait_def.state_machine.transitions {
-        let from_states = match &transition.from {
-            orbital_core_base::schema::StringOrArray::Single(s) => vec![s.as_str()],
-            orbital_core_base::schema::StringOrArray::Multiple(v) => {
-                v.iter().map(|s| s.as_str()).collect()
-            }
-        };
-        for from in from_states {
-            successors
-                .entry(from)
-                .or_default()
-                .insert(transition.to.as_str());
-        }
-    }
-
-    // Step 3: Propagate fetched entities forward through state graph (BFS)
-    // If state A fetches "Task" and A→B exists, B inherits "Task" as available data
-    let mut available_entities: HashMap<&str, HashSet<String>> = fetched_by_state.clone();
-    let mut changed = true;
-    let mut iterations = 0;
-    while changed && iterations < 50 {
-        changed = false;
-        iterations += 1;
-        for transition in &trait_def.state_machine.transitions {
-            let from_states = match &transition.from {
-                orbital_core_base::schema::StringOrArray::Single(s) => vec![s.as_str()],
-                orbital_core_base::schema::StringOrArray::Multiple(v) => {
-                    v.iter().map(|s| s.as_str()).collect()
-                }
-            };
-            for from in from_states {
-                let from_entities: HashSet<String> =
-                    available_entities.get(from).cloned().unwrap_or_default();
-                if !from_entities.is_empty() {
-                    let to_set = available_entities
-                        .entry(transition.to.as_str())
-                        .or_default();
-                    let before = to_set.len();
-                    to_set.extend(from_entities);
-                    if to_set.len() > before {
-                        changed = true;
-                    }
-                }
-            }
-        }
-    }
-
-    // --- Validate render-ui effects ---
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
         if let Some(effects) = &transition.effects {
-            // Entities fetched in THIS transition
-            let fetched_entities: HashSet<String> =
-                effects.iter().filter_map(extract_fetch_entity).collect();
-
-            // Entities available at the target state from predecessor states
-            let empty_set = HashSet::new();
-            let inherited_entities: &HashSet<String> = available_entities
-                .get(transition.to.as_str())
-                .unwrap_or(&empty_set);
-
-            let mut rendered_entities: Vec<(String, usize)> = Vec::new();
-
             for (j, effect) in effects.iter().enumerate() {
                 let effect_path =
                     format!("{}.stateMachine.transitions[{}].effects[{}]", path, i, j);
@@ -157,39 +78,6 @@ pub fn validate_trait_render_ui(
                     if let Some(slot) = extract_slot(effect) {
                         slots_per_transition.entry(i).or_default().insert(slot);
                     }
-
-                    if let Some(entity_name) = extract_render_ui_entity(effect) {
-                        rendered_entities.push((entity_name, j));
-                    }
-                }
-            }
-
-            // Warn for render-ui entity props without corresponding fetch,
-            // BUT suppress if the entity was fetched in a predecessor state
-            for (entity_name, j) in &rendered_entities {
-                if !fetched_entities.contains(entity_name)
-                    && !inherited_entities.contains(entity_name)
-                {
-                    let effect_path =
-                        format!("{}.stateMachine.transitions[{}].effects[{}]", path, i, j);
-                    result.add_error(
-                        ValidationError::error(
-                            ErrorCode::EffectMissingFetchForEntityPattern,
-                            &effect_path,
-                            format!(
-                                "render-ui references entity '{}' but no [\"fetch\", \"{}\"] effect exists in this or any predecessor transition",
-                                entity_name, entity_name
-                            ),
-                        )
-                        .with_suggestion(format!(
-                            "Add [\"fetch\", \"{}\"] before the render-ui effect so the pattern has data to display",
-                            entity_name
-                        ))
-                        .with_expected_shape(format!(
-                            "[\"fetch\", \"{}\"]",
-                            entity_name
-                        )),
-                    );
                 }
             }
         }
@@ -250,163 +138,12 @@ pub fn validate_render_ui_effect(
                     extra_patterns,
                     linked_entity,
                 ));
-                // `@trait.X` bindings must only appear in `children:` or
-                // `node`-typed props. Walk the pattern tree and warn on
-                // misuse elsewhere (see `validate_trait_binding_positions`).
-                result.merge(validate_trait_binding_positions(
-                    pattern,
-                    &pattern_path,
-                    extra_patterns,
-                ));
-            }
-        }
-        SExpression::Object(obj) => {
-            // Object form: { render_ui: { slot: "main", pattern: { ... } } }
-            let rui = [
-                ("render_ui", obj.get("render_ui")),
-                ("render-ui", obj.get("render-ui")),
-            ]
-            .into_iter()
-            .find_map(|(key, v)| match v {
-                Some(SExpression::Object(o)) => Some((key, o)),
-                _ => None,
-            });
-            if let Some((rui_key, rui_obj)) = rui {
-                if let Some(SExpression::String(slot)) = rui_obj.get("slot") {
-                    result.merge(validate_slot(slot, path));
-                }
-
-                if let Some(pattern) = rui_obj.get("pattern") {
-                    let pattern_path = format!("{path}.{rui_key}.pattern");
-                    result.merge(validate_pattern(
-                        pattern,
-                        &pattern_path,
-                        entity_definitions,
-                        extra_patterns,
-                        linked_entity,
-                    ));
-                    result.merge(validate_trait_binding_positions(
-                        pattern,
-                        &pattern_path,
-                        extra_patterns,
-                    ));
-                }
             }
         }
         _ => {}
     }
 
     result
-}
-
-/// Walk a pattern tree flagging `@trait.*` strings that appear outside
-/// permitted positions. Permitted positions:
-/// - Element of a `children: [...]` array (any pattern).
-/// - Value of a prop whose registry-declared type set includes `node`.
-///
-/// Emits `BindingTraitInvalidPosition` as a WARNING in v1 — graduates to
-/// error once existing schemas have migrated. Scope: one orbital's trait
-/// render-ui at a time (the binding is orbital-scoped, §3.8 of
-/// `docs/Almadar_Std_Gaps.md`).
-fn validate_trait_binding_positions(
-    pattern: &SExpression,
-    path: &str,
-    extra_patterns: Option<&ExtraPatterns>,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-    walk_pattern_for_trait_positions(pattern, path, None, None, extra_patterns, &mut result);
-    result
-}
-
-fn walk_pattern_for_trait_positions(
-    node: &SExpression,
-    path: &str,
-    enclosing_pattern_type: Option<&str>,
-    enclosing_prop_name: Option<&str>,
-    extra_patterns: Option<&ExtraPatterns>,
-    result: &mut ValidationResult,
-) {
-    match node {
-        SExpression::String(s) if s.starts_with("@trait.") => {
-            // Permitted if we're inside `children:` OR the enclosing prop
-            // is declared `node`-typed on the parent pattern.
-            let in_children = enclosing_prop_name == Some("children");
-            let in_node_prop = match (enclosing_pattern_type, enclosing_prop_name) {
-                (Some(pat), Some(prop)) => {
-                    // Only core patterns expose typed props today; ExtraPatterns
-                    // only tracks prop-name membership, not type. If a future
-                    // extension adds type metadata, thread it through here.
-                    sync::patterns::get_prop_types(pat, prop)
-                        .map(|types| types.contains(&"node"))
-                        .unwrap_or(false)
-                }
-                _ => false,
-            };
-            // Silence unused-variable warning when `extra_patterns` isn't
-            // read inside this branch — the outer walker still uses it for
-            // future extensions.
-            let _ = extra_patterns;
-
-            if !in_children && !in_node_prop {
-                let prop_desc = enclosing_prop_name.unwrap_or("<root>");
-                let pattern_desc = enclosing_pattern_type.unwrap_or("<unknown>");
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::BindingTraitInvalidPosition,
-                        path,
-                        format!(
-                            "@trait binding '{}' appears in prop '{}' of pattern '{}'; \
-                             allowed positions are `children: [...]` and `node`-typed props",
-                            s, prop_desc, pattern_desc
-                        ),
-                    )
-                    .with_suggestion(format!(
-                        "Move the @trait reference into a `children:` array — e.g. delete the \
-                         `{prop_desc}:` prop and add `{s}` as an element of the enclosing \
-                         `children: [ …, {s} ]` (custom props like `{prop_desc}` are not slots) — \
-                         or use a pattern prop that accepts a node (e.g. `front`, `back`)"
-                    )),
-                );
-            }
-        }
-        SExpression::Object(obj) => {
-            // Read the pattern type at this level so children inherit the
-            // correct parent context.
-            let new_pat_type = obj.get("type").and_then(|v| {
-                if let SExpression::String(s) = v {
-                    Some(s.as_str())
-                } else {
-                    None
-                }
-            });
-            for (k, v) in obj {
-                if k == "type" {
-                    continue;
-                }
-                walk_pattern_for_trait_positions(
-                    v,
-                    &format!("{}.{}", path, k),
-                    new_pat_type,
-                    Some(k.as_str()),
-                    extra_patterns,
-                    result,
-                );
-            }
-        }
-        SExpression::Array(arr) => {
-            for (i, item) in arr.iter().enumerate() {
-                walk_pattern_for_trait_positions(
-                    item,
-                    &format!("{}[{}]", path, i),
-                    enclosing_pattern_type,
-                    enclosing_prop_name,
-                    extra_patterns,
-                    result,
-                );
-            }
-        }
-        _ => {}
-    }
 }
 
 /// Validate a slot name
@@ -951,12 +688,6 @@ mod tests {
             SExpression::String(("render-ui".to_string()).into()),
         ])));
 
-        assert!(is_render_ui_effect(&SExpression::Object(
-            [("render_ui".to_string(), SExpression::Null)]
-                .into_iter()
-                .collect()
-        )));
-
         assert!(!is_render_ui_effect(&SExpression::Array(vec![
             SExpression::String(("set".to_string()).into()),
         ])));
@@ -1383,132 +1114,5 @@ mod tests {
             .contains(&ErrorCode::RenderUIFormFieldIntrinsic));
         assert!(!codes(&form(serde_json::json!(["title"])))
             .contains(&ErrorCode::RenderUIFormFieldIntrinsic));
-    }
-
-    /// Helper to build a minimal TraitDefinition with given effects in a single INIT transition
-    fn make_trait_with_effects(effects: Vec<SExpression>) -> TraitDefinition {
-        use orbital_core_base::schema::{
-            StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
-        };
-
-        TraitDefinition {
-            dispatch: None,
-            effect_row: None,
-            type_params: None,
-            type_args: None,
-            name: "TestTrait".to_string(),
-            entity_rebindable: None,
-            entity_contract: None,
-            linked_entity: Some("Task".to_string()),
-            description: None,
-            state_machine: StateMachine {
-                states: vec![StateDefinition {
-                    name: "Browsing".to_string(),
-                    is_initial: Some(true),
-                    is_terminal: None,
-                    description: None,
-                    time_bound_ms: None,
-                    holds: None,
-                }],
-                events: Some(vec![]),
-                transitions: vec![TransitionDefinition {
-                    event_id: None,
-                    from: StringOrArray::Single("Browsing".to_string()),
-                    to: "Browsing".to_string(),
-                    event: "INIT".to_string(),
-                    guard: None,
-                    effects: Some(effects),
-                    ensures: None,
-                }],
-            },
-            emits: None,
-            listens: None,
-            ticks: None,
-            config: None,
-            data_entities: None,
-            source_declaration: None,
-            source_behavior: None,
-            source_entity_definition: None,
-            id: None,
-            linked_entity_id: None,
-            entity_ref_ids: None,
-            trait_embed_ids: None,
-        }
-    }
-
-    #[test]
-    fn test_missing_fetch_for_entity_pattern() {
-        // render-ui with entity prop but NO fetch — should warn
-        let trait_def = make_trait_with_effects(vec![SExpression::Array(vec![
-            SExpression::String(("render-ui".to_string()).into()),
-            SExpression::String(("main".to_string()).into()),
-            SExpression::Object(
-                [
-                    (
-                        "type".to_string(),
-                        SExpression::String(("table-view".to_string()).into()),
-                    ),
-                    (
-                        "entity".to_string(),
-                        SExpression::String(("Task".to_string()).into()),
-                    ),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        ])]);
-
-        let entity_defs = HashMap::new();
-        let result = validate_trait_render_ui(&trait_def, "test", &entity_defs, None);
-
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::EffectMissingFetchForEntityPattern),
-            "Expected EffectMissingFetchForEntityPattern warning. Warnings: {:?}",
-            result.errors
-        );
-    }
-
-    #[test]
-    fn test_fetch_present_for_entity_pattern() {
-        // fetch + render-ui with same entity — should NOT warn
-        let trait_def = make_trait_with_effects(vec![
-            SExpression::Array(vec![
-                SExpression::String(("fetch".to_string()).into()),
-                SExpression::String(("Task".to_string()).into()),
-            ]),
-            SExpression::Array(vec![
-                SExpression::String(("render-ui".to_string()).into()),
-                SExpression::String(("main".to_string()).into()),
-                SExpression::Object(
-                    [
-                        (
-                            "type".to_string(),
-                            SExpression::String(("table-view".to_string()).into()),
-                        ),
-                        (
-                            "entity".to_string(),
-                            SExpression::String(("Task".to_string()).into()),
-                        ),
-                    ]
-                    .into_iter()
-                    .collect(),
-                ),
-            ]),
-        ]);
-
-        let entity_defs = HashMap::new();
-        let result = validate_trait_render_ui(&trait_def, "test", &entity_defs, None);
-
-        assert!(
-            !result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::EffectMissingFetchForEntityPattern),
-            "Should NOT have warning when fetch is present. Warnings: {:?}",
-            result.errors
-        );
     }
 }

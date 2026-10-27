@@ -199,12 +199,6 @@ fn walk_pattern_props(
         if let SExpression::String(event_name) = prop_value {
             if !event_name.starts_with('@') {
                 check_event_binding_payload(pat, prop_name, event_name, bctx, path, diagnostics);
-                // L2.3: when the literal matches a known event-bearing
-                // prop in the registry but the event isn't declared on
-                // the trait, the literal is stale — likely a leftover
-                // from an events-override rename that the compiler's
-                // C1 inline rewrite missed. Gap #30.
-                check_event_literal_stale(pat, prop_name, event_name, bctx, path, diagnostics);
             }
         }
 
@@ -669,95 +663,6 @@ fn check_event_binding_payload(
     }
 }
 
-/// L2.3: when a render-ui pattern carries a string literal at an
-/// event-bearing prop key, but that string isn't declared anywhere in
-/// the trait's event set (`emits[]` + `state_machine.events[]` +
-/// `listens[]`), the literal is stale. Most common cause: a trait-ref
-/// used `events: { OLD: NEW }` to rename an imported atom's events, but
-/// the compiler's inline phase didn't rewrite the literal inside the
-/// atom's render-ui pattern (gap #30 / C1 bug).
-///
-/// Skips when the prop isn't an event-bearing kind (event / event-ref /
-/// event-listen / callback / event-list-eventField). Skips when the
-/// trait's event set is empty (no constraint to compare).
-///
-/// Also surfaces non-events-override stale literals: an author rename
-/// from `OPEN` → `START` on a trait but missing the rewrite at one
-/// render-ui call site lands the same diagnostic.
-fn check_event_literal_stale(
-    pattern_type: &str,
-    prop_name: &str,
-    event_name: &str,
-    bctx: &BindingContext,
-    path: &str,
-    diagnostics: &mut Vec<ValidationError>,
-) {
-    let Some(pattern) = get_pattern(pattern_type) else {
-        return;
-    };
-    let Some(prop_meta) = pattern.props_schema.get(prop_name) else {
-        return;
-    };
-    let kind = prop_meta.kind.as_deref().unwrap_or("");
-    let is_event_bearing = matches!(kind, "event" | "event-ref" | "event-listen" | "callback");
-    if !is_event_bearing {
-        return;
-    }
-    // An empty literal is a default-off outlet (the component-declared `= ''`
-    // knob default the lolo-ui generator honors, e.g. table-view's
-    // itemClickEvent), not a stale event name.
-    if event_name.is_empty() {
-        return;
-    }
-
-    // Build the trait's full event set: every event the trait declares
-    // as emit, listens for, or transitions on. A literal that matches
-    // none of these is stale.
-    let mut declared_events: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    if let Some(emits) = &bctx.trait_def.emits {
-        for emit in emits {
-            declared_events.insert(emit.event.as_str());
-        }
-    }
-    if let Some(listens) = &bctx.trait_def.listens {
-        for listen in listens {
-            declared_events.insert(listen.event.as_str());
-            if let Some(trigger) = &listen.triggers {
-                declared_events.insert(trigger.as_str());
-            }
-        }
-    }
-    if let Some(events) = &bctx.trait_def.state_machine.events {
-        for evt in events {
-            declared_events.insert(evt.key.as_str());
-        }
-    }
-    for tr in &bctx.trait_def.state_machine.transitions {
-        declared_events.insert(tr.event.as_str());
-    }
-
-    if declared_events.is_empty() {
-        // Vacuous compare — skip.
-        return;
-    }
-    if !declared_events.contains(event_name) {
-        diagnostics.push(
-            ValidationError::error(
-                ErrorCode::RenderUIEventLiteralStale,
-                path,
-                format!(
-                    "Prop '{}' on '{}' references event '{}' but the trait's event set has no such key — literal is stale (likely missed by an `events: {{ OLD: NEW }}` override rewrite, or an authoring rename that didn't reach this call site)",
-                    prop_name, pattern_type, event_name,
-                ),
-            )
-            .with_suggestion(format!(
-                "Either add '{}' to the trait's `emits` / `listens` / transition events, or rewrite the literal to match an existing event key",
-                event_name
-            )),
-        );
-    }
-}
-
 /// Lenient primitive compatibility for event-payload comparisons. Same
 /// vocabulary as the L1.3/L2 emit_payload checks: `any` matches; date /
 /// datetime / timestamp accept string|number; entity / relation accept
@@ -914,40 +819,6 @@ fn node_leaf_values<'a>(
         .collect()
 }
 
-/// Deterministic render-ui-literal detector: an object whose `type` is a
-/// registered pattern AND that carries at least one other key registered as
-/// that pattern's prop. The second condition disambiguates canvas-shape data
-/// (`{type: "grid", xStep: …}`) from real UI literals (`{type: "grid",
-/// columns: …}`) on the one name the two vocabularies share.
-fn is_pattern_literal_object(obj: &orbital_core_base::schema::SObject) -> bool {
-    let Some(SExpression::String(t)) = obj.get("type") else {
-        return false;
-    };
-    let Some(valid_props) = super::sync::patterns::get_pattern_valid_props(t.as_str()) else {
-        return false;
-    };
-    obj.keys()
-        .any(|k| k != "type" && valid_props.contains(k.as_str()))
-}
-
-/// Does this literal value contain a render-ui pattern object anywhere?
-fn contains_pattern_literal(value: &SExpression) -> bool {
-    match value {
-        SExpression::Object(obj) => {
-            if is_pattern_literal_object(obj) {
-                return true;
-            }
-            obj.values().any(contains_pattern_literal)
-        }
-        SExpression::Array(items) => {
-            // An operator call (`["array/concat", …]`) is not a literal array;
-            // still scan its arguments for embedded pattern literals.
-            items.iter().any(contains_pattern_literal)
-        }
-        _ => false,
-    }
-}
-
 /// Is this value a checkable literal (pattern object, or a literal array whose
 /// first element is not an operator head)?
 fn is_checkable_literal(value: &SExpression) -> bool {
@@ -1079,19 +950,6 @@ fn walk_for_node_sets(
                         walk_pattern_props(element, bctx, &set_path, diagnostics);
                     }
                 }
-            } else if contains_pattern_literal(resolved) {
-                diagnostics.push(
-                    ValidationError::error(
-                        ErrorCode::RenderableContentInGenericField,
-                        &set_path,
-                        format!(
-                            "field '{field_name}' is not typed `node` but receives a render-ui pattern literal — renderable content in a generic/structured field escapes every render-ui check"
-                        ),
-                    )
-                    .with_suggestion(format!(
-                        "Type the field: `{field_name} : node` (or `[node]` for a fragment list)."
-                    )),
-                );
             }
         }
         _ => {

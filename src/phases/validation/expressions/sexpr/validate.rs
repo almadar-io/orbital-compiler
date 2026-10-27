@@ -464,7 +464,6 @@ pub(crate) fn validate_sexpr_with_locals(
                                 s,
                                 &format!("{}[{}]", path, i),
                                 context,
-                                known_entities,
                                 lambda_locals,
                             );
                             result.merge(binding_result);
@@ -485,7 +484,7 @@ pub(crate) fn validate_sexpr_with_locals(
         }
         SExpression::String(s) if s.starts_with('@') => {
             // Validate binding
-            let binding_result = validate_binding(s, path, context, known_entities, lambda_locals);
+            let binding_result = validate_binding(s, path, context, lambda_locals);
             result.merge(binding_result);
         }
         SExpression::Object(obj) => {
@@ -936,19 +935,6 @@ mod tests {
         let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &known_entities);
         assert!(result.is_valid());
-    }
-
-    #[test]
-    fn test_unknown_entity_binding() {
-        let expr = SExpression::String(("@NonExistent.title".to_string()).into());
-
-        let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
-        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &known_entities);
-        // This is a warning, not an error
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::SExprUnknownEntity));
     }
 
     #[test]

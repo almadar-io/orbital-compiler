@@ -489,37 +489,6 @@ fn control_without_the_page_omit_the_page_stays() {
     assert!(paths.iter().any(|p| p == "/mine"), "{paths:?}");
 }
 
-#[test]
-fn edge_omitting_an_unknown_page_path_is_reported() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    std::fs::write(dir.path().join("upstream.orb"), UPSTREAM).expect("write upstream");
-    let consumer_path = dir.path().join("consumer.orb");
-    std::fs::write(&consumer_path, consumer(r#""/nope""#)).expect("write consumer");
-    let mut schema = parse_file(&consumer_path).expect("consumer parses");
-    let (mut orbital_ref, mut uses_config) = (Vec::new(), Vec::new());
-    orbital_compiler::phases::inline::inline_schema_with_orbital_diagnostics(
-        &mut schema,
-        &InlineConfig::default(),
-        Some(&consumer_path),
-        &mut orbital_ref,
-        &mut uses_config,
-    )
-    .expect("inline succeeds");
-    let result =
-        orbital_compiler::phases::validation::orbital_ref_config::validate_orbital_ref_diagnostics(
-            &orbital_ref,
-            &schema,
-        );
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code.as_str() == "ORB_O_PAGE_UNKNOWN_PATH" && e.message.contains("/nope")),
-        "{:#?}",
-        result.errors
-    );
-}
-
 fn page_trait_refs(schema: &OrbitalSchema) -> Vec<String> {
     schema.orbitals[0]
         .pages

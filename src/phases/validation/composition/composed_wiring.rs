@@ -1,33 +1,23 @@
-//! A composed placement wired to nothing. An atom's own inputs and outputs are
-//! its offer; once a program composes it (`sourceBehavior` set), an input
-//! nothing produces leaves part of it dead, and a control value nothing keeps
-//! is discarded. Both are decidable on the resolved IR:
+//! A composed placement wired to nothing. Once a program composes an atom
+//! (`sourceBehavior` set), a control value nothing keeps is discarded. This is
+//! decidable on the resolved IR:
 //!
-//! - `ORB_COMPOSED_STATE_UNREACHABLE` — a state of a composed trait that no
-//!   event the program can produce leads to.
-//! - `ORB_COMPOSED_TRANSITION_UNREACHABLE` — a transition of a composed trait,
-//!   from a reachable state into one, waiting on an event the program cannot
-//!   produce (the state check cannot see a dead self-loop or a dead second way in).
 //! - `ORB_CONTROL_VALUE_DISCARDED` — a composed trait's rendered control fires
 //!   an event carrying a value that no other trait hears and whose own
 //!   handling reads none of it. An event the trait offers outward (`-> input`) defers to an
 //!   importer, except in a finished program (`orb validate --final`, `discarded_offered_values`).
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 
-use super::closed_circuit::{mounts_shell_overlay, SHELL_DISMISS_EVENTS};
 use super::final_program::{embedder_closure, routes};
-use super::fired_events::{collect_schema_fired_events, fold_knobs, literal_knobs, FiredEvents};
 use super::{ErrorCode, ValidationContext, ValidationError};
 use crate::phases::embed_graph::EmbedGraph;
 use orbital_core_base::schema::{
     EntityRef, EventScope, ListenDefinition, ListenSource, Orbital, OrbitalSchema, Persistence,
-    SExpression, StringOrArray, TraitDefinition, TraitReference,
+    SExpression, TraitDefinition, TraitReference,
 };
 
 pub fn validate_composed_wiring(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
-    let fired = collect_schema_fired_events(schema);
-    let produced = produced_by_name(schema, &fired);
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         let traits: Vec<(usize, &TraitDefinition)> = orbital
             .traits
@@ -43,8 +33,6 @@ pub fn validate_composed_wiring(schema: &OrbitalSchema, ctx: &mut ValidationCont
                 continue;
             }
             let path = format!("orbitals[{oi}].traits[{ti}]");
-            unreachable_states(td, &produced, &path, ctx);
-            unreachable_transitions(td, &produced, &path, ctx);
             discarded_values(schema, orbital, td, &traits, &path, false, ctx);
         }
     }
@@ -72,216 +60,6 @@ pub fn discarded_offered_values(schema: &OrbitalSchema) -> Vec<ValidationError> 
         }
     }
     ctx.result.errors
-}
-
-/// Every event name the program can produce, by name: control and effect emits,
-/// plus every value of an `event`-typed config knob (a button's `action`), which
-/// `FiredEvents` leaves out on purpose — over-counting producers only silences.
-fn produced_by_name(schema: &OrbitalSchema, fired: &FiredEvents) -> HashSet<String> {
-    let mut out: HashSet<String> = fired
-        .by_control
-        .iter()
-        .chain(fired.by_effect.iter())
-        .map(|(_, e)| e.clone())
-        .collect();
-    for orbital in &schema.orbitals {
-        for t in &orbital.traits {
-            let TraitReference::Inline(td) = t else {
-                continue;
-            };
-            for field in td.config.iter().flat_map(|c| c.values()) {
-                if field.field_type == "event" {
-                    if let Some(default) = &field.default {
-                        strings_in(default, &mut out);
-                    }
-                }
-            }
-        }
-    }
-    out
-}
-
-fn strings_in(node: &SExpression, out: &mut HashSet<String>) {
-    match node {
-        SExpression::String(s) => {
-            out.insert(s.clone().into_inner());
-        }
-        SExpression::Array(items) => items.iter().for_each(|i| strings_in(i, out)),
-        _ => {}
-    }
-}
-
-fn from_states(from: &StringOrArray) -> Vec<&str> {
-    match from {
-        StringOrArray::Single(s) => vec![s.as_str()],
-        StringOrArray::Multiple(v) => v.iter().map(String::as_str).collect(),
-    }
-}
-
-fn unreachable_states(
-    td: &TraitDefinition,
-    produced: &HashSet<String>,
-    path: &str,
-    ctx: &mut ValidationContext,
-) {
-    let sm = &td.state_machine;
-    let Some(initial) = sm
-        .states
-        .iter()
-        .find(|s| s.is_initial == Some(true))
-        .or(sm.states.first())
-    else {
-        return;
-    };
-    let inputs = trait_inputs(td, produced);
-    let live = live_transitions(td);
-    let reached = reached_states(&initial.name, &live, &inputs);
-    // Unreached states entered by a live transition on an event nothing produces.
-    let dead: Vec<&str> = sm
-        .states
-        .iter()
-        .map(|s| s.name.as_str())
-        .filter(|s| !reached.contains(s))
-        .filter(|s| {
-            live.iter()
-                .any(|t| t.to == *s && !inputs.contains(&t.event))
-        })
-        .collect();
-    if dead.is_empty() {
-        return;
-    }
-    let mut missing: Vec<&str> = live
-        .iter()
-        .filter(|t| dead.contains(&t.to.as_str()) && !inputs.contains(&t.event))
-        .map(|t| t.event.as_str())
-        .collect();
-    missing.sort_unstable();
-    missing.dedup();
-    ctx.add_error(
-        ValidationError::error(
-            ErrorCode::ComposedStateUnreachable,
-            path.to_string(),
-            format!(
-                "'{}' can never enter {} — it is entered only on {}, which nothing in the program sends: no listens route, no control or effect fires it, and it is not a declared input",
-                td.name,
-                dead.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(", "),
-                missing.join(", ")
-            ),
-        )
-        .with_suggestion(format!("route a control's event to it: `listens {{ <Trait>.<EVENT> -> {} }}` on '{}'", missing.first().copied().unwrap_or("<EVENT>"), td.name)),
-    );
-}
-
-/// The events a composed trait can receive: everything the program produces, the page
-/// lifecycle, its listens' triggers, its declared inputs and the portal shell's dismiss events.
-fn trait_inputs(td: &TraitDefinition, produced: &HashSet<String>) -> HashSet<String> {
-    let mut inputs: HashSet<String> = produced.clone();
-    inputs.extend(orbital_core_base::events::bus_excluded_events().iter().cloned());
-    for l in td.listens.iter().flatten() {
-        inputs.insert(l.triggers.clone().unwrap_or_else(|| l.event.clone()));
-    }
-    for e in td.state_machine.events.iter().flatten() {
-        if e.input == Some(true) {
-            inputs.insert(e.key.clone());
-        }
-    }
-    if mounts_shell_overlay(&td.state_machine) {
-        inputs.extend(SHELL_DISMISS_EVENTS.iter().map(|e| e.to_string()));
-    }
-    inputs
-}
-
-/// Transitions the composition leaves on (a guard folded to `false` switches one off).
-fn live_transitions(td: &TraitDefinition) -> Vec<&orbital_core_base::schema::TransitionDefinition> {
-    let knobs = literal_knobs(td);
-    td.state_machine
-        .transitions
-        .iter()
-        .filter(|t| {
-            !t.guard
-                .as_ref()
-                .is_some_and(|g| fold_knobs(g, &knobs).is_statically_false())
-        })
-        .collect()
-}
-
-fn reached_states<'a>(
-    initial: &'a str,
-    live: &[&'a orbital_core_base::schema::TransitionDefinition],
-    inputs: &HashSet<String>,
-) -> HashSet<&'a str> {
-    let mut reached: HashSet<&str> = HashSet::from([initial]);
-    let mut walk: VecDeque<&str> = VecDeque::from([initial]);
-    while let Some(state) = walk.pop_front() {
-        for t in live {
-            let from = from_states(&t.from);
-            if !(from.contains(&state) || from.contains(&"*")) || !inputs.contains(&t.event) {
-                continue;
-            }
-            if reached.insert(t.to.as_str()) {
-                walk.push_back(t.to.as_str());
-            }
-        }
-    }
-    reached
-}
-
-/// Live transitions between reachable states that wait on an event nothing sends. A dead
-/// target state is the state check's finding, so it is not reported twice.
-fn unreachable_transitions(
-    td: &TraitDefinition,
-    produced: &HashSet<String>,
-    path: &str,
-    ctx: &mut ValidationContext,
-) {
-    let sm = &td.state_machine;
-    let Some(initial) = sm
-        .states
-        .iter()
-        .find(|s| s.is_initial == Some(true))
-        .or(sm.states.first())
-    else {
-        return;
-    };
-    let inputs = trait_inputs(td, produced);
-    let live = live_transitions(td);
-    let reached = reached_states(&initial.name, &live, &inputs);
-    let declared: HashSet<&str> = sm
-        .events
-        .iter()
-        .flatten()
-        .filter(|e| e.listened == Some(true))
-        .map(|e| e.key.as_str())
-        .collect();
-    let mut dead: Vec<&str> = live
-        .iter()
-        .filter(|t| !inputs.contains(&t.event) && !declared.contains(t.event.as_str()))
-        .filter(|t| reached.contains(t.to.as_str()))
-        .filter(|t| {
-            from_states(&t.from)
-                .iter()
-                .any(|f| *f == "*" || reached.contains(f))
-        })
-        .map(|t| t.event.as_str())
-        .collect();
-    dead.sort_unstable();
-    dead.dedup();
-    if dead.is_empty() {
-        return;
-    }
-    ctx.add_error(
-        ValidationError::error(
-            ErrorCode::ComposedTransitionUnreachable,
-            path.to_string(),
-            format!(
-                "'{}' handles {} but nothing in the program sends {}: no listens route, no control or effect fires it under this composition's config, it is not a lifecycle event and the trait does not declare it in `listens`",
-                td.name,
-                dead.join(", "),
-                if dead.len() == 1 { "it" } else { "them" }
-            ),
-        )
-        .with_suggestion(format!("route a control's event to it: `listens {{ <Trait>.<EVENT> -> {} }}` on '{}'", dead[0], td.name)),
-    );
 }
 
 /// True for an effect tree that keeps something beyond the screen: a `persist`, a
@@ -629,86 +407,6 @@ mod tests {
 
     // --- ORB_COMPOSED_STATE_UNREACHABLE ---
 
-    #[test]
-    fn a_composed_form_nothing_opens_is_unreachable() {
-        let found = hits(
-            program(vec![form("ItemForm", serde_json::json!([]), true)]),
-            ErrorCode::ComposedStateUnreachable,
-        );
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(
-            found[0].message.contains("ItemForm")
-                && found[0].message.contains("open")
-                && found[0].message.contains("OPEN"),
-            "{}",
-            found[0].message
-        );
-    }
-
-    #[test]
-    fn control_a_routed_opener_reaches_the_form() {
-        let traits = vec![
-            opener("ACTION"),
-            form(
-                "ItemForm",
-                serde_json::json!([route("AddButton", "ACTION", "OPEN")]),
-                true,
-            ),
-        ];
-        assert!(hits(program(traits), ErrorCode::ComposedStateUnreachable).is_empty());
-    }
-
-    #[test]
-    fn control_a_control_firing_the_input_by_name_reaches_the_form() {
-        let traits = vec![
-            opener("OPEN"),
-            form("ItemForm", serde_json::json!([]), true),
-        ];
-        assert!(hits(program(traits), ErrorCode::ComposedStateUnreachable).is_empty());
-    }
-
-    #[test]
-    fn edge_an_atom_authoring_its_own_trait_offers_the_input() {
-        assert!(hits(
-            program(vec![form("ModalRecordModal", serde_json::json!([]), false)]),
-            ErrorCode::ComposedStateUnreachable
-        )
-        .is_empty());
-    }
-
-    #[test]
-    fn edge_an_input_declared_external_is_the_host_s_to_send() {
-        let mut f = form("ItemForm", serde_json::json!([]), true);
-        f["stateMachine"]["events"][1]["input"] = serde_json::json!(true);
-        assert!(hits(program(vec![f]), ErrorCode::ComposedStateUnreachable).is_empty());
-    }
-
-    #[test]
-    fn edge_a_state_the_composition_switched_off_by_config_is_not_unwired() {
-        let mut f = form("ItemForm", serde_json::json!([]), true);
-        f["stateMachine"]["transitions"][1]["guard"] = serde_json::json!(false);
-        assert!(hits(program(vec![f]), ErrorCode::ComposedStateUnreachable).is_empty());
-    }
-
-    #[test]
-    fn edge_a_conjunction_with_a_config_off_operand_is_switched_off() {
-        let mut f = form("ItemForm", serde_json::json!([]), true);
-        f["stateMachine"]["transitions"][1]["guard"] =
-            serde_json::json!(["and", false, ["=", "@payload.id", "x"]]);
-        assert!(hits(program(vec![f]), ErrorCode::ComposedStateUnreachable).is_empty());
-    }
-
-    #[test]
-    fn control_a_live_conjunction_still_counts() {
-        let mut f = form("ItemForm", serde_json::json!([]), true);
-        f["stateMachine"]["transitions"][1]["guard"] =
-            serde_json::json!(["and", true, ["=", "@payload.id", "x"]]);
-        assert_eq!(
-            hits(program(vec![f]), ErrorCode::ComposedStateUnreachable).len(),
-            1
-        );
-    }
-
     // --- ORB_COMPOSED_TRANSITION_UNREACHABLE (G-CROSS-144) ---
 
     /// A composed list: `LOADED` (its fetch's success) settles it, `REFETCH` reloads it from
@@ -735,28 +433,6 @@ mod tests {
         t
     }
 
-    #[test]
-    fn a_composed_transition_on_an_event_nothing_sends_is_dead() {
-        let found = hits(
-            program(vec![browse(serde_json::json!([]), true)]),
-            ErrorCode::ComposedTransitionUnreachable,
-        );
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(
-            found[0].message.contains("ItemBrowse") && found[0].message.contains("REFETCH"),
-            "{}",
-            found[0].message
-        );
-        assert!(
-            hits(
-                program(vec![browse(serde_json::json!([]), true)]),
-                ErrorCode::ComposedStateUnreachable
-            )
-            .is_empty(),
-            "the states are all reachable: only the transition is dead"
-        );
-    }
-
     fn with_declared(mut t: serde_json::Value, key: &str) -> serde_json::Value {
         for ev in t["stateMachine"]["events"].as_array_mut().expect("events") {
             if ev["key"] == key {
@@ -764,158 +440,6 @@ mod tests {
             }
         }
         t
-    }
-
-    #[test]
-    fn a_transition_on_an_input_the_atom_declares_in_listens_is_an_offer_not_dead() {
-        let t = with_declared(browse(serde_json::json!([]), true), "REFETCH");
-        assert!(hits(program(vec![t]), ErrorCode::ComposedTransitionUnreachable).is_empty());
-    }
-
-    #[test]
-    fn control_declaring_a_different_input_leaves_the_dead_transition_reported() {
-        let t = with_declared(browse(serde_json::json!([]), true), "LOADED");
-        assert_eq!(
-            hits(program(vec![t]), ErrorCode::ComposedTransitionUnreachable).len(),
-            1
-        );
-    }
-
-    #[test]
-    fn a_declared_input_does_not_make_a_dead_state_reachable() {
-        let mut t = with_declared(browse(serde_json::json!([]), true), "REFETCH");
-        t["stateMachine"]["states"]
-            .as_array_mut()
-            .expect("states")
-            .push(serde_json::json!({ "name": "paged" }));
-        t["stateMachine"]["transitions"]
-            .as_array_mut()
-            .expect("transitions")
-            .push(serde_json::json!({ "from": "browsing", "to": "paged", "event": "REFETCH" }));
-        assert_eq!(
-            hits(program(vec![t]), ErrorCode::ComposedStateUnreachable).len(),
-            1,
-            "the state rule keeps its own input set"
-        );
-    }
-
-    #[test]
-    fn control_a_routed_event_reaches_the_transition() {
-        let traits = vec![
-            opener("SEARCH"),
-            browse(
-                serde_json::json!([route("AddButton", "SEARCH", "REFETCH")]),
-                true,
-            ),
-        ];
-        assert!(hits(program(traits), ErrorCode::ComposedTransitionUnreachable).is_empty());
-    }
-
-    #[test]
-    fn control_a_control_firing_the_event_by_name_reaches_the_transition() {
-        let traits = vec![opener("REFETCH"), browse(serde_json::json!([]), true)];
-        assert!(hits(program(traits), ErrorCode::ComposedTransitionUnreachable).is_empty());
-    }
-
-    #[test]
-    fn edge_an_atom_authoring_its_own_trait_offers_the_transition() {
-        assert!(hits(
-            program(vec![browse(serde_json::json!([]), false)]),
-            ErrorCode::ComposedTransitionUnreachable
-        )
-        .is_empty());
-    }
-
-    #[test]
-    fn edge_an_external_event_is_the_host_s_to_send() {
-        let mut b = browse(serde_json::json!([]), true);
-        b["stateMachine"]["events"][2]["input"] = serde_json::json!(true);
-        assert!(hits(program(vec![b]), ErrorCode::ComposedTransitionUnreachable).is_empty());
-    }
-
-    #[test]
-    fn edge_a_transition_switched_off_by_config_is_not_unwired() {
-        let mut b = browse(serde_json::json!([]), true);
-        b["stateMachine"]["transitions"][2]["guard"] = serde_json::json!(false);
-        assert!(hits(program(vec![b]), ErrorCode::ComposedTransitionUnreachable).is_empty());
-    }
-
-    #[test]
-    fn edge_a_close_arm_on_a_trait_that_mounts_the_portal_shell_is_sent_by_the_shell() {
-        let mut b = browse(serde_json::json!([]), true);
-        b["stateMachine"]["transitions"][2]["event"] = serde_json::json!("CLOSE");
-        b["stateMachine"]["transitions"][1]["effects"] =
-            serde_json::json!([["render-ui", "overlay", { "type": "stack", "children": [] }]]);
-        assert!(hits(program(vec![b]), ErrorCode::ComposedTransitionUnreachable).is_empty());
-    }
-
-    #[test]
-    fn control_a_close_arm_without_a_shell_overlay_has_no_sender() {
-        let mut b = browse(serde_json::json!([]), true);
-        b["stateMachine"]["transitions"][2]["event"] = serde_json::json!("CLOSE");
-        b["stateMachine"]["transitions"][1]["effects"] =
-            serde_json::json!([["render-ui", "main", { "type": "stack", "children": [] }]]);
-        assert_eq!(
-            hits(program(vec![b]), ErrorCode::ComposedTransitionUnreachable).len(),
-            1
-        );
-    }
-
-    fn with_look(look: &str) -> serde_json::Value {
-        let mut b = browse(serde_json::json!([]), true);
-        b["config"] = serde_json::json!({ "look": { "type": "string", "default": look } });
-        b["stateMachine"]["transitions"][2]["guard"] =
-            serde_json::json!(["=", "@config.look", "master-detail"]);
-        b
-    }
-
-    #[test]
-    fn edge_a_guard_comparing_a_knob_the_composition_set_otherwise_is_switched_off() {
-        assert!(hits(
-            program(vec![with_look("dense")]),
-            ErrorCode::ComposedTransitionUnreachable
-        )
-        .is_empty());
-    }
-
-    #[test]
-    fn control_a_guard_whose_knob_matches_keeps_the_transition_live() {
-        assert_eq!(
-            hits(
-                program(vec![with_look("master-detail")]),
-                ErrorCode::ComposedTransitionUnreachable
-            )
-            .len(),
-            1
-        );
-    }
-
-    #[test]
-    fn control_a_guard_on_a_runtime_value_is_never_folded() {
-        let mut b = browse(serde_json::json!([]), true);
-        b["stateMachine"]["transitions"][2]["guard"] =
-            serde_json::json!(["=", "@entity.look", "master-detail"]);
-        assert_eq!(
-            hits(program(vec![b]), ErrorCode::ComposedTransitionUnreachable).len(),
-            1
-        );
-    }
-
-    #[test]
-    fn edge_a_lifecycle_event_is_sent_by_the_page() {
-        let mut b = browse(serde_json::json!([]), true);
-        b["stateMachine"]["transitions"][2]["event"] = serde_json::json!("LOAD");
-        assert!(hits(program(vec![b]), ErrorCode::ComposedTransitionUnreachable).is_empty());
-    }
-
-    #[test]
-    fn edge_a_dead_state_is_reported_once_by_the_state_check() {
-        let schema = program(vec![form("ItemForm", serde_json::json!([]), true)]);
-        assert_eq!(
-            hits(schema.clone(), ErrorCode::ComposedStateUnreachable).len(),
-            1
-        );
-        assert!(hits(schema, ErrorCode::ComposedTransitionUnreachable).is_empty());
     }
 
     // --- ORB_CONTROL_VALUE_DISCARDED ---

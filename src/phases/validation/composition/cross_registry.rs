@@ -69,7 +69,7 @@ fn walk_for_references(expr: &SExpression, path: &str, result: &mut ValidationRe
                 check_operator_reference(op, path, result);
 
                 // render-ui pattern existence check
-                if op == "render-ui" || op == "render_ui" {
+                if op == "render-ui" {
                     if let Some((i, pattern)) = arr.iter().enumerate().skip(1).find_map(|(i, a)| {
                         if let SExpression::Object(obj) = a {
                             Some((i, obj))

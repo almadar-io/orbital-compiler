@@ -48,7 +48,7 @@ pub(crate) fn validate_operator_arg_types_under(
 }
 
 /// `expr` with each value-operator call whose argument types the static check proved wrapped as
-/// `["proven", [positions], call]` (G-CROSS-335), so the kernel skips the run-time check at those positions. Each
+/// `["proven", [positions], op, ...args]` (G-CROSS-335; flat, so marking adds no depth), so the kernel skips the run-time check at those positions. Each
 /// maximal value or effect expression is inferred as one tree where `guard` holds, as the check reads it.
 pub(crate) fn mark_proven_operator_args(
     expr: &SExpression,
@@ -128,26 +128,31 @@ fn wrap(
             if matches!(head.as_str(), "quote" | "quasiquote") {
                 return expr.clone();
             }
-            let rebuilt = SExpression::Array(
-                std::iter::once(items[0].clone()).chain(items[1..].iter().map(|item| wrap(item, proven))).collect(),
-            );
+            let call: Vec<SExpression> =
+                std::iter::once(items[0].clone()).chain(items[1..].iter().map(|item| wrap(item, proven))).collect();
             let markable = is_value_operator(head)
                 && !is_effect(head)
-                && !matches!(head.as_str(), "let" | "typed" | "proven" | "fn" | "lambda" | "do" | "list");
-            if !markable {
-                return rebuilt;
-            }
-            let key = orbital_core_eval::lower::lower_sexpr_keeping_typed(expr)
-                .ok()
+                // Control forms can hold effects, which the kernel runs only under their own head.
+                && !matches!(
+                    head.as_str(),
+                    "let" | "typed" | "proven" | "fn" | "lambda" | "do" | "list" | "if" | "when" | "unless" | "cond" | "match"
+                );
+            let positions = markable
+                .then(|| orbital_core_eval::lower::lower_sexpr_keeping_typed(expr).ok())
+                .flatten()
                 .and_then(|oir| crate::type_infer::ProvenKey::of(&oir))
-                .filter(|key| key.arity() == items.len() - 1);
-            match key.and_then(|key| proven.get(&key)) {
-                Some(positions) => SExpression::Array(vec![
-                    SExpression::string("proven"),
-                    SExpression::Array(positions.iter().map(|&p| SExpression::Number(p as f64)).collect()),
-                    rebuilt,
-                ]),
-                None => rebuilt,
+                .filter(|key| key.arity() == items.len() - 1)
+                .and_then(|key| proven.get(&key));
+            match positions {
+                Some(positions) => {
+                    let mut flat = vec![
+                        SExpression::string("proven"),
+                        SExpression::Array(positions.iter().map(|&p| SExpression::Number(p as f64)).collect()),
+                    ];
+                    flat.extend(call);
+                    SExpression::Array(flat)
+                }
+                None => SExpression::Array(call),
             }
         }
         other => other.clone(),
@@ -452,7 +457,6 @@ mod tests {
             EntityFieldMeta {
                 field_type: ty.into(),
                 shape: orbital_core_base::type_compat::compat_kind_oir(ty),
-                enum_values: vec![],
                 required: false,
                 defaulted: false,
             },
@@ -1103,7 +1107,6 @@ mod tests {
                     EntityFieldMeta {
                         field_type: orbital_core_base::type_compat::oir_type_kind(shape),
                         shape: shape.clone(),
-                        enum_values: vec![],
                         required: false,
                         defaulted: false,
                     },
@@ -1298,7 +1301,6 @@ mod tests {
                 EntityFieldMeta {
                     field_type: "number".into(),
                     shape: orbital_core_base::ir::OirType::Number,
-                    enum_values: vec![],
                     required,
                     defaulted,
                 },
@@ -1451,7 +1453,7 @@ mod tests {
     fn a_call_whose_argument_type_is_proven_is_marked_at_that_position() {
         assert_eq!(
             marked(r#"["str/upper", "@entity.name"]"#, field("name", "string"), None),
-            parse(r#"["proven", [0], ["str/upper", "@entity.name"]]"#)
+            parse(r#"["proven", [0], "str/upper", "@entity.name"]"#)
         );
     }
 
@@ -1467,7 +1469,7 @@ mod tests {
     fn only_the_proven_positions_of_a_call_are_listed() {
         assert_eq!(
             marked(r#"["str/concat", "@entity.name", "@payload.x"]"#, field("name", "string"), None),
-            parse(r#"["proven", [0], ["str/concat", "@entity.name", "@payload.x"]]"#)
+            parse(r#"["proven", [0], "str/concat", "@entity.name", "@payload.x"]"#)
         );
     }
 
@@ -1475,7 +1477,7 @@ mod tests {
     fn nested_calls_are_marked_each_on_its_own() {
         assert_eq!(
             marked(r#"["str/upper", ["str/trim", "@entity.name"]]"#, field("name", "string"), None),
-            parse(r#"["proven", [0], ["str/upper", ["proven", [0], ["str/trim", "@entity.name"]]]]"#)
+            parse(r#"["proven", [0], "str/upper", ["proven", [0], "str/trim", "@entity.name"]]"#)
         );
     }
 
@@ -1492,7 +1494,7 @@ mod tests {
         let json = mark_proven_operator_args(&effect, None, &HashMap::new(), &HashMap::new(), &payload_typed(OirType::Json), None);
         assert_eq!(json, effect, "a json value could be any kind at run time");
         let string = mark_proven_operator_args(&effect, None, &HashMap::new(), &HashMap::new(), &payload_typed(OirType::String), None);
-        assert_eq!(string, parse(r#"["proven", [0], ["str/upper", "@payload.v"]]"#), "control: a declared string is proven");
+        assert_eq!(string, parse(r#"["proven", [0], "str/upper", "@payload.v"]"#), "control: a declared string is proven");
     }
 
     #[test]
@@ -1506,7 +1508,7 @@ mod tests {
         let typed = marked(r#"["array/map", ["list", "a", "b"], ["fn", "t", ["str/upper", "@t"]]]"#, HashMap::new(), None);
         assert_eq!(
             typed,
-            parse(r#"["proven", [0], ["array/map", ["list", "a", "b"], ["fn", "t", ["proven", [0], ["str/upper", "@t"]]]]]"#)
+            parse(r#"["proven", [0], "array/map", ["list", "a", "b"], ["fn", "t", ["proven", [0], "str/upper", "@t"]]]"#)
         );
         let untyped = r#"["array/map", "@payload.xs", ["fn", "t", ["str/upper", "@t"]]]"#;
         assert_eq!(marked(untyped, HashMap::new(), None), parse(untyped), "control: unknown elements");
@@ -1516,14 +1518,49 @@ mod tests {
     fn a_variadic_call_lowered_to_nested_operations_is_not_marked() {
         let three = r#"["+", 1, 2, 3]"#;
         assert_eq!(marked(three, HashMap::new(), None), parse(three));
-        assert_eq!(marked(r#"["+", 1, 2]"#, HashMap::new(), None), parse(r#"["proven", [0, 1], ["+", 1, 2]]"#));
+        assert_eq!(marked(r#"["+", 1, 2]"#, HashMap::new(), None), parse(r#"["proven", [0, 1], "+", 1, 2]"#));
     }
 
     #[test]
     fn a_value_inside_an_effect_is_marked_and_the_effect_is_not() {
         assert_eq!(
             marked(r#"["set", "@entity.name", ["str/upper", "@entity.name"]]"#, field("name", "string"), None),
-            parse(r#"["set", "@entity.name", ["proven", [0], ["str/upper", "@entity.name"]]]"#)
+            parse(r#"["set", "@entity.name", ["proven", [0], "str/upper", "@entity.name"]]"#)
+        );
+    }
+
+    #[test]
+    fn marking_adds_at_most_one_level_however_many_calls_it_marks() {
+        fn depth(v: &serde_json::Value) -> usize {
+            match v {
+                serde_json::Value::Array(items) => 1 + items.iter().map(depth).max().unwrap_or(0),
+                serde_json::Value::Object(fields) => 1 + fields.values().map(depth).max().unwrap_or(0),
+                _ => 0,
+            }
+        }
+        let mut nested = serde_json::json!("@entity.name");
+        for _ in 0..120 {
+            nested = serde_json::json!(["str/trim", nested]);
+        }
+        let source: SExpression = serde_json::from_value(nested.clone()).unwrap();
+        let marked = mark_proven_operator_args(&source, None, &field("name", "string"), &HashMap::new(), &no_types(), None);
+        let text = serde_json::to_string(&marked).unwrap();
+        assert!(text.contains("\"proven\""), "the chain is marked");
+        let reread: serde_json::Value = serde_json::from_str(&text).expect("a marked program re-parses under the default depth limit");
+        assert!(
+            depth(&reread) <= depth(&nested) + 1,
+            "marks never stack: at most the innermost positions list adds one level ({} vs {})",
+            depth(&reread),
+            depth(&nested)
+        );
+    }
+
+    #[test]
+    fn a_control_form_holding_effects_is_never_marked_but_its_values_are() {
+        let effect = r#"["if", ["=", "@entity.name", "a"], ["emit", "DONE", {}], ["set", "@entity.name", ["str/upper", "@entity.name"]]]"#;
+        assert_eq!(
+            marked(effect, field("name", "string"), None),
+            parse(r#"["if", ["proven", [0, 1], "=", "@entity.name", "a"], ["emit", "DONE", {}], ["set", "@entity.name", ["proven", [0], "str/upper", "@entity.name"]]]"#)
         );
     }
 

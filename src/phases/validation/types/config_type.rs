@@ -1,10 +1,7 @@
-//! Config field type validation for `slot` and `pattern`, plus
-//! structural shape validation against the typed declaration carriers
-//! (`items` / `properties` / `values`) populated by the lolo lowerer.
+//! Config field structural shape validation against the typed declaration
+//! carriers (`items` / `properties` / `values`) populated by the lolo lowerer.
 //!
-//! Checks that config fields typed `slot` have defaults in `VALID_SLOTS`,
-//! that config fields typed `pattern` have defaults in `PATTERN_TYPES`,
-//! and that every config field's `default` value matches its declared
+//! Checks that every config field's `default` value matches its declared
 //! structural shape (array vs scalar, object vs primitive, enum
 //! membership, per-element / per-property typing recursively).
 //! Also validates config overrides in trait references (TODO: requires
@@ -22,8 +19,7 @@ use orbital_core_base::type_compat::set_value_type_compatible;
 
 use super::error::{ErrorCode, ValidationError};
 use super::render_ui_binding::{resolve_binding_type, BindingContext, BindingType};
-use super::sync::patterns::is_valid_pattern;
-use super::{ValidationContext, ValidationResult, VALID_SLOTS};
+use super::{ValidationContext, ValidationResult};
 use crate::embedded::is_known_operator;
 
 /// True when `value` is a computed S-expression (a binding reference or an
@@ -219,7 +215,7 @@ fn check_event_address_args(
             }
         }
     }
-    if head == "call-service" || head == "call_service" {
+    if head == "call-service" {
         if let (
             Some(SExpression::String(service)),
             Some(SExpression::String(action)),
@@ -680,13 +676,11 @@ fn check_reference_binding_type(
     result
 }
 
-/// Validate all `slot` and `pattern` config fields in the schema.
+/// Validate all config fields in the schema.
 pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
 
     result.merge(validate_dangling_config_refs(schema));
-    validate_groupby_enum_column_gap(schema, ctx, &mut result);
-    validate_embed_config_forward_multi_referrer(schema, &mut result);
 
     let event_refs = EventRefIndex::of(schema);
     validate_call_service_event_addresses(schema, &ctx.service_registry, &event_refs, &mut result);
@@ -736,7 +730,7 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
                     for (field_name, cf) in config.iter() {
                         let field_path = format!("{}.config({})", path_prefix, field_name);
                         // When the call-site entry is a full annotated declaration
-                        // (not a plain wiring), validate its `@tier` and structural
+                        // (not a plain wiring), validate its structural
                         // shape — the same checks that run for atom declarations.
                         // Plain wiring entries (`field_type == "unknown"`) are
                         // skipped: the base atom's declaration validates the type;
@@ -788,34 +782,7 @@ fn validate_config_field(
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
-    // Reject `[object]` (and the bare `object` variant) as a declared
-    // type — both lower to an untyped `Array<Json>` / `Json` that the
-    // strict-lint floor catches as `EventPayloadValue` / `Record<string,
-    // FieldValue | undefined>[]` in emitted TS. The lolo author should
-    // declare a named struct alias (e.g. `type FieldConfig = { name:
-    // string, label: string, variant: string }`) and use `[FieldConfig]`
-    // so the codegen carries real types end-to-end.
-    //
-    // The `render-ui` type is the deliberate exception: it carries a
-    // recursive render-ui SExpr that's validated via the existing
-    // render-ui validator + emitted as a proper RenderTree TS type by
-    // the std-ts factory-signature codegen — not an untyped Json bag.
     let ft = field.field_type.as_str();
-    if (ft == "[object]" || ft == "object") && ft != "render-ui" {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::TraitConfigObjectArrayForbidden,
-                path,
-                format!(
-                    "Config field uses banned type '{}'. Declare a named struct alias (e.g. `type FieldConfig = {{ name: string, label: string }}`) and use the alias (`[FieldConfig]`) so the catalog + TS codegen carry real types. For inline render-ui trees, use the `render-ui` type instead.",
-                    ft
-                ),
-            )
-            .with_suggestion(
-                "Author the shape: `type <Name> = { field1: <T1>, field2: <T2> }`, then use `[<Name>]` (for arrays) or `<Name>` (for single objects) on the config field. For render-ui trees use `: render-ui`.",
-            ),
-        );
-    }
 
     // Structural shape check — runs against the typed carriers
     // (`items` / `properties` / `values`) populated by the lolo lowerer.
@@ -829,32 +796,6 @@ fn validate_config_field(
             orbital_events,
             binding_ctx,
         ));
-    }
-
-    // `@tier` annotation — defense-in-depth. The parser already
-    // restricts the accepted sigil to one of `label | description |
-    // synonyms | tier`, but the tier *value* string is free-form at
-    // parse time. The L2 rule pins it to the five allowed buckets so
-    // any malformed `.orb` IR that bypasses the parser also fails fast.
-    // `policy` (governance: audit/access/approval/erasure/notify) and
-    // `infra` (operational: lifecycle/reminder/cascade/cross-reference)
-    // are decision kinds shown by default alongside `domain`.
-    if let Some(tier) = &field.tier {
-        const VALID_TIERS: &[&str] = &["domain", "policy", "infra", "presentation", "internal"];
-        if !VALID_TIERS.contains(&tier.as_str()) {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::TraitConfigTierInvalid,
-                    path,
-                    format!(
-                        "Config field `@tier` value '{}' is invalid. Allowed values: {}.",
-                        tier,
-                        VALID_TIERS.join(", ")
-                    ),
-                )
-                .with_suggestion(format!("Use one of: {}.", VALID_TIERS.join(", "))),
-            );
-        }
     }
 
     if let (Some(bctx), Some(default)) = (binding_ctx, &field.default) {
@@ -1031,65 +972,6 @@ fn validate_config_field(
             }
         }
         return result;
-    }
-
-    // `secret` values are credential REFERENCES — env-var key names resolved
-    // by `resolveCredentialRef`, never secret material. A non-string default
-    // is decidably wrong (I-29).
-    if field.field_type == "secret" {
-        if let Some(default) = &field.default {
-            if !matches!(default, SExpression::String(_)) {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::TraitSecretDefaultNotString,
-                        path,
-                        "Config field typed `secret` must default to a string credential reference (an env-var key name)",
-                    )
-                    .with_suggestion("Use a string env-var name, e.g. `connectionRef : secret = \"CRM_DB_URL\"`"),
-                );
-            }
-        }
-        return result;
-    }
-
-    let default_str = match &field.default {
-        Some(SExpression::String(s)) => s.as_str(),
-        _ => return result, // Non-string defaults can't be slot/pattern values
-    };
-
-    match field.field_type.as_str() {
-        "slot" => {
-            if !VALID_SLOTS.contains(&default_str) {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::TraitInvalidSlotDefault,
-                        path,
-                        format!(
-                            "Config field typed `slot` has invalid default '{}' — must be one of: {}",
-                            default_str,
-                            VALID_SLOTS.join(", ")
-                        ),
-                    )
-                    .with_valid_values(VALID_SLOTS.iter().map(|s| s.to_string()).collect()),
-                );
-            }
-        }
-        "pattern" => {
-            if !is_valid_pattern(default_str) {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::TraitInvalidPatternDefault,
-                        path,
-                        format!(
-                            "Config field typed `pattern` has invalid default '{}' — must be a known pattern type",
-                            default_str
-                        ),
-                    )
-                    .with_suggestion("Use a known pattern type or ensure custom pattern is registered"),
-                );
-            }
-        }
-        _ => {}
     }
 
     result
@@ -2199,220 +2081,6 @@ pub(crate) fn declared_config_keys<'a>(
         .collect()
 }
 
-/// C-CONFIG-DANGLING-REF-NO-VALIDATE: a literal `@config.<key>` in a resolved
-/// trait's body (config defaults, transition effects, tick effects) whose key
-/// is declared by NEITHER the owning trait NOR any transitive `@trait.X`
-/// referrer chain is a dangling reference — at runtime the forward has no
-/// schema to chain through and the component receives the literal string
-/// (silent empty subtree / `.map` crash class). Referrer-declared keys are
-/// LEGIT: `buildResolvedTraitConfigs` chains a child's `@config.fields`
-/// through its embedder, so only keys unreachable from the whole chain flag.
-/// `true` for a bare `@config.<key>` string leaf — the WHOLE string, nothing
-/// trailing (no `.field`, no `[i]`). Stricter than `config_key_of` above
-/// (which extracts a key out of a longer dotted/indexed path for the
-/// dangling-ref reachability walk): this is the forward-declaration shape
-/// `traitDeclaresConfigForward` tests for, and a nested path off a forward
-/// is not itself a re-declaration. Rust twin of `CONFIG_FORWARD_RE` in
-/// `embedded-trait-config.ts`.
-fn is_bare_config_forward(s: &str) -> bool {
-    let Some(rest) = s.strip_prefix("@config.") else {
-        return false;
-    };
-    let mut chars = rest.chars();
-    match chars.next() {
-        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
-        _ => return false,
-    }
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-/// `true` when part of what the trait renders is decided by whoever embeds
-/// it: a knob whose whole default is an `@config.<key>` forward, or an
-/// `@config.<key>` nested in a value naming a knob the trait does NOT declare.
-/// A nested token naming one of its own knobs is the trait reading itself —
-/// the same for every embedder. Rust twin of `traitDeclaresConfigForward`
-/// (`packages/almadar-core/src/embedded-trait-config.ts`).
-fn trait_config_declares_forward(config: &HashMap<String, ConfigField>) -> bool {
-    fn walk(value: &SExpression, own: &HashMap<String, ConfigField>) -> bool {
-        match value {
-            SExpression::String(s) => {
-                is_bare_config_forward(s) && !own.contains_key(&s["@config.".len()..])
-            }
-            SExpression::Array(items) => items.iter().any(|v| walk(v, own)),
-            SExpression::Object(map) => map.values().any(|v| walk(v, own)),
-            _ => false,
-        }
-    }
-    config
-        .values()
-        .filter_map(|f| f.default.as_ref())
-        .any(|default| match default {
-            SExpression::String(s) => is_bare_config_forward(s),
-            nested => walk(nested, config),
-        })
-}
-
-/// A trait embedded via `@trait.X` by ≥2 referrers that itself declares an
-/// `@config.<key>` forward.
-///
-/// One declaration cannot serve two embedders: the sibling-pull materializes
-/// a sub-view PER EMBEDDER, so a child's `@config.X` forwards chain to its
-/// FIRST referrer only (`EmbedGraph::direct_host`) and the client, keyed by
-/// trait name, renders the first referrer's resolved config for both. A
-/// child with no config forward renders identically regardless of embedder
-/// (inert shared chrome — corpus calibration: 44 of 45 doubly-embedded
-/// traits are exactly this, `wiring-lint.ts` L774-780), so only the
-/// forward-declaring class is a real defect. JS twin:
-/// `embedded-sibling-single-referrer`.
-fn validate_embed_config_forward_multi_referrer(
-    schema: &OrbitalSchema,
-    result: &mut ValidationResult,
-) {
-    for orbital in &schema.orbitals {
-        let graph = crate::phases::embed_graph::EmbedGraph::build(&orbital.traits);
-        let declared: HashMap<&str, &HashMap<String, ConfigField>> =
-            graph.declared_iter().collect();
-        for (child, referrers) in graph.referrers_iter() {
-            if referrers.len() < 2 {
-                continue;
-            }
-            let Some(config) = declared.get(child) else {
-                continue;
-            };
-            if !trait_config_declares_forward(config) {
-                continue;
-            }
-            let mut sorted: Vec<&str> = referrers.iter().map(String::as_str).collect();
-            sorted.sort_unstable();
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::EmbedConfigForwardMultiReferrer,
-                    format!("{}.@trait", child),
-                    format!(
-                        "{} declares @config forwards and is embedded via @trait by {} referrers \
-                         ({}) — one declaration cannot serve two embedders: its forwards chain to \
-                         the first referrer only, and the client keys rendered content by trait \
-                         name, so the second embedder shows the first's resolved config",
-                        child,
-                        referrers.len(),
-                        sorted.join(", ")
-                    ),
-                )
-                .with_suggestion(format!(
-                    "declare {} once per embedder (the sibling pull does exactly this for \
-                     imported atoms), or move the forwarded knobs to literals so the render no \
-                     longer depends on which trait embeds it",
-                    child
-                )),
-            );
-        }
-    }
-}
-
-/// A trait config carrying BOTH a `groupByField` string and a `columns`
-/// array of `{ key }` descriptors buckets rows by strict key equality — a
-/// linked-entity enum value with no matching column key silently hides its
-/// rows (the std-board cancelled-class). Detected by config SHAPE, never by
-/// atom name — structured config only, per `fired_events.rs` doctrine. JS
-/// twin: `groupby-enum-column-gap`.
-fn validate_groupby_enum_column_gap(
-    schema: &OrbitalSchema,
-    ctx: &ValidationContext,
-    result: &mut ValidationResult,
-) {
-    for orbital in &schema.orbitals {
-        for trait_ref in &orbital.traits {
-            let TraitReference::Inline(td) = trait_ref else {
-                continue;
-            };
-            let Some(config) = &td.config else {
-                continue;
-            };
-            let Some(group_by_field) = config
-                .get("groupByField")
-                .and_then(|f| f.default.as_ref())
-                .and_then(SExpression::as_str)
-            else {
-                continue;
-            };
-            if group_by_field.is_empty() {
-                continue;
-            }
-            let Some(SExpression::Array(columns)) =
-                config.get("columns").and_then(|f| f.default.as_ref())
-            else {
-                continue;
-            };
-            if columns.is_empty() {
-                continue;
-            }
-            let mut column_keys: Vec<&str> = Vec::new();
-            for col in columns {
-                let SExpression::Object(map) = col else {
-                    continue;
-                };
-                if let Some(SExpression::String(key)) = map.get("key") {
-                    if !key.is_empty() && !column_keys.contains(&key.as_str()) {
-                        column_keys.push(key.as_str());
-                    }
-                }
-            }
-            if column_keys.is_empty() {
-                continue;
-            }
-            let Some(entity_name) = &td.linked_entity else {
-                continue;
-            };
-            let Some(entity) = ctx.entity_definitions.get(entity_name) else {
-                continue;
-            };
-            let Some(field) = entity
-                .fields
-                .iter()
-                .find(|f| f.name.as_deref() == Some(group_by_field.as_ref()))
-            else {
-                continue;
-            };
-            let Some(values) = &field.values else {
-                continue;
-            };
-            if values.is_empty() {
-                continue;
-            }
-            let hidden: Vec<&str> = values
-                .iter()
-                .map(String::as_str)
-                .filter(|v| !column_keys.contains(v))
-                .collect();
-            if hidden.is_empty() {
-                continue;
-            }
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::RenderGroupbyEnumColumnGap,
-                    format!("{}.config.groupByField", td.name),
-                    format!(
-                        "{} buckets {} rows by '{}' into columns [{}], but the field's enum also \
-                         allows [{}] — rows with those values match no column and silently \
-                         disappear",
-                        td.name,
-                        entity_name,
-                        group_by_field,
-                        column_keys.join(", "),
-                        hidden.join(", ")
-                    ),
-                )
-                .with_suggestion(format!(
-                    "add a column entry for each missing key ({}) or narrow the {}.{} enum",
-                    hidden.join(", "),
-                    entity_name,
-                    group_by_field
-                )),
-            );
-        }
-    }
-}
-
 fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
     use std::collections::{HashMap, HashSet};
 
@@ -2938,290 +2606,6 @@ mod dangling_config_tests {
             0,
             "a key declared anywhere in the undirected embed component is reachable"
         );
-    }
-}
-
-#[cfg(test)]
-mod embed_config_forward_multi_referrer_tests {
-    use super::*;
-
-    fn schema_from_json(json: &str) -> OrbitalSchema {
-        serde_json::from_str(json).expect("fixture parses")
-    }
-
-    fn findings(json: &str) -> Vec<ValidationError> {
-        let schema = schema_from_json(json);
-        let mut result = ValidationResult::new();
-        validate_embed_config_forward_multi_referrer(&schema, &mut result);
-        result.errors
-    }
-
-    /// `Child` declares `@config.title` (a forward) and is embedded by two
-    /// referrers — the real defect class.
-    const TWO_REFERRERS_WITH_FORWARD: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [
-          { "name": "Child", "config": { "title": { "type": "string", "default": "@config.title" } } },
-          { "name": "ParentA", "config": { "slotA": { "type": "string", "default": "@trait.Child" } } },
-          { "name": "ParentB", "config": { "slotB": { "type": "string", "default": "@trait.Child" } } }
-        ]
-      }]
-    }"#;
-
-    /// Same two-referrer shape, but `Child` declares no `@config.*` forward
-    /// — inert shared chrome, the 44/45 corpus case. Must stay silent.
-    const TWO_REFERRERS_NO_FORWARD: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [
-          { "name": "Child", "config": { "title": { "type": "string", "default": "static" } } },
-          { "name": "ParentA", "config": { "slotA": { "type": "string", "default": "@trait.Child" } } },
-          { "name": "ParentB", "config": { "slotB": { "type": "string", "default": "@trait.Child" } } }
-        ]
-      }]
-    }"#;
-
-    /// One referrer only, forward or not — never flagged.
-    const ONE_REFERRER_WITH_FORWARD: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [
-          { "name": "Child", "config": { "title": { "type": "string", "default": "@config.title" } } },
-          { "name": "ParentA", "config": { "slotA": { "type": "string", "default": "@trait.Child" } } }
-        ]
-      }]
-    }"#;
-
-    #[test]
-    fn two_referrers_and_a_config_forward_errors() {
-        let errors = findings(TWO_REFERRERS_WITH_FORWARD);
-        assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].code, ErrorCode::EmbedConfigForwardMultiReferrer);
-        assert!(errors[0].message.contains("Child"));
-    }
-
-    /// Two referrers; `Child` only READS its own knob (`title`) nested in
-    /// another knob's value — that renders the same for every embedder.
-    const TWO_REFERRERS_OWN_KNOB_READ: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [
-          { "name": "Child", "config": {
-            "title": { "type": "string", "default": "Stats" },
-            "body": { "type": "unknown", "default": { "type": "typography", "content": "@config.title" } }
-          } },
-          { "name": "ParentA", "config": { "slotA": { "type": "string", "default": "@trait.Child" } } },
-          { "name": "ParentB", "config": { "slotB": { "type": "string", "default": "@trait.Child" } } }
-        ]
-      }]
-    }"#;
-
-    /// Edge: a nested token naming a knob `Child` does NOT declare is an
-    /// embedder forward — still flagged.
-    const TWO_REFERRERS_NESTED_FOREIGN: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [
-          { "name": "Child", "config": {
-            "body": { "type": "unknown", "default": { "type": "typography", "content": "@config.heading" } }
-          } },
-          { "name": "ParentA", "config": { "slotA": { "type": "string", "default": "@trait.Child" } } },
-          { "name": "ParentB", "config": { "slotB": { "type": "string", "default": "@trait.Child" } } }
-        ]
-      }]
-    }"#;
-
-    #[test]
-    fn two_referrers_reading_only_own_knobs_is_silent() {
-        assert!(findings(TWO_REFERRERS_OWN_KNOB_READ).is_empty());
-    }
-
-    #[test]
-    fn two_referrers_with_a_nested_foreign_forward_errors() {
-        let errors = findings(TWO_REFERRERS_NESTED_FOREIGN);
-        assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].code, ErrorCode::EmbedConfigForwardMultiReferrer);
-    }
-
-    #[test]
-    fn two_referrers_with_no_forward_is_inert_chrome_and_silent() {
-        assert!(findings(TWO_REFERRERS_NO_FORWARD).is_empty());
-    }
-
-    #[test]
-    fn one_referrer_is_never_flagged() {
-        assert!(findings(ONE_REFERRER_WITH_FORWARD).is_empty());
-    }
-}
-
-#[cfg(test)]
-mod groupby_enum_column_gap_tests {
-    use super::*;
-
-    fn schema_from_json(json: &str) -> OrbitalSchema {
-        serde_json::from_str(json).expect("fixture parses")
-    }
-
-    fn findings(json: &str) -> Vec<ValidationError> {
-        let schema = schema_from_json(json);
-        let mut ctx = ValidationContext::new();
-        for orbital in &schema.orbitals {
-            if let Some(entity) = orbital.entity.as_inline() {
-                ctx.entity_definitions
-                    .insert(entity.name.clone(), entity.clone());
-            }
-        }
-        let mut result = ValidationResult::new();
-        validate_groupby_enum_column_gap(&schema, &ctx, &mut result);
-        result.errors
-    }
-
-    const GAP: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": {
-          "name": "Deal",
-          "fields": [{ "name": "status", "type": "enum", "values": ["open", "won", "lost"] }]
-        },
-        "traits": [{
-          "name": "Board",
-          "linkedEntity": "Deal",
-          "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] },
-          "config": {
-            "groupByField": { "type": "string", "default": "status" },
-            "columns": { "type": "unknown", "default": [
-              { "key": "open" },
-              { "key": "won" }
-            ] }
-          }
-        }]
-      }]
-    }"#;
-
-    const NO_GAP: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": {
-          "name": "Deal",
-          "fields": [{ "name": "status", "type": "enum", "values": ["open", "won", "lost"] }]
-        },
-        "traits": [{
-          "name": "Board",
-          "linkedEntity": "Deal",
-          "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] },
-          "config": {
-            "groupByField": { "type": "string", "default": "status" },
-            "columns": { "type": "unknown", "default": [
-              { "key": "open" },
-              { "key": "won" },
-              { "key": "lost" }
-            ] }
-          }
-        }]
-      }]
-    }"#;
-
-    const NO_ENUM: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": {
-          "name": "Deal",
-          "fields": [{ "name": "status", "type": "string" }]
-        },
-        "traits": [{
-          "name": "Board",
-          "linkedEntity": "Deal",
-          "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] },
-          "config": {
-            "groupByField": { "type": "string", "default": "status" },
-            "columns": { "type": "unknown", "default": [ { "key": "open" } ] }
-          }
-        }]
-      }]
-    }"#;
-
-    const NO_COLUMNS: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": {
-          "name": "Deal",
-          "fields": [{ "name": "status", "type": "enum", "values": ["open", "won", "lost"] }]
-        },
-        "traits": [{
-          "name": "Board",
-          "linkedEntity": "Deal",
-          "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] },
-          "config": {
-            "groupByField": { "type": "string", "default": "status" }
-          }
-        }]
-      }]
-    }"#;
-
-    /// A `groupByField` computed from a binding rather than authored as a
-    /// literal string is not a structural declaration this check can read —
-    /// structured-config-only, never a runtime guess.
-    const SILENT_ON_BINDING_GROUP_FIELD: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": {
-          "name": "Deal",
-          "fields": [{ "name": "status", "type": "enum", "values": ["open", "won"] }]
-        },
-        "traits": [{
-          "name": "Board",
-          "linkedEntity": "Deal",
-          "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] },
-          "config": {
-            "groupByField": { "type": "string", "default": "@config.groupByField" },
-            "columns": { "type": "unknown", "default": [ { "key": "open" } ] }
-          }
-        }]
-      }]
-    }"#;
-
-    #[test]
-    fn hidden_enum_value_flags_the_gap() {
-        let errors = findings(GAP);
-        assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].code, ErrorCode::RenderGroupbyEnumColumnGap);
-        assert!(errors[0].message.contains("lost"));
-    }
-
-    #[test]
-    fn every_enum_value_covered_is_silent() {
-        assert!(findings(NO_GAP).is_empty());
-    }
-
-    #[test]
-    fn a_non_enum_group_field_is_silent() {
-        assert!(findings(NO_ENUM).is_empty());
-    }
-
-    #[test]
-    fn no_columns_declared_is_silent() {
-        assert!(findings(NO_COLUMNS).is_empty());
-    }
-
-    #[test]
-    fn a_bound_group_field_is_silent() {
-        assert!(findings(SILENT_ON_BINDING_GROUP_FIELD).is_empty());
     }
 }
 

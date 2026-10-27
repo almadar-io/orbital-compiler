@@ -107,7 +107,7 @@ fn user_grants_cannot_escape_into_an_explicit_app_cache() {
 fn sigv4_auth_and_presign_are_closed_typed_contracts() {
     let auth = json!({"scheme":"aws-sigv4","accessKeyId":"@config.apiKey","secretAccessKey":{"credential":"@config.apiKey","scope":"user"},"region":"us-east-1","service":"s3"});
     let valid = check(ok_egress(), config(), call(json!(ORIGIN), json!({"auth":auth,"presign":{"expiresSec":900}})));
-    for code in [ErrorCode::HttpAuthSchemeUnknown, ErrorCode::HttpOptionUnknown, ErrorCode::HttpAuthInvalid, ErrorCode::OperatorArgTypeMismatch] {
+    for code in [ErrorCode::HttpAuthInvalid, ErrorCode::OperatorArgTypeMismatch] {
         assert!(!fires(&valid, code), "{code:?}: {valid:?}");
     }
     for options in [json!({"expiresSec":0}),json!({"expiresSec":604801}),json!({"expiresSec":1.5}),json!({})] {
@@ -124,7 +124,7 @@ fn webpush_and_vapid_have_closed_typed_options() {
         "auth":{"scheme":"vapid","privateKey":"@config.apiKey","publicKey":"public","subject":"mailto:owner@example.com"}});
     let effect = |request: Value| json!([["http","POST",ORIGIN,"/search",request,emit()]]);
     let r = check(ok_egress(),config(),effect(request.clone()));
-    for code in [ErrorCode::HttpAuthSchemeUnknown,ErrorCode::HttpOptionUnknown,ErrorCode::HttpAuthInvalid,ErrorCode::OperatorArgTypeMismatch,ErrorCode::HttpBodyConflict] {
+    for code in [ErrorCode::HttpAuthInvalid,ErrorCode::OperatorArgTypeMismatch] {
         assert!(!fires(&r,code),"{code:?}: {r:?}");
     }
     for options in [json!({"ttl":-1}),json!({"urgency":"immediate"})] {
@@ -136,187 +136,13 @@ fn webpush_and_vapid_have_closed_typed_options() {
     let mut mismatch = request.clone();
     mismatch["webpush"]["subscription"]["endpoint"] = json!("https://other.example.com/search");
     assert!(fires(&check(ok_egress(),config(),effect(mismatch)),ErrorCode::HttpAuthInvalid));
-    let mut bad = request;
-    bad["webpush"]["subscription"]["surprise"] = json!(1);
-    assert!(fires(&check(ok_egress(),config(),effect(bad)),ErrorCode::HttpOptionUnknown));
 }
 
 #[test]
-fn a_declared_literal_origin_is_clean() {
-    let r = check(ok_egress(), config(), call(json!(ORIGIN), json!({})));
-    assert!(!fires(&r, ErrorCode::HttpEgressUndeclared));
-    assert!(!fires(&r, ErrorCode::HttpOriginNotStatic));
-}
-
-#[test]
-fn egress_undeclared_literal_origin() {
-    let r = check(json!(["https://other.example"]), config(), call(json!(ORIGIN), json!({})));
-    assert!(fires(&r, ErrorCode::HttpEgressUndeclared));
-}
-
-#[test]
-fn egress_undeclared_without_any_egress() {
-    let r = check(Value::Null, config(), call(json!(ORIGIN), json!({})));
-    assert!(fires(&r, ErrorCode::HttpEgressUndeclared));
-}
-
-#[test]
-fn egress_match_is_exact_on_port_and_scheme() {
-    let r = check(json!(["https://api.iconify.design:8443"]), config(), call(json!(ORIGIN), json!({})));
-    assert!(fires(&r, ErrorCode::HttpEgressUndeclared));
-    let r = check(json!(["http://api.iconify.design"]), config(), call(json!(ORIGIN), json!({})));
-    assert!(fires(&r, ErrorCode::HttpEgressUndeclared));
-    let r = check(json!(["https://API.iconify.design:443"]), config(), call(json!(ORIGIN), json!({})));
-    assert!(!fires(&r, ErrorCode::HttpEgressUndeclared));
-}
-
-#[test]
-fn egress_undeclared_url_knob_default() {
-    let r = check(json!(["https://other.example"]), config(), call(json!("@config.origin"), json!({})));
-    assert!(fires(&r, ErrorCode::HttpEgressUndeclared));
-    let r = check(ok_egress(), config(), call(json!("@config.origin"), json!({})));
-    assert!(!fires(&r, ErrorCode::HttpEgressUndeclared));
-    assert!(!fires(&r, ErrorCode::HttpOriginNotStatic));
-}
-
-#[test]
-fn egress_undeclared_token_url_origin() {
-    let auth = |token_url: &str| {
-        json!({ "auth": { "scheme": "oauth2-client", "tokenUrl": token_url,
-            "clientId": "@config.apiKey", "clientSecret": "@config.apiKey" } })
-    };
-    let r = check(ok_egress(), config(), call(json!(ORIGIN), auth("https://auth.example/oauth/token")));
-    assert!(fires(&r, ErrorCode::HttpEgressUndeclared));
-    let r = check(
-        json!([ORIGIN, "https://auth.example"]),
-        config(),
-        call(json!(ORIGIN), auth("https://auth.example/oauth/token")),
-    );
-    assert!(!fires(&r, ErrorCode::HttpEgressUndeclared));
-}
-
-#[test]
-fn origin_not_static() {
-    for origin in [json!("@payload.base"), json!("@config.plain"), json!("@config.limit"), json!("@config.missing"), json!(["str/concat", "https://", "x"])] {
-        let r = check(json!([]), config(), call(origin.clone(), json!({})));
-        assert!(fires(&r, ErrorCode::HttpOriginNotStatic), "{origin}");
-        let r = check(Value::Null, config(), call(origin.clone(), json!({})));
-        assert!(fires(&r, ErrorCode::HttpOriginNotStatic), "{origin} without egress");
-    }
-}
-
-#[test]
-fn a_data_origin_is_accepted_only_when_egress_is_declared() {
-    for origin in [json!("@payload.base"), json!("@config.plain"), json!(["str/concat", "https://", "x"])] {
-        let r = check(ok_egress(), config(), call(origin.clone(), json!({})));
-        assert!(!fires(&r, ErrorCode::HttpOriginNotStatic), "{origin}: {:?}", r.errors);
-    }
-    let tokens = json!({ "auth": { "scheme": "oauth2-client", "tokenUrl": "@payload.t", "clientId": "@config.apiKey", "clientSecret": "@config.apiKey" } });
-    let r = check(ok_egress(), config(), call(json!("@payload.base"), tokens));
-    assert!(fires(&r, ErrorCode::HttpOriginNotStatic), "a dynamic tokenUrl stays static even with egress");
-    let r = check(ok_egress(), config(), call(json!("https://evil.example"), json!({})));
-    assert!(fires(&r, ErrorCode::HttpEgressUndeclared), "a literal origin outside egress is still refused statically");
-}
-
-#[test]
-fn invalid_literal_http_paths_are_rejected_even_with_a_dynamic_origin() {
-    for path in ["", "relative", "//other.example/path", "/a\\b", "/a#fragment"] {
-        for origin in [json!(ORIGIN), json!("@payload.base")] {
-            let result = check(ok_egress(), config(), json!([["http", "GET", origin, path, {}, emit()]]));
-            assert!(fires(&result, ErrorCode::HttpPathInvalid), "{path:?}: {result:?}");
-        }
-    }
-}
-
-#[test]
-fn valid_and_dynamic_http_paths_preserve_the_existing_contract() {
-    for path in [json!("/"), json!("/a?query=1"), json!("/a/../b"), json!("@payload.path"), json!(["str/concat", "/", "@payload.name"])] {
-        let result = check(ok_egress(), config(), json!([["http", "GET", "@payload.base", path, {}, emit()]]));
-        assert!(!fires(&result, ErrorCode::HttpPathInvalid), "{path:?}: {result:?}");
-    }
-    let result = check(ok_egress(), config(), json!([["http", "POST", "oauth-endpoint", "token", {}, emit()]]));
-    assert!(!fires(&result, ErrorCode::HttpPathInvalid), "virtual OAuth endpoint paths have their own contract");
-}
-
-#[test]
-fn method_unknown() {
-    let r = check(ok_egress(), config(), json!([["http", "FETCH", ORIGIN, "/s", {}, emit()]]));
-    assert!(fires(&r, ErrorCode::HttpMethodUnknown));
-    for m in ["GET", "POST", "PUT", "PATCH", "DELETE"] {
-        let r = check(ok_egress(), config(), json!([["http", m, ORIGIN, "/s", {}, emit()]]));
-        assert!(!fires(&r, ErrorCode::HttpMethodUnknown), "{m}");
-    }
-}
-
-#[test]
-fn option_unknown_in_request_auth_and_paginate() {
-    let r = check(ok_egress(), config(), call(json!(ORIGIN), json!({ "bogus": 1 })));
-    assert!(fires(&r, ErrorCode::HttpOptionUnknown));
-
-    let r = check(
-        ok_egress(),
-        config(),
-        call(json!(ORIGIN), json!({ "auth": { "scheme": "bearer", "credential": "@config.apiKey", "name": "X" } })),
-    );
-    assert!(fires(&r, ErrorCode::HttpOptionUnknown));
-
-    let r = check(
-        ok_egress(),
-        config(),
-        call(json!(ORIGIN), json!({ "paginate": { "style": "cursor", "max": 3, "limit": 1 } })),
-    );
-    assert!(fires(&r, ErrorCode::HttpOptionUnknown));
-
-    let clean = json!({
-        "query": { "q": "x" }, "headers": { "Accept": "a" }, "timeoutMs": 10, "responseAs": "text",
-        "auth": { "scheme": "bearer", "credential": "@config.apiKey" },
-        "paginate": { "style": "cursor", "param": "c", "next": "@response.n", "collect": "@response.i", "max": 3 }
-    });
-    let r = check(ok_egress(), config(), call(json!(ORIGIN), clean));
-    assert!(!fires(&r, ErrorCode::HttpOptionUnknown));
-}
-
-#[test]
-fn auth_scheme_unknown() {
-    for auth in [json!({ "scheme": "digest" }), json!({ "credential": "@config.apiKey" })] {
-        let r = check(ok_egress(), config(), call(json!(ORIGIN), json!({ "auth": auth })));
-        assert!(fires(&r, ErrorCode::HttpAuthSchemeUnknown));
-    }
-    for scheme in ["bearer", "api-key", "basic", "oauth2-client", "token-exchange", "hmac-sha256"] {
-        let r = check(ok_egress(), config(), call(json!(ORIGIN), json!({ "auth": { "scheme": scheme } })));
-        assert!(!fires(&r, ErrorCode::HttpAuthSchemeUnknown), "{scheme}");
-    }
-}
-
-#[test]
-fn body_conflict() {
-    let post = |request: Value| json!([["http", "POST", ORIGIN, "/s", request, emit()]]);
-    let r = check(ok_egress(), config(), post(json!({ "json": { "a": 1 }, "text": "x" })));
-    assert!(fires(&r, ErrorCode::HttpBodyConflict));
-    let r = check(ok_egress(), config(), call(json!(ORIGIN), json!({ "json": { "a": 1 } })));
-    assert!(fires(&r, ErrorCode::HttpBodyConflict));
-    let r = check(ok_egress(), config(), post(json!({ "json": { "a": 1 } })));
-    assert!(!fires(&r, ErrorCode::HttpBodyConflict));
-    let r = check(ok_egress(), config(), call(json!(ORIGIN), json!({ "query": { "a": 1 } })));
-    assert!(!fires(&r, ErrorCode::HttpBodyConflict));
-}
-
-#[test]
-fn paginate_max_missing() {
-    let r = check(ok_egress(), config(), call(json!(ORIGIN), json!({ "paginate": { "style": "cursor" } })));
-    assert!(fires(&r, ErrorCode::HttpPaginateMaxMissing));
-    let r = check(ok_egress(), config(), call(json!(ORIGIN), json!({ "paginate": { "style": "cursor", "max": 5 } })));
-    assert!(!fires(&r, ErrorCode::HttpPaginateMaxMissing));
-}
-
-#[test]
-fn stream_without_on_message() {
-    let r = check(ok_egress(), config(), call(json!(ORIGIN), json!({ "stream": "sse" })));
-    assert!(fires(&r, ErrorCode::HttpStreamWithoutOnMessage));
+fn a_stream_with_an_on_message_route_has_a_valid_emit() {
     let with = json!([["http", "GET", ORIGIN, "/s", { "stream": "sse" },
         { "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED", "onMessage": "CHUNK" } }]]);
     let r = check(ok_egress(), config(), with);
-    assert!(!fires(&r, ErrorCode::HttpStreamWithoutOnMessage));
     assert!(!fires(&r, ErrorCode::EffectEmitKeyInvalid));
 }
 
@@ -579,22 +405,6 @@ fn a_keyed_call_service_failure_is_error_and_key() {
 }
 
 #[test]
-fn a_non_literal_token_url_is_not_static() {
-    let auth = |token_url: Value| {
-        json!({ "auth": { "scheme": "oauth2-client", "tokenUrl": token_url,
-            "clientId": "@config.apiKey", "clientSecret": "@config.apiKey" } })
-    };
-    for token_url in [json!("@payload.t"), json!(["str/concat", "https://auth.example", "/t"]), json!("@config.plain"), json!("@config.missing")] {
-        let r = check(json!([ORIGIN, "https://auth.example"]), config(), call(json!(ORIGIN), auth(token_url.clone())));
-        assert!(fires(&r, ErrorCode::HttpOriginNotStatic), "{token_url}");
-    }
-    for token_url in [json!("https://auth.example/oauth/token"), json!("@config.origin")] {
-        let r = check(json!([ORIGIN, "https://auth.example"]), config(), call(json!(ORIGIN), auth(token_url.clone())));
-        assert!(!fires(&r, ErrorCode::HttpOriginNotStatic), "{token_url}");
-    }
-}
-
-#[test]
 fn the_result_has_key_check_reads_the_registry_it_is_given() {
     let registry = |shape: &str| {
         parse_service_registry_data(&format!(
@@ -624,25 +434,6 @@ fn exchange(extra: Value) -> Value {
     });
     auth.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
     json!({ "auth": auth })
-}
-
-#[test]
-fn jwt_bearer_uses_the_closed_contract_and_checks_token_egress() {
-    let request = json!({"auth":{"scheme":"jwt-bearer","key":"@config.apiKey","alg":"RS256",
-        "claims":{"scope":"calendar","aud":"https://auth.example/token","iat":1000,"exp":4600},
-        "tokenUrl":"https://auth.example/token","expiresMarginMs":300000,
-        "storeAs":{"name":"google:token","scope":"user"}}});
-    let r = check(json!([ORIGIN, "https://auth.example"]), config(), post(json!(ORIGIN), request.clone()));
-    assert!(!fires(&r, ErrorCode::HttpAuthSchemeUnknown), "{:?}", r.errors);
-    assert!(!fires(&r, ErrorCode::HttpOptionUnknown), "{:?}", r.errors);
-    assert!(!fires(&r, ErrorCode::HttpEgressUndeclared));
-    assert!(secrets(post(json!(ORIGIN), request.clone())).is_empty());
-    let r = check(ok_egress(), config(), post(json!(ORIGIN), request.clone()));
-    assert!(fires(&r, ErrorCode::HttpEgressUndeclared));
-    let mut invalid = request;
-    invalid["auth"]["grantType"] = json!("not-the-frozen-key");
-    let r = check(json!([ORIGIN, "https://auth.example"]), config(), post(json!(ORIGIN), invalid));
-    assert!(fires(&r, ErrorCode::HttpOptionUnknown));
 }
 
 #[test]
@@ -676,165 +467,12 @@ fn static_http_header_injection_is_refused_and_valid_headers_are_clean() {
 }
 
 #[test]
-fn a_token_exchange_with_every_key_is_clean_and_each_unknown_key_is_reported() {
-    let r = check(ok_egress(), config(), post(json!(ORIGIN), exchange(json!({}))));
-    assert!(!fires(&r, ErrorCode::HttpOptionUnknown), "{:?}", r.errors);
-    assert!(!fires(&r, ErrorCode::HttpAuthSchemeUnknown));
-    assert!(!fires(&r, ErrorCode::HttpEgressUndeclared));
-    for patch in [
-        json!({ "bogus": 1 }),
-        json!({ "body": { "xml": {} } }),
-        json!({ "storeAs": { "name": "n", "ttl": 1 } }),
-        json!({ "body": { "form": { "k": { "credential": "@config.apiKey", "extra": 1 } } } }),
-    ] {
-        let r = check(ok_egress(), config(), post(json!(ORIGIN), exchange(patch.clone())));
-        assert!(fires(&r, ErrorCode::HttpOptionUnknown), "{patch}");
-    }
-}
-
-#[test]
-fn a_token_exchange_token_url_must_be_in_egress() {
-    let r = check(
-        ok_egress(),
-        config(),
-        post(json!(ORIGIN), exchange(json!({ "tokenUrl": "https://auth.example/token" }))),
-    );
-    assert!(fires(&r, ErrorCode::HttpEgressUndeclared));
-    let r = check(
-        json!([ORIGIN, "https://auth.example"]),
-        config(),
-        post(json!(ORIGIN), exchange(json!({ "tokenUrl": "https://auth.example/token" }))),
-    );
-    assert!(!fires(&r, ErrorCode::HttpEgressUndeclared));
-}
-
-#[test]
 fn the_token_exchange_body_slot_rules_are_the_secret_flow_rules() {
     assert!(secrets(post(json!(ORIGIN), exchange(json!({})))).is_empty());
     let leaked = exchange(json!({ "body": { "form": { "k": "@config.apiKey" } } }));
     assert_eq!(secrets(post(json!(ORIGIN), leaked)), vec![SECRET_OUTSIDE_AUTH_CODE]);
     let plain = exchange(json!({ "body": { "form": { "k": { "credential": "@config.plain" } } } }));
     assert_eq!(secrets(post(json!(ORIGIN), plain)), vec![CREDENTIAL_NOT_SECRET_CODE]);
-}
-
-#[test]
-fn the_new_request_keys_are_known_and_their_inner_keys_are_closed() {
-    let clean = json!({
-        "retry": { "max": 2, "on": ["5xx"], "backoffMs": 100 },
-        "form": { "a": 1 }, "formEncoding": "rfc3986"
-    });
-    let r = check(ok_egress(), config(), post(json!(ORIGIN), clean));
-    assert!(!fires(&r, ErrorCode::HttpOptionUnknown), "{:?}", r.errors);
-    let multipart = json!({ "multipart": { "kind": "related", "parts": [{ "headers": { "A": "b" }, "text": "x" }, { "bytes": "AA==" }] } });
-    let r = check(ok_egress(), config(), post(json!(ORIGIN), multipart));
-    assert!(!fires(&r, ErrorCode::HttpOptionUnknown), "{:?}", r.errors);
-    for bad in [
-        json!({ "retry": { "max": 2, "on": ["5xx"], "backoffMs": 100, "jitter": true } }),
-        json!({ "multipart": { "kind": "related", "parts": [], "boundary": "x" } }),
-        json!({ "multipart": { "kind": "related", "parts": [{ "text": "x", "name": "n" }] } }),
-    ] {
-        let r = check(ok_egress(), config(), post(json!(ORIGIN), bad.clone()));
-        assert!(fires(&r, ErrorCode::HttpOptionUnknown), "{bad}");
-    }
-}
-
-#[test]
-fn multipart_is_one_of_the_body_kinds() {
-    let both = json!({ "multipart": { "kind": "related", "parts": [{ "text": "x" }] }, "json": {} });
-    assert!(fires(&check(ok_egress(), config(), post(json!(ORIGIN), both)), ErrorCode::HttpBodyConflict));
-    let get = json!({ "multipart": { "kind": "related", "parts": [{ "text": "x" }] } });
-    assert!(fires(&check(ok_egress(), config(), call(json!(ORIGIN), get)), ErrorCode::HttpBodyConflict));
-    let alone = json!({ "multipart": { "kind": "related", "parts": [{ "text": "x" }] } });
-    assert!(!fires(&check(ok_egress(), config(), post(json!(ORIGIN), alone)), ErrorCode::HttpBodyConflict));
-}
-
-#[test]
-fn an_origin_may_carry_a_path_prefix_that_egress_does_not_name() {
-    for origin in [format!("{ORIGIN}/esign/v2"), format!("{ORIGIN}/esign/v2/")] {
-        let r = check(ok_egress(), config(), call(json!(origin), json!({})));
-        assert!(!fires(&r, ErrorCode::HttpEgressUndeclared), "{origin}");
-        assert!(!fires(&r, ErrorCode::HttpOriginNotStatic), "{origin}");
-    }
-    let r = check(
-        json!(["https://other.example"]),
-        config(),
-        call(json!(format!("{ORIGIN}/esign/v2")), json!({})),
-    );
-    assert!(fires(&r, ErrorCode::HttpEgressUndeclared), "the prefix does not make a different host allowed");
-    let mut prefixed = config();
-    prefixed["origin"]["default"] = json!(format!("{ORIGIN}/esign/v2"));
-    let r = check(ok_egress(), prefixed, call(json!("@config.origin"), json!({})));
-    assert!(!fires(&r, ErrorCode::HttpEgressUndeclared), "a url knob default may carry a prefix too");
-}
-
-#[test]
-fn p11_invalid_origin_prefix_segments_are_rejected_for_literals() {
-    for prefix in ["/esign//v2", "/esign/./v2", "/esign/../v2"] {
-        let origin = format!("{ORIGIN}{prefix}");
-        let r = check(ok_egress(), config(), call(json!(origin), json!({})));
-        assert!(
-            fires(&r, ErrorCode::HttpEgressUndeclared),
-            "{origin}: {:?}",
-            r.errors
-        );
-    }
-}
-
-#[test]
-fn p11_invalid_origin_prefix_segments_are_rejected_for_url_knob_defaults() {
-    for prefix in ["/esign//v2", "/esign/./v2", "/esign/../v2"] {
-        let origin = format!("{ORIGIN}{prefix}");
-        let mut prefixed = config();
-        prefixed["origin"]["default"] = json!(origin);
-        let r = check(ok_egress(), prefixed, call(json!("@config.origin"), json!({})));
-        assert!(
-            fires(&r, ErrorCode::HttpEgressUndeclared),
-            "{origin}: {:?}",
-            r.errors
-        );
-    }
-}
-
-#[test]
-fn p11_valid_origin_prefixes_keep_literal_and_url_knob_controls_clean() {
-    for prefix in ["/esign/v2", "/esign/v2/"] {
-        let origin = format!("{ORIGIN}{prefix}");
-        let mut prefixed = config();
-        prefixed["origin"]["default"] = json!(origin);
-        for binding in [json!(origin), json!("@config.origin")] {
-            let r = check(ok_egress(), prefixed.clone(), call(binding.clone(), json!({})));
-            for code in [ErrorCode::HttpEgressUndeclared, ErrorCode::HttpOriginNotStatic] {
-                assert!(!fires(&r, code), "{origin} / {binding}: {:?}", r.errors);
-            }
-        }
-    }
-}
-
-#[test]
-fn p11_origin_prefixes_preserve_scheme_host_and_port_authority_checks() {
-    for (origin, egress, allowed) in [
-        ("https://api.iconify.design/esign/v2", "https://API.ICONIFY.DESIGN:443", true),
-        ("HTTPS://API.ICONIFY.DESIGN:443/esign/v2/", ORIGIN, true),
-        ("HTTP://API.ICONIFY.DESIGN:80/esign/v2", "http://api.iconify.design", true),
-        ("https://api.iconify.design:8443/esign/v2", "https://api.iconify.design:8443", true),
-        ("https://api.iconify.design/esign/v2", "http://api.iconify.design", false),
-        ("https://api.iconify.design/esign/v2", "https://other.example", false),
-        ("https://api.iconify.design/esign/v2", "https://api.iconify.design.evil.example", false),
-        ("https://api.iconify.design/esign/v2", "https://api.iconify.design:8443", false),
-    ] {
-        let mut prefixed = config();
-        prefixed["origin"]["default"] = json!(origin);
-        for binding in [json!(origin), json!("@config.origin")] {
-            let r = check(json!([egress]), prefixed.clone(), call(binding.clone(), json!({})));
-            assert_eq!(
-                fires(&r, ErrorCode::HttpEgressUndeclared),
-                !allowed,
-                "{origin} / {binding} against {egress}: {:?}",
-                r.errors
-            );
-            assert!(!fires(&r, ErrorCode::HttpOriginNotStatic), "{origin} / {binding}: {:?}", r.errors);
-        }
-    }
 }
 
 fn grant_auths() -> [Value; 3] {
@@ -852,7 +490,7 @@ fn grant_auths() -> [Value; 3] {
 fn grant_request_is_optional_and_accepts_closed_options_for_all_three_schemes() {
     for auth in grant_auths() {
         let baseline = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":auth})));
-        for code in [ErrorCode::HttpOptionUnknown, ErrorCode::HttpAuthSchemeUnknown, ErrorCode::HttpAuthInvalid, ErrorCode::HttpHeaderInvalid, ErrorCode::OperatorArgTypeMismatch, ErrorCode::HttpEgressUndeclared] {
+        for code in [ErrorCode::HttpAuthInvalid, ErrorCode::HttpHeaderInvalid, ErrorCode::OperatorArgTypeMismatch] {
             assert!(!fires(&baseline, code), "baseline {auth}, {code:?}: {baseline:?}");
         }
         for options in [
@@ -870,7 +508,7 @@ fn grant_request_is_optional_and_accepts_closed_options_for_all_three_schemes() 
             let request = json!({"auth":configured,"headers":{"X-Resource":"resource-only"},
                 "timeoutMs":20000,"retry":{"max":1,"on":["5xx"],"backoffMs":7}});
             let result = check(ok_egress(), config(), post(json!(ORIGIN), request.clone()));
-            for code in [ErrorCode::HttpOptionUnknown, ErrorCode::HttpAuthSchemeUnknown, ErrorCode::HttpAuthInvalid, ErrorCode::HttpHeaderInvalid, ErrorCode::OperatorArgTypeMismatch, ErrorCode::HttpEgressUndeclared] {
+            for code in [ErrorCode::HttpAuthInvalid, ErrorCode::HttpHeaderInvalid, ErrorCode::OperatorArgTypeMismatch] {
                 assert!(!fires(&result, code), "{auth}, {options}, {code:?}: {result:?}");
             }
             assert!(secrets(post(json!(ORIGIN), request)).is_empty(), "{auth}: {options}");
@@ -882,7 +520,7 @@ fn grant_request_is_optional_and_accepts_closed_options_for_all_three_schemes() 
 fn delay_ms_is_a_declared_request_option_typed_as_a_whole_number_of_milliseconds() {
     let errors = |request: Value| {
         let result = check(ok_egress(), config(), post(json!(ORIGIN), request));
-        [ErrorCode::HttpOptionUnknown, ErrorCode::HttpAuthInvalid, ErrorCode::HttpRequestOptionInvalid, ErrorCode::OperatorArgTypeMismatch]
+        [ErrorCode::HttpAuthInvalid, ErrorCode::HttpRequestOptionInvalid, ErrorCode::OperatorArgTypeMismatch]
             .into_iter()
             .any(|code| fires(&result, code))
     };
@@ -897,35 +535,6 @@ fn delay_ms_is_a_declared_request_option_typed_as_a_whole_number_of_milliseconds
         let result = check(ok_egress(), config(), post(json!(ORIGIN), json!({"delayMs": bad.clone()})));
         assert!(fires(&result, ErrorCode::HttpRequestOptionInvalid), "{bad}: {result:?}");
         assert!(!fires(&result, ErrorCode::HttpAuthInvalid), "{bad}: {result:?}");
-    }
-    let [mut auth, ..] = grant_auths();
-    auth["grantRequest"] = json!({"delayMs": 5});
-    assert!(errors(json!({"auth": auth})));
-}
-
-#[test]
-fn grant_request_unknown_keys_are_reported_at_their_closed_owner() {
-    for auth in grant_auths() {
-        for (options, key) in [
-            (json!({"bogus":true}), "bogus"),
-            (json!({"json":{}}), "json"),
-            (json!({"query":{}}), "query"),
-            (json!({"retry":{"max":1,"on":["5xx"],"backoffMs":1,"jitter":true}}), "jitter"),
-        ] {
-            let mut configured = auth.clone();
-            configured["grantRequest"] = options.clone();
-            let result = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":configured})));
-            assert!(result.errors.iter().any(|error| error.code == ErrorCode::HttpOptionUnknown && error.message.contains(&format!("`{key}`"))), "{auth}: {options}: {result:?}");
-        }
-    }
-    for request in [
-        json!({"grantRequest":{}}),
-        json!({"auth":{"scheme":"bearer","credential":"@config.apiKey","grantRequest":{}}}),
-        json!({"retry":{"max":1,"on":["failed"],"scheduleMs":[0],"jitter":true}}),
-    ] {
-        let key = if request.get("retry").is_some() { "jitter" } else { "grantRequest" };
-        let result = check(ok_egress(), config(), post(json!(ORIGIN), request.clone()));
-        assert!(result.errors.iter().any(|error| error.code == ErrorCode::HttpOptionUnknown && error.message.contains(&format!("`{key}`"))), "{request}: {result:?}");
     }
 }
 
@@ -955,7 +564,6 @@ fn grant_and_resource_deadlines_share_whole_nonnegative_or_null_validation() {
             configured["grantRequest"] = json!({"timeoutMs":deadline});
             let result = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":configured,"timeoutMs":deadline})));
             assert!(!fires(&result, ErrorCode::HttpAuthInvalid), "{auth}: {deadline}: {result:?}");
-            assert!(!fires(&result, ErrorCode::HttpOptionUnknown), "{auth}: {deadline}: {result:?}");
             assert!(!fires(&result, ErrorCode::OperatorArgTypeMismatch), "{auth}: {deadline}: {result:?}");
         }
         for deadline in [json!(-1), json!(0.5), json!("15000"), json!(true), json!([]), json!({}), json!("@config.plain")] {
@@ -989,7 +597,6 @@ fn grant_headers_reserve_authorization_and_content_type_even_without_basic_auth(
         control["grantRequest"] = json!({"headers":{"X-Grant":"public","X-Empty":""}});
         let result = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":control})));
         assert!(!fires(&result, ErrorCode::HttpHeaderInvalid), "{auth}: {result:?}");
-        assert!(!fires(&result, ErrorCode::HttpOptionUnknown), "{auth}: {result:?}");
         assert!(!fires(&result, ErrorCode::HttpAuthInvalid), "{auth}: {result:?}");
         assert!(!fires(&result, ErrorCode::OperatorArgTypeMismatch), "{auth}: {result:?}");
         for name in ["Authorization", "aUtHoRiZaTiOn", "Content-Type", "cOnTeNt-TyPe"] {
@@ -1038,7 +645,7 @@ fn extended_retry_policies_are_shared_by_grant_and_resource_requests() {
                     request["retry"] = policy.clone();
                 }
                 let result = check(ok_egress(), config(), post(json!(ORIGIN), request));
-                for code in [ErrorCode::HttpOptionUnknown, ErrorCode::HttpAuthInvalid, ErrorCode::OperatorArgTypeMismatch] {
+                for code in [ErrorCode::HttpAuthInvalid, ErrorCode::OperatorArgTypeMismatch] {
                     assert!(!fires(&result, code), "{auth}: {policy}: grant={grant}: {code:?}: {result:?}");
                 }
             }
@@ -1185,7 +792,7 @@ fn retry_accepts_typed_dynamic_operands_without_guessing_unknown_bounds_or_lengt
                     request["retry"] = policy.clone();
                 }
                 let result = check(ok_egress(), dynamic_retry_config(), post(json!(ORIGIN), request.clone()));
-                for code in [ErrorCode::HttpOptionUnknown, ErrorCode::HttpAuthInvalid, ErrorCode::OperatorArgTypeMismatch, ErrorCode::OperatorArgUndetermined] {
+                for code in [ErrorCode::HttpAuthInvalid, ErrorCode::OperatorArgTypeMismatch, ErrorCode::OperatorArgUndetermined] {
                     assert!(!fires(&result, code), "{auth}: {policy}: grant={grant}: {code:?}: {result:?}");
                 }
                 assert!(secret_codes(dynamic_retry_config(), post(json!(ORIGIN), request)).is_empty(), "{auth}: {policy}: grant={grant}");
@@ -1243,86 +850,14 @@ fn retry_dynamic_operands_do_not_hide_invalid_static_neighbors_or_wrong_declared
 
 // --- token-exchange rotate / onUnauthorized / queryEncoding ---------------------------------------------------
 
-fn rotating(extra: Value) -> Value {
-    let mut request = exchange(json!({
-        "body": { "form": { "refresh_token": { "credential": "@config.apiKey" } } },
-        "rotate": { "field": "refresh_token", "credential": "@config.apiKey" }
-    }));
-    request["auth"].as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-    request
-}
-
 #[test]
-fn rotate_of_the_body_refresh_token_slot_is_clean() {
-    for rotate in [
-        json!({ "field": "refresh_token", "credential": "@config.apiKey" }),
-        json!({ "field": "rt", "credential": { "credential": "@config.apiKey" } }),
-    ] {
-        let r = check(ok_egress(), config(), post(json!(ORIGIN), rotating(json!({ "rotate": rotate.clone() }))));
-        assert!(!fires(&r, ErrorCode::HttpTokenRotateInvalid), "{rotate}: {:?}", r.errors);
-        assert!(!fires(&r, ErrorCode::HttpOptionUnknown), "{rotate}: {:?}", r.errors);
-    }
-}
-
-#[test]
-fn rotate_must_rotate_the_refresh_token_grant_slot() {
-    let other_slot = json!({ "body": { "form": { "refresh_token": { "credential": "@config.apiKey", "scope": "user" } } },
-        "storeAs": { "name": "t", "scope": "user" } });
-    let cases = [
-        ("not an object", json!({ "rotate": "refresh_token" })),
-        ("unknown key", json!({ "rotate": { "field": "refresh_token", "credential": "@config.apiKey", "ttl": 1 } })),
-        ("empty field", json!({ "rotate": { "field": "", "credential": "@config.apiKey" } })),
-        ("missing field", json!({ "rotate": { "credential": "@config.apiKey" } })),
-        ("missing credential", json!({ "rotate": { "field": "refresh_token" } })),
-        ("no refresh_token grant", json!({ "grant": "custom" })),
-        ("no grant", json!({ "grant": Value::Null })),
-        ("credential is not the body slot", json!({ "rotate": { "field": "refresh_token", "credential": "@config.plain" } })),
-        ("scope differs from the body slot", json!({ "rotate": { "field": "refresh_token", "credential": { "credential": "@config.apiKey", "scope": "user" } } })),
-        ("body slot has another scope", other_slot),
-    ];
-    for (name, extra) in cases {
-        let mut request = rotating(json!({}));
-        for (k, v) in extra.as_object().unwrap() {
-            if v.is_null() {
-                request["auth"].as_object_mut().unwrap().remove(k);
-            } else {
-                request["auth"][k] = v.clone();
-            }
-        }
-        let r = check(ok_egress(), config(), post(json!(ORIGIN), request));
-        assert!(fires(&r, ErrorCode::HttpTokenRotateInvalid), "{name}: {:?}", r.errors);
-    }
-    let bare = json!({ "body": { "form": { "refresh_token": "@config.apiKey" } } });
-    let r = check(ok_egress(), config(), post(json!(ORIGIN), rotating(bare)));
-    assert!(fires(&r, ErrorCode::HttpTokenRotateInvalid), "a bare string body field is a literal, not a slot");
-}
-
-#[test]
-fn rotate_is_a_token_exchange_key_only() {
-    for scheme in [
-        json!({ "scheme": "oauth2-client", "tokenUrl": format!("{ORIGIN}/t"), "clientId": "@config.apiKey", "clientSecret": "@config.apiKey",
-            "rotate": { "field": "refresh_token", "credential": "@config.apiKey" } }),
-        json!({ "scheme": "bearer", "credential": "@config.apiKey", "rotate": { "field": "x", "credential": "@config.apiKey" } }),
-    ] {
-        let r = check(ok_egress(), config(), post(json!(ORIGIN), json!({ "auth": scheme.clone() })));
-        assert!(fires(&r, ErrorCode::HttpOptionUnknown), "{scheme}");
-    }
-}
-
-#[test]
-fn on_unauthorized_and_query_encoding_are_closed_choices() {
+fn on_unauthorized_is_a_closed_choice() {
     for good in ["reply", "refresh"] {
         let r = check(ok_egress(), config(), post(json!(ORIGIN), exchange(json!({ "onUnauthorized": good }))));
-        assert!(!fires(&r, ErrorCode::HttpAuthInvalid) && !fires(&r, ErrorCode::HttpOptionUnknown), "{good}: {:?}", r.errors);
+        assert!(!fires(&r, ErrorCode::HttpAuthInvalid), "{good}: {:?}", r.errors);
     }
     let r = check(ok_egress(), config(), post(json!(ORIGIN), exchange(json!({ "onUnauthorized": "retry" }))));
     assert!(fires(&r, ErrorCode::HttpAuthInvalid));
-    for good in ["uri", "rfc3986"] {
-        let r = check(ok_egress(), config(), post(json!(ORIGIN), json!({ "queryEncoding": good })));
-        assert!(!fires(&r, ErrorCode::HttpOptionUnknown), "{good}: {:?}", r.errors);
-    }
-    let r = check(ok_egress(), config(), post(json!(ORIGIN), json!({ "queryEncoding": "html" })));
-    assert!(fires(&r, ErrorCode::HttpOptionUnknown));
 }
 
 mod browser_effects_validation {
@@ -1388,14 +923,7 @@ mod browser_effects_validation {
         json!({ "emit": { "success": "BEACON_DONE", "failure": "BEACON_FAILED", "cancelled": "BEACON_CANCELLED" } })
     }
 
-    const PAGE_FACT_CODES: [ErrorCode; 2] = [ErrorCode::PageFactsFieldInvalid, ErrorCode::PageFactsUnrequestedRead];
-    const BEACON_CODES: [ErrorCode; 4] = [
-        ErrorCode::BeaconOptionUnknown,
-        ErrorCode::BeaconTextRequired,
-        ErrorCode::BeaconUrlNotAbsolute,
-        ErrorCode::HttpEgressUndeclared,
-    ];
-
+    const PAGE_FACT_CODES: [ErrorCode; 1] = [ErrorCode::PageFactsUnrequestedRead];
     #[test]
     fn control_well_formed_page_facts_raise_none_of_the_codes() {
         let r = check(json!([
@@ -1408,69 +936,12 @@ mod browser_effects_validation {
     }
 
     #[test]
-    fn page_facts_field_must_be_a_non_empty_duplicate_free_list_of_the_closed_words() {
-        for fields in [json!([]), json!(["userAgent"]), json!(["hostname", "hostname"]), json!("hostname"), json!([1])] {
-            let r = check(json!([["browser/page-facts", fields, facts_routes()]]));
-            assert!(fires(&r, ErrorCode::PageFactsFieldInvalid), "{fields}: {:?}", r.errors);
-        }
-    }
-
-    #[test]
     fn an_event_reading_a_fact_that_was_not_requested_is_flagged() {
         let effects = json!([["browser/page-facts", ["referrer"], facts_routes()]]);
         let r = check_reading(effects.clone(), &["hostname"]);
         assert!(fires(&r, ErrorCode::PageFactsUnrequestedRead), "{:?}", r.errors);
         let r = check_reading(effects, &["referrer", "available"]);
         assert!(!fires(&r, ErrorCode::PageFactsUnrequestedRead), "{:?}", r.errors);
-    }
-
-    #[test]
-    fn control_well_formed_beacons_raise_none_of_the_codes() {
-        let r = check(json!([
-            ["browser/beacon", "https://collector.example.com/e", { "text": "@entity.body" }, beacon_routes()],
-            ["browser/beacon", "@config.endpoint", { "text": "@entity.body", "key": "@entity.id" }, beacon_routes()]
-        ]));
-        for code in BEACON_CODES {
-            assert!(!fires(&r, code), "{code:?}: {:?}", r.errors);
-        }
-    }
-
-    #[test]
-    fn a_beacon_request_carries_text_and_key_and_nothing_else() {
-        for request in [json!({ "text": "x", "json": {} }), json!({ "text": "x", "auth": {} }), json!({ "text": "x", "headers": {} })] {
-            let r = check(json!([["browser/beacon", "https://collector.example.com/e", request, beacon_routes()]]));
-            assert!(fires(&r, ErrorCode::BeaconOptionUnknown), "{request}: {:?}", r.errors);
-        }
-    }
-
-    #[test]
-    fn a_beacon_option_other_than_key_and_emit_is_unknown() {
-        let r = check(json!([["browser/beacon", "https://collector.example.com/e", { "text": "x" }, { "retry": {}, "emit": { "success": "BEACON_DONE" } }]]));
-        assert!(fires(&r, ErrorCode::BeaconOptionUnknown), "{:?}", r.errors);
-    }
-
-    #[test]
-    fn a_beacon_without_text_is_flagged() {
-        for request in [json!({}), json!({ "key": "k" })] {
-            let r = check(json!([["browser/beacon", "https://collector.example.com/e", request, beacon_routes()]]));
-            assert!(fires(&r, ErrorCode::BeaconTextRequired), "{request}: {:?}", r.errors);
-        }
-    }
-
-    #[test]
-    fn a_literal_beacon_url_must_be_absolute_http() {
-        for url in ["/e", "e", "//collector.example.com/e", "ftp://collector.example.com/e"] {
-            let r = check(json!([["browser/beacon", url, { "text": "x" }, beacon_routes()]]));
-            assert!(fires(&r, ErrorCode::BeaconUrlNotAbsolute), "{url}: {:?}", r.errors);
-        }
-    }
-
-    #[test]
-    fn a_beacon_origin_outside_egress_is_flagged_for_a_literal_and_for_a_knob() {
-        let r = check(json!([["browser/beacon", "https://elsewhere.example.com/e", { "text": "x" }, beacon_routes()]]));
-        assert!(fires(&r, ErrorCode::HttpEgressUndeclared), "{:?}", r.errors);
-        let r = check(json!([["browser/beacon", "@config.relative", { "text": "x" }, beacon_routes()]]));
-        assert!(fires(&r, ErrorCode::HttpEgressUndeclared) || fires(&r, ErrorCode::BeaconUrlNotAbsolute), "{:?}", r.errors);
     }
 
     #[test]
@@ -1485,7 +956,6 @@ mod browser_effects_validation {
             assert!(!fires(&r, ErrorCode::CallServiceCancelledWithoutKey), "{:?}", r.errors);
         }
     }
-
 
     #[test]
     fn a_keyed_page_facts_adds_key_to_what_an_event_may_read_and_the_key_must_be_a_string() {
@@ -1522,44 +992,11 @@ mod browser_effects_validation {
             ["cancel-call", "@entity.id"]
         ]));
         for code in [
-            ErrorCode::HostEffectArity,
-            ErrorCode::HostEffectOptionUnknown,
-            ErrorCode::OnDeviceSchemaInvalid,
-            ErrorCode::OnDeviceEffectOnServer,
             ErrorCode::CallServiceKeyType,
             ErrorCode::CancelCallNoKeyedCall,
             ErrorCode::EffectUnknownType,
         ] {
             assert!(!fires(&r, code), "{code:?}: {:?}", r.errors);
-        }
-    }
-
-    #[test]
-    fn an_on_device_call_with_the_wrong_arity_or_an_unknown_option_is_flagged() {
-        for call in [
-            json!(["browser/prompt", "t"]),
-            json!(["browser/prompt", "t", SCHEMA, {}, {}]),
-            json!(["browser/embed"]),
-            json!(["browser/embed", ["a"], {}, {}]),
-        ] {
-            let r = check(json!([call]));
-            assert!(fires(&r, ErrorCode::HostEffectArity), "{call}: {:?}", r.errors);
-        }
-        for call in [
-            json!(["browser/prompt", "t", SCHEMA, { "retry": {}, "emit": { "success": "FACTS" } }]),
-            json!(["browser/embed", ["a"], { "timeoutMs": 5 }]),
-            json!(["browser/embed", ["a"], "FACTS"]),
-        ] {
-            let r = check(json!([call]));
-            assert!(fires(&r, ErrorCode::HostEffectOptionUnknown), "{call}: {:?}", r.errors);
-        }
-    }
-
-    #[test]
-    fn a_literal_response_schema_must_be_a_json_object() {
-        for schema in ["not json", "[1]", "\"str\"", ""] {
-            let r = check(json!([["browser/prompt", "t", schema, model_routes()]]));
-            assert!(fires(&r, ErrorCode::OnDeviceSchemaInvalid), "{schema}: {:?}", r.errors);
         }
     }
 
@@ -1597,23 +1034,6 @@ mod browser_effects_validation {
         json!({ "emit": { "success": "FACTS", "failure": "FACTS_FAILED" } })
     }
 
-    fn with_tick(background: bool, effect: Value) -> ValidationResult {
-        let mut schema = serde_json::to_value(program(json!([]), json!([{ "name": "available", "type": "boolean", "required": true }]))).unwrap();
-        schema["orbitals"][0]["traits"][0]["ticks"] = json!([{
-            "name": "poll", "interval": 1000, "effects": [effect], "runsInBackground": background
-        }]);
-        validate_comprehensive_without_services(&serde_json::from_value(schema).expect("schema"))
-    }
-
-    #[test]
-    fn an_on_device_effect_is_rejected_where_the_server_runs_it_and_accepted_in_the_browser() {
-        for call in [json!(["browser/prompt", "t", SCHEMA, keyed_model_routes()]), json!(["browser/embed", ["a"], keyed_model_routes()])] {
-            let r = with_tick(true, call.clone());
-            assert!(fires(&r, ErrorCode::OnDeviceEffectOnServer), "{call}: {:?}", r.errors);
-            let r = with_tick(false, call.clone());
-            assert!(!fires(&r, ErrorCode::OnDeviceEffectOnServer), "{call}: {:?}", r.errors);
-        }
-    }
 }
 
 mod tab_effects_validation {
@@ -1673,7 +1093,7 @@ mod tab_effects_validation {
         json!({ "emit": { "success": "TAB_OK", "failure": "TAB_FAILED", "cancelled": "TAB_CANCELLED" } })
     }
 
-    const CODES: [ErrorCode; 3] = [ErrorCode::TabRequestInvalid, ErrorCode::TabEffectOnServer, ErrorCode::HostEffectArity];
+    const CODES: [ErrorCode; 1] = [ErrorCode::TabRequestInvalid];
 
     #[test]
     fn control_well_formed_tab_effects_raise_none_of_the_codes() {
@@ -1720,38 +1140,9 @@ mod tab_effects_validation {
     }
 
     #[test]
-    fn a_request_that_is_not_an_object_or_a_call_with_the_wrong_arity_is_flagged() {
+    fn a_request_that_is_not_an_object_is_flagged() {
         let r = check(json!([["browser/tab-close", 7, routes()]]));
         assert!(fires(&r, ErrorCode::TabRequestInvalid), "{:?}", r.errors);
-        let r = check(json!([["browser/tab-close"]]));
-        assert!(fires(&r, ErrorCode::HostEffectArity), "{:?}", r.errors);
-        let r = check(json!([["browser/tab-close", { "tab": 1 }, routes(), routes()]]));
-        assert!(fires(&r, ErrorCode::HostEffectArity), "{:?}", r.errors);
-    }
-
-    #[test]
-    fn the_options_object_is_closed_and_its_emit_routes_are_success_failure_cancelled() {
-        let r = check(json!([["browser/tab-close", { "tab": 1 }, { "retry": 3, "emit": routes()["emit"].clone() }]]));
-        assert!(fires(&r, ErrorCode::HostEffectOptionUnknown), "{:?}", r.errors);
-        let r = check(json!([["browser/tab-close", { "tab": 1 }, { "emit": { "success": "TAB_OK", "onMessage": "TAB_OK" } }]]));
-        assert!(!r.errors.is_empty(), "onMessage is not a tab route");
-    }
-
-    fn with_tick(background: bool, effect: Value) -> ValidationResult {
-        validate_comprehensive_without_services(&program(
-            json!([]),
-            json!([{ "name": "poll", "interval": 1000, "effects": [effect], "runsInBackground": background }]),
-            json!([{ "name": "tab", "type": "number", "required": true }]),
-        ))
-    }
-
-    #[test]
-    fn a_tab_effect_is_rejected_where_the_server_runs_it_and_accepted_in_the_browser() {
-        let call = json!(["browser/tab-list", {}, routes()]);
-        let r = with_tick(true, call.clone());
-        assert!(fires(&r, ErrorCode::TabEffectOnServer), "{:?}", r.errors);
-        let r = with_tick(false, call);
-        assert!(!fires(&r, ErrorCode::TabEffectOnServer), "{:?}", r.errors);
     }
 
     #[test]

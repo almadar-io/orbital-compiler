@@ -1,7 +1,7 @@
 //! `persist batch`: `["persist", "batch", <ops>, { emit }?]`. The validator reads
 //! `batch` as the action (no entity argument), checks each statically-readable op
-//! tuple with the single-op persist validator, requires non-literal ops to be
-//! array-typed, and requires one placement for every entity the ops name.
+//! tuple with the single-op persist validator, and requires non-literal ops to be
+//! array-typed.
 
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode, ValidationResult};
 use orbital_core_base::schema::OrbitalSchema;
@@ -92,9 +92,6 @@ fn batch_findings(r: &ValidationResult) -> Vec<String> {
                 e.code,
                 ErrorCode::EffectFetchInvalidEntity
                     | ErrorCode::PersistBatchOpsNotArray
-                    | ErrorCode::PersistBatchBadOp
-                    | ErrorCode::PersistBatchMixedPlacement
-                    | ErrorCode::EntityIntrinsicFieldPersisted
             )
         })
         .map(|e| format!("{} {}", e.code.as_str(), e.message))
@@ -176,71 +173,6 @@ fn an_unknown_entity_in_a_mapped_tuple_reuses_the_single_op_code() {
 }
 
 #[test]
-fn an_intrinsic_field_in_an_op_literal_reuses_the_single_op_rule() {
-    let r = validate(
-        batch(json!([["update", "Row", "a", { "draftView": "x" }]])),
-        saved_payload(),
-    );
-    assert!(
-        has(&r, ErrorCode::EntityIntrinsicFieldPersisted),
-        "{:?}",
-        codes(&r)
-    );
-}
-
-#[test]
-fn an_unknown_action_is_a_bad_op() {
-    let r = validate(
-        batch(json!([["upsert", "Row", { "id": "a" }]])),
-        saved_payload(),
-    );
-    assert!(has(&r, ErrorCode::PersistBatchBadOp), "{:?}", codes(&r));
-}
-
-#[test]
-fn the_wrong_arity_is_a_bad_op() {
-    for tuple in [
-        json!(["update", "Row", { "status": "x" }]),
-        json!(["delete", "Row"]),
-        json!(["create", "Row"]),
-        json!(["create", "Row", {}, "extra"]),
-    ] {
-        let r = validate(batch(json!([tuple])), saved_payload());
-        assert!(
-            has(&r, ErrorCode::PersistBatchBadOp),
-            "{tuple}: {:?}",
-            codes(&r)
-        );
-    }
-}
-
-#[test]
-fn an_element_that_is_not_a_tuple_is_a_bad_op() {
-    let r = validate(batch(json!([42])), saved_payload());
-    assert!(has(&r, ErrorCode::PersistBatchBadOp), "{:?}", codes(&r));
-}
-
-#[test]
-fn a_mapped_lambda_with_an_unknown_action_head_is_a_bad_op() {
-    let r = validate(
-        batch(mapped(json!([
-            "upsert",
-            "Row",
-            ["object/get", "@r", "id"],
-            {}
-        ]))),
-        saved_payload(),
-    );
-    assert!(has(&r, ErrorCode::PersistBatchBadOp), "{:?}", codes(&r));
-}
-
-#[test]
-fn a_mapped_tuple_with_the_wrong_arity_is_a_bad_op() {
-    let r = validate(batch(mapped(json!(["delete", "Row"]))), saved_payload());
-    assert!(has(&r, ErrorCode::PersistBatchBadOp), "{:?}", codes(&r));
-}
-
-#[test]
 fn ops_that_are_not_an_array_are_rejected() {
     for ops in [
         json!("plain text"),
@@ -267,34 +199,6 @@ fn control_a_missing_ops_argument_is_not_array_typed() {
         "{:?}",
         codes(&r)
     );
-}
-
-#[test]
-fn ops_naming_browser_and_server_entities_are_mixed_placement() {
-    let r = validate(
-        batch(json!([["create", "Draft", { "id": "d" }], ["create", "Row", { "id": "r" }]])),
-        saved_payload(),
-    );
-    assert!(
-        has(&r, ErrorCode::PersistBatchMixedPlacement),
-        "{:?}",
-        codes(&r)
-    );
-}
-
-#[test]
-fn control_ops_on_one_placement_are_not_mixed() {
-    for ops in [
-        json!([["create", "Draft", { "id": "d" }], ["delete", "Draft", "d"]]),
-        json!([["create", "Row", { "id": "r" }], ["delete", "Row", "r"]]),
-    ] {
-        let r = validate(batch(ops), saved_payload());
-        assert!(
-            !has(&r, ErrorCode::PersistBatchMixedPlacement),
-            "{:?}",
-            codes(&r)
-        );
-    }
 }
 
 #[test]

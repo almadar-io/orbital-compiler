@@ -5,7 +5,6 @@
 
 use super::error::{ErrorCode, ValidationError, ValidationResult};
 use super::ValidationContext;
-use crate::embedded::builtin_theme_names;
 use orbital_core_base::schema::{
     OrbitalSchema, SExpression, ThemeDefinition, ThemeRef, TraitDefinition, TypeScaleTokens,
 };
@@ -13,38 +12,18 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
-static THEME_REF_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[A-Z][a-zA-Z0-9]*\.theme$").unwrap());
-
 /// Validate all themes in a schema
 pub fn validate_all_themes(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
-    // The valid-theme set for references = built-in `@almadar-ui/themes/`
-    // registry (baked) ∪ this program's own orbital-declared inline themes.
-    let inline_names: HashSet<&str> = schema
-        .orbitals
-        .iter()
-        .filter_map(|o| o.theme.as_ref())
-        .filter_map(|t| t.as_inline())
-        .map(|t| t.name.as_str())
-        .collect();
     if let Some(theme_ref) = &schema.theme {
-        let result = validate_theme_ref(theme_ref, "theme", &inline_names);
+        let result = validate_theme_ref(theme_ref, "theme");
         ctx.merge(result);
     }
     for (i, orbital) in schema.orbitals.iter().enumerate() {
         if let Some(theme_ref) = &orbital.theme {
             let path = format!("orbitals[{}].theme", i);
-            let result = validate_theme_ref(theme_ref, &path, &inline_names);
+            let result = validate_theme_ref(theme_ref, &path);
             ctx.merge(result);
         }
-    }
-    for (i, key) in schema.themes.iter().flatten().enumerate() {
-        let path = format!("themes[{}]", i);
-        ctx.merge(validate_theme_ref(
-            &ThemeRef::Reference(key.clone()),
-            &path,
-            &inline_names,
-        ));
     }
     ctx.merge(validate_data_themes(schema));
 }
@@ -164,37 +143,12 @@ pub fn validate_data_themes(schema: &OrbitalSchema) -> ValidationResult {
     result
 }
 
-/// Validate a theme reference (inline or reference string).
-///
-/// A `Reference` is valid when it names a theme in the built-in
-/// `@almadar-ui/themes/` registry OR one of the program's own
-/// orbital-declared inline themes. The legacy `Alias.theme` import form is
-/// also accepted (resolved by the inline phase). Anything else is
-/// `ORB_X_UNKNOWN_THEME`.
-pub fn validate_theme_ref(
-    theme_ref: &ThemeRef,
-    path: &str,
-    inline_names: &HashSet<&str>,
-) -> ValidationResult {
+/// Validate a theme reference: an inline definition is checked, a reference string is not.
+pub fn validate_theme_ref(theme_ref: &ThemeRef, path: &str) -> ValidationResult {
     let mut result = ValidationResult::new();
 
-    match theme_ref {
-        ThemeRef::Inline(theme_def) => {
-            let theme_result = validate_theme_definition(theme_def, path);
-            result.merge(theme_result);
-        }
-        ThemeRef::Reference(ref_str) => {
-            if !is_valid_theme_reference(ref_str, inline_names) {
-                result.add_error(ValidationError::error(
-                    ErrorCode::UnknownTheme,
-                    path,
-                    format!(
-                        "Unknown theme '{}'. Must be a built-in theme key (the full data-theme value, e.g. linear-clean-light, terminal-dark, game-adventure-dark) or an orbital-declared inline theme.",
-                        ref_str
-                    ),
-                ));
-            }
-        }
+    if let ThemeRef::Inline(theme_def) = theme_ref {
+        result.merge(validate_theme_definition(theme_def, path));
     }
 
     result
@@ -378,19 +332,6 @@ static FONT_BARE: LazyLock<Regex> =
 static FONT_VAR: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^var\(--[\w-]+(,.*)?\)$").unwrap());
 
-/// Check if a theme reference is valid: a built-in registry name, an
-/// orbital-declared inline theme name, or the legacy `Alias.theme` import
-/// form (resolved by the inline phase).
-fn is_valid_theme_reference(ref_str: &str, inline_names: &HashSet<&str>) -> bool {
-    if THEME_REF_REGEX.is_match(ref_str) {
-        return true;
-    }
-    if inline_names.contains(ref_str) {
-        return true;
-    }
-    builtin_theme_names().iter().any(|n| n == ref_str)
-}
-
 /// Check if a value is a valid CSS color (hex, rgb, hsl, named)
 fn is_valid_css_color(value: &str) -> bool {
     let value = value.trim();
@@ -452,27 +393,6 @@ fn is_valid_css_length(value: &str) -> bool {
 mod tests {
     use super::*;
     use orbital_core_base::schema::ThemeTokens;
-
-    #[test]
-    fn test_valid_theme_reference() {
-        let empty: HashSet<&str> = HashSet::new();
-        // Legacy Alias.theme import form still accepted.
-        assert!(is_valid_theme_reference("Ocean.theme", &empty));
-        assert!(is_valid_theme_reference("MyTheme.theme", &empty));
-        assert!(!is_valid_theme_reference("ocean.theme", &empty)); // must start with uppercase
-        assert!(!is_valid_theme_reference("Ocean.themes", &empty)); // must be .theme
-                                                                    // Built-in registry keys accepted (full <base>-<variant> data-theme values).
-        assert!(is_valid_theme_reference("linear-clean-light", &empty));
-        assert!(is_valid_theme_reference("terminal-dark", &empty));
-        // Bare base names are NOT valid (the CSS defines only suffixed keys).
-        assert!(!is_valid_theme_reference("linear-clean", &empty));
-        // Orbital-declared inline theme names accepted.
-        let mut inline = HashSet::new();
-        inline.insert("my-custom");
-        assert!(is_valid_theme_reference("my-custom", &inline));
-        // Unknown rejected.
-        assert!(!is_valid_theme_reference("does-not-exist", &empty));
-    }
 
     #[test]
     fn test_valid_css_color() {
@@ -713,20 +633,6 @@ mod data_theme_declared_tests {
         assert!(
             finals.iter().all(|e| e.code != ErrorCode::ThemeUndeclared),
             "the final pass must not report it again"
-        );
-    }
-
-    #[test]
-    fn edge_a_themes_entry_must_name_a_real_theme() {
-        let mut ctx = ValidationContext::default();
-        validate_all_themes(
-            &site(r#", "themes": ["zz-unknown-dark"]"#, "", ""),
-            &mut ctx,
-        );
-        let errors = ctx.into_result().errors;
-        assert!(
-            errors.iter().any(|e| e.code == ErrorCode::UnknownTheme),
-            "{errors:?}"
         );
     }
 }

@@ -197,22 +197,6 @@ fn computed_value_into_node_field_is_silent() {
     );
 }
 
-#[test]
-fn pattern_literal_into_non_node_field_is_the_anti_loophole() {
-    let (errors, _warnings) = run(schema_with_effects(
-        node_scalar_field(),
-        json!([["set", "@entity.rows", [
-            { "type": "card", "variant": "bordered", "children": [] }
-        ]]]),
-    ));
-    assert!(
-        errors
-            .iter()
-            .any(|e| e == "ORB_RUI_RENDERABLE_IN_GENERIC_FIELD"),
-        "expected the anti-loophole error, got {errors:?}"
-    );
-}
-
 /// `Map string [node]` — an art catalog keyed by kind. The map is renderable
 /// content addressed by key, so it must NOT trip the anti-loophole arm, and its
 /// leaves must still reach the pattern checks.

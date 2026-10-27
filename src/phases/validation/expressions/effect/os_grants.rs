@@ -11,7 +11,7 @@ use orbital_core_base::os_grants::{
 use orbital_core_base::schema::{
     ConfigField, OrbitalSchema, SExpression, TraitDefinition, TraitReference,
 };
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 fn each_os_call<'a>(expr: &'a SExpression, visit: &mut dyn FnMut(OsOp, &'a [SExpression])) {
     match expr {
@@ -445,64 +445,6 @@ pub(crate) fn validate_final_os_targets(schema: &OrbitalSchema) -> ValidationRes
                     }
                 });
             }
-        }
-    }
-    result
-}
-
-pub(crate) fn validate_placement(schema: &OrbitalSchema) -> ValidationResult {
-    let mut result = ValidationResult::new();
-    let Some(units) = &schema.deployment else {
-        return result;
-    };
-    let declared: BTreeSet<&str> = schema.orbitals.iter().map(|o| o.name.as_str()).collect();
-    let mut placed: BTreeSet<&str> = BTreeSet::new();
-    for (unit, orbitals) in units {
-        let at = format!("deployment.{unit}");
-        if orbitals.is_empty() {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::PlacementUnitEmpty,
-                    at.clone(),
-                    format!("deployment unit `{unit}` lists no orbital"),
-                )
-                .with_suggestion("List the orbitals the unit runs, or remove the unit"),
-            );
-        }
-        for name in orbitals {
-            if !declared.contains(name.as_str()) {
-                result.add_error(ValidationError::error(
-                    ErrorCode::PlacementOrbitalUnknown,
-                    at.clone(),
-                    format!("deployment unit `{unit}` lists `{name}`, which is not an orbital of this program"),
-                ));
-            } else if !placed.insert(name.as_str()) {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::PlacementOrbitalDuplicate,
-                        at.clone(),
-                        format!("orbital `{name}` is placed more than once in `deployment`"),
-                    )
-                    .with_suggestion("An orbital runs in exactly one unit"),
-                );
-            }
-        }
-    }
-    for (i, orbital) in schema.orbitals.iter().enumerate() {
-        if !placed.contains(orbital.name.as_str()) {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::PlacementOrbitalUnplaced,
-                    format!("orbitals[{i} ({})]", orbital.name),
-                    format!(
-                        "`deployment` is declared but orbital `{}` is in none of its units",
-                        orbital.name
-                    ),
-                )
-                .with_suggestion(
-                    "Place every orbital in a unit; nothing is placed on the program's behalf",
-                ),
-            );
         }
     }
     result

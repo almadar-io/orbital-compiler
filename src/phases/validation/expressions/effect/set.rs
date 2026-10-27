@@ -13,80 +13,20 @@ pub(crate) fn validate_set(
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
-    // Expected: ["set", "@entity.field", value] or ["set", ["path", ...], value]
     if arr.len() < 3 {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::EffectSetInvalidBinding,
-                path,
-                "set requires binding and value",
-            )
-            .with_suggestion("Use: [\"set\", \"@entity.field\", value]"),
-        );
         return result;
     }
 
-    // Check binding - can be string OR path expression
-    match &arr[1] {
-        SExpression::String(binding) => {
-            if !binding.starts_with('@') {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::EffectSetInvalidBinding,
-                        path,
-                        format!("set binding must start with @: '{}'", binding),
-                    )
-                    .with_suggestion("Use @entity.field, @EntityName.field, or @config.field"),
-                );
-            } else if binding.starts_with("@payload") {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::EffectSetPayloadNotAllowed,
-                        path,
-                        "set cannot target @payload (payload is read-only)",
-                    )
-                    .with_suggestion("Use @entity to update the entity state")
-                    .with_fix_guidance("Replace @payload with @entity in your set binding"),
-                );
-            } else if binding == "@entity" || binding == "@state" || binding == "@now" {
-                // Missing field path
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::BindingSetTargetMissingPath,
-                        path,
-                        format!("set binding '{}' requires a field path", binding),
-                    )
-                    .with_suggestion("Add a field path: @entity.fieldName"),
-                );
-            }
-        }
-        SExpression::Array(path_expr) if is_path_expression(path_expr) => {
-            // ["path", "segment1", "@payload.segment2"] is valid for dynamic field paths
-            // Validate that path expression has at least one segment
-            if path_expr.len() < 2 {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::EffectSetInvalidBinding,
-                        path,
-                        "path expression requires at least one segment",
-                    )
-                    .with_suggestion("Use: [\"path\", \"fieldName\", \"@payload.subField\"]"),
-                );
-            }
-        }
-        other => {
-            // Render what was actually written — run 32: a computed set
-            // target spun with no visibility into the offending expression.
+    if let SExpression::String(binding) = &arr[1] {
+        if binding.starts_with("@payload") {
             result.add_error(
                 ValidationError::error(
-                    ErrorCode::EffectSetInvalidBinding,
+                    ErrorCode::EffectSetPayloadNotAllowed,
                     path,
-                    format!(
-                        "set's first argument must be a `@entity.field` binding, got {}",
-                        crate::phases::validation::sexpr::render_sexpr_brief(other)
-                    ),
+                    "set cannot target @payload (payload is read-only)",
                 )
-                .with_suggestion("write `(set @entity.<field> <value>)` — the target is always a literal binding, never a computed expression; to update a looked-up row use `persist update` with the row id"),
+                .with_suggestion("Use @entity to update the entity state")
+                .with_fix_guidance("Replace @payload with @entity in your set binding"),
             );
         }
     }
@@ -107,14 +47,6 @@ pub(crate) fn validate_set(
     }
 
     result
-}
-
-/// Check if an S-expression is a path expression ["path", ...]
-pub(crate) fn is_path_expression(arr: &[SExpression]) -> bool {
-    if arr.is_empty() {
-        return false;
-    }
-    matches!(&arr[0], SExpression::String(op) if op == "path")
 }
 
 /// SET-EMITS-PAYLOAD type backstop (raw-`.orb` defense-in-depth).
@@ -278,72 +210,6 @@ pub(crate) fn validate_set_required_field_from_optional_knob(
             knob, trait_name, knob, entity_field
         )),
     );
-
-    result
-}
-
-/// ENUM-UNENFORCED check (Gap G-LOLO-ENUM-UNENFORCED).
-///
-/// For `(set @entity.<field> "literal")` where `<field>` declares an enum
-/// (`values: [...]`), reject a literal that is not one of the declared members.
-/// A declared string-union previously validated + emitted but was never
-/// actually enforced, so an out-of-set value passed silently. Only a plain
-/// string LITERAL is checkable — bindings (`@…`/`?…`) and operator calls are
-/// dynamic and left to the type/return checks.
-pub(crate) fn validate_set_enum_value(
-    arr: &[SExpression],
-    path: &str,
-    entity_field_types: &HashMap<String, EntityFieldMeta>,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-
-    if arr.len() < 3 {
-        return result;
-    }
-    let Some(entity_field) = set_entity_field(&arr[1]) else {
-        return result;
-    };
-    let Some(meta) = entity_field_types.get(entity_field) else {
-        return result;
-    };
-    if meta.enum_values.is_empty() {
-        return result; // not an enum field
-    }
-    // A UNION's `values` carry its VARIANT NAMES (`string`, `FileItem`), not a
-    // set of legal literals. Reading them as enum members rejected every value
-    // the union exists to admit — `(set @entity.v "x")` against `string |
-    // FileItem` was reported as "not a declared member of the field's enum".
-    // Union assignment is checked structurally against the variants, not by
-    // literal membership.
-    if meta.field_type == "union" {
-        return result;
-    }
-    // Only a plain string literal carries a checkable value.
-    let SExpression::String(value) = &arr[2] else {
-        return result;
-    };
-    if value.starts_with('@') || value.starts_with('?') {
-        return result; // a binding/payload read, not a literal
-    }
-
-    if !orbital_core_base::type_compat::enum_value_is_member(value, &meta.enum_values) {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::EnumValueNotMember,
-                path,
-                format!(
-                    "set @entity.{} assigns '{}', which is not a declared member of \
-                     the field's enum.",
-                    entity_field, value
-                ),
-            )
-            .with_valid_values(meta.enum_values.clone())
-            .with_suggestion(format!(
-                "Use one of the declared values for '{}', or add '{}' to its enum.",
-                entity_field, value
-            )),
-        );
-    }
 
     result
 }
@@ -819,7 +685,6 @@ fn payload_field_ref(value: &SExpression) -> Option<&str> {
 pub(crate) struct EntityFieldMeta {
     pub field_type: String,
     pub shape: orbital_core_base::ir::OirType,
-    pub enum_values: Vec<String>,
     pub required: bool,
     /// Whether the field declares a default, so a row never lacks it.
     pub defaulted: bool,
@@ -840,7 +705,6 @@ pub(crate) fn entity_field_type_map(entity: &EntityDefinition) -> HashMap<String
                     EntityFieldMeta {
                         field_type: field_type_str(&f.field_type).to_string(),
                         shape: orbital_core_base::ir::types::field_shape(f),
-                        enum_values: f.values.clone().unwrap_or_default(),
                         required: f.required.unwrap_or(false),
                         defaulted: f.default.is_some(),
                     },
@@ -891,128 +755,6 @@ fn field_type_str(ft: &FieldType) -> std::borrow::Cow<'static, str> {
     }
 }
 
-/// Validate set effect (object form)
-pub(crate) fn validate_set_object(target: &SExpression, path: &str) -> ValidationResult {
-    let mut result = ValidationResult::new();
-
-    if let SExpression::String(binding) = target {
-        if binding.starts_with("@payload") {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::EffectSetPayloadNotAllowed,
-                    path,
-                    "set cannot target @payload (payload is read-only)",
-                )
-                .with_suggestion("Use @entity to update the entity state"),
-            );
-        }
-    }
-
-    result
-}
-
-#[cfg(test)]
-mod enum_tests {
-    use super::*;
-
-    fn set(field: &str, value: SExpression) -> Vec<SExpression> {
-        vec![
-            SExpression::String("set".into()),
-            SExpression::string(format!("@entity.{field}")),
-            value,
-        ]
-    }
-
-    fn status_enum() -> HashMap<String, EntityFieldMeta> {
-        let mut m = HashMap::new();
-        m.insert(
-            "status".to_string(),
-            EntityFieldMeta {
-                field_type: "string".into(),
-                shape: orbital_core_base::type_compat::compat_kind_oir("string"),
-                enum_values: vec!["open".into(), "closed".into(), "pending".into()],
-                required: false,
-                defaulted: false,
-            },
-        );
-        m
-    }
-
-    #[test]
-    fn non_member_literal_errors() {
-        let arr = set("status", SExpression::String("zzz".into()));
-        let r = validate_set_enum_value(&arr, "p", &status_enum());
-        assert_eq!(r.errors.len(), 1);
-        assert_eq!(r.errors[0].code, ErrorCode::EnumValueNotMember);
-    }
-
-    #[test]
-    fn member_literal_passes() {
-        let arr = set("status", SExpression::String("closed".into()));
-        assert!(validate_set_enum_value(&arr, "p", &status_enum())
-            .errors
-            .is_empty());
-    }
-
-    #[test]
-    fn binding_value_skips() {
-        // a `@payload`/`?` read is dynamic — not enum-checkable.
-        let arr = set("status", SExpression::String("@payload.status".into()));
-        assert!(validate_set_enum_value(&arr, "p", &status_enum())
-            .errors
-            .is_empty());
-    }
-
-    #[test]
-    fn non_enum_field_skips() {
-        let mut m = HashMap::new();
-        m.insert(
-            "title".to_string(),
-            EntityFieldMeta {
-                field_type: "string".into(),
-                shape: orbital_core_base::type_compat::compat_kind_oir("string"),
-                enum_values: vec![],
-                required: false,
-                defaulted: false,
-            },
-        );
-        let arr = set("title", SExpression::String("anything".into()));
-        assert!(validate_set_enum_value(&arr, "p", &m).errors.is_empty());
-    }
-
-    /// Safety test 3's L2 half: a field whose `field_type` is `"union"` (a
-    /// recursive struct's back-reference resolves through the SAME kind
-    /// lattice slot a tagged union does — `oir_type_kind`'s `TypeRef` arm
-    /// reports `"object"`, and `entity_field_type_map`'s callers only ever
-    /// populate `enum_values` from a field's own `values` list, which a
-    /// struct-typed field never carries) must never be read as a string enum
-    /// — `(set @entity.subMenu "MenuItem")` assigning the alias's OWN name
-    /// must not be waved through as a legal "enum member".
-    #[test]
-    fn union_typed_field_never_reads_as_enum_even_with_stray_values() {
-        let mut m = HashMap::new();
-        // Defensive: even if some future caller mistakenly populated
-        // `enum_values` for a union-typed field (it shouldn't — a struct
-        // union's declared "values" are variant NAMES, not legal literals),
-        // the explicit `field_type == "union"` skip must still win.
-        m.insert(
-            "subMenu".to_string(),
-            EntityFieldMeta {
-                field_type: "union".into(),
-                shape: orbital_core_base::ir::OirType::Json,
-                enum_values: vec!["MenuItem".into()],
-                required: false,
-                defaulted: false,
-            },
-        );
-        let arr = set("subMenu", SExpression::String("MenuItem".into()));
-        assert!(
-            validate_set_enum_value(&arr, "p", &m).errors.is_empty(),
-            "a union-typed field must never be checked as a string enum"
-        );
-    }
-}
-
 #[cfg(test)]
 mod return_type_tests {
     use super::*;
@@ -1024,7 +766,6 @@ mod return_type_tests {
             EntityFieldMeta {
                 field_type: ty.into(),
                 shape: orbital_core_base::type_compat::compat_kind_oir(ty),
-                enum_values: vec![],
                 required: false,
                 defaulted: false,
             },
@@ -1256,7 +997,6 @@ mod required_field_from_optional_knob_tests {
             EntityFieldMeta {
                 field_type: ty.into(),
                 shape: orbital_core_base::type_compat::compat_kind_oir(ty),
-                enum_values: vec![],
                 required,
                 defaulted: false,
             },
@@ -1356,7 +1096,6 @@ mod comparison_operand_tests {
             EntityFieldMeta {
                 field_type: ty.into(),
                 shape: orbital_core_base::type_compat::compat_kind_oir(ty),
-                enum_values: vec![],
                 required: false,
                 defaulted: false,
             },
@@ -1488,7 +1227,6 @@ mod set_value_type_tests {
             EntityFieldMeta {
                 field_type: kind.into(),
                 shape: entity_shape,
-                enum_values: vec![],
                 required: false,
                 defaulted: false,
             },

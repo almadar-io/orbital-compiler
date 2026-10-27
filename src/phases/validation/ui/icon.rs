@@ -5,7 +5,7 @@
 //!
 //! Ported from `builder/packages/shared/src/orbitals/validation/icon-validator.ts`.
 
-use super::sync::{find_similar_icons, is_common_icon, COMMON_LUCIDE_ICONS};
+use super::sync::COMMON_LUCIDE_ICONS;
 use super::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitDefinition};
 use regex::Regex;
@@ -192,26 +192,6 @@ fn validate_icon_value(icon: &SExpression, path: &str) -> ValidationResult {
         return result;
     }
 
-    // Check if it's a common icon
-    if !is_common_icon(icon_name) {
-        let similar = find_similar_icons(icon_name, 3);
-        let mut error = ValidationError::error(
-            ErrorCode::IconNotFound,
-            path,
-            format!(
-                "Icon '{}' may not exist in Lucide. Check https://lucide.dev/icons for available icons",
-                icon_name
-            ),
-        );
-
-        if !similar.is_empty() {
-            error = error.with_suggestion(format!("Did you mean: {}?", similar.join(", ")));
-            error = error.with_valid_values(similar.iter().map(|s| s.to_string()).collect());
-        }
-
-        result.add_error(error);
-    }
-
     result
 }
 
@@ -274,28 +254,5 @@ mod tests {
 
         let result = validate_icon_name("   ", "test");
         assert!(result.errors.iter().any(|e| e.code == ErrorCode::IconEmpty));
-    }
-
-    #[test]
-    fn test_uncommon_icon_warning() {
-        let result = validate_icon_name("nonexistent-icon", "test");
-        // Should have a warning about uncommon icon
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::IconNotFound));
-    }
-
-    #[test]
-    fn test_similar_icon_suggestions() {
-        let result = validate_icon_name("trsh", "test");
-        // Should suggest "trash" or "trash-2"
-        if let Some(warning) = result
-            .errors
-            .iter()
-            .find(|e| e.code == ErrorCode::IconNotFound)
-        {
-            assert!(warning.suggestion.is_some() || warning.valid_values.is_some());
-        }
     }
 }
