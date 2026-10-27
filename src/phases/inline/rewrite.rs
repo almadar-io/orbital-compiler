@@ -341,7 +341,7 @@ fn visit_batch_op_entities(ops: &mut SExpression, f: &mut dyn FnMut(&mut String)
     match items.first() {
         Some(SExpression::String(head)) if head == "array/map" && items.len() == 3 => {
             if let SExpression::Array(lambda) = &mut items[2] {
-                let is_fn = matches!(lambda.first(), Some(SExpression::String(h)) if h == "fn" || h == "lambda");
+                let is_fn = matches!(lambda.first(), Some(SExpression::String(h)) if h == "fn");
                 if is_fn && lambda.len() >= 3 {
                     if let Some(body) = lambda.last_mut() {
                         tuple(body, f);
@@ -478,7 +478,7 @@ fn try_rewrite_role_equality(
         return None;
     }
     let targets = roles.get(literal.as_str())?;
-    let is_negated = matches!(op.as_str(), "!=" | "!==" | "neq");
+    let is_negated = matches!(op.as_str(), "!=");
     let node = if targets.len() == 1 {
         let mut new_items = items.to_vec();
         new_items[literal_idx] = SExpression::string(targets[0].clone());
@@ -3724,7 +3724,7 @@ mod role_literal_tests {
     /// negated op untouched (the op itself already encodes the negation).
     #[test]
     fn negated_equality_list_target_wraps_in_not() {
-        for op in ["!=", "!==", "neq"] {
+        for op in ["!="] {
             let mut expr = sexpr(json!([op, "@user.role", "approver"]));
             rewrite_role_literals(&mut expr, &role_fields(), &roles_list());
             assert_eq!(

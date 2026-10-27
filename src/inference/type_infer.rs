@@ -471,7 +471,7 @@ impl<'c> Inferer<'c> {
                     record.push(OirField::new(name, ty?));
                 }
                 record.sort_by(|a, b| a.name.cmp(&b.name));
-                Some(OirType::Struct { additional: None, fields: record })
+                Some(OirType::Struct { additional: None, fields: record.into() })
             }
             OirExpr::Binding { binding } => self.binding(binding),
             OirExpr::BinaryOp { op, left, right } => {
@@ -1019,7 +1019,7 @@ impl<'c> Inferer<'c> {
                         .filter(|member| !member.required && !fields.contains_key(&member.name))
                         .cloned(),
                 );
-                let source = OirType::Struct { additional: additional.clone(), fields: actual };
+                let source = OirType::Struct { additional: additional.clone(), fields: actual.into() };
                 orbital_core_base::type_compat::checked_sub_with_named(
                     &source, expected, &resolve,
                 )?;
@@ -1871,7 +1871,7 @@ impl<'c> Inferer<'c> {
                     [] => None,
                     _ if kept.len() == variants.len() => Some(ty.clone()),
                     [only] => Some(only.field_type.clone()),
-                    _ => Some(OirType::Union { variants: kept }),
+                    _ => Some(OirType::Union { variants: kept.into() }),
                 }
             }
             OirType::Enum { name } if member.is_empty() => narrow_enum(name, literals, truth),
@@ -1925,7 +1925,7 @@ impl<'c> Inferer<'c> {
                     [] => None,
                     _ if kept.len() == variants.len() => Some(ty.clone()),
                     [only] => Some(only.field_type.clone()),
-                    _ => Some(OirType::Union { variants: kept }),
+                    _ => Some(OirType::Union { variants: kept.into() }),
                 }
             }
             OirType::Struct { fields, additional } if truth => Some(OirType::Struct {
@@ -2002,7 +2002,7 @@ fn language_binding(
             field("fromBridge", OirType::Boolean),
             field("dispatched", OirType::Boolean),
             field("originClientId", OirType::String),
-        ],
+        ].into(),
     };
     Some(match &binding.root {
         OirBindingRoot::Local(name) if name == "now" => OirType::Number,
@@ -2017,14 +2017,14 @@ fn language_binding(
             if let Some(payload) = payload {
                 fields.push(field("payload", payload));
             }
-            OirType::Struct { additional: None, fields }
+            OirType::Struct { additional: None, fields: fields.into() }
         }
         OirBindingRoot::PrevEvents => {
             let mut fields = vec![field("event", OirType::String), field("source", source())];
             if let Some(payload) = prev_payload {
                 fields.push(field("payload", payload));
             }
-            OirType::array(OirType::Struct { additional: None, fields })
+            OirType::array(OirType::Struct { additional: None, fields: fields.into() })
         }
         OirBindingRoot::Trait(_) => OirType::Node,
         _ => return None,
@@ -2737,7 +2737,7 @@ fn refine_type(
             match variants.as_slice() {
                 [] => None,
                 [only] => Some(only.field_type.clone()),
-                _ => Some(OirType::Union { variants }),
+                _ => Some(OirType::Union { variants: variants.into() }),
             }
         }
         OirType::Optional { inner } => match (truth, refine_type(inner, predicate, truth)) {
@@ -2769,7 +2769,7 @@ fn refine_type(
 fn handles_missing(name: &str) -> bool {
     matches!(
         name,
-        "or" | "and" | "not" | "str/default" | "math/default" | "=" | "==" | "!=" | "eq" | "ne" | "if" | "when" | "let"
+        "or" | "and" | "not" | "str/default" | "math/default" | "=" | "==" | "!=" | "if" | "when" | "let"
             | "do" | "list" | "quote" | "typed" | "validate/required" | "object/get"
     ) || orbital_core_eval::evaluator::operators::get_operator(name).and_then(|op| op.type_predicate()).is_some()
 }
@@ -3141,7 +3141,7 @@ mod tests {
             let mut label = OirField::new("label", OirType::String);
             label.required = required;
             let context = Row(vec![("record", OirType::Struct {
-                fields: vec![label],
+                fields: vec![label].into(),
                 additional: None,
             })]);
             assert_eq!(
@@ -3156,7 +3156,7 @@ mod tests {
     fn native_contract_optional_nonnull_member_admits_missing_but_refuses_null() {
         let mut label = OirField::new("label", OirType::String);
         label.required = false;
-        let expected = OirType::Struct { fields: vec![label], additional: None };
+        let expected = OirType::Struct { fields: vec![label].into(), additional: None };
         for (fields, accepted) in [
             (Vec::new(), true),
             (vec![("label".into(), text("present"))], true),
@@ -3170,7 +3170,7 @@ mod tests {
     #[test]
     fn native_contract_contextual_literal_checks_every_additional_member() {
         let expected = OirType::Struct {
-            fields: vec![OirField::new("label", OirType::String)],
+            fields: vec![OirField::new("label", OirType::String)].into(),
             additional: Some(Box::new(OirType::Number)),
         };
         for (fields, accepted) in [
@@ -3188,12 +3188,12 @@ mod tests {
     #[test]
     fn native_contract_contextual_empty_literal_does_not_narrow_an_opaque_record() {
         let expected = OirType::Struct {
-            fields: Vec::new(),
+            fields: Default::default(),
             additional: Some(Box::new(OirType::Number)),
         };
         let literal = checked_local(OirExpr::Object { fields: Default::default() }, expected.clone());
         assert_eq!(infer_oir_expr_type(&literal, &NoCtx), Some(expected.clone()));
-        let opaque = Row(vec![("opaque", OirType::Struct { fields: Vec::new(), additional: None })]);
+        let opaque = Row(vec![("opaque", OirType::Struct { fields: Default::default(), additional: None })]);
         let expr = checked_local(entity(&["opaque"]), expected);
         assert_eq!(infer_oir_expr_type(&expr, &opaque), None);
     }
@@ -3235,14 +3235,14 @@ mod tests {
             variants: vec![
                 OirField::new("number", OirType::Number),
                 OirField::new("string", OirType::String),
-            ],
+            ].into(),
         });
         let expr = checked_local(list_of(vec![num(1.0), text("x")]), array.clone());
         assert_eq!(infer_oir_expr_type(&expr, &NoCtx), Some(array));
         assert!(check_oir_expr(&expr, &NoCtx).is_empty());
         let required = OirType::Struct {
             additional: None,
-            fields: vec![OirField::new("name", OirType::String)],
+            fields: vec![OirField::new("name", OirType::String)].into(),
         };
         let expr = checked_local(
             OirExpr::Object {
@@ -3720,7 +3720,7 @@ mod tests {
                 None
             }
             fn named_type(&self, name: &str) -> Option<OirType> {
-                (name == "Pt").then(|| OirType::Struct { fields: vec![OirField::new("x", OirType::Number)], additional: None })
+                (name == "Pt").then(|| OirType::Struct { fields: vec![OirField::new("x", OirType::Number)].into(), additional: None })
             }
         }
         let count = |expr: OirExpr| check_oir_expr(&expr, &Named).iter().filter(|d| matches!(d.mismatch, Mismatch::MissingResult { .. })).count();
@@ -3751,7 +3751,7 @@ mod tests {
                 None
             }
             fn named_type(&self, name: &str) -> Option<OirType> {
-                (name == "Pt").then(|| OirType::Struct { fields: vec![OirField::new("x", OirType::Number)], additional: None })
+                (name == "Pt").then(|| OirType::Struct { fields: vec![OirField::new("x", OirType::Number)].into(), additional: None })
             }
             fn declared_type(&self, name: &str) -> Option<bool> {
                 Some(name == "Pt")
@@ -3797,7 +3797,7 @@ mod tests {
     fn a_null_test_on_a_let_local_narrows_a_field_read_in_a_record_member() {
         let pol = OirType::Struct {
             additional: None,
-            fields: vec![OirField::new("name", OirType::String), OirField::new("hasRead", OirType::Boolean)],
+            fields: vec![OirField::new("name", OirType::String), OirField::new("hasRead", OirType::Boolean)].into(),
         };
         let bound = |body: OirExpr| {
             call("let", vec![list_of(vec![list_of(vec![text("po"), checked_local(OirExpr::Null, OirType::optional(pol.clone()))])]), body])
@@ -3806,7 +3806,7 @@ mod tests {
         let record = |value: OirExpr| OirExpr::Object { fields: [("hasRead".to_string(), value)].into_iter().collect() };
         let in_record = bound(record(call("if", vec![call("=", vec![local("po"), OirExpr::Null]), OirExpr::Bool { value: false }, read.clone()])));
         assert_eq!(infer_oir_expr_type(&bound(call("if", vec![call("=", vec![local("po"), OirExpr::Null]), OirExpr::Bool { value: false }, read.clone()])), &NoCtx), Some(OirType::Boolean), "the else branch reads the field of a present record");
-        let reg = OirType::optional(OirType::Struct { additional: None, fields: vec![OirField::new("hasRead", OirType::Boolean)] });
+        let reg = OirType::optional(OirType::Struct { additional: None, fields: vec![OirField::new("hasRead", OirType::Boolean)].into() });
         assert!(admits(&in_record, &reg, None, &NoCtx), "and so does a record member built there");
         let unguarded = bound(record(read.clone()));
         assert!(!admits(&unguarded, &reg, None, &NoCtx), "control: unchecked the field may be missing");
@@ -3957,7 +3957,7 @@ mod tests {
                         OirType::TypeRef {
                             name: "Wire".into(),
                         },
-                    )],
+                    )].into(),
                 },
                 &binding.path,
             )
@@ -3969,7 +3969,7 @@ mod tests {
                 field.required = self.required;
                 OirType::Struct {
                     additional: None,
-                    fields: vec![field],
+                    fields: vec![field].into(),
                 }
             })
         }
@@ -3997,9 +3997,9 @@ mod tests {
                         "result",
                         OirType::Struct {
                             additional: None,
-                            fields: vec![tags],
+                            fields: vec![tags].into(),
                         },
-                    )],
+                    )].into(),
                 },
                 &binding.path,
             )
@@ -4117,7 +4117,7 @@ mod tests {
         let words = OirType::map(OirType::String, OirType::String);
         let item = OirType::Struct {
             additional: None,
-            fields: vec![OirField::new("entities".to_string(), words)],
+            fields: vec![OirField::new("entities".to_string(), words)].into(),
         };
         let typed = Row(vec![
             ("items", OirType::array(item)),
@@ -4169,7 +4169,7 @@ mod tests {
                         name: "Value".into(),
                     }),
                 ),
-            ],
+            ].into(),
         }
     }
 
@@ -4261,7 +4261,7 @@ mod tests {
                 field("kind", OirType::enum_type("\"input\"|\"read\""), true),
                 field("entity", OirType::String, false),
                 field("address", OirType::String, false),
-            ],
+            ].into(),
         };
         let declared = |ty: OirType| {
             let shape = orbital_core_base::ir::types::DeclaredShape {
@@ -4303,7 +4303,7 @@ mod tests {
                 let mut f = OirField::new("label".to_string(), OirType::String);
                 f.required = true;
                 f
-            }],
+            }].into(),
         });
         let bare = serde_json::to_string(&list).unwrap();
         let versioned = serde_json::to_string(&orbital_core_base::ir::types::DeclaredShape {
@@ -4355,14 +4355,14 @@ mod tests {
                 let mut f = OirField::new(key.to_string(), OirType::String);
                 f.required = true;
                 f
-            }],
+            }].into(),
         };
         let union = OirType::Union {
             variants: vec![
                 OirField::new("scope".to_string(), variant("scope")),
                 OirField::new("read".to_string(), variant("read")),
                 OirField::new("event".to_string(), variant("event")),
-            ],
+            ].into(),
         };
         let row = Row(vec![("t", union)]);
         let ty = |e: serde_json::Value| infer_oir_expr_type(&lowered(e), &row);
@@ -4754,7 +4754,7 @@ mod tests {
             fn named_type(&self, name: &str) -> Option<OirType> {
                 (name == "SampleCell").then(|| OirType::Struct {
                     additional: None,
-                    fields: vec![OirField::new("kind", OirType::String)],
+                    fields: vec![OirField::new("kind", OirType::String)].into(),
                 })
             }
             fn object_literals_are_exact(&self) -> bool {
@@ -4836,7 +4836,7 @@ mod tests {
                 OirField::new("kids".to_string(), OirType::array(own())),
                 OirField::new("parent".to_string(), own()),
                 OirField::new("tags".to_string(), OirType::array(OirType::String)),
-            ],
+            ].into(),
         };
         Row(vec![("tree", tree), ("out", OirType::String)])
     }
@@ -4913,13 +4913,13 @@ mod tests {
                 fields: vec![
                     OirField::new("kind".to_string(), OirType::String),
                     OirField::new("of".to_string(), of),
-                ],
+                ].into(),
             };
             (name == "Pred").then(|| OirType::Union {
                 variants: vec![
                     OirField::new("All", node(OirType::array(own()))),
                     OirField::new("Not", node(own())),
-                ],
+                ].into(),
             })
         }
     }
@@ -4966,7 +4966,7 @@ mod tests {
             fn named_type(&self, name: &str) -> Option<OirType> {
                 (name == "Point").then(|| OirType::Struct {
                     additional: None,
-                    fields: vec![OirField::new("x".to_string(), OirType::Number)],
+                    fields: vec![OirField::new("x".to_string(), OirType::Number)].into(),
                 })
             }
         }
@@ -4975,7 +4975,7 @@ mod tests {
             infer_oir_expr_type(&parse, &Named),
             Some(OirType::optional(OirType::Struct {
                 additional: None,
-                fields: vec![OirField::new("x".to_string(), OirType::Number)]
+                fields: vec![OirField::new("x".to_string(), OirType::Number)].into()
             })),
             "text that is not that shape answers null"
         );
@@ -5137,7 +5137,7 @@ mod tests {
         address.required = false;
         OirType::Struct {
             additional: None,
-            fields: vec![OirField::new("name", OirType::String), entity, address],
+            fields: vec![OirField::new("name", OirType::String), entity, address].into(),
         }
     }
 

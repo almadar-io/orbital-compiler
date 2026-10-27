@@ -196,7 +196,7 @@ fn tag(expr: &SExpression, next: &mut usize) -> SExpression {
                 }
             }
             let signature = orbital_core_eval::lower::recognized_call_head(expr)
-                .filter(|op| !matches!(*op, "fn" | "lambda" | "let" | "do"))
+                .filter(|op| !matches!(*op, "fn" | "let" | "do"))
                 .and_then(orbital_core_eval::evaluator::operator_signature);
             let mut out = Vec::with_capacity(items.len());
             for (i, item) in items.iter().enumerate() {
@@ -424,11 +424,11 @@ mod tests {
                     "Adv",
                     OirType::Struct {
                         additional: None,
-                        fields: vec![OirField::new("id", OirType::Number)],
+                        fields: vec![OirField::new("id", OirType::Number)].into(),
                     },
                 ),
                 OirField::new("string", OirType::String),
-            ],
+            ].into(),
         });
         let mut via = union_via();
         via["items"]["properties"][0]["properties"][0]["required"] = json!(true);

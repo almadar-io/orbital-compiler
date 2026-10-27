@@ -30,18 +30,18 @@ fn derives_positional_names_for_nested_array_and_map_shapes() {
                         fields: vec![
                             OirField::new("lat", OirType::Number),
                             OirField::new("lng", OirType::Number),
-                        ],
+                        ].into(),
                     },
                 ),
                 OirField::new("tags", OirType::array(OirType::Struct {
                     additional: None,
-                    fields: vec![OirField::new("name", OirType::String)],
+                    fields: vec![OirField::new("name", OirType::String)].into(),
                 })),
                 OirField::new("scores", OirType::map(OirType::String, OirType::Struct {
                     additional: None,
-                    fields: vec![OirField::new("grade", OirType::Number)],
+                    fields: vec![OirField::new("grade", OirType::Number)].into(),
                 })),
-            ],
+            ].into(),
         },
     ));
     let mut module = module_with(entity);
@@ -106,9 +106,9 @@ fn cycle_guard_resolves_a_self_recursive_struct_to_a_typeref() {
                 "",
                 OirType::Struct {
                     additional: None,
-                    fields: vec![OirField::new("value", OirType::String)],
+                    fields: vec![OirField::new("value", OirType::String)].into(),
                 },
-            )],
+            )].into(),
         },
     ));
     let mut module = module_with(entity);
@@ -144,7 +144,7 @@ fn never_overwrites_a_preexisting_recursive_alias_entry() {
         "root",
         OirType::Struct {
             additional: None,
-            fields: vec![OirField::new("label", OirType::String)],
+            fields: vec![OirField::new("label", OirType::String)].into(),
         },
     ));
     let mut module = module_with(entity);
@@ -159,7 +159,7 @@ fn never_overwrites_a_preexisting_recursive_alias_entry() {
                 OirType::Optional {
                     inner: Box::new(OirType::String),
                 },
-            )],
+            )].into(),
         },
     );
     let stats = nominalize_module(&mut module);
@@ -196,7 +196,7 @@ fn same_shape_from_both_resolve_paths_dedups_to_one_entry() {
             fields: vec![
                 OirField::new("alpha", OirType::String),
                 OirField::new("beta", OirType::Number),
-            ],
+            ].into(),
         }
     };
     let shape_b = || {
@@ -205,7 +205,7 @@ fn same_shape_from_both_resolve_paths_dedups_to_one_entry() {
             fields: vec![
                 OirField::new("beta", OirType::Number),
                 OirField::new("alpha", OirType::String),
-            ],
+            ].into(),
         }
     };
     let mut entity = OirEntity::new("doc");
@@ -264,7 +264,7 @@ fn enum_values_survive_into_the_registered_entry() {
                 let mut f = OirField::new("level", OirType::String);
                 f.enum_values = Some(vec!["low".to_string(), "high".to_string()]);
                 f
-            }],
+            }].into(),
         },
     ));
     let mut module = module_with(entity);
@@ -287,7 +287,7 @@ fn second_run_is_a_noop_reuse() {
         "meta",
         OirType::Struct {
             additional: None,
-            fields: vec![OirField::new("label", OirType::String)],
+            fields: vec![OirField::new("label", OirType::String)].into(),
         },
     ));
     let mut module = module_with(entity);
@@ -314,17 +314,17 @@ fn unions_nominalize_and_register() {
                     "book",
                     OirType::Struct {
                         additional: None,
-                        fields: vec![OirField::new("title", OirType::String)],
+                        fields: vec![OirField::new("title", OirType::String)].into(),
                     },
                 ),
                 OirField::new(
                     "movie",
                     OirType::Struct {
                         additional: None,
-                        fields: vec![OirField::new("runtime", OirType::Number)],
+                        fields: vec![OirField::new("runtime", OirType::Number)].into(),
                     },
                 ),
-            ],
+            ].into(),
         },
     ));
     let mut module = module_with(entity);

@@ -806,7 +806,7 @@ fn slice_with_user_team_read(imported: bool) -> Value {
             "transitions": [{
                 "from": "idle", "event": "LOAD", "to": "idle",
                 "effects": [["set", "rows",
-                    ["filter", "?rows", ["=", ["object/get", "@entity", "ownerId"], "@user.teamId"]]]]
+                    ["array/filter", "?rows", ["=", ["object/get", "@entity", "ownerId"], "@user.teamId"]]]]
             }]
         }
     });

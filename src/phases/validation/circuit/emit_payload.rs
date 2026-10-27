@@ -809,7 +809,7 @@ fn literal_record_type<C: crate::type_infer::TypeCtx>(
                 .map(|(name, member)| OirField::new(name.clone(), literal_record_type(member, ctx, guard)))
                 .collect();
             fields.sort_by(|a, b| a.name.cmp(&b.name));
-            OirType::Struct { additional: None, fields }
+            OirType::Struct { additional: None, fields: fields.into() }
         }
         _ => crate::phases::resolve::resolve_sexpr_standalone(value)
             .ok()

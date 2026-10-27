@@ -9,6 +9,6 @@ pub(crate) mod operators;
 mod validate;
 
 pub use arity::ArityRule;
-pub use operators::{CORE_OPERATORS, EFFECT_OPERATORS, OS_OPERATORS};
+pub use operators::EFFECT_OPERATORS;
 pub(crate) use validate::render_sexpr_brief;
 pub use validate::{validate_all_sexprs, validate_sexpr, validate_trait_sexprs, SExprContext};

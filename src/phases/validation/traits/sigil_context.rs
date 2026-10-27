@@ -102,10 +102,10 @@ fn walk_expr(
             check_binding_sigil(s, path, context, lambda_locals, result);
         }
         SExpression::Array(arr) => {
-            // Detect lambda expressions: ["lambda"|"fn", params, body]
+            // Detect lambda expressions: ["fn", params, body]
             if arr.len() == 3 {
                 if let SExpression::String(op) = &arr[0] {
-                    if op == "lambda" || op == "fn" {
+                    if op == "fn" {
                         let mut extended = lambda_locals.clone();
                         match &arr[1] {
                             SExpression::Array(params) => {

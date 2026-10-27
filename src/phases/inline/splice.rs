@@ -167,7 +167,7 @@ fn render_only_template(td: &TraitDefinition) -> Option<SExpression> {
 }
 
 /// Recursive in-place splice walker. `in_lambda` becomes true inside the
-/// body of any `["fn"|"lambda", params, body]` form and stays true for the
+/// body of any `["fn", params, body]` form and stays true for the
 /// whole subtree.
 #[allow(clippy::too_many_arguments)]
 fn splice_expr(
@@ -248,7 +248,7 @@ fn splice_expr(
         }
         SExpression::Array(arr) => {
             let is_lambda_form = arr.len() == 3
-                && matches!(&arr[0], SExpression::String(op) if op == "fn" || op == "lambda");
+                && matches!(&arr[0], SExpression::String(op) if op == "fn");
             if is_lambda_form {
                 splice_expr(
                     &mut arr[2],

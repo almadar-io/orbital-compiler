@@ -596,7 +596,7 @@ fn config_types(
         payload: HashMap::new(),
         user: orbital_core_base::ir::OirType::Struct {
             additional: None,
-            fields: Vec::new(),
+            fields: Default::default(),
         },
         config: knobs,
         prev_payload: None,

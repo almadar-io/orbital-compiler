@@ -1,262 +1,5 @@
 //! Known operator registries and operator-existence check.
 
-/// Core operators (always available)
-pub const CORE_OPERATORS: &[&str] = &[
-    // Comparison
-    "=",
-    "!=",
-    "<",
-    ">",
-    "<=",
-    ">=",
-    "eq",
-    "neq",
-    "lt",
-    "gt",
-    "lte",
-    "gte",
-    // Logical
-    "and",
-    "or",
-    "not",
-    "if",
-    "cond",
-    // Arithmetic
-    "+",
-    "-",
-    "*",
-    "/",
-    "%",
-    "add",
-    "sub",
-    "mul",
-    "div",
-    "mod",
-    "abs",
-    "min",
-    "max",
-    "floor",
-    "ceil",
-    "round",
-    // String — bare "concat" is deliberately absent: ambiguous between
-    // str/concat and array/concat (R-EVAL-CONCAT-PATH-DIVERGENCE), rejected
-    // explicitly in validate.rs rather than accepted as an alias.
-    "substring",
-    "length",
-    "upper",
-    "lower",
-    "trim",
-    "split",
-    "join",
-    "replace",
-    "includes",
-    "starts-with",
-    "ends-with",
-    "path", // Build dot-separated path strings for dynamic field access
-    // String namespaced (std library)
-    "str/concat",
-    "str/upper",
-    "str/lower",
-    "str/trim",
-    "str/split",
-    "str/join",
-    "str/replace",
-    "str/replaceAll",
-    "str/includes",
-    "str/startsWith",
-    "str/endsWith",
-    "str/slice",
-    "str/padStart",
-    "str/padEnd",
-    "str/capitalize",
-    "str/truncate",
-    "str/template",
-    "str/len",
-    // GAP-V004: Missing string operators from operators.json
-    "str/default",
-    "str/repeat",
-    "str/reverse",
-    // Lambda
-    "fn",
-    "lambda",
-    // Array
-    "first",
-    "last",
-    "nth",
-    "rest",
-    "count",
-    "map",
-    "filter",
-    "reduce",
-    "find",
-    "some",
-    "every",
-    "sort",
-    "reverse",
-    "append",
-    "prepend",
-    "slice",
-    // Array namespaced (std library)
-    "array/first",
-    "array/last",
-    "array/nth",
-    "array/count",
-    "array/len",
-    "array/map",
-    "array/filter",
-    "array/reduce",
-    "array/find",
-    "array/some",
-    "array/every",
-    "array/sort",
-    "array/reverse",
-    "array/append",
-    "array/prepend",
-    "array/slice",
-    "array/concat",
-    "array/flatten",
-    "array/unique",
-    "array/indexOf",
-    "array/includes",
-    "array/sum",
-    "array/avg",
-    "array/min",
-    "array/max",
-    // GAP-V004: Missing array operators from operators.json
-    "array/drop",
-    "array/dropLast",
-    "array/findIndex",
-    "array/groupBy",
-    "array/insert",
-    "array/partition",
-    "array/range",
-    "array/reject",
-    "array/remove",
-    "array/shuffle",
-    "array/take",
-    "array/takeLast",
-    "array/zip",
-    // Object
-    "get",
-    "get-in",
-    "assoc",
-    "dissoc",
-    "merge",
-    "keys",
-    "values",
-    "entries",
-    // Object namespaced (std library)
-    "object/get",
-    "object/set",
-    "object/has",
-    "object/keys",
-    "object/values",
-    "object/entries",
-    "object/merge",
-    "object/deepMerge",
-    "object/pick",
-    "object/omit",
-    "object/mapValues",
-    "object/filter",
-    "object/fromEntries",
-    // GAP-V004: Missing object operators from operators.json
-    "object/clone",
-    "object/equals",
-    // Type checking
-    "type",
-    "is-null",
-    "is-empty",
-    "is-string",
-    "is-number",
-    "is-boolean",
-    "is-array",
-    "is-object",
-    // Date/Time
-    "now",
-    "date",
-    "date-add",
-    "date-diff",
-    "format-date",
-    "parse-date",
-    // Time namespaced (std library)
-    "time/now",
-    "time/today",
-    "time/add",
-    "time/subtract",
-    "time/diff",
-    "time/format",
-    "time/parse",
-    "time/year",
-    "time/month",
-    "time/day",
-    "time/weekday",
-    "time/hour",
-    "time/minute",
-    "time/second",
-    "time/isBefore",
-    "time/isAfter",
-    // GAP-V004: Missing time operators from operators.json
-    "time/isFuture",
-    "time/isPast",
-    // GAP-V004: Math operators from operators.json
-    "math/abs",
-    "math/ceil",
-    "math/clamp",
-    "math/default",
-    "math/floor",
-    "math/lerp",
-    "math/ln",
-    "math/log10",
-    "math/map",
-    "math/max",
-    "math/min",
-    "math/mod",
-    "math/pow",
-    "math/random",
-    "math/randomInt",
-    "math/round",
-    "math/sign",
-    "math/sqrt",
-    // GAP-V004: Validate operators from operators.json
-    "validate/check",
-    "validate/email",
-    "validate/equals",
-    "validate/length",
-    "validate/max",
-    "validate/maxLength",
-    "validate/min",
-    "validate/minLength",
-    "validate/oneOf",
-    "validate/pattern",
-    "validate/phone",
-    "validate/range",
-    "validate/required",
-    "validate/url",
-    "validate/uuid",
-    // GAP-V004: Format operators from operators.json
-    "format/bytes",
-    "format/currency",
-    "format/list",
-    "format/number",
-    "format/ordinal",
-    "format/percent",
-    "format/phone",
-    "format/plural",
-    // GAP-V004: Missing core operators from operators.json
-    "clamp",
-    "when",
-    "average",
-    "contains",
-    "empty",
-    "sum",
-    // Misc
-    "let",
-    "do",
-    "quote",
-    "print",
-    "debug",
-];
-
 /// Effect operators (only allowed in effect context, not guards)
 pub const EFFECT_OPERATORS: &[&str] = &[
     "set",
@@ -265,7 +8,6 @@ pub const EFFECT_OPERATORS: &[&str] = &[
     "fetch-stream",
     "send-server",
     "persist",
-    "delete",
     "navigate",
     "navigate-back",
     "render-ui",
@@ -290,43 +32,21 @@ pub const EFFECT_OPERATORS: &[&str] = &[
     "notify",
     "log",
     "spawn",
-    "destroy", // Legacy alias — canonical name is "despawn"
-    "despawn", // Canonical (GAP-E001): used by TS evaluator + runtime
-    "update",
-];
-
-pub const OS_OPERATORS: &[&str] = &[
-    "os/watch-files",
-    "os/watch-process",
-    "os/watch-port",
-    "os/watch-http",
-    "os/watch-cron",
-    "os/watch-signal",
-    "os/watch-env",
+    "despawn",
 ];
 
 /// Check if an operator is known.
 ///
-/// The embedded canonical `operators.json` registry is the single source of
-/// truth for every operator family but a few legacy lists (`core`/`effect`/`os`)
-/// and the `agent/` namespace prefix.
+/// The embedded canonical operator table is the one source; only table names
+/// are operators (bare aliases are retired, P-017 K6).
 pub(crate) fn is_known_operator(operator: &str) -> bool {
-    if crate::embedded::is_known_operator(operator) {
-        return true;
-    }
-    CORE_OPERATORS.contains(&operator)
-        || EFFECT_OPERATORS.contains(&operator)
-        || OS_OPERATORS.contains(&operator)
-        || operator.starts_with("agent/")
+    crate::embedded::is_known_operator(operator)
 }
 
 fn known_operator_names() -> impl Iterator<Item = &'static str> {
     crate::embedded::operators()
         .keys()
         .map(String::as_str)
-        .chain(CORE_OPERATORS.iter().copied())
-        .chain(EFFECT_OPERATORS.iter().copied())
-        .chain(OS_OPERATORS.iter().copied())
 }
 
 pub(crate) fn edit_distance(a: &str, b: &str) -> usize {

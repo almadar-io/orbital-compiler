@@ -167,10 +167,10 @@ fn validate_expr_bindings_with_locals(
             }
         }
         SExpression::Array(arr) => {
-            // Detect lambda expressions: ["lambda", [params...], body]
+            // Detect lambda expressions: ["fn", [params...], body]
             if arr.len() == 3 {
                 if let SExpression::String(op) = &arr[0] {
-                    if op == "lambda" || op == "fn" {
+                    if op == "fn" {
                         if let SExpression::Array(params) = &arr[1] {
                             // Extract lambda parameter names and add to locals
                             // Format: ["fn", ["param1", "param2"], body]
@@ -554,9 +554,9 @@ mod tests {
 
     #[test]
     fn test_lambda_bound_item_is_valid() {
-        // ["lambda", ["item"], ["=", "@item.status", "pending"]]
+        // ["fn", ["item"], ["=", "@item.status", "pending"]]
         let expr = SExpression::Array(vec![
-            SExpression::String(("lambda".to_string()).into()),
+            SExpression::String(("fn".to_string()).into()),
             SExpression::Array(vec![SExpression::String(("item".to_string()).into())]),
             SExpression::Array(vec![
                 SExpression::String(("=".to_string()).into()),

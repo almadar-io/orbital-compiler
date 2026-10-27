@@ -237,8 +237,8 @@ pub(crate) fn validate_sexpr_with_locals(
 
             if is_sexpr_call {
                 if let SExpression::String(operator) = &arr[0] {
-                    // Detect lambda expressions: ["fn", "param", body] or ["lambda", ["p1", "p2"], body]
-                    if (operator == "fn" || operator == "lambda") && arr.len() == 3 {
+                    // Detect lambda expressions: ["fn", "param", body] or ["fn", ["p1", "p2"], body]
+                    if operator == "fn" && arr.len() == 3 {
                         let mut extended_locals = lambda_locals.clone();
                         if let SExpression::Array(params) = &arr[1] {
                             for param in params {
@@ -408,7 +408,7 @@ pub(crate) fn validate_sexpr_with_locals(
                     // other argument position is decidable wrong argument order —
                     // both evaluators would silently consume the lambda as a value
                     // (the corpus-wide `(array/reduce arr (fn …) init)` class).
-                    if operator != "fn" && operator != "lambda" {
+                    if operator != "fn" {
                         if let Some(lambda_pos) = crate::embedded::get_operator(operator)
                             .and_then(|m| m.lambda_arg_position)
                         {
@@ -417,7 +417,7 @@ pub(crate) fn validate_sexpr_with_locals(
                                     continue;
                                 }
                                 if let SExpression::Array(inner) = arg {
-                                    if matches!(inner.first(), Some(SExpression::String(h)) if h == "fn" || h == "lambda")
+                                    if matches!(inner.first(), Some(SExpression::String(h)) if h == "fn")
                                     {
                                         result.add_error(
                                             ValidationError::error(

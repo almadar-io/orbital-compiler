@@ -111,10 +111,10 @@ fn nominalize_type(ty: &OirType, hint: &str, ctx: &mut Ctx) -> OirType {
             inner: Box::new(nominalize_type(inner, hint, ctx)),
         },
         OirType::Struct { fields, additional } => {
-            nominalize_shape(sorted_fields(fields.clone()), hint, ctx, ShapeKind::Struct(additional.clone()))
+            nominalize_shape(sorted_fields(fields.to_vec()), hint, ctx, ShapeKind::Struct(additional.clone()))
         }
         OirType::Union { variants } => {
-            nominalize_shape(sorted_fields(variants.clone()), hint, ctx, ShapeKind::Union)
+            nominalize_shape(sorted_fields(variants.to_vec()), hint, ctx, ShapeKind::Union)
         }
         other => other.clone(),
     }
@@ -155,11 +155,11 @@ fn nominalize_shape(fields: Vec<OirField>, hint: &str, ctx: &mut Ctx, kind: Shap
 
     let shape = match kind {
         ShapeKind::Struct(_) => OirType::Struct {
-            fields: child_fields,
+            fields: child_fields.into(),
             additional,
         },
         ShapeKind::Union => OirType::Union {
-            variants: child_fields,
+            variants: child_fields.into(),
         },
     };
     let key = canonical_key(&shape);
@@ -195,11 +195,11 @@ fn nominalize_shape(fields: Vec<OirField>, hint: &str, ctx: &mut Ctx, kind: Shap
 fn canonicalize(ty: &OirType) -> OirType {
     match ty {
         OirType::Struct { fields, additional } => OirType::Struct {
-            fields: sorted_fields(fields.clone()),
+            fields: sorted_fields(fields.to_vec()).into(),
             additional: additional.clone(),
         },
         OirType::Union { variants } => OirType::Union {
-            variants: sorted_fields(variants.clone()),
+            variants: sorted_fields(variants.to_vec()).into(),
         },
         other => other.clone(),
     }

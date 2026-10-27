@@ -493,9 +493,9 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
                         }
                     }
                 }
-                OirType::Struct { additional: None, fields }
+                OirType::Struct { additional: None, fields: fields.into() }
             }
-            _ if self.types.is_some() => self.types.map(BindingTypes::payload_struct).unwrap_or(OirType::Struct { additional: None, fields: Vec::new() }),
+            _ if self.types.is_some() => self.types.map(BindingTypes::payload_struct).unwrap_or(OirType::Struct { additional: None, fields: Default::default() }),
             _ => {
                 // Only a payload field of a primitive kind has a type here: a struct-, list- or entity-typed one is
                 // carried as a bare kind string, which says nothing of its shape.
@@ -584,7 +584,7 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
                 fields.push(OirField::new(system.to_string(), ty));
             }
         }
-        Some(OirType::Struct { additional: None, fields })
+        Some(OirType::Struct { additional: None, fields: fields.into() })
     }
 
     fn named_type(&self, name: &str) -> Option<orbital_core_base::ir::OirType> {
@@ -629,7 +629,7 @@ impl BindingTypes {
             .map(|(n, t)| orbital_core_base::ir::OirField::new(n.clone(), t.clone()))
             .collect();
         fields.sort_by(|a, b| a.name.cmp(&b.name));
-        orbital_core_base::ir::OirType::Struct { additional: None, fields }
+        orbital_core_base::ir::OirType::Struct { additional: None, fields: fields.into() }
     }
 
     pub(crate) fn payload_struct(&self) -> orbital_core_base::ir::OirType {

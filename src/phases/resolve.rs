@@ -814,7 +814,7 @@ impl<'a> Resolver<'a> {
                         "a union type names no variant that has a shape".to_string(),
                     ));
                 }
-                Ok(OirType::Union { variants })
+                Ok(OirType::Union { variants: variants.into() })
             }
             // Recurses via `self` (not the free `field_shape`): an item that
             // is Object-with-`properties` or a Union back-reference needs
@@ -841,7 +841,7 @@ impl<'a> Resolver<'a> {
                     // Named-type registration — see `register_named_type_children`'s doc.
                     register_named_type_children(&struct_fields, &self.named_type_ctx());
                     Ok(OirType::Struct {
-                        fields: struct_fields,
+                        fields: struct_fields.into(),
                         additional: field.additional_properties.as_deref()
                             .map(|value| self.resolve_field_shape(value).map(Box::new))
                             .transpose()?,
@@ -982,7 +982,7 @@ impl<'a> Resolver<'a> {
             }
             struct_fields.sort_by(|a, b| a.name.cmp(&b.name));
             return OirType::Struct {
-                fields: struct_fields,
+                fields: struct_fields.into(),
                 additional: field.additional_properties.as_deref()
                     .map(orbital_core_base::ir::types::field_shape)
                     .map(Box::new),
@@ -1704,7 +1704,7 @@ fn register_named_type_children(fields: &[OirField], ctx: &NamedTypeCtx) {
         }
         let shape = lookup_named_type_shape(name, ctx).unwrap_or_else(|| OirType::Struct {
             additional: None,
-            fields: fields.to_vec(),
+            fields: fields.to_vec().into(),
         });
         ctx.named_types
             .borrow_mut()
@@ -2593,7 +2593,7 @@ mod tests {
     fn a_row_of_the_entity_an_unset_knob_names_is_an_empty_record() {
         assert_eq!(
             parse_payload_field_type("@entity(captureEntity)"),
-            OirType::Struct { additional: None, fields: Vec::new() }
+            OirType::Struct { additional: None, fields: Default::default() }
         );
         assert_eq!(
             parse_payload_field_type("$t"),
@@ -2610,7 +2610,7 @@ mod tests {
         );
         assert_eq!(
             parse_payload_field_type("[@entity(captureEntity)]"),
-            OirType::array(OirType::Struct { additional: None, fields: Vec::new() })
+            OirType::array(OirType::Struct { additional: None, fields: Default::default() })
         );
         // control: a bare name stays a reference to the entity it names.
         assert_eq!(
@@ -2628,7 +2628,7 @@ mod tests {
         assert_eq!(parse_payload_field_type("boolean"), OirType::Boolean);
         assert_eq!(
             parse_payload_field_type("object"),
-            OirType::Struct { additional: None, fields: Vec::new() }
+            OirType::Struct { additional: None, fields: Default::default() }
         );
     }
 

@@ -133,7 +133,7 @@ fn walk_for_references(expr: &SExpression, path: &str, result: &mut ValidationRe
 fn check_operator_reference(op: &str, path: &str, result: &mut ValidationResult) {
     // Skip non-operator first-positions: lambda placeholders, well-known
     // shorthand sigils that are not operators per se.
-    if op == "lambda" || op == "fn" {
+    if op == "fn" {
         return;
     }
     // Only flag namespaced operators (e.g. `str/upper`, `math/pow`) so we
@@ -145,7 +145,7 @@ fn check_operator_reference(op: &str, path: &str, result: &mut ValidationResult)
     if embedded::is_known_operator(op) {
         return;
     }
-    if op.starts_with("agent/") || op.starts_with("behavior/") {
+    if op.starts_with("behavior/") {
         return;
     }
     let suggestion = super::sexpr::operators::suggest_operator(op).unwrap_or_else(|| {
