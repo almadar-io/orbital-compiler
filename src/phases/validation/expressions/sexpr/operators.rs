@@ -1,39 +1,17 @@
 //! Known operator registries and operator-existence check.
 
-/// Effect operators (only allowed in effect context, not guards)
-pub const EFFECT_OPERATORS: &[&str] = &[
-    "set",
-    "emit",
-    "fetch",
-    "fetch-stream",
-    "send-server",
-    "persist",
-    "navigate",
-    "navigate-back",
-    "render-ui",
-    "call-service",
-    "cancel-call",
-    "http",
-    "redis",
-    "postgres",
-    "random-bytes",
-    "credential-status",
-    "credential-forget",
-    "credential-list",
-    "credential-set",
-    "credential-remove",
-    "credential-test",
-    "credential-mode",
-    "credential-rotate",
-    "access-check",
-    "oauth-authorize",
-    "oauth-connection-status",
-    "oauth-connection-forget",
-    "notify",
-    "log",
-    "spawn",
-    "despawn",
-];
+/// The operators the table declares in its `effect` category (only allowed in effect context, not guards).
+pub fn effect_category_operators() -> impl Iterator<Item = &'static str> {
+    crate::embedded::operators()
+        .iter()
+        .filter(|(_, operator)| operator.category == "effect")
+        .map(|(name, _)| name.as_str())
+}
+
+/// Whether the table declares `operator` in its `effect` category.
+pub fn is_effect_category_operator(operator: &str) -> bool {
+    crate::embedded::get_operator(operator).is_some_and(|declared| declared.category == "effect")
+}
 
 /// Check if an operator is known.
 ///
@@ -44,9 +22,7 @@ pub(crate) fn is_known_operator(operator: &str) -> bool {
 }
 
 fn known_operator_names() -> impl Iterator<Item = &'static str> {
-    crate::embedded::operators()
-        .keys()
-        .map(String::as_str)
+    crate::embedded::operators().keys().map(String::as_str)
 }
 
 pub(crate) fn edit_distance(a: &str, b: &str) -> usize {
@@ -86,7 +62,7 @@ pub(crate) fn namespace_hits(unknown: &str) -> Vec<&'static str> {
 /// Whether `unknown` exactly matches some real operator's basename under a
 /// different (or missing) namespace — see `namespace_hits`.
 pub(crate) fn has_namespace_hit(unknown: &str) -> bool {
-    !namespace_hits(unknown).is_empty()
+    orbital_core_base::language::registry::names_operator_basename(unknown.rsplit('/').next().unwrap_or(unknown))
 }
 
 /// Did-you-mean for an unknown operator: exact basename in another namespace

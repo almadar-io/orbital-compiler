@@ -2,7 +2,7 @@
 
 use super::arity::get_arity_rule;
 use super::binding::validate_binding;
-use super::operators::{has_namespace_hit, is_known_operator, EFFECT_OPERATORS};
+use super::operators::{has_namespace_hit, is_effect_category_operator, is_known_operator};
 use crate::phases::validation::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core_base::schema::{
     EntityRef, FieldDefinition, OrbitalSchema, SExpression, TraitDefinition,
@@ -142,13 +142,23 @@ pub fn validate_trait_sexprs(
     for (k, state) in trait_def.state_machine.states.iter().enumerate() {
         if let Some(holds) = &state.holds {
             let p = format!("{}.stateMachine.states[{}].holds", path, k);
-            result.merge(validate_sexpr(holds, &p, SExprContext::Guard, known_entities));
+            result.merge(validate_sexpr(
+                holds,
+                &p,
+                SExprContext::Guard,
+                known_entities,
+            ));
         }
     }
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
         for (k, ensures) in transition.ensures.iter().flatten().enumerate() {
             let p = format!("{}.stateMachine.transitions[{}].ensures[{}]", path, i, k);
-            result.merge(validate_sexpr(ensures, &p, SExprContext::Guard, known_entities));
+            result.merge(validate_sexpr(
+                ensures,
+                &p,
+                SExprContext::Guard,
+                known_entities,
+            ));
         }
     }
 
@@ -316,7 +326,7 @@ pub(crate) fn validate_sexpr_with_locals(
                     }
                     // Check if effect operator used in guard context
                     if context == SExprContext::Guard
-                        && EFFECT_OPERATORS.contains(&operator.as_str())
+                        && is_effect_category_operator(operator.as_str())
                     {
                         result.add_error(
                             ValidationError::error(
@@ -587,13 +597,26 @@ mod tests {
             .unwrap()
         };
         let codes = |t: &TraitDefinition| -> Vec<ErrorCode> {
-            validate_trait_sexprs(t, "t", &HashSet::new()).errors.into_iter().map(|e| e.code).collect()
+            validate_trait_sexprs(t, "t", &HashSet::new())
+                .errors
+                .into_iter()
+                .map(|e| e.code)
+                .collect()
         };
         let ok = serde_json::json!([">=", "@entity.n", 0]);
-        assert!(codes(&program(ok.clone(), ok.clone())).is_empty(), "control: known operators");
+        assert!(
+            codes(&program(ok.clone(), ok.clone())).is_empty(),
+            "control: known operators"
+        );
         let unknown = serde_json::json!(["no/such-op", "@entity.n"]);
-        assert!(codes(&program(unknown.clone(), ok.clone())).contains(&ErrorCode::SExprInvalidOperator), "@ensures");
-        assert!(codes(&program(ok, unknown)).contains(&ErrorCode::SExprInvalidOperator), "@holds");
+        assert!(
+            codes(&program(unknown.clone(), ok.clone())).contains(&ErrorCode::SExprInvalidOperator),
+            "@ensures"
+        );
+        assert!(
+            codes(&program(ok, unknown)).contains(&ErrorCode::SExprInvalidOperator),
+            "@holds"
+        );
     }
 
     #[test]

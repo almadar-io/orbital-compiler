@@ -3855,11 +3855,11 @@ mod tests {
     }
 
     #[test]
-    fn rewrite_entity_refs_rewrites_ref_atom() {
-        // ["ref", "ModalRecord"] → ["ref", "ShoppingCart"]
-        let mut expr = SExpression::Array(vec![s("ref"), s("ModalRecord")]);
+    fn rewrite_entity_refs_rewrites_fetch_atom() {
+        // ["fetch", "ModalRecord"] → ["fetch", "ShoppingCart"]
+        let mut expr = SExpression::Array(vec![s("fetch"), s("ModalRecord")]);
         rewrite_entity_refs(&mut expr, "ModalRecord", "ShoppingCart");
-        assert_eq!(expr, SExpression::Array(vec![s("ref"), s("ShoppingCart")]));
+        assert_eq!(expr, SExpression::Array(vec![s("fetch"), s("ShoppingCart")]));
     }
 
     #[test]
@@ -3877,8 +3877,8 @@ mod tests {
 
     #[test]
     fn rewrite_entity_refs_does_not_rewrite_unrelated_entity() {
-        // ["ref", "OtherEntity"] stays as-is.
-        let mut expr = SExpression::Array(vec![s("ref"), s("OtherEntity")]);
+        // ["fetch", "OtherEntity"] stays as-is.
+        let mut expr = SExpression::Array(vec![s("fetch"), s("OtherEntity")]);
         let snapshot = expr.clone();
         rewrite_entity_refs(&mut expr, "ModalRecord", "ShoppingCart");
         assert_eq!(expr, snapshot);
@@ -3904,12 +3904,12 @@ mod tests {
 
     #[test]
     fn rewrite_entity_refs_rewrites_nested_lists() {
-        // Nested: ["render-ui", "main", { children: [ ["ref", "ModalRecord"] ] }]
+        // Nested: ["render-ui", "main", { children: [ ["fetch", "ModalRecord"] ] }]
         // plus a nested binding root inside a sibling array.
         let mut obj: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         obj.insert(
             "children".to_string(),
-            SExpression::Array(vec![SExpression::Array(vec![s("ref"), s("ModalRecord")])]),
+            SExpression::Array(vec![SExpression::Array(vec![s("fetch"), s("ModalRecord")])]),
         );
         obj.insert("title".to_string(), s("@ModalRecord.name"));
 
@@ -3918,7 +3918,7 @@ mod tests {
 
         rewrite_entity_refs(&mut expr, "ModalRecord", "ShoppingCart");
 
-        // Walk the result and assert both the ref atom and the binding root
+        // Walk the result and assert both the fetch atom and the binding root
         // were rewritten.
         if let SExpression::Array(items) = &expr {
             if let SExpression::Object(map) = &items[2] {
@@ -3926,7 +3926,7 @@ mod tests {
                 assert_eq!(
                     children,
                     &SExpression::Array(vec![SExpression::Array(vec![
-                        s("ref"),
+                        s("fetch"),
                         s("ShoppingCart")
                     ])])
                 );
@@ -4061,7 +4061,7 @@ mod tests {
                 event: "OPEN".to_string(),
                 guard: None,
                 effects: Some(vec![SExpression::Array(vec![
-                    SExpression::String(("ref".to_string()).into()),
+                    SExpression::String(("fetch".to_string()).into()),
                     SExpression::String(("ModalRecord".to_string()).into()),
                 ])]),
                 ensures: None,
@@ -4090,8 +4090,8 @@ mod tests {
             "linked_entity override must apply alongside rename"
         );
 
-        // The seeded `["ref", "ModalRecord"]` effect must have been
-        // rewritten to `["ref", "CartItem"]` by the linked_entity
+        // The seeded `["fetch", "ModalRecord"]` effect must have been
+        // rewritten to `["fetch", "CartItem"]` by the linked_entity
         // override path.
         let effect = &trait_def.state_machine.transitions[0]
             .effects
@@ -4100,7 +4100,7 @@ mod tests {
         assert_eq!(
             effect,
             &SExpression::Array(vec![
-                SExpression::String(("ref".to_string()).into()),
+                SExpression::String(("fetch".to_string()).into()),
                 SExpression::String(("CartItem".to_string()).into()),
             ]),
             "rename path must not interfere with linked_entity rewrite"
@@ -5287,7 +5287,7 @@ mod tests {
     #[test]
     fn rewrite_identifiers_handles_multi_entry_entity_map() {
         // The walker accepts a HashMap with multiple entries; every entry
-        // fires independently. `["ref", "A"]` and `["ref", "B"]` in the
+        // fires independently. `["fetch", "A"]` and `["fetch", "B"]` in the
         // same tree both get rewritten in a single walk.
         let mut entity_subs: HashMap<String, String> = HashMap::new();
         entity_subs.insert("A".to_string(), "X".to_string());
@@ -5295,11 +5295,11 @@ mod tests {
 
         let mut expr = SExpression::Array(vec![
             SExpression::Array(vec![
-                SExpression::String(("ref".to_string()).into()),
+                SExpression::String(("fetch".to_string()).into()),
                 SExpression::String(("A".to_string()).into()),
             ]),
             SExpression::Array(vec![
-                SExpression::String(("ref".to_string()).into()),
+                SExpression::String(("fetch".to_string()).into()),
                 SExpression::String(("B".to_string()).into()),
             ]),
         ]);
@@ -5307,7 +5307,7 @@ mod tests {
         rewrite_identifiers(&mut expr, &entity_subs, &HashMap::new());
 
         if let SExpression::Array(items) = &expr {
-            // Both nested ref calls were rewritten in one pass.
+            // Both nested fetch calls were rewritten in one pass.
             if let SExpression::Array(inner) = &items[0] {
                 assert_eq!(inner[1], SExpression::String(("X".to_string()).into()));
             }
@@ -5322,7 +5322,7 @@ mod tests {
     #[test]
     fn rewrite_identifiers_rewrites_emit_arrays_via_event_subs() {
         // `["emit", "OPEN"]` is the symmetric event-side counterpart of
-        // `["ref", "EntityName"]`. With OPEN → ADD_ITEM in event_subs,
+        // `["fetch", "EntityName"]`. With OPEN → ADD_ITEM in event_subs,
         // the second element gets substituted.
         let mut event_subs: HashMap<String, String> = HashMap::new();
         event_subs.insert("OPEN".to_string(), "ADD_ITEM".to_string());
@@ -5377,7 +5377,7 @@ mod tests {
     #[test]
     fn rewrite_identifiers_emit_payload_tail_inner_ref_still_walks() {
         // After the emit-event rewrite we DON'T return — the walk
-        // continues into the payload tail. A nested `["ref", X]` inside
+        // continues into the payload tail. A nested `["fetch", X]` inside
         // the payload should still get entity-rewritten in the same pass.
         let mut entity_subs: HashMap<String, String> = HashMap::new();
         entity_subs.insert("OldEntity".to_string(), "NewEntity".to_string());
@@ -5388,7 +5388,7 @@ mod tests {
             SExpression::String(("emit".to_string()).into()),
             SExpression::String(("OPEN".to_string()).into()),
             SExpression::Array(vec![
-                SExpression::String(("ref".to_string()).into()),
+                SExpression::String(("fetch".to_string()).into()),
                 SExpression::String(("OldEntity".to_string()).into()),
             ]),
         ]);
@@ -5400,7 +5400,7 @@ mod tests {
             if let SExpression::Array(inner) = &items[2] {
                 assert_eq!(inner[1], SExpression::String(("NewEntity".to_string()).into()));
             } else {
-                panic!("expected inner ref array");
+                panic!("expected inner fetch array");
             }
         } else {
             panic!("expected outer array");

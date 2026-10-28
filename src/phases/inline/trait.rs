@@ -2431,7 +2431,7 @@ pub(crate) fn inline_traits(
             };
             let source_origin = ctx.trait_origin(&sibling_def, &alias);
             // Apply the SAME rebind a hand-written sibling ref would: rewrite
-            // every `@X.path` / `["ref", X]` / fetch/persist literal to the
+            // every `@X.path` / fetch/persist literal to the
             // consumer's entity. KEEP the original name (no `name` override) so
             // `@trait.<Sibling>` resolves against it.
             // Resolve the sibling's forward defaults against the embedder
@@ -3029,9 +3029,8 @@ mod entity_id_reader_tests {
     }
 
     /// A trait bound to entity id `ent-1` whose body references the entity by
-    /// name `token` in an `@<name>.title` read, a `["ref", name]`, and a
-    /// `["fetch", name]`. `linked_entity`/`entity_ref_ids` are set by the
-    /// caller so the two scenarios (renamed vs not) can be expressed.
+    /// name `token` in an `@<name>.title` read and a `["fetch", name]`.
+    /// `linked_entity`/`entity_ref_ids` are set by the caller so the two scenarios (renamed vs not) can be expressed.
     fn trait_with_entity_token(token: &str) -> TraitDefinition {
         TraitDefinition {
             dispatch: None,
@@ -3071,10 +3070,6 @@ mod entity_id_reader_tests {
                                     "rows".to_string(),
                                     SExpression::Array(vec![s("fetch"), s(token)]),
                                 ),
-                                (
-                                    "one".to_string(),
-                                    SExpression::Array(vec![s("ref"), s(token)]),
-                                ),
                             ]
                             .into_iter()
                             .collect(),
@@ -3106,7 +3101,7 @@ mod entity_id_reader_tests {
         // `ent-1` stable), so `linked_entity` is now `Item` while the body
         // tokens kept the OLD name `Product`. The `entity_ref_ids` side-map
         // ties `Product` -> `ent-1`. A rebind to `Cart` must still rewrite the
-        // stale `@Product` / `(ref Product)` / `(fetch Product)` tokens.
+        // stale `@Product` / `(fetch Product)` tokens.
         let mut td = trait_with_entity_token("Product");
         td.linked_entity = Some("Item".to_string());
         td.linked_entity_id = Some("ent-1".to_string());
@@ -3136,7 +3131,7 @@ mod entity_id_reader_tests {
         );
         assert!(
             !json.contains("\"Product\""),
-            "stale (ref/fetch Product) literals must rebind to Cart: {json}"
+            "stale (fetch Product) literals must rebind to Cart: {json}"
         );
         assert_eq!(td.linked_entity.as_deref(), Some("Cart"));
         assert_eq!(td.linked_entity_id.as_deref(), Some("ent-9"));
@@ -3192,7 +3187,7 @@ mod entity_id_reader_tests {
         );
         assert!(
             !json.contains("\"Product\""),
-            "name path must rebind (ref/fetch Product): {json}"
+            "name path must rebind (fetch Product): {json}"
         );
     }
 
@@ -3202,7 +3197,7 @@ mod entity_id_reader_tests {
     /// inside `std-wiki-page.lolo`), then again at the organism call site
     /// (`Item` -> `Cart`, a SECOND call, mirroring `PageAtom.traits.WikiHistory
     /// -> WikiRevision` inside `std-wiki.lolo`). After the SECOND rebind, the
-    /// positional (non-`@entity`) `fetch`/`ref` tokens must read the FINAL
+    /// positional (non-`@entity`) `fetch` tokens must read the FINAL
     /// name `Cart`, not the intermediate `Item` — reproduced at the real
     /// registry: `orb emit ts std-wiki.orb` server handlers keep
     /// `getDataService().list<WikiPageRevision>(...)` after `WikiHistory`
@@ -3256,7 +3251,7 @@ mod entity_id_reader_tests {
             json.contains("\"Cart\"")
                 && !json.contains("\"Item\"")
                 && !json.contains("\"Product\""),
-            "positional (ref/fetch) tokens must land on the FINAL name too, not the \
+            "positional (fetch) tokens must land on the FINAL name too, not the \
              intermediate one from the first rebind: {json}"
         );
         assert_eq!(td.linked_entity.as_deref(), Some("Cart"));

@@ -518,11 +518,9 @@ fn validate_emit_success_return(
     // Each slot a call can fire: the bus key it fires on and the payload the
     // operator puts there. `None` = undecidable at this call site (no effect
     // metadata, an opaque `any`, an unresolvable union): never guess.
-    // `ref` fires `onChange`, so reading `success` for it would inspect a key
-    // the runtime never fires.
     let slots: [(&[&str], Option<Vec<PayloadField>>); 3] = [
         (
-            &[produced_shape::success_emit_key(op_name.as_str())],
+            &["success"],
             produced_shape::produced_payload(op_name.as_str(), arr.as_slice(), entity_definitions, registry),
         ),
         (&["failure"], produced_shape::produced_failure_payload(op_name.as_str(), arr.as_slice())),
@@ -689,11 +687,10 @@ fn describe_fields(fields: &[PayloadField]) -> String {
 /// options object.
 ///
 /// Scans from the back for the first object with an `emit` block rather than
-/// indexing a per-operator slot. The previous slot table was wrong in three
+/// indexing a per-operator slot. The previous slot table was wrong in two
 /// ways at once: it read `set` at `args[3]` (`set` has `maxArity: 2`, so the
-/// slot never exists), matched `"call_service"` (not an operator name — the
-/// real one is `call-service`), and looked up `success` for `ref` (which fires
-/// `on_change`). Scanning is also robust to persist's 3- vs 4-element forms.
+/// slot never exists) and matched `"call_service"` (not an operator name — the
+/// real one is `call-service`). Scanning is also robust to persist's 3- vs 4-element forms.
 fn emit_event_for_key(args: &[SExpression], key: &str) -> Option<String> {
     args.iter().rev().find_map(|value| {
         let SExpression::Object(obj) = value else {

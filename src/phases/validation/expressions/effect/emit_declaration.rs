@@ -7,7 +7,7 @@ use super::validate_send_server;
 use super::{
     effect_operators, extract_emit_object_ref, validate_call_service,
     validate_emit, validate_emit_config, validate_fetch, validate_navigate,
-    validate_os_effect, validate_os_watch, validate_persist, validate_program_eval, validate_ref,
+    validate_os_effect, validate_os_watch, validate_persist, validate_program_eval,
     validate_set, validate_set_return_type, validate_set_value_type,
     DeclaredEmit, EntityFieldMeta,
 };
@@ -373,9 +373,6 @@ fn validate_leaf_effect(
                             known_entities,
                             declared_emits,
                         ));
-                    }
-                    "ref" => {
-                        result.merge(validate_ref(arr, path, declared_emits));
                     }
                     "emit" => {
                         result.merge(validate_emit(arr, path));

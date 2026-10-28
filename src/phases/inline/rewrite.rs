@@ -210,29 +210,24 @@ pub(crate) fn map_fields_event_values(
 ///
 /// Patterns recognized:
 ///
-/// 1. **Entity ref list `["ref", "EntityName"]`** — when the array's first
-///    element is the literal `"ref"` and the second is a string in
-///    `entity_subs`, the second element is replaced with the substitution
-///    target.
-///
-/// 2. **Entity binding root `@EntityName`** — when an `SExpression::String`
+/// 1. **Entity binding root `@EntityName`** — when an `SExpression::String`
 ///    begins with `"@<from>"` AND the next character is `.` or end-of-string,
 ///    the binding root is rewritten to `@<to>` plus the trailing path. The
 ///    suffix-boundary check prevents matching `@EntityNameSomethingElse`.
 ///
-/// 3. **Emit list `["emit", "EVENT_NAME", ...]`** — when the array's first
+/// 2. **Emit list `["emit", "EVENT_NAME", ...]`** — when the array's first
 ///    element is `"emit"` and the second is a string in `event_subs`, the
 ///    event name is rewritten. Matches both the bare 2-element form and
 ///    the 3-element form `["emit", "EVENT", payload]` where a payload
 ///    object trails. The walk falls through into the payload tail so any
-///    nested `["ref", X]` inside the payload still gets entity-rewritten.
+///    nested `["fetch", X]` inside the payload still gets entity-rewritten.
 ///
-/// 4. **Fetch effect `["fetch", "EntityName", ...]`** (GAP-COMP-11) — when
+/// 3. **Fetch effect `["fetch", "EntityName", ...]`** (GAP-COMP-11) — when
 ///    the array's first element is `"fetch"` and position 1 is a string in
 ///    `entity_subs`, the entity-name slot is rewritten. Walk continues into
 ///    trailing elements (criteria, etc.) so nested refs are still visited.
 ///
-/// 5. **Persist effect `["persist", action, "EntityName", ...]`** (GAP-COMP-11)
+/// 4. **Persist effect `["persist", action, "EntityName", ...]`** (GAP-COMP-11)
 ///    — for single-record actions (`create` | `update` | `delete`), position
 ///    2 is a bare entity name and is rewritten via `entity_subs`. For the
 ///    `batch` action, position 2 is a rows array (not a bare entity name),
@@ -257,7 +252,7 @@ pub(crate) fn rewrite_identifiers(
 /// this spot" — the `@EntityName[.path]` binding root (boundary-checked so
 /// `@EntityNameOther` never matches candidate `EntityName`: the identifier is
 /// the substring up to the first `.`, so a differently-spelled name can never
-/// partially match), `["ref", "EntityName"]`, `["fetch", "EntityName", …]`,
+/// partially match), `["fetch", "EntityName", …]`,
 /// and `["persist", "create"|"upsert"|"update"|"delete", "EntityName", …]`
 /// (GAP-COMP-11), and the entity of each op tuple a `["persist", "batch", <ops>]`
 /// writes out (a literal list element, or the tuple an `array/map` lambda returns). Shared by the RENAME walk (`rewrite_identifiers_inner`,
@@ -279,17 +274,6 @@ pub(crate) fn visit_entity_slots(expr: &mut SExpression, f: &mut dyn FnMut(&mut 
             }
         }
         SExpression::Array(items) => {
-            // `["ref", "From"]` — strict 2-element form.
-            if items.len() == 2 {
-                if let (SExpression::String(op), SExpression::String(_)) = (&items[0], &items[1]) {
-                    if op == "ref" {
-                        if let SExpression::String(name) = &mut items[1] {
-                            f(name);
-                        }
-                        return;
-                    }
-                }
-            }
             if let Some(SExpression::String(op)) = items.first() {
                 match op.as_str() {
                     "fetch" => {
@@ -929,7 +913,7 @@ fn rewrite_identifiers_inner(
             // position 1. The form is canonically 2 or 3 elements (`emit
             // EVENT` or `emit EVENT payload`); both must be rewritten when
             // the event is in `event_subs`. Falling through to the
-            // recursive walk below ensures any nested `["ref", X]` inside
+            // recursive walk below ensures any nested `["fetch", X]` inside
             // a payload tail still gets entity-rewritten.
             if items.len() >= 2 {
                 if let (SExpression::String(op), SExpression::String(arg)) = (&items[0], &items[1])
@@ -994,9 +978,9 @@ fn rewrite_identifiers_inner(
             let pattern_meta = pattern_type.as_deref().and_then(get_pattern);
 
             for (k, v) in map.iter_mut() {
-                // 0) Effect emit-options map. fetch/persist/call-service/ref/
+                // 0) Effect emit-options map. fetch/persist/call-service/
                 //    os-watch/set effects carry `emit: {success|failure|
-                //    on_message|on_change|cancelled: "EVENT"}` (the slot-key universe of
+                //    on_message|cancelled: "EVENT"}` (the slot-key universe of
                 //    every `validate_emit_config` call site) and the string
                 //    form `emit: "EVENT"`. A call-site `events {OLD: NEW}`
                 //    rename that skips these leaves the atom's fetch success
@@ -1287,7 +1271,7 @@ pub(crate) fn collect_stale_field_name_literals(
 /// substitutions implied by the trait's `entity_ref_ids` side-map.
 ///
 /// When the trait's bound entity declaration was RENAMED (its stable id is
-/// unchanged but the `@entity`/`["ref", X]`/`fetch`/`persist` tokens in the
+/// unchanged but the `@entity`/`fetch`/`persist` tokens in the
 /// trait body kept the OLD name), the side-map ties that stale token name to
 /// the bound entity's id (`linked_entity_id`). Matching every side-map entry
 /// whose id equals the bound id recovers those stale names so the existing
@@ -4137,10 +4121,9 @@ mod entity_slot_tests {
     }
 
     #[test]
-    fn collects_at_root_ref_fetch_and_persist_positions() {
+    fn collects_at_root_fetch_and_persist_positions() {
         let mut out = HashSet::new();
         collect_entity_slots(&sexpr(json!("@Other.id")), &candidates(), &mut out);
-        collect_entity_slots(&sexpr(json!(["ref", "Other"])), &candidates(), &mut out);
         collect_entity_slots(
             &sexpr(json!(["fetch", "Other", {}])),
             &candidates(),

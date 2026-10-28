@@ -431,7 +431,7 @@ mod tests {
         serde_json::from_value(v).expect("valid schema")
     }
 
-    /// A renamed inline-entity declaration drags its `["ref", <name>]` /
+    /// A renamed inline-entity declaration drags its
     /// `["fetch", <name>]` body tokens (keyed by `entityRefIds` id) to the new
     /// name, and updates `linkedEntity` via `linkedEntityId`.
     #[test]
@@ -677,7 +677,7 @@ mod tests {
                         "states": [{ "name": "idle", "isInitial": true }],
                         "transitions": [{
                             "from": "idle", "to": "idle", "event": "S",
-                            "effects": [["ref", "Item"]]
+                            "effects": [["fetch", "Item"]]
                         }]
                     }
                 }]

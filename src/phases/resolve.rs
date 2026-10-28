@@ -3173,10 +3173,10 @@ mod tests {
     }
 
     /// A `let` pair's name is a binding, never a call — even when it spells an
-    /// operator (`swap`, `max`) — and its value still resolves as an expression.
+    /// operator (`set`, `max`) — and its value still resolves as an expression.
     #[test]
     fn let_binding_names_never_resolve_as_calls() {
-        for name in ["swap", "max", "total"] {
+        for name in ["set", "max", "total"] {
             let sexpr: SExpression = serde_json::from_value(serde_json::json!([
                 "let",
                 [[name, [">", "@a", "@b"]]],

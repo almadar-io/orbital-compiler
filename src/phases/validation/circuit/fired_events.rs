@@ -346,7 +346,7 @@ fn collect_fired_with_knobs(
             // `[op, ..., {emit: {success: "X", failure: "Y", on_message:
             // "Z", ...}}]` — scan every string value under any `emit`
             // sub-key. Done generically so every operator + every
-            // fire-key (success / failure / on_message / on_change /
+            // fire-key (success / failure / on_message /
             // future additions) is covered without per-key maintenance.
             for item in arr {
                 if let SExpression::Object(obj) = item {

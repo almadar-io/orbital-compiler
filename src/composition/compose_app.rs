@@ -1616,9 +1616,6 @@ fn rename_entity_walk(node: &Value, from: &str, to: &str) -> Value {
             {
                 out[1] = Value::String(to.to_string());
             }
-            if op == Some("ref") && a.len() == 2 && a[1].as_str() == Some(from) {
-                out[1] = Value::String(to.to_string());
-            }
             if op == Some("persist")
                 && matches!(
                     a.get(1).and_then(Value::as_str),

@@ -79,7 +79,7 @@ const ATOM_V1: &str = r#"{
                 "to": "idle",
                 "event": "INIT",
                 "effects": [
-                  ["ref", "TestRecord"],
+                  ["fetch", "TestRecord"],
                   ["render-ui", "main", {
                     "type": "typography",
                     "content": "ATOM_V1_CONTENT",
@@ -130,7 +130,7 @@ const ATOM_V2: &str = r#"{
                 "to": "idle",
                 "event": "INIT",
                 "effects": [
-                  ["ref", "TestRecord"],
+                  ["fetch", "TestRecord"],
                   ["render-ui", "main", {
                     "type": "typography",
                     "content": "ATOM_V2_CONTENT_REWRITTEN",
@@ -618,7 +618,7 @@ const ENTITY_PROP_ATOM: &str = r#"{
                 "to": "idle",
                 "event": "INIT",
                 "effects": [
-                  ["ref", "AtomEntity"],
+                  ["fetch", "AtomEntity"],
                   ["render-ui", "main", {
                     "type": "data-grid",
                     "entity": "AtomEntity",
@@ -696,7 +696,7 @@ fn linked_entity_rebind_rewrites_pattern_entity_props() {
     );
     // Negative: no occurrence of the atom-era entity name survives anywhere
     // in the effects tree — `entity:`, `source:`, `entityType:`, or the
-    // `["ref", X]` form. This is the whole point of the fix.
+    // `["fetch", X]` form. This is the whole point of the fix.
     assert!(
         !effects_json.contains("AtomEntity"),
         "no occurrence of the atom-era entity name may survive the rebind; got {}",

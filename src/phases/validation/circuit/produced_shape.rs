@@ -23,18 +23,6 @@ use crate::embedded::{get_operator, ServiceRegistryData, OperatorTypeRef, Operat
 
 use super::effect::entity_field_type_map;
 
-/// The bus key an operator fires its success payload on.
-///
-/// Not every operator uses `success`: `ref` fires **`onChange`** in both
-/// executors (`EffectExecutor.ts:919-923`, `codegen/effect/server.rs:248-253`),
-/// so reading `emit.success` for it inspects a key the runtime never fires.
-pub(crate) fn success_emit_key(op_name: &str) -> &'static str {
-    match op_name {
-        "ref" => "onChange",
-        _ => "success",
-    }
-}
-
 /// Extract the entity name a call site names, using each operator's own
 /// argument layout. `persist` mirrors `effect::persist::validate_persist`'s
 /// entity-index detection (4-element `["persist", action, Entity, data]` vs the
@@ -52,7 +40,7 @@ fn call_site_entity(op_name: &str, args: &[SExpression]) -> Option<String> {
             }
             _ => 1,
         },
-        "fetch" | "ref" | "fetch-stream" => 1,
+        "fetch" | "fetch-stream" => 1,
         _ => return None,
     };
     match args.get(idx) {

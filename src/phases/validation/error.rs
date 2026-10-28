@@ -241,8 +241,8 @@ pub enum ErrorCode {
     /// a fully missing key fires. The atom's own page binding is exempt.
     TraitConfigMissingRequiredKey,
     /// A `[client]` trait's transitions contain a server-bound effect
-    /// (`fetch`/`persist`/`call-service`/`ref`/`deref`/`swap`/`watch`/
-    /// `atomic`/`fetch-stream`), or a guard reading `@user.*`. `[client]`
+    /// (`fetch`/`persist`/`call-service`/
+    /// `fetch-stream`), or a guard reading `@user.*`. `[client]`
     /// declares client-only dispatch (`OirTrait::dispatch_mode`) — a trait
     /// that actually touches the server or reads viewer identity is
     /// mis-tagged; its transitions would never await the round trip they
@@ -715,8 +715,8 @@ pub enum ErrorCode {
     EffectProgramEvalFailureMissing,
     /// Operator declares `requiresEmitSuccess: true` in canonical-operators.json
     /// but the effect call site is missing the trailing options object or its
-    /// `emit.success` event key. Applies to fetch / persist / call-service /
-    /// ref by default; any future operator can opt in via the same JSON flag.
+    /// `emit.success` event key. Applies to fetch / persist / call-service
+    /// by default; any future operator can opt in via the same JSON flag.
     EffectMissingRequiredEmit,
     /// A success event only `(fetch X { id: … })` produces declares `data` as a list; a
     /// by-id fetch delivers one row (G-ORB-185).

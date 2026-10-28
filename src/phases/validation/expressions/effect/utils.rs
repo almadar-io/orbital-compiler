@@ -1,15 +1,14 @@
 //! Effect validation helpers: payload extraction + identifier checks.
 
-use crate::phases::validation::sexpr::EFFECT_OPERATORS;
+use crate::phases::validation::sexpr::effect_category_operators;
 use orbital_core_base::schema::SExpression;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-/// Operators valid in EFFECT POSITION beyond the core `EFFECT_OPERATORS`
+/// Operators valid in EFFECT POSITION beyond the table's `effect` category
 /// (control-flow wrappers that *contain* effects, array mutation, OS / ML /
 /// agent ops). The core effects are NOT relisted here — `effect_operators()`
-/// derives the full set from the single `sexpr::operators::EFFECT_OPERATORS`
-/// source, so a new core effect can't drift between the two lists (F3).
+/// derives the full set from the operator table's `effect` category, so a new core effect can't drift between the two lists.
 const EFFECT_POSITION_EXTRA: &[&str] = &[
     // Conditional and array mutation effects
     "if",            // Conditional effect execution
@@ -29,12 +28,6 @@ const EFFECT_POSITION_EXTRA: &[&str] = &[
     "fn",   // Lambda wrapping effects
     // Legacy trigger: not in the `os/` family (no grant, no `host: 'os'`)
     "os/watch-http",
-    // Resource operators (ref/deref/swap/watch/atomic)
-    "ref",    // Reactive entity subscription
-    "deref",  // Snapshot read
-    "swap",   // Atomic CAS read-modify-write
-    "watch",  // Entity change callback
-    "atomic", // Transaction group
     // Agent operators (Phase 1: agent/* namespace)
     "agent/memorize",
     "agent/forget",
@@ -99,14 +92,11 @@ const EFFECT_POSITION_EXTRA: &[&str] = &[
     "trace/emit",
 ];
 
-/// All operators valid in effect position: the core effects (the single
-/// `sexpr::operators::EFFECT_OPERATORS` source) plus the wrappers above.
-/// Replaces the former second `EFFECT_OPERATORS` const that re-listed the core
-/// effects verbatim (F3 — drift-proof: add a core effect in one place).
+/// All operators valid in effect position: the table's `effect` category plus the wrappers above.
 pub fn effect_operators() -> &'static [&'static str] {
     static ALL: OnceLock<Vec<&'static str>> = OnceLock::new();
     ALL.get_or_init(|| {
-        let mut v = EFFECT_OPERATORS.to_vec();
+        let mut v: Vec<&'static str> = effect_category_operators().collect();
         v.extend_from_slice(EFFECT_POSITION_EXTRA);
         v.extend(orbital_core_base::language::registry::program_host_effects());
         v.extend(orbital_core_base::language::registry::os_host_effects());
@@ -303,9 +293,18 @@ mod tests {
     fn call_service_with_emit(keys: &[(&str, &str)]) -> SExpression {
         let params = SExpression::Object(
             [
-                ("to".to_string(), SExpression::String(("a@b.c".to_string()).into())),
-                ("subject".to_string(), SExpression::String(("s".to_string()).into())),
-                ("body".to_string(), SExpression::String(("b".to_string()).into())),
+                (
+                    "to".to_string(),
+                    SExpression::String(("a@b.c".to_string()).into()),
+                ),
+                (
+                    "subject".to_string(),
+                    SExpression::String(("s".to_string()).into()),
+                ),
+                (
+                    "body".to_string(),
+                    SExpression::String(("b".to_string()).into()),
+                ),
             ]
             .into_iter()
             .collect(),
@@ -501,5 +500,4 @@ mod tests {
             "control: no nested defect, no error: {clean:?}"
         );
     }
-
 }

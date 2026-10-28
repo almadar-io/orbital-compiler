@@ -27,7 +27,6 @@ mod persist;
 mod postgres;
 mod program_eval;
 mod redis;
-mod r#ref;
 mod set;
 mod typed_args;
 mod utils;
@@ -55,7 +54,6 @@ pub(crate) use persist::{persist_entity_index, validate_persist};
 pub(crate) use program_eval::validate_program_eval;
 pub(crate) use postgres::validate_postgres_effects;
 pub(crate) use redis::validate_redis_effects;
-pub(crate) use r#ref::validate_ref;
 pub(crate) use set::{
     entity_field_type_map, expr_return_incompatible_given, expr_return_incompatible_in_ctx, validate_set,
     validate_set_required_field_from_optional_knob, validate_set_return_type,

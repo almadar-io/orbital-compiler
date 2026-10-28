@@ -392,51 +392,12 @@ fn os_watch_http_on_message_is_valid() {
 }
 
 #[test]
-fn ref_with_on_change_is_valid() {
-    let effects = vec![SExpression::Array(vec![
-        SExpression::String(("ref".to_string()).into()),
-        SExpression::String(("Patient".to_string()).into()),
-        options_with_emit(emit_object(&[("onChange", "PATIENT_UPDATED")])),
-    ])];
-    let schema = schema_with_effects(effects, vec![declared_emit("PATIENT_UPDATED", false)]);
-    let result = validate_comprehensive_without_services(&schema);
-    assert!(
-        !result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::EffectEmitKeyInvalid),
-        "unexpected EffectEmitKeyInvalid, got: {:?}",
-        result.errors
-    );
-}
-
-#[test]
-fn ref_with_success_is_rejected() {
-    // Ref is reactive — `success` makes no sense, only `on_change` + `failure`.
-    let effects = vec![SExpression::Array(vec![
-        SExpression::String(("ref".to_string()).into()),
-        SExpression::String(("Patient".to_string()).into()),
-        options_with_emit(emit_object(&[("success", "LOADED")])),
-    ])];
-    let schema = schema_with_effects(effects, vec![]);
-    let result = validate_comprehensive_without_services(&schema);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::EffectEmitKeyInvalid),
-        "expected EffectEmitKeyInvalid on ref.emit.success, got: {:?}",
-        result.errors
-    );
-}
-
-#[test]
 fn snake_case_stream_keys_are_not_a_second_spelling() {
-    // One spelling per key, the runtime's route name: `on_message`/`on_change` are unknown keys.
-    for (op, key) in [("os/watch-http", "on_message"), ("ref", "on_change")] {
+    // One spelling per key, the runtime's route name: `on_message` is an unknown key.
+    for (op, key) in [("os/watch-http", "on_message")] {
         let effects = vec![SExpression::Array(vec![
             SExpression::String(op.to_string().into()),
-            SExpression::String((if op == "ref" { "Patient" } else { "wss://push" }.to_string()).into()),
+            SExpression::String("wss://push".to_string().into()),
             options_with_emit(emit_object(&[(key, "PUSH_RECEIVED")])),
         ])];
         let schema = schema_with_effects(effects, vec![declared_emit("PUSH_RECEIVED", false)]);

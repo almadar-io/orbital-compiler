@@ -95,11 +95,6 @@ fn fetch_agrees_with_the_registry() {
     assert_agrees("fetch", None);
 }
 
-#[test]
-fn ref_agrees_with_the_registry() {
-    assert_agrees("ref", None);
-}
-
 /// `clear` is advertised nowhere real — `PersistOperation` has no `Clear` and
 /// no executor implements it — so the core table must decline it rather than
 /// invent a branch.
