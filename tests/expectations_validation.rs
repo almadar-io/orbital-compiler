@@ -1126,3 +1126,49 @@ fn an_invariant_outside_the_fragment_is_unproved_never_passed() {
     ));
     assert_eq!(codes, vec!["ORB_S_INVARIANT_UNPROVED".to_string()]);
 }
+
+fn self_marked(name: &str, own: bool) -> Value {
+    let mut decl = json!({ "kind": "entity", "name": name });
+    if own {
+        decl["self"] = json!(true);
+    }
+    decl
+}
+
+/// `expects entity N [self]` is checked in every validate, standalone or composed: the orbital's own body must declare N.
+#[test]
+fn a_self_expectation_needs_its_own_body_to_declare_the_entity() {
+    let missing = run_scoped(
+        json!({ "name": "App", "orbitals": [consumer_expecting(self_marked("Ghost", true))] }),
+    );
+    assert!(
+        missing.contains(&"ORB_S_EXPECTATION_UNSATISFIED".to_string()),
+        "expected the unsatisfied finding, got {missing:?}"
+    );
+    let named_by_sibling_only = run_scoped(composed(
+        consumer_expecting(self_marked("OrderRecord", true)),
+        provider_with(json!([{ "name": "id", "type": "string" }]), false),
+    ));
+    assert!(
+        named_by_sibling_only.contains(&"ORB_S_EXPECTATION_UNSATISFIED".to_string()),
+        "a sibling's entity does not satisfy [self]: {named_by_sibling_only:?}"
+    );
+}
+
+#[test]
+fn a_self_expectation_the_body_satisfies_is_clean_and_an_unmarked_one_stays_deferred() {
+    let own = run_scoped(
+        json!({ "name": "App", "orbitals": [consumer_expecting(self_marked("Cart", true))] }),
+    );
+    assert!(
+        !own.contains(&"ORB_S_EXPECTATION_UNSATISFIED".to_string()),
+        "control: the body declares Cart: {own:?}"
+    );
+    let deferred = run_scoped(
+        json!({ "name": "App", "orbitals": [consumer_expecting(self_marked("Ghost", false))] }),
+    );
+    assert!(
+        !deferred.contains(&"ORB_S_EXPECTATION_UNSATISFIED".to_string()),
+        "control: an unmarked expectation stays deferred to --final: {deferred:?}"
+    );
+}

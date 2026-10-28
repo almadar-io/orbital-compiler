@@ -543,3 +543,75 @@ orbital Probe {
         );
     }
 }
+
+fn set_errors(prelude: &str, field: &str, ask: &str, value: &str) -> Vec<String> {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("set-probe.lolo");
+    std::fs::write(
+        &path,
+        format!(
+            r#"
+app set-probe [version: "1.0.0"]
+{prelude}
+orbital Probe {{
+ entity Cell [runtime] {{
+  id : string!
+  {field}
+ }}
+ trait Run -> Cell {{
+  initial: ready
+  state ready {{
+   ASK -> ready
+   (set @entity.out {value})
+  }}
+  listens {{ ASK {{ {ask} }} @description "Probe." }}
+ }}
+}}
+"#
+        ),
+    )
+    .unwrap();
+    let schema = orbital_test_support::lower_lolo_file(&path).expect("source lowers");
+    let resolved = phases::resolve_schema_with_path(schema, &CompilerOptions::default(), Some(&path))
+        .expect("source resolves");
+    phases::validation::validate_comprehensive_without_services(&resolved)
+        .errors
+        .iter()
+        .map(|e| format!("{e:?}"))
+        .collect()
+}
+
+#[test]
+fn a_fold_with_a_present_start_answers_the_start_type_and_sets_into_a_plain_field() {
+    let reduce = "(array/reduce ?xs 0 (fn (acc x) (+ @acc @x)))";
+    let errors = set_errors("", "out : number = 0", "xs : [number]!", reduce);
+    assert!(errors.is_empty(), "{errors:?}");
+    let tree = "(tree/fold ?node (fn (n k) 1) Node)";
+    let prelude = "type Node = { kids : [Node]! }";
+    let errors = set_errors(prelude, "out : number = 0", "node : Node!", tree);
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[test]
+fn a_fold_over_an_optional_value_or_with_an_optional_step_answers_optional() {
+    let prelude = "type Node = { v : number?  kids : [Node]! }";
+    let step = "(tree/fold ?node (fn (n k) @n.v) Node)";
+    let errors = set_errors(prelude, "out : number = 0", "node : Node!", step);
+    assert!(!errors.is_empty(), "control: a step answering number? into number is a finding");
+    let errors = set_errors(prelude, "out : number?", "node : Node!", step);
+    assert!(errors.is_empty(), "{errors:?}");
+    let sum = "(tree/fold ?node (fn (n k) 1) Node)";
+    let errors = set_errors(prelude, "out : number = 0", "node : Node?", sum);
+    assert!(!errors.is_empty(), "control: an absent value folds to null");
+}
+
+#[test]
+fn a_nullable_result_into_a_plain_field_is_a_finding_unless_the_field_or_a_default_admits_null() {
+    let first = "(array/first ?xs)";
+    let errors = set_errors("", "out : [number] = []", "xs : [[number]]!", first);
+    assert!(!errors.is_empty(), "array/first into a plain field");
+    let errors = set_errors("", "out : [number]?", "xs : [[number]]!", first);
+    assert!(errors.is_empty(), "optional field: {errors:?}");
+    let errors = set_errors("", "out : [number] = []", "xs : [[number]]!", "(default (array/first ?xs) [])");
+    assert!(errors.is_empty(), "default: {errors:?}");
+}

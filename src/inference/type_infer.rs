@@ -1254,6 +1254,15 @@ impl<'c> Inferer<'c> {
         {
             return true;
         }
+        if !failable.unless_present.is_empty()
+            && failable.unless_present.iter().all(|&index| {
+                arg_types.get(index).cloned().flatten().map(|t| self.unfold(t)).is_some_and(|t| {
+                    !matches!(t, OirType::Optional { .. }) && !orbital_core_base::type_compat::is_unknowable(&t)
+                })
+            })
+        {
+            return true;
+        }
         if !failable.unless_literal.is_empty() {
             return failable.unless_literal.iter().all(|&index| literal(index));
         }
@@ -1269,7 +1278,11 @@ impl<'c> Inferer<'c> {
             "object/merge" | "object/deepMerge" => !args.is_empty() && (0..args.len()).all(declared_keys),
             "object/set" => {
                 matches!(args.get(1), Some(OirExpr::String { value }) if !value.contains('.') && value != "__proto__")
-                    && declared_keys(0)
+                    && (declared_keys(0)
+                        || matches!(
+                            arg_types.first().cloned().flatten().map(|t| self.unfold(t)),
+                            Some(OirType::Map { .. })
+                        ))
             }
             _ => false,
         }
@@ -1772,7 +1785,7 @@ impl<'c> Inferer<'c> {
             OirType::Optional { inner }
                 if self.failable_call_cannot_fail(name_fn, args, &arg_types) || self.call_shown_present(name_fn, args) =>
             {
-                *inner
+                signature.result_without_null(&bindings).unwrap_or(*inner)
             }
             other => other,
         };
@@ -4598,7 +4611,8 @@ mod tests {
             assert!(found.is_empty(), "{shape}: {found:?}");
             assert_eq!(
                 infer_oir_expr_type(&fold, &DeclaredFold),
-                Some(OirType::optional(OirType::Number))
+                Some(OirType::Number),
+                "a fold of a present value answers the step's type"
             );
         }
     }
@@ -5039,7 +5053,9 @@ mod tests {
             Vec::<String>::new(),
             "the provisional reading's findings are dropped"
         );
-        assert_eq!(infer_oir_expr_type(&sum, &ctx), Some(OirType::optional(OirType::Number)), "a fold of a malformed node answers null");
+        assert_eq!(infer_oir_expr_type(&sum, &ctx), Some(OirType::Number), "a fold of a present value answers the step's type");
+        let absent = Row(vec![("tree", OirType::optional(ctx.0[0].1.clone())), ("out", OirType::String)]);
+        assert_eq!(infer_oir_expr_type(&sum, &absent), Some(OirType::optional(OirType::Number)), "control: an absent value folds to null");
         let joined = lowered(fold_over_tree(serde_json::json!([
             "str/concat",
             "@n.label",
@@ -5050,7 +5066,7 @@ mod tests {
             Vec::<String>::new(),
             "control: string children of a string step"
         );
-        assert_eq!(infer_oir_expr_type(&joined, &ctx), Some(OirType::optional(OirType::String)));
+        assert_eq!(infer_oir_expr_type(&joined, &ctx), Some(OirType::String));
     }
 
     #[test]

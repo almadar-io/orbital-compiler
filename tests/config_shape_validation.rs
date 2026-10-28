@@ -359,6 +359,7 @@ fn good_array_of_metricspec_passes() {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -398,6 +399,7 @@ fn string_value_where_number_expected_fails() {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -495,6 +497,7 @@ fn bare_string_in_array_of_objects_fails() {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -534,6 +537,7 @@ fn missing_required_field_fails() {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -582,6 +586,7 @@ fn enum_value_outside_allowed_set_fails() {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -630,6 +635,7 @@ fn binding_strings_pass_the_check() {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -680,6 +686,7 @@ fn computed_sexpr_call_for_array_items_defers() {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -731,6 +738,7 @@ fn computed_sexpr_call_nested_in_object_property_defers() {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -821,6 +829,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -857,6 +866,7 @@ fn array_typed_slot_with_scalar_default_fails() {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -896,6 +906,7 @@ fn number_on_a_name_carrying_scalar_tag_fails() {
                 ref_id: None,
                 forwarded_from: None,
                 nested_forwarded_from: Vec::new(),
+                wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -936,6 +947,7 @@ fn string_and_null_on_a_name_carrying_scalar_tag_pass() {
                 ref_id: None,
                 forwarded_from: None,
                 nested_forwarded_from: Vec::new(),
+                wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -973,6 +985,7 @@ fn non_number_on_int_or_float_fails() {
                 ref_id: None,
                 forwarded_from: None,
                 nested_forwarded_from: Vec::new(),
+                wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -1034,6 +1047,7 @@ fn map_knob(default: SExpression) -> OrbitalSchema {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -1120,6 +1134,7 @@ fn an_array_type_merely_starting_with_map_is_not_treated_as_a_map() {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -1176,6 +1191,7 @@ fn sexpr_args_slot(item_type: FieldType, default: Vec<SExpression>) -> OrbitalSc
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -1214,4 +1230,210 @@ fn control_shapeless_object_slot_still_rejects_a_string() {
 #[test]
 fn edge_empty_sexpr_list_is_legal() {
     assert!(shape_errors(&sexpr_args_slot(FieldType::SExpr, vec![])).is_empty());
+}
+
+// ============================================================================
+// G-ORB-012: an `SExpr` struct member of a config literal admits every atom
+// ============================================================================
+
+fn sexpr_member_schema(member_type: FieldType, value: SExpression) -> OrbitalSchema {
+    let member = FieldDefinition {
+        nullable: None,
+        additional_properties: None,
+        mock: None,
+        merged_from: None,
+        name: Some("guard".to_string()),
+        field_type: member_type,
+        required: None,
+        primary_key: None,
+        unique: None,
+        default: None,
+        values: None,
+        relation: None,
+        items: None,
+        properties: None,
+        intrinsic: None,
+        description: None,
+        synonyms: None,
+        projected_from: None,
+        record: None,
+        derived: None,
+    };
+    let mut props = IndexMap::new();
+    props.insert("guard".to_string(), member);
+    let record = FieldDefinition {
+        nullable: None,
+        additional_properties: None,
+        mock: None,
+        merged_from: None,
+        name: None,
+        field_type: FieldType::Object,
+        required: None,
+        primary_key: None,
+        unique: None,
+        default: None,
+        values: None,
+        relation: None,
+        items: None,
+        properties: Some(props),
+        intrinsic: None,
+        description: None,
+        synonyms: None,
+        projected_from: None,
+        record: None,
+        derived: None,
+    };
+    let mut literal = orbital_core_base::schema::SObject::new();
+    literal.insert("guard".to_string(), value);
+    let mut config = IndexMap::new();
+    config.insert(
+        "rule".to_string(),
+        ConfigField {
+            nullable: None,
+            additional_properties: None,
+            field_type: "Rule".to_string(),
+            default: Some(SExpression::object(literal)),
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: None,
+            items: None,
+            properties: record.properties.clone(),
+            required: None,
+            ref_id: None,
+            forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
+            wired: false,
+            payload_for: None,
+            projected_from: None,
+            record: None,
+        },
+    );
+    schema_with_config(config)
+}
+
+#[test]
+fn sexpr_struct_member_accepts_null_string_number_and_list() {
+    for value in [
+        SExpression::Null,
+        SExpression::String(("ok".to_string()).into()),
+        SExpression::Number(1.0),
+        SExpression::Bool(false),
+        SExpression::Array(vec![SExpression::String(("=".to_string()).into()), SExpression::Number(1.0), SExpression::Number(1.0)]),
+    ] {
+        let errs = shape_errors(&sexpr_member_schema(FieldType::SExpr, value.clone()));
+        assert!(errs.is_empty(), "{value:?}: {errs:?}");
+    }
+}
+
+#[test]
+fn control_a_string_member_still_rejects_a_list() {
+    let errs = shape_errors(&sexpr_member_schema(
+        FieldType::String,
+        SExpression::Array(vec![SExpression::Number(1.0)]),
+    ));
+    assert_eq!(errs.len(), 1, "{errs:?}");
+}
+
+// ============================================================================
+// G-ORB-543: a `field R T` knob names declared fields of a record alias R only
+// ============================================================================
+
+fn field_ref_alias_schema(name: &str, alias_in_orbital_types: bool) -> OrbitalSchema {
+    let mut schema = sexpr_member_schema(FieldType::String, SExpression::Null);
+    let orbital = &mut schema.orbitals[0];
+    let TraitReference::Inline(trait_def) = &mut orbital.traits[0] else {
+        unreachable!()
+    };
+    let mut config = IndexMap::new();
+    let mut props = IndexMap::new();
+    let member = |field_type: FieldType, member_name: &str| FieldDefinition {
+        nullable: None,
+        additional_properties: None,
+        mock: None,
+        merged_from: None,
+        name: Some(member_name.to_string()),
+        field_type,
+        required: Some(true),
+        primary_key: None,
+        unique: None,
+        default: None,
+        values: None,
+        relation: None,
+        items: None,
+        properties: None,
+        intrinsic: None,
+        description: None,
+        synonyms: None,
+        projected_from: None,
+        record: None,
+        derived: None,
+    };
+    props.insert("amount".to_string(), member(FieldType::Number, "amount"));
+    config.insert(
+        "column".to_string(),
+        ConfigField {
+            nullable: None,
+            additional_properties: None,
+            field_type: "field".to_string(),
+            default: Some(SExpression::String((name.to_string()).into())),
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: None,
+            items: None,
+            properties: if alias_in_orbital_types { None } else { Some(props) },
+            required: None,
+            ref_id: None,
+            forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
+            wired: false,
+            payload_for: None,
+            projected_from: None,
+            record: Some("Credit".to_string()),
+        },
+    );
+    trait_def.config = Some(config);
+    if alias_in_orbital_types {
+        orbital.types = Some(
+            serde_json::from_value(serde_json::json!({
+                "Credit": [{ "name": "amount", "type": "number", "required": true }]
+            }))
+            .expect("alias json"),
+        );
+    }
+    schema
+}
+
+fn field_ref_codes(schema: &OrbitalSchema) -> Vec<ErrorCode> {
+    validate_comprehensive_without_services(schema)
+        .errors
+        .into_iter()
+        .map(|e| e.code)
+        .filter(|c| matches!(c, ErrorCode::ConfigFieldRefUnknown | ErrorCode::ConfigFieldRefTypeMismatch))
+        .collect()
+}
+
+#[test]
+fn field_ref_to_a_record_alias_flags_an_undeclared_name() {
+    assert_eq!(
+        field_ref_codes(&field_ref_alias_schema("name", true)),
+        vec![ErrorCode::ConfigFieldRefUnknown]
+    );
+}
+
+#[test]
+fn control_field_ref_to_a_record_alias_accepts_a_declared_name() {
+    assert!(field_ref_codes(&field_ref_alias_schema("amount", true)).is_empty());
+}
+
+#[test]
+fn field_ref_with_the_alias_shape_in_properties_flags_an_undeclared_name() {
+    assert_eq!(
+        field_ref_codes(&field_ref_alias_schema("name", false)),
+        vec![ErrorCode::ConfigFieldRefUnknown]
+    );
+    assert!(field_ref_codes(&field_ref_alias_schema("amount", false)).is_empty());
 }

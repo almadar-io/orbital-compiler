@@ -61,7 +61,7 @@ fn parse_sigil(field_type: &str) -> Option<Sigil<'_>> {
 /// `ORB_X_CROSS_EMITTER_DECLARED_PAYLOAD_MISMATCH` therefore resolves to the
 /// one true shape, and a schema that is not is exactly where the choice would
 /// have been ambiguous.
-fn build_payload_index(schema: &OrbitalSchema) -> HashMap<String, Vec<PayloadField>> {
+pub(crate) fn build_payload_index(schema: &OrbitalSchema) -> HashMap<String, Vec<PayloadField>> {
     let mut idx: HashMap<String, Vec<PayloadField>> = HashMap::new();
     for orbital in &schema.orbitals {
         for trait_ref in &orbital.traits {

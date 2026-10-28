@@ -401,6 +401,73 @@ pub fn validate_final_expectations(schema: &OrbitalSchema) -> ValidationResult {
     result
 }
 
+/// A named `expects entity N [identity]` whose own orbital body declares an `[identity]` entity under another name:
+/// the body supplies the roster itself, so the wrong name cannot be deferred to an importer.
+fn same_body_identity_mismatch(
+    orbital: &Orbital,
+    expectation: &ExpectDeclaration,
+    providers: &[(&EntityDefinition, &str)],
+    path: &str,
+) -> Option<ValidationError> {
+    let ExpectDeclaration::Identity {
+        name: Some(name), ..
+    } = expectation
+    else {
+        return None;
+    };
+    if providers.iter().any(|(def, _)| def.name == *name) {
+        return None;
+    }
+    let own = std::iter::once(&orbital.entity)
+        .chain(orbital.auxiliary_entities.iter().flatten())
+        .filter_map(EntityRef::as_inline)
+        .find(|def| def.identity)?;
+    Some(unsatisfied_error(
+        &orbital.name,
+        &format!("identity `{name}`"),
+        path,
+        &format!(
+            "this orbital's own [identity] entity is named `{}`",
+            own.name
+        ),
+    ))
+}
+
+/// An `expects entity N [self]` is the body's own promise: this orbital must declare an entity named `N` itself, so
+/// the wrong name cannot be deferred to an importer.
+fn same_body_provider_missing(
+    orbital: &Orbital,
+    expectation: &ExpectDeclaration,
+    path: &str,
+) -> Option<ValidationError> {
+    let ExpectDeclaration::Entity {
+        name, own: true, ..
+    } = expectation
+    else {
+        return None;
+    };
+    let declared = std::iter::once(&orbital.entity)
+        .chain(orbital.auxiliary_entities.iter().flatten())
+        .filter_map(EntityRef::as_inline)
+        .any(|def| def.name == *name);
+    if declared {
+        return None;
+    }
+    Some(
+        ValidationError::error(
+            ErrorCode::SchemaExpectationUnsatisfied,
+            path,
+            format!(
+                "`{}` expects entity `{name}` [self], but its own body declares no entity under that name.",
+                orbital.name
+            ),
+        )
+        .with_suggestion(
+            "Declare the entity in this orbital, or drop `self` to leave the expectation to a sibling.".to_string(),
+        ),
+    )
+}
+
 fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationResult) {
     let providers = providers(schema);
     for (i, orbital) in schema.orbitals.iter().enumerate() {
@@ -412,6 +479,14 @@ fn validate_expectation_links(schema: &OrbitalSchema, result: &mut ValidationRes
         }
         for (j, expectation) in expects.iter().enumerate() {
             let path = format!("orbitals[{} ({})].expects[{}]", i, orbital.name, j);
+            if let Some(error) =
+                same_body_identity_mismatch(orbital, expectation, &providers, &path)
+            {
+                result.add_error(error);
+            }
+            if let Some(error) = same_body_provider_missing(orbital, expectation, &path) {
+                result.add_error(error);
+            }
             match expectation {
                 ExpectDeclaration::Identity {
                     name,
@@ -774,5 +849,55 @@ mod final_expectation_tests {
             None,
             &schema
         ));
+    }
+
+    fn identity_body(expects_name: &str, own_name: &str, identity: bool) -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "Gate",
+                "entity": { "name": own_name, "persistence": "persistent", "identity": identity, "fields": [{ "name": "id", "type": "string" }] },
+                "expects": [{ "kind": "identity", "name": expects_name, "shape": [{ "name": "id", "type": "string" }] }],
+                "traits": [], "pages": []
+            }]
+        }))
+        .expect("program json")
+    }
+
+    fn links(schema: &OrbitalSchema) -> ValidationResult {
+        let mut result = ValidationResult::new();
+        validate_expectation_links(schema, &mut result);
+        result
+    }
+
+    #[test]
+    fn a_wrong_named_identity_in_the_same_body_is_an_error_in_every_validate() {
+        let r = links(&identity_body("User", "Account", true));
+        assert!(
+            r.errors
+                .iter()
+                .any(|e| e.code == ErrorCode::SchemaExpectationUnsatisfied
+                    && e.message.contains("`User`")
+                    && e.message.contains("`Account`")),
+            "{:?}",
+            r.errors
+        );
+    }
+
+    #[test]
+    fn control_same_body_right_name_or_no_own_identity_stays_clean() {
+        assert!(links(&identity_body("User", "User", true))
+            .errors
+            .is_empty());
+        assert!(links(&identity_body("User", "Account", false))
+            .errors
+            .is_empty());
+    }
+
+    #[test]
+    fn control_an_app_provided_identity_is_still_deferred_and_final_still_flags_it() {
+        let schema = identity_body("User", "Account", false);
+        assert!(links(&schema).errors.is_empty());
+        assert!(!validate_final_expectations(&schema).errors.is_empty());
     }
 }

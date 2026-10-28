@@ -107,7 +107,7 @@ pub struct OrbitalRefDiagnostic {
     /// OLD: NEW }` map, carried out of `resolve_orbital_reference` (which has
     /// no `schema.ledger` access — it operates on one `Orbital`, not the
     /// whole schema) so a LATER, schema-level pass
-    /// (`reconcile_orbital_ref_event_id_renames` in `inline/mod.rs`) can
+    /// (`reconcile_event_id_renames` in `inline/mod.rs`) can
     /// re-derive the id of every event declaration this rename actually
     /// touched. Empty when the reference declares no `events {}`.
     pub event_subs: orbital_core_base::collections::IndexMap<String, String>,

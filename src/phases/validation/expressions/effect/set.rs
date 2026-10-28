@@ -385,7 +385,7 @@ pub(crate) fn expr_return_incompatible_given<C: crate::type_infer::TypeCtx>(
     };
     if orbital_core_base::type_compat::is_unknowable(&inferred)
         || orbital_core_base::type_compat::sub_with_named(&inferred, declared, &|name| ctx.named_type(name))
-            .is_some_and(|c| !c.is_explicit())
+            .is_some_and(|c| !c.requires_cast())
     {
         None
     } else {

@@ -116,7 +116,7 @@ fn declared_event_ids(td: &TraitDefinition, out: &mut impl FnMut(&str)) {
     }
 }
 
-fn for_each_inline_trait<'a>(orbital: &'a Orbital, f: &mut impl FnMut(&'a TraitDefinition)) {
+pub(super) fn for_each_inline_trait<'a>(orbital: &'a Orbital, f: &mut impl FnMut(&'a TraitDefinition)) {
     for tr in &orbital.traits {
         if let TraitReference::Inline(td) = tr {
             f(td);
@@ -136,7 +136,7 @@ fn for_each_inline_trait<'a>(orbital: &'a Orbital, f: &mut impl FnMut(&'a TraitD
     }
 }
 
-fn for_each_trait_ref_mut(orbital: &mut Orbital, f: &mut impl FnMut(&mut TraitReference)) {
+pub(super) fn for_each_trait_ref_mut(orbital: &mut Orbital, f: &mut impl FnMut(&mut TraitReference)) {
     for tr in orbital.traits.iter_mut() {
         f(tr);
     }

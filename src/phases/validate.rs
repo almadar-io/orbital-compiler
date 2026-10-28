@@ -653,6 +653,7 @@ mod tests {
                 persistence: None,
                 shared: false,
                 browser: false,
+                own: false,
                 read_policy: None,
                 create_policy: None,
                 update_policy: None,

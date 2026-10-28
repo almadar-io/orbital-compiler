@@ -15,6 +15,7 @@ use orbital_core_base::schema::{
     ConfigField, ConfigProvenanceRecord, EntityDefinition, EntityRef, FieldType, OrbitalSchema,
     SExpression, SourceBehaviorMetadata, TraitDefinition, TraitReference,
 };
+use crate::phases::validation::config_type::config_declared_kind;
 use std::collections::{HashMap, HashSet};
 
 /// A call-site `config { <traitKnob>: none }` override is plain-wiring
@@ -437,6 +438,21 @@ pub(crate) fn apply_overrides_to_trait(
         if let Some(declared) = trait_def.config.as_mut() {
             for (k, cf) in cfg.iter() {
                 if let Some(field) = declared.get_mut(k) {
+                    if cf.wired {
+                        if let (Some(source), Some(target)) = (
+                            config_declared_kind(&cf.field_type).filter(|_| cf.field_type != "unknown"),
+                            config_declared_kind(&field.field_type),
+                        ) {
+                            if !orbital_core_base::type_compat::set_value_type_compatible(target, source) {
+                                return Err(InlineError::ConfigWiringTypeMismatch {
+                                    trait_name: trait_def.name.clone(),
+                                    knob: k.clone(),
+                                    wired: cf.field_type.clone(),
+                                    declared: field.field_type.clone(),
+                                });
+                            }
+                        }
+                    }
                     if let Some(v) = cf.default.as_ref() {
                         field.default = Some(canonicalize_unbound_trait_override(
                             &field.field_type,
@@ -953,7 +969,9 @@ pub(crate) fn apply_post_subst_overrides_to_trait(
     emits_scope: Option<&orbital_core_base::schema::EventScope>,
 ) {
     if let Some(new_listens) = listens {
-        trait_def.listens = Some(new_listens.clone());
+        let mut new_listens = new_listens.clone();
+        stamp_call_site_triggers(&mut new_listens, trait_def);
+        trait_def.listens = Some(new_listens);
     }
     if let Some(scope) = emits_scope {
         if let Some(emits) = trait_def.emits.as_mut() {
@@ -965,6 +983,25 @@ pub(crate) fn apply_post_subst_overrides_to_trait(
                 emit.scope_overridden = Some(true);
             }
         }
+    }
+}
+
+/// Call-site listens are authored where no stamper sees the composed trait: each one's `triggers` takes the id of the
+/// trait's own declared event of that name, the same edge the stamper draws for an inline trait, so a later id-based
+/// rename reaches them.
+fn stamp_call_site_triggers(
+    listens: &mut [orbital_core_base::schema::ListenDefinition],
+    trait_def: &TraitDefinition,
+) {
+    for listen in listens.iter_mut().filter(|l| l.triggers_id.is_none()) {
+        let Some(trigger) = listen.triggers.as_deref() else { continue };
+        listen.triggers_id = trait_def
+            .state_machine
+            .events
+            .iter()
+            .flatten()
+            .find(|ev| ev.key == trigger)
+            .and_then(|ev| ev.id.clone());
     }
 }
 
@@ -4007,6 +4044,56 @@ mod unbound_trait_knob_override_tests {
             "a string-typed knob's literal \"none\" override is an ordinary value, not the unbound sentinel"
         );
     }
+
+    fn wiring(field_type: &str, source: &str) -> orbital_core_base::collections::IndexMap<String, ConfigField> {
+        let field: ConfigField = serde_json::from_value(serde_json::json!({
+            "type": field_type, "wired": true, "default": source
+        }))
+        .expect("wired entry deserializes");
+        orbital_core_base::collections::IndexMap::from([("mode".to_string(), field)])
+    }
+
+    fn apply_wiring(callee: &str, wired: &str) -> Result<TraitDefinition, InlineError> {
+        let mut td = trait_with_config(
+            "Body",
+            orbital_core_base::collections::IndexMap::from([(
+                "mode".to_string(),
+                config_field(callee, serde_json::json!("edit")),
+            )]),
+        );
+        let overrides = wiring(wired, "@config.source");
+        let mut recorder = Vec::new();
+        apply_overrides_to_trait(
+            &mut td,
+            None,
+            &orbital_core_base::collections::IndexMap::new(),
+            Some(&overrides),
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+        )
+        .map(|()| td)
+    }
+
+    #[test]
+    fn a_wired_source_of_another_type_than_the_callee_knob_is_a_shape_mismatch() {
+        let err = apply_wiring("string", "number").expect_err("number does not fit string");
+        assert_eq!(err.structured_code(), "ORB_T_CONFIG_SHAPE_MISMATCH");
+        assert!(err.to_string().contains("mode"), "{err}");
+    }
+
+    #[test]
+    fn a_wired_source_that_fits_or_is_untyped_folds_and_is_not_a_declaration() {
+        let td = apply_wiring("string", "string").expect("same type fits");
+        assert_eq!(
+            td.config.as_ref().and_then(|c| c.get("mode")).and_then(|f| f.default.as_ref()),
+            Some(&SExpression::String("@config.source".to_string().into()))
+        );
+        apply_wiring("string", "unknown").expect("control: a literal value carries no source type");
+        assert!(!wiring("string", "@config.source")["mode"].is_declaration_form());
+    }
 }
 
 #[cfg(test)]
@@ -4088,5 +4175,45 @@ mod config_ref_emit_name_tests {
             .map(|e| e.key.as_str())
             .collect();
         assert_eq!(events, vec!["OPEN_NOTE", "DAY_SELECTED"]);
+    }
+}
+
+#[cfg(test)]
+mod call_site_listen_tests {
+    use super::*;
+
+    fn atom() -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "PersonaLlmApi",
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "events": [{ "key": "LLM_EXTRACT", "name": "LLM_EXTRACT", "id": "evt_extract" }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "LLM_EXTRACT", "eventId": "evt_extract", "effects": [] }]
+            }
+        }))
+        .expect("trait")
+    }
+
+    fn listen(triggers: &str) -> orbital_core_base::schema::ListenDefinition {
+        serde_json::from_value(serde_json::json!({ "event": "EXTRACT", "triggers": triggers })).expect("listen")
+    }
+
+    #[test]
+    fn a_call_site_listen_takes_the_id_of_the_event_it_triggers_and_a_later_rename_reaches_it() {
+        let mut td = atom();
+        apply_post_subst_overrides_to_trait(&mut td, Some(&vec![listen("LLM_EXTRACT")]), None);
+        assert_eq!(td.listens.as_ref().unwrap()[0].triggers_id.as_deref(), Some("evt_extract"));
+        let mut renames = orbital_core_base::collections::IndexMap::new();
+        renames.insert("LLM_EXTRACT".to_string(), "ORIGINATOR_EXTRACT".to_string());
+        let scope = super::super::rewrite::resolve_event_scope_renames([&td], &renames).expect("stamped");
+        super::super::rewrite::rewrite_trait_event_fields(&mut td, &scope, None).expect("the call-site listen is renamed by id");
+        assert_eq!(td.listens.as_ref().unwrap()[0].triggers.as_deref(), Some("ORIGINATOR_EXTRACT"));
+    }
+
+    #[test]
+    fn control_a_call_site_listen_triggering_no_declared_event_stays_unstamped() {
+        let mut td = atom();
+        apply_post_subst_overrides_to_trait(&mut td, Some(&vec![listen("UNDECLARED")]), None);
+        assert_eq!(td.listens.as_ref().unwrap()[0].triggers_id, None);
     }
 }

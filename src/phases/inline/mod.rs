@@ -25,7 +25,7 @@ mod orbital;
 mod page;
 pub(crate) mod rewrite;
 mod service;
-mod sigil_types;
+pub(crate) mod sigil_types;
 mod splice;
 #[path = "trait.rs"]
 mod r#trait;
@@ -263,6 +263,16 @@ pub enum InlineError {
     )]
     BehaviorRefNotLiteral { path: String },
 
+    #[error(
+        "Trait '{trait_name}' wires config knob '{knob}' from a source of type `{wired}`, but the knob is declared `{declared}`"
+    )]
+    ConfigWiringTypeMismatch {
+        trait_name: String,
+        knob: String,
+        wired: String,
+        declared: String,
+    },
+
     #[error("`unquote` at {path} appears outside a quasiquote body")]
     UnquoteOutsideQuasiquote { path: String },
 
@@ -321,6 +331,7 @@ impl InlineError {
             InlineError::BehaviorRefNotLiteral { .. } => "ORB_T_BEHAVIOR_REF_NOT_LITERAL",
             InlineError::UnquoteOutsideQuasiquote { .. } => "ORB_T_UNQUOTE_OUTSIDE_QUASIQUOTE",
             InlineError::UnknownEventRef { .. } => "ORB_ID_UNKNOWN_REF",
+            InlineError::ConfigWiringTypeMismatch { .. } => "ORB_T_CONFIG_SHAPE_MISMATCH",
             InlineError::Loader(LoaderError::PackageNotInstalled { .. })
             | InlineError::Loader(LoaderError::BehaviorPackageNotInstalled { .. }) => {
                 "ORB_BEHAVIOR_PACKAGE_NOT_INSTALLED"
@@ -759,15 +770,11 @@ pub fn inline_schema_with_orbital_diagnostics(
     trait_id_hygiene::uniquify_instance_trait_ids(schema);
     event_id_hygiene::uniquify_instance_event_ids(schema);
 
-    // G5 (`docs/Almadar_Compiler_Gaps.md` §82): an orbital reference's
-    // `events { OLD: NEW }` rename changes every event KEY inside
-    // `resolve_orbital_reference`, which has no `schema.ledger` access (it
-    // operates on one `Orbital`) — so a renamed declaration's id keeps the
-    // ledger's PRE-rename `curName`, tripping `ORB_ID_NAME_MISMATCH`. Runs
-    // right after the sibling-instance id-hygiene pass above so both see a
-    // ledger-present, fully-inlined schema; a schema with no `events {}}`
-    // orbital reference is a no-op.
-    reconcile_orbital_ref_event_id_renames(schema, orbital_ref_diagnostics.as_slice());
+    // A rename (`events { OLD: NEW }`, trait scope or orbital scope) changes an
+    // event KEY and keeps its id, so one id can name several things (G-ORB-550,
+    // G5 §82). Re-derive per instance where the id is shared; rename the ledger
+    // row in place where it is not.
+    reconcile_event_id_renames(schema);
 
     // An imported auxiliary entity never displaces a consumer's own entity.
     drop_unreferenced_colliding_auxiliaries(schema);
@@ -2763,210 +2770,168 @@ fn collect_orbital_entity_ids(orbital: &Orbital) -> orbital_core_base::collectio
 // key in the ledger (copied in wholesale from the upstream behavior file at
 // load time), and the next dual-carry read trips `ORB_ID_NAME_MISMATCH`.
 
-/// One event declaration this pass found still naming a PRE-rename id —
-/// `orbital_name`/`trait_name` pin exactly which materialized trait it
-/// belongs to (so pass 2 below rewrites only that trait, never the whole
-/// schema), `old_id` is the upstream id, `new_key` is the event's current
-/// (already-renamed) name.
+/// One event declaration whose key disagrees with its ledger row's `curName`:
+/// a rename (`events { FROM: TO }` at trait or orbital scope) changed the key
+/// and left the id. `owner` is the `(orbital, trait name)` instance that
+/// declares it.
 struct EventIdRenameSite {
-    orbital_name: String,
-    trait_name: String,
+    owner: (String, String),
     old_id: String,
     new_key: String,
+    parent: Option<String>,
 }
 
-/// G5 (`docs/Almadar_Compiler_Gaps.md` §82): re-derive the id of every event
-/// declaration an orbital reference's `events {}` rename actually renamed.
-///
-/// Whether that means minting a FRESH id or renaming the existing one IN
-/// PLACE depends on a whole-schema census, mirroring the sibling-pull
-/// rename above (`id_claimed`: first claim renames in place, every
-/// subsequent claim mints a copy) — inverted here into "how many DIFFERENT
-/// (orbital, trait) declarations still carry this id": exactly one (the
-/// trait being renamed, and nothing else in this schema) means the id is
-/// this schema's alone to rename, so the ledger entry is updated in place
-/// (no orphaned row, no `ORB_ID_LEDGER_ORPHAN`); more than one means some
-/// OTHER, untouched declaration still legitimately holds the OLD id under
-/// the OLD name, so only the renamed trait's occurrence is repointed at a
-/// freshly derived id, leaving the original entry intact for that other
-/// owner. A schema with no `events {}` orbital reference is a no-op.
-fn reconcile_orbital_ref_event_id_renames(
-    schema: &mut OrbitalSchema,
-    diagnostics: &[orbital::OrbitalRefDiagnostic],
-) {
-    let renamed: Vec<&orbital::OrbitalRefDiagnostic> = diagnostics
-        .iter()
-        .filter(|d| !d.event_subs.is_empty())
-        .collect();
-    if renamed.is_empty() {
-        return;
-    }
-    if schema.ledger.is_none() {
-        return;
-    }
+fn instance_discriminator(owner: &(String, String)) -> String {
+    format!("{}::{}", owner.0, owner.1)
+}
 
-    // Pass 1 (read-only): every declaration site whose id still disagrees
-    // with the ledger's recorded name for one of THIS rename's new keys.
+/// Declared event ids of one inline trait with their current keys: the
+/// state-machine event list plus emits no event entry covers.
+fn declared_event_keys(td: &TraitDefinition) -> Vec<(&str, &str)> {
+    let mut out: Vec<(&str, &str)> = Vec::new();
+    for e in td.emits.iter().flatten() {
+        if let Some(id) = e.event_id.as_deref() {
+            out.push((id, e.event.as_str()));
+        }
+    }
+    for ev in td.state_machine.events.iter().flatten() {
+        if let Some(id) = ev.id.as_deref() {
+            out.retain(|(i, _)| *i != id);
+            out.push((id, ev.key.as_str()));
+        }
+    }
+    out
+}
+
+/// One id = one name. A rename (trait-scope `events { FROM: TO }` on a
+/// composed trait, or an orbital reference's) changes an event's key but keeps
+/// its id, so an atom composed under several renames leaves one id whose
+/// ledger `curName` fits at most one instance (`ORB_ID_NAME_MISMATCH`).
+///
+/// Every declaration whose key disagrees with the ledger is a rename site. An
+/// id whose only declarer is the renamed instance owns its ledger row, which is
+/// renamed in place. An id any other instance still declares is re-derived for
+/// the renamed instance: `derive_id(old id, "<orbital>::<trait>")` (the
+/// per-instance derivation of `event_id_hygiene`), every position inside that
+/// instance swaps together, other traits' listens on the old id follow by the
+/// renamed key, and the derived id gets its own ledger row. The old row stays
+/// while any declaration or reference still holds it.
+fn reconcile_event_id_renames(schema: &mut OrbitalSchema) {
+    let Some(ledger) = schema.ledger.as_ref() else {
+        return;
+    };
+
     let mut sites: Vec<EventIdRenameSite> = Vec::new();
-    {
-        let ledger = schema.ledger.as_ref().expect("checked Some above");
-        for diag in &renamed {
-            let new_keys: HashSet<&str> = diag.event_subs.values().map(String::as_str).collect();
-            let Some(orbital) = schema.orbitals.iter().find(|o| o.name == diag.local_name) else {
-                continue;
-            };
-            for tr in &orbital.traits {
-                let TraitReference::Inline(td) = tr else {
+    let mut declarers: HashMap<String, HashSet<(String, String)>> = HashMap::new();
+    for orbital in &schema.orbitals {
+        event_id_hygiene::for_each_inline_trait(orbital, &mut |td| {
+            let owner = (orbital.name.clone(), td.name.clone());
+            for (id, key) in declared_event_keys(td) {
+                declarers
+                    .entry(id.to_string())
+                    .or_default()
+                    .insert(owner.clone());
+                let Some(entry) = ledger.entries.get(id) else {
                     continue;
                 };
-                for ev in td.state_machine.events.iter().flatten() {
-                    let (Some(id), true) = (ev.id.as_ref(), new_keys.contains(ev.key.as_str()))
-                    else {
-                        continue;
-                    };
-                    let Some(entry) = ledger.entries.get(id) else {
-                        continue;
-                    };
-                    if entry.cur_name == ev.key {
-                        continue; // ledger already agrees — nothing to reconcile
-                    }
-                    sites.push(EventIdRenameSite {
-                        orbital_name: orbital.name.clone(),
-                        trait_name: td.name.clone(),
-                        old_id: id.clone(),
-                        new_key: ev.key.clone(),
-                    });
+                if entry.cur_name == key
+                    || sites.iter().any(|s| s.owner == owner && s.old_id == id)
+                {
+                    continue;
                 }
+                sites.push(EventIdRenameSite {
+                    owner: owner.clone(),
+                    old_id: id.to_string(),
+                    new_key: key.to_string(),
+                    parent: td.id.clone(),
+                });
             }
-        }
+        });
     }
     if sites.is_empty() {
         return;
     }
 
-    // Whole-schema owner census for just the candidate ids — how many
-    // DIFFERENT (orbital, trait) declarations carry each one, regardless of
-    // whether they were touched by a rename.
-    let candidate_ids: HashSet<&str> = sites.iter().map(|s| s.old_id.as_str()).collect();
-    let mut owners: HashMap<String, HashSet<(String, String)>> = HashMap::new();
-    for orbital in &schema.orbitals {
-        for tr in &orbital.traits {
+    let mut in_place: Vec<(String, String)> = Vec::new();
+    let mut derived: Vec<(EventIdRenameSite, String)> = Vec::new();
+    for site in sites {
+        if declarers.get(&site.old_id).map_or(1, HashSet::len) <= 1 {
+            in_place.push((site.old_id, site.new_key));
+        } else {
+            let new_id = orbital_core_base::identity::derive_id(
+                &site.old_id,
+                &instance_discriminator(&site.owner),
+            );
+            derived.push((site, new_id));
+        }
+    }
+
+    for orbital in schema.orbitals.iter_mut() {
+        let orbital_name = orbital.name.clone();
+        event_id_hygiene::for_each_trait_ref_mut(orbital, &mut |tr| {
             let TraitReference::Inline(td) = tr else {
-                continue;
+                return;
             };
-            for ev in td.state_machine.events.iter().flatten() {
-                if let Some(id) = ev.id.as_ref() {
-                    if candidate_ids.contains(id.as_str()) {
-                        owners
-                            .entry(id.clone())
-                            .or_default()
-                            .insert((orbital.name.clone(), td.name.clone()));
-                    }
-                }
-            }
-        }
-    }
-
-    // Sole-owner ids rename their ledger entry in place; shared ids mint a
-    // fresh derived id, scoped to exactly the (orbital, trait) that needs it.
-    let mut rename_in_place: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new(); // old_id -> new_key
-    let mut derive_sites: Vec<(&EventIdRenameSite, String)> = Vec::new(); // (site, new_id)
-    let mut seen: HashSet<&str> = HashSet::new();
-    for site in &sites {
-        if owners.get(&site.old_id).map(|o| o.len()).unwrap_or(1) <= 1 {
-            rename_in_place.insert(site.old_id.clone(), site.new_key.clone());
-        } else if seen.insert(site.old_id.as_str()) {
-            derive_sites.push((
-                site,
-                orbital_core_base::identity::derive_id(&site.old_id, &site.new_key),
-            ));
-        }
-    }
-
-    // Pass 2 (write): swap the shared-id sites' declarations to their fresh
-    // id — the same field set `event_id_hygiene::uniquify_orbital` swaps for
-    // its own per-instance derivation (`stateMachine.events[].id`,
-    // `transitions[].eventId`, `emits[].eventId`,
-    // `listens[].eventId`/`triggersId`) — scoped to the ONE named trait so a
-    // same-id, still-unrenamed declaration elsewhere is never touched.
-    for (site, new_id) in &derive_sites {
-        let Some(orbital) = schema
-            .orbitals
-            .iter_mut()
-            .find(|o| o.name == site.orbital_name)
-        else {
-            continue;
-        };
-        for tr in orbital.traits.iter_mut() {
-            let TraitReference::Inline(td) = tr else {
-                continue;
-            };
-            if td.name != site.trait_name {
-                continue;
-            }
-            let subs: HashMap<&str, &str> = [(site.old_id.as_str(), new_id.as_str())].into();
-            for ev in td.state_machine.events.iter_mut().flatten() {
-                if let Some(id) = ev.id.as_mut() {
-                    if let Some(to) = subs.get(id.as_str()) {
-                        *id = to.to_string();
-                    }
-                }
-            }
-            for t in td.state_machine.transitions.iter_mut() {
-                if let Some(id) = t.event_id.as_mut() {
-                    if let Some(to) = subs.get(id.as_str()) {
-                        *id = to.to_string();
-                    }
-                }
-            }
-            for e in td.emits.iter_mut().flatten() {
-                if let Some(id) = e.event_id.as_mut() {
-                    if let Some(to) = subs.get(id.as_str()) {
-                        *id = to.to_string();
-                    }
-                }
-            }
-            for l in td.listens.iter_mut().flatten() {
-                if let Some(id) = l.event_id.as_mut() {
-                    if let Some(to) = subs.get(id.as_str()) {
-                        *id = to.to_string();
-                    }
-                }
-                if let Some(id) = l.triggers_id.as_mut() {
-                    if let Some(to) = subs.get(id.as_str()) {
-                        *id = to.to_string();
-                    }
-                }
-            }
-        }
-    }
-
-    // Pass 3: apply the ledger side of both branches. Each derive site's
-    // owning trait id is looked up FIRST (an immutable `schema.orbitals`
-    // borrow) so the mutable `schema.ledger` borrow right after never
-    // overlaps it.
-    let derive_parents: Vec<Option<String>> = derive_sites
-        .iter()
-        .map(|(site, _)| {
-            schema
-                .orbitals
+            let owner = (orbital_name.clone(), td.name.clone());
+            let subs: HashMap<&str, &str> = derived
                 .iter()
-                .find(|o| o.name == site.orbital_name)
-                .and_then(|o| {
-                    o.traits.iter().find_map(|tr| match tr {
-                        TraitReference::Inline(td) if td.name == site.trait_name => td.id.clone(),
-                        _ => None,
-                    })
-                })
-        })
-        .collect();
+                .filter(|(site, _)| site.owner == owner)
+                .map(|(site, new_id)| (site.old_id.as_str(), new_id.as_str()))
+                .collect();
+            if !subs.is_empty() {
+                swap_instance_event_ids(td, &subs);
+            }
+        });
+    }
+
+    for orbital in schema.orbitals.iter_mut() {
+        let orbital_name = orbital.name.clone();
+        event_id_hygiene::for_each_trait_ref_mut(orbital, &mut |tr| {
+            let TraitReference::Inline(td) = tr else {
+                return;
+            };
+            let owner = (orbital_name.clone(), td.name.clone());
+            for l in td.listens.iter_mut().flatten() {
+                for (slot, name) in [
+                    (&mut l.event_id, Some(l.event.as_str())),
+                    (&mut l.triggers_id, l.triggers.as_deref()),
+                ] {
+                    let (Some(id), Some(name)) = (slot.as_ref(), name) else {
+                        continue;
+                    };
+                    let mut hits = derived.iter().filter(|(site, _)| {
+                        site.owner != owner && site.old_id == *id && site.new_key == name
+                    });
+                    if let (Some((_, new_id)), None) = (hits.next(), hits.next()) {
+                        *slot = Some(new_id.clone());
+                    }
+                }
+            }
+        });
+    }
+
+    let kept = {
+        let mut ids = collect_declared_ids(schema);
+        for orbital in &schema.orbitals {
+            event_id_hygiene::for_each_inline_trait(orbital, &mut |td| {
+                ids.extend(declared_event_keys(td).into_iter().map(|(id, _)| id.to_string()));
+            });
+        }
+        ids.extend(collect_referenced_ids(schema));
+        ids
+    };
 
     let ledger = schema.ledger.as_mut().expect("checked Some above");
     let at = RENAME_UNSTAMPED;
-    for (old_id, new_key) in rename_in_place {
+    for (old_id, new_key) in in_place {
         ledger.rename(&old_id, &new_key, at);
     }
-    for ((site, new_id), parent) in derive_sites.into_iter().zip(derive_parents) {
+    let retired: HashSet<String> = derived
+        .iter()
+        .map(|(site, _)| site.old_id.clone())
+        .filter(|id| !kept.contains(id))
+        .collect();
+    for (site, new_id) in derived {
         let Some(src) = ledger.entries.get(&site.old_id) else {
             continue;
         };
@@ -2976,18 +2941,43 @@ fn reconcile_orbital_ref_event_id_renames(
             to: site.new_key.clone(),
             at: at.to_string(),
         });
-        ledger.entries.insert(
-            new_id.clone(),
-            orbital_core_base::identity::LedgerEntry {
-                id: new_id,
-                kind: src.kind,
-                baked_name: src.baked_name.clone(),
-                cur_name: site.new_key.clone(),
-                renames,
-                owner: src.owner,
-                parent,
-            },
-        );
+        let row = orbital_core_base::identity::LedgerEntry {
+            id: new_id.clone(),
+            kind: src.kind,
+            baked_name: src.baked_name.clone(),
+            cur_name: site.new_key,
+            renames,
+            owner: src.owner,
+            parent: site.parent,
+        };
+        ledger.entries.insert(new_id, row);
+    }
+    for id in retired {
+        ledger.entries.remove(&id);
+    }
+}
+
+fn swap_instance_event_ids(td: &mut TraitDefinition, subs: &HashMap<&str, &str>) {
+    let swap = |slot: &mut Option<String>| {
+        if let Some(to) = slot.as_deref().and_then(|id| subs.get(id)) {
+            *slot = Some((*to).to_string());
+        }
+    };
+    for ev in td.state_machine.events.iter_mut().flatten() {
+        swap(&mut ev.id);
+    }
+    for t in td.state_machine.transitions.iter_mut() {
+        swap(&mut t.event_id);
+    }
+    for e in td.emits.iter_mut().flatten() {
+        swap(&mut e.event_id);
+    }
+    for l in td.listens.iter_mut().flatten() {
+        swap(&mut l.event_id);
+        swap(&mut l.triggers_id);
+    }
+    for cf in td.config.iter_mut().flat_map(|c| c.values_mut()) {
+        swap(&mut cf.ref_id);
     }
 }
 
@@ -3291,6 +3281,7 @@ fn carry_obligation(decl: ExpectDeclaration, r: &ObligationRenames<'_>) -> Optio
             persistence,
             shared,
             browser,
+            own,
             mut read_policy,
             mut create_policy,
             mut update_policy,
@@ -3316,6 +3307,7 @@ fn carry_obligation(decl: ExpectDeclaration, r: &ObligationRenames<'_>) -> Optio
                 persistence,
                 shared,
                 browser,
+                own,
                 read_policy,
                 create_policy,
                 update_policy,
@@ -3396,6 +3388,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
             persistence,
             shared,
             browser,
+            own,
             read_policy,
             create_policy,
             update_policy,
@@ -3409,6 +3402,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                 persistence: existing_persistence,
                 shared: existing_shared,
                 browser: existing_browser,
+                own: existing_own,
                 read_policy: existing_read,
                 create_policy: existing_create,
                 update_policy: existing_update,
@@ -3428,6 +3422,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                 }
                 *existing_shared |= shared;
                 *existing_browser |= browser;
+                *existing_own |= own;
                 for (slot, incoming) in [
                     (existing_read, read_policy),
                     (existing_create, create_policy),
@@ -3460,6 +3455,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                     persistence,
                     shared,
                     browser,
+                    own,
                     read_policy,
                     create_policy,
                     update_policy,
@@ -9697,5 +9693,135 @@ mod ambiguous_type_name_tests {
         schema.types = serde_json::from_value(badge(&[("code", "string")])).expect("program types");
         let err = reject_ambiguous_type_names(&schema).expect_err("program vs orbital");
         assert!(err.to_string().contains("the program"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod event_rename_reid_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn trait_json(name: &str, tid: &str, key: &str, id: &str) -> serde_json::Value {
+        json!({
+            "name": name, "id": tid, "linkedEntity": "Note",
+            "emits": [{ "event": key, "eventId": id }],
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": key, "eventId": id }],
+                "events": [{ "key": key, "id": id }]
+            }
+        })
+    }
+
+    fn orbital_json(name: &str, entity_id: &str, traits: Vec<serde_json::Value>) -> serde_json::Value {
+        json!({ "name": name, "entity": { "name": "Note", "fields": [], "id": entity_id }, "traits": traits })
+    }
+
+    fn schema(orbitals: Vec<serde_json::Value>) -> OrbitalSchema {
+        serde_json::from_value(json!({
+            "version": "2.0", "name": "T", "schemaVersion": 1,
+            "orbitals": orbitals,
+            "ledger": { "schemaVersion": 1, "entries": {
+                "evt_x": { "id": "evt_x", "kind": "event", "bakedName": "EXTRACT", "curName": "EXTRACT", "renames": [], "owner": "std", "parent": "trt_atom" }
+            } }
+        }))
+        .expect("schema")
+    }
+
+    fn inline(s: &OrbitalSchema, orbital: usize, i: usize) -> &TraitDefinition {
+        match &s.orbitals[orbital].traits[i] {
+            TraitReference::Inline(td) => td,
+            _ => panic!("inline"),
+        }
+    }
+
+    fn event_id(td: &TraitDefinition) -> String {
+        td.state_machine.events.as_ref().unwrap()[0].id.clone().unwrap()
+    }
+
+    fn assert_positions_follow(td: &TraitDefinition) {
+        let id = event_id(td);
+        assert_eq!(td.emits.as_ref().unwrap()[0].event_id.as_deref(), Some(id.as_str()));
+        assert_eq!(td.state_machine.transitions[0].event_id.as_deref(), Some(id.as_str()));
+    }
+
+    #[test]
+    fn one_atom_composed_twice_under_different_renames_gets_an_id_per_instance() {
+        let mut s = schema(vec![
+            orbital_json("A", "ent_a", vec![trait_json("OriginatorLlm", "trt_a", "ORIGINATOR_EXTRACT", "evt_x")]),
+            orbital_json("B", "ent_b", vec![trait_json("ReviewerLlm", "trt_b", "REVIEWER_EXTRACT", "evt_x")]),
+        ]);
+        reconcile_event_id_renames(&mut s);
+        let (a, b) = (inline(&s, 0, 0), inline(&s, 1, 0));
+        let (a_id, b_id) = (event_id(a), event_id(b));
+        assert_ne!(a_id, b_id);
+        assert_ne!(a_id, "evt_x");
+        assert_ne!(b_id, "evt_x");
+        assert_positions_follow(a);
+        assert_positions_follow(b);
+        let entries = &s.ledger.as_ref().unwrap().entries;
+        assert_eq!(entries[&a_id].cur_name, "ORIGINATOR_EXTRACT");
+        assert_eq!(entries[&b_id].cur_name, "REVIEWER_EXTRACT");
+        assert_eq!(entries[&a_id].baked_name, "EXTRACT");
+        assert_eq!(entries[&a_id].parent.as_deref(), Some("trt_a"));
+        assert_eq!(entries[&b_id].parent.as_deref(), Some("trt_b"));
+        assert!(!entries.contains_key("evt_x"), "no declaration holds the atom's id any more");
+    }
+
+    #[test]
+    fn re_derivation_is_deterministic() {
+        let build = || {
+            let mut s = schema(vec![
+                orbital_json("A", "ent_a", vec![trait_json("OriginatorLlm", "trt_a", "ORIGINATOR_EXTRACT", "evt_x")]),
+                orbital_json("B", "ent_b", vec![trait_json("ReviewerLlm", "trt_b", "REVIEWER_EXTRACT", "evt_x")]),
+            ]);
+            reconcile_event_id_renames(&mut s);
+            serde_json::to_value(&s).unwrap()
+        };
+        assert_eq!(build(), build());
+    }
+
+    #[test]
+    fn control_a_single_renamed_composition_renames_its_ledger_row_in_place() {
+        let mut s = schema(vec![orbital_json(
+            "A",
+            "ent_a",
+            vec![trait_json("OriginatorLlm", "trt_a", "ORIGINATOR_EXTRACT", "evt_x")],
+        )]);
+        reconcile_event_id_renames(&mut s);
+        assert_eq!(event_id(inline(&s, 0, 0)), "evt_x");
+        assert_eq!(s.ledger.as_ref().unwrap().entries["evt_x"].cur_name, "ORIGINATOR_EXTRACT");
+    }
+
+    #[test]
+    fn control_an_unrenamed_composition_keeps_the_atom_id_and_its_row() {
+        let mut s = schema(vec![
+            orbital_json("A", "ent_a", vec![trait_json("OriginatorLlm", "trt_a", "ORIGINATOR_EXTRACT", "evt_x")]),
+            orbital_json("B", "ent_b", vec![trait_json("PlainLlm", "trt_b", "EXTRACT", "evt_x")]),
+        ]);
+        reconcile_event_id_renames(&mut s);
+        assert_ne!(event_id(inline(&s, 0, 0)), "evt_x");
+        assert_eq!(event_id(inline(&s, 1, 0)), "evt_x");
+        let entries = &s.ledger.as_ref().unwrap().entries;
+        assert_eq!(entries["evt_x"].cur_name, "EXTRACT");
+        assert_eq!(entries[&event_id(inline(&s, 0, 0))].cur_name, "ORIGINATOR_EXTRACT");
+    }
+
+    #[test]
+    fn a_listen_on_the_old_id_in_another_trait_follows_the_renamed_event_by_key() {
+        let mut watcher = trait_json("Watcher", "trt_w", "WATCH", "evt_w");
+        watcher["listens"] = json!([{ "event": "ORIGINATOR_EXTRACT", "eventId": "evt_x", "source": { "kind": "any" } }]);
+        let mut s = schema(vec![
+            orbital_json("A", "ent_a", vec![trait_json("OriginatorLlm", "trt_a", "ORIGINATOR_EXTRACT", "evt_x"), watcher]),
+            orbital_json("B", "ent_b", vec![trait_json("ReviewerLlm", "trt_b", "REVIEWER_EXTRACT", "evt_x")]),
+        ]);
+        s.ledger.as_mut().unwrap().entries.insert(
+            "evt_w".into(),
+            serde_json::from_value(json!({ "id": "evt_w", "kind": "event", "bakedName": "WATCH", "curName": "WATCH", "renames": [], "owner": "std", "parent": "trt_w" })).unwrap(),
+        );
+        reconcile_event_id_renames(&mut s);
+        let a_id = event_id(inline(&s, 0, 0));
+        let listen = &inline(&s, 0, 1).listens.as_ref().unwrap()[0];
+        assert_eq!(listen.event_id.as_deref(), Some(a_id.as_str()));
     }
 }

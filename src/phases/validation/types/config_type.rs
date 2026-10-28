@@ -280,6 +280,7 @@ fn check_event_address_args(
 /// against.
 pub(crate) struct EventRefIndex {
     inputs_by_trait: HashMap<(String, String), Vec<String>>,
+    payloads: HashMap<String, Vec<PayloadField>>,
 }
 
 impl EventRefIndex {
@@ -300,7 +301,11 @@ impl EventRefIndex {
                 .or_default()
                 .push(input.event);
         }
-        Self { inputs_by_trait }
+        Self { inputs_by_trait, payloads: crate::phases::inline::sigil_types::build_payload_index(schema) }
+    }
+
+    fn payload_of(&self, event: &str) -> Option<&[PayloadField]> {
+        self.payloads.get(event).map(Vec::as_slice)
     }
 
     /// Resolve `value` from a knob owned by `owner_orbital`: the addressed trait
@@ -406,6 +411,8 @@ impl EventRefIndex {
 struct ReferenceBindingCtx<'a> {
     trait_def: &'a TraitDefinition,
     entity_definitions: &'a HashMap<String, EntityDefinition>,
+    /// The record aliases in scope: the orbital's own, then the program's.
+    aliases: Vec<&'a std::collections::BTreeMap<String, Vec<PayloadField>>>,
     /// Union of every payload field this trait's own declared events carry.
     /// A bare config knob default has no single triggering transition the
     /// way a render-ui prop under one specific transition does, so this
@@ -449,7 +456,7 @@ fn trait_own_payload_fields(trait_def: &TraitDefinition) -> Vec<PayloadField> {
 /// static opinion on (an unresolved `@trait.X`-only tag, or a generic form
 /// like `Map<string,string>`) — permissive by design, matching this file's
 /// posture of skipping opaque types it doesn't know how to validate.
-fn config_declared_kind(field_type: &str) -> Option<&str> {
+pub(crate) fn config_declared_kind(field_type: &str) -> Option<&str> {
     match field_type {
         "event" | "field" | "slot" | "pattern" | "icon" | "component" | "secret" | "asset" => Some("string"),
         "int" | "float" => Some("number"),
@@ -550,9 +557,9 @@ fn knob_prop_type_union(trait_def: &TraitDefinition, value_str: &str) -> Option<
 
 /// C-CONFIG-REF-TYPE-HOLE: a trait-reference call-site config override wires
 /// a knob to `@entity.X` / `@payload.X` and is stored `{"type":"unknown",
-/// "default":"@entity.X"}` — `"unknown"` is the structural discriminator for
-/// wiring-vs-declaration (`is_declaration_form`) and must never be
-/// overwritten, so the binding's type was never compared against anything.
+/// "wired":true,"default":"@entity.X"}` — the `wired` mark is the structural
+/// discriminator for wiring-vs-declaration (`is_declaration_form`), so the
+/// binding's type was never compared against anything.
 /// The merge in `phases/inline/trait.rs` (`apply_overrides_to_trait`) only
 /// ever replaces `field.default`, never the atom's own declared
 /// `field_type` — so on the post-inline `TraitReference::Inline` arm,
@@ -709,6 +716,7 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
                         let binding_ctx = ReferenceBindingCtx {
                             trait_def,
                             entity_definitions: &ctx.entity_definitions,
+                            aliases: orbital.types.iter().chain(schema.types.iter()).collect(),
                             payload_fields: trait_own_payload_fields(trait_def),
                         };
                         for (field_name, field) in config.iter() {
@@ -732,7 +740,7 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
                         // When the call-site entry is a full annotated declaration
                         // (not a plain wiring), validate its structural
                         // shape — the same checks that run for atom declarations.
-                        // Plain wiring entries (`field_type == "unknown"`) are
+                        // Plain wiring entries (`!is_declaration_form()`) are
                         // skipped: the base atom's declaration validates the type;
                         // we only have a value here with no declared shape. The
                         // `@entity`/`@payload` binding-type check (C-CONFIG-REF-
@@ -744,7 +752,7 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
                         // Event membership is skipped here too (`None` ctx): a
                         // pre-inline Reference has no base-trait vocabulary; the
                         // merged Inline arm above owns that check post-inline.
-                        if cf.field_type != "unknown" {
+                        if cf.is_declaration_form() {
                             result.merge(validate_config_field(
                                 cf,
                                 &field_path,
@@ -1043,7 +1051,17 @@ fn field_ref_record_fields(
     if record.starts_with('$') || record.starts_with('@') {
         return None;
     }
-    entity_fields(record)
+    if let Some(fields) = entity_fields(record) {
+        return Some(fields);
+    }
+    let members = bctx.aliases.iter().find_map(|aliases| aliases.get(record))?;
+    Some((
+        record.to_string(),
+        members
+            .iter()
+            .map(|member| (member.name.clone(), payload_field_shape(member)))
+            .collect(),
+    ))
 }
 
 /// A `field R T` knob (or a list of them): every name a call site gives is a field of `R`, and that field's type
@@ -1534,6 +1552,64 @@ fn check_tuple_shape(
     result
 }
 
+/// A struct member typed `@payload(.<sibling>)`: when the sibling holds a literal event name that some trait emits,
+/// the member's value is checked against that event's declared payload. A sibling that is not a literal, or an event
+/// nothing declares, defers.
+fn check_payload_of_member(
+    member: &FieldDefinition,
+    value: &SExpression,
+    instance: &orbital_core_base::schema::SObject,
+    path: &str,
+    orbital_events: &EventScope<'_>,
+    ancestors: &HashMap<String, &FieldDefinition>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let (Some(sibling), Some(refs)) = (member.payload_sibling(), orbital_events.refs) else {
+        return result;
+    };
+    let Some(SExpression::String(raw)) = instance.get(sibling) else {
+        return result;
+    };
+    let (event, _) = orbital_core_base::schema::split_event_address(raw);
+    let Some(declared) = refs.payload_of(&event) else {
+        return result;
+    };
+    let SExpression::Object(given) = value else {
+        result.add_error(ValidationError::error(
+            ErrorCode::TraitConfigShapeMismatch,
+            path,
+            format!("expected the payload object of event '{event}', got {}", super::sexpr::render_sexpr_brief(value)),
+        ));
+        return result;
+    };
+    let mut known: Vec<&str> = declared.iter().map(|field| field.name.as_str()).collect();
+    known.sort_unstable();
+    for key in given.keys() {
+        if !known.contains(&key.as_str()) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::TraitConfigShapeMismatch,
+                    format!("{path}.{key}"),
+                    format!("field '{key}' is not on the declared payload of event '{event}' (declared: {})", known.join(", ")),
+                )
+                .with_valid_values(known.iter().map(|name| name.to_string()).collect()),
+            );
+        }
+    }
+    let shape = FieldDefinition {
+        properties: Some(
+            declared
+                .iter()
+                .map(|field| (field.name.clone(), crate::phases::inline::sigil_types::field_of(field)))
+                .collect(),
+        ),
+        ..member.clone()
+    };
+    let shape = FieldDefinition { record: None, ..shape };
+    result.merge(check_field_def_shape(&shape, value, path, orbital_events, ancestors));
+    result
+}
+
 pub(crate) fn check_field_def_shape(
     schema: &FieldDefinition,
     value: &SExpression,
@@ -1744,6 +1820,16 @@ pub(crate) fn check_field_def_shape(
                 for (key, prop_schema) in props {
                     let prop_path = format!("{}.{}", path, key);
                     match map.get(key) {
+                        Some(prop_value) if prop_schema.payload_sibling().is_some() => {
+                            result.merge(check_payload_of_member(
+                                prop_schema,
+                                prop_value,
+                                map,
+                                &prop_path,
+                                orbital_events,
+                                ancestors,
+                            ));
+                        }
                         Some(prop_value) => {
                             result.merge(check_field_def_shape(
                                 prop_schema,
@@ -3536,6 +3622,7 @@ mod recursive_type_literal_tests {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            wired: false,
             payload_for: None,
             projected_from: None,
             record: None,
@@ -3970,5 +4057,97 @@ mod tuple_shape_tests {
             .is_empty(),
             "knob: wrong slot type"
         );
+    }
+}
+
+#[cfg(test)]
+mod payload_of_member_tests {
+    use super::*;
+
+    fn run(action: &str, payload: &str) -> ValidationResult {
+        let json = format!(
+            r#"{{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{{
+        "name": "O",
+        "entity": {{ "name": "Row", "fields": [{{ "name": "id", "type": "string" }}] }},
+        "traits": [{{
+          "name": "Items",
+          "linkedEntity": "Row",
+          "emits": [{{ "event": "SAVE", "payloadSchema": [
+            {{ "name": "amount", "type": "number", "required": true }},
+            {{ "name": "label", "type": "string" }}
+          ] }}],
+          "config": {{ "items": {{
+            "type": "[Item]",
+            "items": {{ "type": "object", "properties": {{
+              "id": {{ "name": "id", "type": "string" }},
+              "action": {{ "name": "action", "type": "event" }},
+              "actionPayload": {{ "name": "actionPayload", "type": "object", "record": "@payload(.action)" }}
+            }} }},
+            "default": [{{ "id": "a", "action": "{action}", "actionPayload": {payload} }}]
+          }} }},
+          "stateMachine": {{
+            "states": [{{ "name": "idle", "isInitial": true }}],
+            "transitions": [{{ "from": "idle", "to": "idle", "event": "SAVE", "effects": [] }}]
+          }}
+        }}]
+      }}]
+    }}"#
+        );
+        let schema: OrbitalSchema = serde_json::from_str(&json).expect("fixture parses");
+        let mut ctx = ValidationContext::new();
+        crate::phases::validation::collect_names(&schema, &mut ctx);
+        validate_all_config_types(&schema, &mut ctx);
+        ctx.result
+    }
+
+    fn mismatches(result: &ValidationResult) -> Vec<String> {
+        result
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::TraitConfigShapeMismatch)
+            .map(|e| format!("{}: {}", e.path, e.message))
+            .collect()
+    }
+
+    #[test]
+    fn a_payload_that_fits_the_named_event_is_clean() {
+        let result = run("SAVE", r#"{ "amount": 1, "label": "x" }"#);
+        assert_eq!(mismatches(&result), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_field_the_named_event_does_not_declare_is_reported() {
+        let result = run("SAVE", r#"{ "amount": 1, "bogus": 2 }"#);
+        let found = mismatches(&result);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("bogus") && found[0].contains("SAVE"), "{found:?}");
+    }
+
+    #[test]
+    fn a_value_of_the_wrong_type_is_reported() {
+        let result = run("SAVE", r#"{ "amount": "many" }"#);
+        assert_eq!(mismatches(&result).len(), 1, "{:?}", result.errors);
+    }
+
+    #[test]
+    fn a_missing_required_field_is_reported() {
+        let result = run("SAVE", r#"{ "label": "x" }"#);
+        let found = mismatches(&result);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("amount"), "{found:?}");
+    }
+
+    #[test]
+    fn control_an_event_nothing_declares_defers() {
+        let result = run("OTHER", r#"{ "bogus": 2 }"#);
+        assert!(mismatches(&result).iter().all(|m| !m.contains("OTHER")), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn control_a_sibling_that_is_not_a_literal_defers() {
+        let result = run("@config.action", r#"{ "bogus": 2 }"#);
+        assert!(mismatches(&result).iter().all(|m| !m.contains("bogus")), "{:?}", result.errors);
     }
 }
