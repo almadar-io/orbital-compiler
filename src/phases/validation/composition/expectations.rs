@@ -250,7 +250,7 @@ fn body_trait<'a>(
     name: &str,
 ) -> Option<(usize, &'a orbital_core_base::schema::TraitDefinition)> {
     o.traits.iter().enumerate().find_map(|(j, t)| match t {
-        orbital_core_base::schema::TraitReference::Inline(td) if td.name == name => Some((j, td)),
+        orbital_core_base::schema::TraitReference::Inline(td) if td.name == name => Some((j, &**td)),
         _ => None,
     })
 }
@@ -297,7 +297,7 @@ fn find_trait<'a>(schema: &'a OrbitalSchema, name: &str) -> Option<&'a TraitDefi
         .iter()
         .flat_map(|o| o.traits.iter())
         .find_map(|t| match t {
-            TraitReference::Inline(td) if td.name == name => Some(td),
+            TraitReference::Inline(td) if td.name == name => Some(&**td),
             _ => None,
         })
 }

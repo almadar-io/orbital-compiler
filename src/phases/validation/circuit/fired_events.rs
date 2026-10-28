@@ -27,6 +27,7 @@
 //! heuristics.
 
 use orbital_core_base::events::is_bus_excluded_event;
+use std::sync::Arc;
 use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitDefinition, TraitReference};
 
 use crate::embedded::patterns;
@@ -667,8 +668,8 @@ mod tests {
         let edit = trait_rendering_control("ArticleEdit", "EDIT");
 
         let schema = minimal_schema(vec![
-            TraitReference::Inline(browse),
-            TraitReference::Inline(edit),
+            TraitReference::Inline(Arc::new(browse)),
+            TraitReference::Inline(Arc::new(edit)),
         ]);
         let fired = collect_schema_fired_events(&schema);
 
@@ -706,8 +707,8 @@ mod tests {
         let edit = trait_rendering_control("ArticleEdit", "EDIT");
 
         let schema = minimal_schema(vec![
-            TraitReference::Inline(browse),
-            TraitReference::Inline(edit),
+            TraitReference::Inline(Arc::new(browse)),
+            TraitReference::Inline(Arc::new(edit)),
         ]);
         let fired = collect_schema_fired_events(&schema);
 

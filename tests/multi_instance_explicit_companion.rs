@@ -144,7 +144,7 @@ fn renamed_explicit_companion_suppresses_pull_per_entity() {
         .traits
         .iter()
         .filter_map(|t| match t {
-            TraitReference::Inline(td) => Some(td),
+            TraitReference::Inline(td) => Some(&**td),
             _ => None,
         })
         .collect();

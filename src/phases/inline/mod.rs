@@ -37,6 +37,7 @@ mod trait_value_refs;
 // `resolveEntityTokensById`). Called from `phases::resolve_schema_with_path`.
 pub use identity_normalize::normalize_identity_tokens;
 use identity_normalize::rewrite_trait_embed_tokens;
+use std::sync::Arc;
 
 /// Rename records carry no wall-clock time: a resolve is a pure function of its input.
 const RENAME_UNSTAMPED: &str = "";
@@ -443,7 +444,7 @@ pub enum ReferenceCallSite {
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(untagged)]
 pub enum ReferenceDeclaration {
-    Trait(TraitDefinition),
+    Trait(Arc<TraitDefinition>),
     Orbital(Orbital),
 }
 
@@ -1017,6 +1018,7 @@ fn uniquify_cross_orbital_pulled_siblings(
             let orbital = &mut orbitals[*orbital_idx];
             for tr in orbital.traits.iter_mut() {
                 if let TraitReference::Inline(td) = tr {
+                    let td = Arc::make_mut(td);
                     if td.name == *old_name {
                         td.name = new_name.clone();
                         if let Some(source_id) = td.id.clone() {
@@ -1092,6 +1094,7 @@ fn uniquify_cross_orbital_pulled_siblings(
         if !renames.is_empty() {
             for tr in orbitals[*orbital_idx].traits.iter_mut() {
                 if let TraitReference::Inline(td) = tr {
+                    let td = Arc::make_mut(td);
                     rewrite_trait_embed_tokens(td, &renames);
                 }
             }
@@ -1115,6 +1118,7 @@ fn uniquify_cross_orbital_pulled_siblings(
     for orbital in orbitals.iter_mut() {
         for tr in orbital.traits.iter_mut() {
             let TraitReference::Inline(td) = tr else { continue };
+            let td = Arc::make_mut(td);
             for listen in td.listens.iter_mut().flatten() {
                 if let Some(orbital_core_base::schema::ListenSource::Orbital { orbital: source, trait_name, .. }) =
                     listen.source.as_mut()
@@ -1506,6 +1510,7 @@ fn address_imported_traits(orbitals: &mut [Orbital], imported: &ImportedTraitNam
             let TraitReference::Inline(td) = tr else {
                 continue;
             };
+            let td = Arc::make_mut(td);
             if let Some(listens) = td.listens.as_mut() {
                 for listen in listens.iter_mut() {
                     if let Some(source) = listen.source.as_mut() {
@@ -1603,7 +1608,7 @@ fn inline_orbital(
 ) -> Result<(), InlineError> {
     for reference in &mut orbital.traits {
         if let TraitReference::Inline(definition) = reference {
-            orbital_core_base::schema::capture_trait_source_declaration(definition)
+            orbital_core_base::schema::capture_trait_source_declaration(Arc::make_mut(definition))
                 .expect("a trait definition serializes to JSON");
         }
     }
@@ -1632,6 +1637,7 @@ fn inline_orbital(
             if is_top_level {
                 for trait_ref in orbital.traits.iter_mut() {
                     if let TraitReference::Inline(trait_def) = trait_ref {
+                        let trait_def = Arc::make_mut(trait_def);
                         // §157 `config-knobs`, §12 three-level chain: an
                         // uncomposed orbital (no `uses[]`) still has traits
                         // whose OWN declared config defaults may forward to
@@ -2055,7 +2061,7 @@ fn inline_orbital(
                             // would mask a genuinely-missing field. Skip those so
                             // ORB_T_REBIND_MISSING_FIELDS can fire. Intrinsic +
                             // provided fields still carry.
-                            let resolved_trait_def: Option<TraitDefinition> = ref_id
+                            let resolved_trait_def: Option<Arc<TraitDefinition>> = ref_id
                                 .as_deref()
                                 .and_then(|rid| ctx.get_trait_by_ref_id(&alias, rid))
                                 .or_else(|| ctx.get_trait(&alias, &name).ok())
@@ -2244,7 +2250,7 @@ fn inline_orbital(
                     let effective_bound_name: Option<String> = linked_entity
                         .clone()
                         .or_else(|| natural_bound_entity.as_ref().map(|e| e.name.clone()));
-                    let resolved_trait_def: Option<TraitDefinition> = ref_id
+                    let resolved_trait_def: Option<Arc<TraitDefinition>> = ref_id
                         .as_deref()
                         .and_then(|rid| ctx.get_trait_by_ref_id(&alias, rid))
                         .or_else(|| ctx.get_trait(&alias, &name).ok())
@@ -2879,7 +2885,7 @@ fn reconcile_event_id_renames(schema: &mut OrbitalSchema) {
                 .map(|(site, new_id)| (site.old_id.as_str(), new_id.as_str()))
                 .collect();
             if !subs.is_empty() {
-                swap_instance_event_ids(td, &subs);
+                swap_instance_event_ids(Arc::make_mut(td), &subs);
             }
         });
     }
@@ -2891,7 +2897,7 @@ fn reconcile_event_id_renames(schema: &mut OrbitalSchema) {
                 return;
             };
             let owner = (orbital_name.clone(), td.name.clone());
-            for l in td.listens.iter_mut().flatten() {
+            for l in Arc::make_mut(td).listens.iter_mut().flatten() {
                 for (slot, name) in [
                     (&mut l.event_id, Some(l.event.as_str())),
                     (&mut l.triggers_id, l.triggers.as_deref()),
@@ -4296,7 +4302,7 @@ mod tests {
                 indexes: None,
             }),
             auxiliary_entities: None,
-            traits: vec![TraitReference::Inline(trait_def)],
+            traits: vec![TraitReference::Inline(Arc::new(trait_def))],
             pages: None,
             emits: None,
             listens: None,
@@ -4543,7 +4549,7 @@ mod tests {
         // trait and import a same-named one accidentally.
         let ctx = make_modal_ctx();
         let traits = vec![
-            TraitReference::Inline(make_trait("ModalRecordModal")),
+            TraitReference::Inline(Arc::new(make_trait("ModalRecordModal"))),
             modal_ref(None, None),
         ];
 
@@ -5729,7 +5735,7 @@ mod tests {
         .expect("schema");
         orbital_core_base::stamp::ensure_stamped(&mut schema);
         match schema.orbitals.remove(0).traits.remove(0) {
-            TraitReference::Inline(td) => td,
+            TraitReference::Inline(td) => Arc::unwrap_or_clone(td),
             TraitReference::Reference { .. } => unreachable!("fixture trait is inline"),
         }
     }
@@ -7205,7 +7211,7 @@ mod tests {
                 indexes: None,
             }),
             auxiliary_entities: None,
-            traits: vec![TraitReference::Inline(make_trait("StateTrait"))],
+            traits: vec![TraitReference::Inline(Arc::new(make_trait("StateTrait")))],
             pages: None,
             emits: None,
             listens: None,
@@ -7255,7 +7261,7 @@ mod tests {
                 indexes: None,
             }),
             auxiliary_entities: None,
-            traits: vec![TraitReference::Inline(make_trait("ActionTrait"))],
+            traits: vec![TraitReference::Inline(Arc::new(make_trait("ActionTrait")))],
             pages: None,
             emits: None,
             listens: None,

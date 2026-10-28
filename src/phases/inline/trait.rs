@@ -2,6 +2,7 @@
 //! sibling auto-pull, and source-scoped listener pruning.
 
 use super::context::{parse_reference, InlineContext, ParsedReference};
+use std::sync::Arc;
 use super::identity_normalize::rewrite_trait_embed_tokens;
 use super::rewrite::{
     apply_inline_config_defaults, coerce_trait_knob_conditions, mark_config_literal_lists,
@@ -793,6 +794,7 @@ pub(crate) fn rewrite_narrowed_number_display_writes(schema: &mut OrbitalSchema)
             let TraitReference::Inline(trait_def) = trait_ref else {
                 continue;
             };
+            let trait_def = Arc::make_mut(trait_def);
             // Always finalize (clear) `type_when` — the wrap below is an
             // ADDITIONAL step gated on the return value, not a precondition
             // for clearing.
@@ -1797,7 +1799,7 @@ pub(crate) fn inline_traits(
         let Ok(TraitReference::Inline(atom_def)) = ctx.get_trait(&alias, &name) else {
             continue;
         };
-        if let Some(atom_local) = atom_def.linked_entity {
+        if let Some(atom_local) = atom_def.linked_entity.clone() {
             if &atom_local != new_entity {
                 alias_entity_renames
                     .entry(alias)
@@ -1840,7 +1842,7 @@ pub(crate) fn inline_traits(
                 // `@config.X` live so the override substitution reaches it; the
                 // consumer's own top-level resolution (Reference arm / sibling
                 // pull, both defer=false) then folds it to the effective value.
-                let mut td = trait_def.clone();
+                let mut td = TraitDefinition::clone(trait_def);
                 if !ctx.defer_config_subst {
                     // §157 `config-knobs`, §12 three-level chain: a top-level
                     // inline trait (declared directly in the orbital, not
@@ -1872,7 +1874,7 @@ pub(crate) fn inline_traits(
                     }
                     apply_inline_config_defaults(&mut td, recorder);
                 }
-                result.push(TraitReference::Inline(td));
+                result.push(TraitReference::Inline(Arc::new(td)));
             }
             TraitReference::Reference {
                 reference,
@@ -1936,7 +1938,8 @@ pub(crate) fn inline_traits(
                                 original_name: name.clone(),
                             };
                             match inlined {
-                                TraitReference::Inline(mut trait_def) => {
+                                TraitReference::Inline(trait_def) => {
+                                    let mut trait_def = Arc::unwrap_or_clone(trait_def);
                                     if ctx.collect_references {
                                         ctx.reference_pairs.borrow_mut().push(
                                             super::ReferencePair {
@@ -1948,7 +1951,7 @@ pub(crate) fn inline_traits(
                                                     trait_ref.clone(),
                                                 ),
                                                 declaration: super::ReferenceDeclaration::Trait(
-                                                    trait_def.clone(),
+                                                    Arc::new(trait_def.clone()),
                                                 ),
                                             },
                                         );
@@ -2241,7 +2244,7 @@ pub(crate) fn inline_traits(
                                     // alias and populate mock rows for
                                     // imported entities.
                                     trait_def.source_behavior = Some(provenance);
-                                    trait_def.source_entity_definition = source_entity_def;
+                                    trait_def.source_entity_definition = source_entity_def.map(Arc::new);
                                     // Collision check happens AFTER
                                     // override application so
                                     // post-rename names are what we
@@ -2284,7 +2287,7 @@ pub(crate) fn inline_traits(
                                             receiver,
                                         ));
                                     }
-                                    result.push(TraitReference::Inline(trait_def));
+                                    result.push(TraitReference::Inline(Arc::new(trait_def)));
                                 }
                                 other => {
                                     // Defensive: `ctx.get_trait` is
@@ -2398,7 +2401,7 @@ pub(crate) fn inline_traits(
                 for tr in result.iter_mut() {
                     if let TraitReference::Inline(td) = tr {
                         if td.name == parent {
-                            rewrite_trait_embed_tokens(td, &subs);
+                            rewrite_trait_embed_tokens(Arc::make_mut(td), &subs);
                         }
                     }
                 }
@@ -2488,13 +2491,14 @@ pub(crate) fn inline_traits(
                     _ => None,
                 })
                 .unwrap_or_else(|| parent_name.clone());
-            let Ok(TraitReference::Inline(mut sibling_def)) =
+            let Ok(TraitReference::Inline(sibling_def)) =
                 ctx.get_trait_beside(&alias, &parent_source, &sibling_name)
             else {
                 // Not a same-alias sibling (or not resolvable to an inline
                 // trait) — leave the `@trait.X` for the validator to flag.
                 continue;
             };
+            let mut sibling_def = Arc::unwrap_or_clone(sibling_def);
             let source_origin = ctx.trait_origin(&sibling_def, &alias);
             // Apply the SAME rebind a hand-written sibling ref would: rewrite
             // every `@X.path` / fetch/persist literal to the
@@ -2526,7 +2530,10 @@ pub(crate) fn inline_traits(
             let source_entity = sibling_def
                 .source_entity_definition
                 .clone()
-                .or_else(|| ctx.get_bound_entity_for_trait_orbital(&alias, &sibling_name, None));
+                .or_else(|| {
+                    ctx.get_bound_entity_for_trait_orbital(&alias, &sibling_name, None)
+                        .map(Arc::new)
+                });
             apply_overrides_to_trait(
                 &mut sibling_def,
                 sibling_rebind.as_ref(),
@@ -2626,7 +2633,7 @@ pub(crate) fn inline_traits(
             seen_names.insert(final_name.clone());
             pulled_names.push(final_name);
             inherit_embedder_dispatch(&mut sibling_def, &result, &parent_name);
-            result.push(TraitReference::Inline(sibling_def));
+            result.push(TraitReference::Inline(Arc::new(sibling_def)));
         }
     }
 
@@ -2666,6 +2673,7 @@ pub(crate) fn inline_traits(
 
     for trait_ref in result.iter_mut() {
         if let TraitReference::Inline(trait_def) = trait_ref {
+            let trait_def = Arc::make_mut(trait_def);
             // A pulled sibling resolves its listen sources against ITS OWNER's
             // map, not the orbital-wide `rename_map`: the map holds one entry per
             // source name, so when one atom is bound twice the second rebind
@@ -2856,7 +2864,7 @@ mod entity_id_reader_tests {
     }
 
     fn embed(parent: Option<DispatchMode>, child: Option<DispatchMode>) -> Option<DispatchMode> {
-        let traits = [TraitReference::Inline(named_with("Parent", parent))];
+        let traits = [TraitReference::Inline(Arc::new(named_with("Parent", parent)))];
         let mut c = named_with("Child", child);
         inherit_embedder_dispatch(&mut c, &traits, "Parent");
         c.dispatch
@@ -2885,13 +2893,13 @@ mod entity_id_reader_tests {
 
     #[test]
     fn grandchild_inherits_through_the_child() {
-        let mut traits = vec![TraitReference::Inline(named_with(
+        let mut traits = vec![TraitReference::Inline(Arc::new(named_with(
             "Parent",
             Some(DispatchMode::Client),
-        ))];
+        )))];
         let mut child = named_with("Child", None);
         inherit_embedder_dispatch(&mut child, &traits, "Parent");
-        traits.push(TraitReference::Inline(child));
+        traits.push(TraitReference::Inline(Arc::new(child)));
         let mut grand = named_with("Grand", None);
         inherit_embedder_dispatch(&mut grand, &traits, "Child");
         assert_eq!(grand.dispatch, Some(DispatchMode::Client));
@@ -3642,14 +3650,14 @@ mod forwarded_sibling_config_tests {
             "Sibling",
             config_map(&[("title", serde_json::json!("@config.title"))]),
         );
-        let a = TraitReference::Inline(trait_with_config(
+        let a = TraitReference::Inline(Arc::new(trait_with_config(
             "A",
             config_map(&[("title", serde_json::json!("@config.title"))]),
-        ));
-        let b = TraitReference::Inline(trait_with_config(
+        )));
+        let b = TraitReference::Inline(Arc::new(trait_with_config(
             "B",
             config_map(&[("title", serde_json::json!("@config.title"))]),
-        ));
+        )));
         let result = vec![a, b];
         // A ↔ B: each names the other as its parent — a cycle that must
         // never occur in real pull data (each `parent_of` entry is written

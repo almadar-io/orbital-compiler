@@ -668,7 +668,7 @@ pub fn validate_page_content_ownership(schema: &OrbitalSchema, ctx: &mut Validat
             .traits
             .iter()
             .filter_map(|t| match t {
-                TraitReference::Inline(td) => Some((td.name.as_str(), td)),
+                TraitReference::Inline(td) => Some((td.name.as_str(), &**td)),
                 _ => None,
             })
             .collect();

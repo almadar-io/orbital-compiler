@@ -129,7 +129,7 @@ fn inline_traits_of(schema: &orbital_core_base::schema::OrbitalSchema) -> Vec<&T
         .traits
         .iter()
         .filter_map(|t| match t {
-            TraitReference::Inline(td) => Some(td),
+            TraitReference::Inline(td) => Some(&**td),
             _ => None,
         })
         .collect()

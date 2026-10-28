@@ -24,7 +24,7 @@ pub fn validate_composed_wiring(schema: &OrbitalSchema, ctx: &mut ValidationCont
             .iter()
             .enumerate()
             .filter_map(|(i, t)| match t {
-                TraitReference::Inline(td) => Some((i, td)),
+                TraitReference::Inline(td) => Some((i, &**td)),
                 _ => None,
             })
             .collect();
@@ -48,7 +48,7 @@ pub fn discarded_offered_values(schema: &OrbitalSchema) -> Vec<ValidationError> 
             .iter()
             .enumerate()
             .filter_map(|(i, t)| match t {
-                TraitReference::Inline(td) => Some((i, td)),
+                TraitReference::Inline(td) => Some((i, &**td)),
                 _ => None,
             })
             .collect();

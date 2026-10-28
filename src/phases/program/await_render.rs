@@ -37,7 +37,7 @@ pub fn predict_await_renders(schema: &OrbitalSchema) -> AwaitRenderMap {
         .iter()
         .flat_map(|o| o.traits.iter())
         .filter_map(|t| match t {
-            TraitReference::Inline(def) => Some(def),
+            TraitReference::Inline(def) => Some(&**def),
             _ => None,
         })
         .collect();

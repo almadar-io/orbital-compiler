@@ -8,6 +8,7 @@
 //! pass the static check.
 
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
+use std::sync::Arc;
 use orbital_core_base::schema::{
     ConfigField, EntityDefinition, EntityRef, FieldDefinition, FieldType, Orbital, OrbitalSchema,
     SExpression, StateDefinition, StateMachine, StringOrArray, TraitDefinition, TraitReference,
@@ -292,7 +293,7 @@ fn schema_with_config(config: orbital_core_base::collections::IndexMap<String, C
             services: None,
             entity: EntityRef::Inline(entity),
             auxiliary_entities: None,
-            traits: vec![TraitReference::Inline(trait_def)],
+            traits: vec![TraitReference::Inline(Arc::new(trait_def))],
             pages: None,
             emits: None,
             listens: None,
@@ -1346,6 +1347,7 @@ fn field_ref_alias_schema(name: &str, alias_in_orbital_types: bool) -> OrbitalSc
     let TraitReference::Inline(trait_def) = &mut orbital.traits[0] else {
         unreachable!()
     };
+    let trait_def = Arc::make_mut(trait_def);
     let mut config = IndexMap::new();
     let mut props = IndexMap::new();
     let member = |field_type: FieldType, member_name: &str| FieldDefinition {

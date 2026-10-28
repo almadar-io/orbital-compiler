@@ -5,6 +5,7 @@
 //! validation with `ORB_EFF_NOTIFY_RETIRED`, never panic the effect parser.
 
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
+use std::sync::Arc;
 use orbital_core_base::schema::{
     EntityDefinition, EntityRef, FieldDefinition, FieldType, Orbital, OrbitalSchema, SExpression,
     StateDefinition, StateMachine, StringOrArray, TraitDefinition, TraitReference,
@@ -127,7 +128,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
             services: None,
             entity: EntityRef::Inline(entity),
             auxiliary_entities: None,
-            traits: vec![TraitReference::Inline(trait_def)],
+            traits: vec![TraitReference::Inline(Arc::new(trait_def))],
             pages: None,
             emits: None,
             listens: None,

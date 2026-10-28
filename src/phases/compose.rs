@@ -17,6 +17,7 @@
 use crate::composition::{
     compose_behaviors, ComposeBehaviorsInput, ComposeError, EventWiringEntry,
 };
+use std::sync::Arc;
 use crate::phases::sexpr_json::sexpr_to_json;
 use orbital_core_base::schema::{
     Orbital, OrbitalSchema, SExpression, StateMachine, TickDefinition, TraitDefinition,
@@ -63,6 +64,7 @@ pub fn compose_schema(
 fn compose_orbital(orbital: &mut Orbital) -> Result<(), ComposeError> {
     for trait_ref in orbital.traits.iter_mut() {
         if let TraitReference::Inline(trait_def) = trait_ref {
+            let trait_def = Arc::make_mut(trait_def);
             compose_trait(trait_def)?;
         }
     }

@@ -8,6 +8,7 @@
 use orbital_compiler::phases::validation::{
     validate_comprehensive_full, ErrorCode, SchemaLanguage,
 };
+use std::sync::Arc;
 use orbital_core_base::schema::{
     EmitDefinition, EntityDefinition, EntityRef, EventScope, FieldDefinition, FieldType,
     ListenDefinition, ListenSource, Orbital, OrbitalSchema, PayloadField, SExpression,
@@ -204,7 +205,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
             services: None,
             entity: EntityRef::Inline(task_entity()),
             auxiliary_entities: None,
-            traits: vec![TraitReference::Inline(trait_def)],
+            traits: vec![TraitReference::Inline(Arc::new(trait_def))],
             pages: None,
             emits: None,
             listens: None,
@@ -340,7 +341,7 @@ fn schema_with_two_emitters_and_listener_source(
         services: None,
         entity: EntityRef::Inline(task_entity()),
         auxiliary_entities: None,
-        traits: vec![TraitReference::Inline(mk_trait(
+        traits: vec![TraitReference::Inline(Arc::new(mk_trait(
             "Listener",
             None,
             Some(vec![ListenDefinition {
@@ -356,7 +357,7 @@ fn schema_with_two_emitters_and_listener_source(
                 event_id: None,
                 triggers_id: None,
             }]),
-        ))],
+        )))],
         pages: None,
         emits: None,
         listens: None,
@@ -394,16 +395,16 @@ fn schema_with_two_emitters_and_listener_source(
                 entity: EntityRef::Inline(task_entity()),
                 auxiliary_entities: None,
                 traits: vec![
-                    TraitReference::Inline(mk_trait(
+                    TraitReference::Inline(Arc::new(mk_trait(
                         "EmitterA",
                         Some(vec![emit_def(event, a_fields)]),
                         None,
-                    )),
-                    TraitReference::Inline(mk_trait(
+                    ))),
+                    TraitReference::Inline(Arc::new(mk_trait(
                         "EmitterB",
                         Some(vec![emit_def(event, b_fields)]),
                         None,
-                    )),
+                    ))),
                 ],
                 pages: None,
                 emits: None,
@@ -732,7 +733,7 @@ fn schema_with_render_action_payload(
         services: None,
         entity: EntityRef::Inline(task_entity()),
         auxiliary_entities: None,
-        traits: vec![TraitReference::Inline(mk_listener_trait(vec![
+        traits: vec![TraitReference::Inline(Arc::new(mk_listener_trait(vec![
             ListenDefinition {
                 event: event.to_string(),
                 triggers: Some("INIT".to_string()),
@@ -746,7 +747,7 @@ fn schema_with_render_action_payload(
                 event_id: None,
                 triggers_id: None,
             },
-        ]))],
+        ])))],
         pages: None,
         emits: None,
         listens: None,
@@ -784,8 +785,8 @@ fn schema_with_render_action_payload(
                 entity: EntityRef::Inline(task_entity()),
                 auxiliary_entities: None,
                 traits: vec![
-                    TraitReference::Inline(mk_plain("DeclaredEmitter", declared_fields)),
-                    TraitReference::Inline(render_button_trait("RenderButton", event, "id", "id")),
+                    TraitReference::Inline(Arc::new(mk_plain("DeclaredEmitter", declared_fields))),
+                    TraitReference::Inline(Arc::new(render_button_trait("RenderButton", event, "id", "id"))),
                 ],
                 pages: None,
                 emits: None,

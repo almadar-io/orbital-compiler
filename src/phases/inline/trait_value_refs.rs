@@ -9,6 +9,7 @@
 //! so any `unquote` array reaching these positions is a stray one.
 
 use super::InlineError;
+use std::sync::Arc;
 use crate::loader::{ExternalOrbitalLoader, ImportChain};
 use orbital_core_base::value::Value;
 use orbital_core_base::schema::behavior_value::{is_behavior_specifier, OrbitalValueRef, TraitValueRef};
@@ -74,6 +75,7 @@ pub(crate) fn resolve_trait_value_refs(
         for tref in &mut orbital.traits {
             match tref {
                 TraitReference::Inline(td) => {
+                    let td = Arc::make_mut(td);
                     let tbase = format!("{base}.traits[{}]", td.name);
                     for (i, tr) in td.state_machine.transitions.iter_mut().enumerate() {
                         let p = format!("{tbase}.stateMachine.transitions[{i}]");

@@ -1,6 +1,7 @@
 //! SExpression / payload identifier rewriting and config-binding substitution.
 
 use super::InlineError;
+use std::sync::Arc;
 use crate::embedded::get_pattern;
 use crate::phases::validation::effect::persist_entity_index;
 use crate::phases::validation::sync::patterns::{PATTERN_EVENT_LIST_PROPS, PATTERN_EVENT_PROPS};
@@ -3180,6 +3181,7 @@ pub(crate) fn resolve_orbital_type_param_sentinels(orbital: &mut Orbital) {
         orbital.types.clone().unwrap_or_default();
     for tr in orbital.traits.iter_mut() {
         if let TraitReference::Inline(trait_def) = tr {
+            let trait_def = Arc::make_mut(trait_def);
             let entity_def = trait_def
                 .linked_entity
                 .as_deref()
@@ -3788,6 +3790,7 @@ mod literal_list_tests {
         let TraitReference::Inline(t) = &mut schema.orbitals[0].traits[0] else {
             panic!("inline trait")
         };
+        let t = Arc::make_mut(t);
         apply_inline_config_defaults(t, &mut Vec::new());
         crate::phases::validation::effect::record_declared_shapes(&mut schema);
         let TraitReference::Inline(t) = &schema.orbitals[0].traits[0] else {

@@ -1039,7 +1039,7 @@ fn composed_count(reference_extra: &str) -> orbital_core_base::schema::TraitDefi
         .traits
         .iter()
         .find_map(|t| match t {
-            TraitReference::Inline(def) if def.name == "Count" => Some(def.clone()),
+            TraitReference::Inline(def) if def.name == "Count" => Some(orbital_core_base::schema::TraitDefinition::clone(def)),
             _ => None,
         })
         .expect("inlined Count")

@@ -23,6 +23,7 @@ use orbital_core_base::schema::{
     ConfigField, EntityRef, ExpectDeclaration, FieldDefinition, FieldType, OrbitalSchema,
     PayloadField, SExpression, TraitReference,
 };
+use std::sync::Arc;
 use std::collections::HashMap;
 
 enum Sigil<'a> {
@@ -244,6 +245,7 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
             let TraitReference::Inline(td) = trait_ref else {
                 continue;
             };
+            let td = Arc::make_mut(td);
             let Some(bound) = td.linked_entity.clone() else {
                 continue;
             };
@@ -273,6 +275,7 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
             let TraitReference::Inline(td) = trait_ref else {
                 continue;
             };
+            let td = Arc::make_mut(td);
             let declared = td.config.clone();
             let resolve = |knob: &str| {
                 let name = knob_value(declared.as_ref(), knob)?;
@@ -305,6 +308,7 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
             let TraitReference::Inline(td) = trait_ref else {
                 continue;
             };
+            let td = Arc::make_mut(td);
             let declared = td.config.clone();
             let Some(config) = td.config.as_mut() else {
                 continue;
@@ -333,6 +337,7 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
             let TraitReference::Inline(td) = trait_ref else {
                 continue;
             };
+            let td = Arc::make_mut(td);
             let declared = td.config.clone();
             let linked = td.linked_entity.clone();
             let Some(config) = td.config.as_mut() else {

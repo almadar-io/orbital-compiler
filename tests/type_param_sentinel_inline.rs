@@ -10,6 +10,7 @@
 //! `type-param-sweep` lint).
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
+use std::sync::Arc;
 use orbital_compiler::phases::validation::{generic_types, ValidationContext};
 use orbital_core_base::schema::{EntityRef, OrbitalSchema, TraitReference};
 use serde_json::json;
@@ -135,6 +136,7 @@ fn schema_with_at_entity(linked_entity: Option<&str>) -> OrbitalSchema {
     let TraitReference::Inline(trait_def) = &mut schema.orbitals[0].traits[0] else {
         panic!("inline trait expected");
     };
+    let trait_def = Arc::make_mut(trait_def);
     for emit in trait_def.emits.as_mut().unwrap() {
         for f in emit.payload_schema.as_mut().unwrap() {
             f.field_type = "@entity".to_string();
@@ -315,6 +317,7 @@ fn bare_at_entity_in_config_on_an_unlinked_trait_reads_the_host_row() {
         let TraitReference::Inline(td) = &mut schema.orbitals[0].traits[0] else {
             panic!("fixture trait must be inline");
         };
+        let td = Arc::make_mut(td);
         td.linked_entity = None;
     }
     inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
@@ -333,6 +336,7 @@ fn bare_at_entity_in_config_bound_to_an_unknown_entity_keeps_its_sentinel() {
         let TraitReference::Inline(td) = &mut schema.orbitals[0].traits[0] else {
             panic!("fixture trait must be inline");
         };
+        let td = Arc::make_mut(td);
         td.linked_entity = Some("Missing".to_string());
     }
     inline_schema(&mut schema, &InlineConfig::default(), None).expect("inline must succeed");
@@ -352,6 +356,7 @@ fn at_entity_naming_an_undeclared_entity_keeps_its_sentinel() {
         let TraitReference::Inline(td) = &mut schema.orbitals[0].traits[0] else {
             panic!("fixture trait must be inline");
         };
+        let td = Arc::make_mut(td);
         let cfg = td.config.as_mut().expect("fixture declares config");
         cfg.get_mut("targetEntity")
             .expect("fixture declares targetEntity")

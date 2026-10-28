@@ -24,6 +24,7 @@
 //! passes through byte-identical.
 
 use orbital_core_base::identity::{derive_id, IdKind, LedgerEntry, LedgerOwner};
+use std::sync::Arc;
 use orbital_core_base::schema::{
     Orbital, OrbitalSchema, PageRef, SExpression, TraitDefinition, TraitReference,
 };
@@ -188,6 +189,7 @@ fn uniquify_orbital(
         let TraitReference::Inline(td) = tr else {
             return;
         };
+        let td = Arc::make_mut(td);
         let disc = owner_key(td).to_string();
         let mut subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         declared_event_ids(td, &mut |id| {
@@ -266,6 +268,7 @@ fn uniquify_orbital(
     });
     for_each_trait_ref_mut(orbital, &mut |tr| match tr {
         TraitReference::Inline(td) => {
+            let td = Arc::make_mut(td);
             for l in td.listens.iter_mut().flatten() {
                 reresolve(&mut l.event_id, Some(&l.event), &colliding, &key_to_id);
                 reresolve(

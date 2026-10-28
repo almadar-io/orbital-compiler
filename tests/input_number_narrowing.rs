@@ -229,7 +229,7 @@ fn trait_def_named(schema: &OrbitalSchema, name: &str) -> TraitDefinition {
         .traits
         .iter()
         .find_map(|t| match t {
-            TraitReference::Inline(def) if def.name == name => Some(def.clone()),
+            TraitReference::Inline(def) if def.name == name => Some(TraitDefinition::clone(def)),
             _ => None,
         })
         .unwrap_or_else(|| panic!("expected inlined trait {name}"))

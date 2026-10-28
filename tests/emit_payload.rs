@@ -10,6 +10,7 @@
 //! All classes are warn-only in V2 Phase 0; tests verify warnings surface on
 //! the result but do not block validation.
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
+use std::sync::Arc;
 use orbital_core_base::schema::{
     EmitDefinition, EntityDefinition, EntityRef, EventScope, FieldDefinition, FieldType, Orbital,
     OrbitalSchema, PayloadField, SExpression, StateDefinition, StateMachine, StringOrArray,
@@ -179,7 +180,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
             services: None,
             entity: EntityRef::Inline(entity),
             auxiliary_entities: None,
-            traits: vec![TraitReference::Inline(trait_def)],
+            traits: vec![TraitReference::Inline(Arc::new(trait_def))],
             pages: None,
             emits: None,
             listens: None,

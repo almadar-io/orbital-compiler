@@ -4,6 +4,7 @@
 //! own orbital follow it by name, and the ledger gains the derived row.
 
 use orbital_core_base::identity::{derive_id, LedgerEntry};
+use std::sync::Arc;
 use orbital_core_base::schema::{ListenSource, Orbital, OrbitalSchema, PageRef, TraitReference};
 use std::collections::HashMap;
 
@@ -62,6 +63,7 @@ pub(super) fn uniquify_instance_trait_ids(schema: &mut OrbitalSchema) {
 fn follow(orbital: &mut Orbital, renamed: &orbital_core_base::collections::IndexMap<String, String>) {
     for_each_trait_ref_mut(orbital, &mut |tr| match tr {
         TraitReference::Inline(td) => {
+            let td = Arc::make_mut(td);
             if let Some(fresh) = renamed.get(&td.name) {
                 td.id = Some(fresh.clone());
             }
@@ -182,6 +184,7 @@ mod tests {
     fn control_a_program_whose_trait_ids_are_unique_is_unchanged() {
         let mut schema = program("ViewCancelDivider");
         if let TraitReference::Inline(td) = &mut schema.orbitals[1].traits[0] {
+            let td = Arc::make_mut(td);
             td.id = Some("trt_OWN".to_string());
         }
         let before = serde_json::to_value(&schema).unwrap();

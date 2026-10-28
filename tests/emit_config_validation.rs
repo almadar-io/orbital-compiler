@@ -14,6 +14,7 @@
 //!   - Undeclared event         → `ORB_EFF_EMIT_UNDECLARED_EVENT` (warning)
 
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
+use std::sync::Arc;
 use orbital_core_base::schema::{
     EmitDefinition, EntityDefinition, EntityRef, EventScope, FieldDefinition, FieldType, Orbital,
     OrbitalSchema, SExpression, StateDefinition, StateMachine, StringOrArray, TraitDefinition,
@@ -162,7 +163,7 @@ fn schema_with_effects(
             services: None,
             entity: EntityRef::Inline(entity),
             auxiliary_entities: None,
-            traits: vec![TraitReference::Inline(trait_def)],
+            traits: vec![TraitReference::Inline(Arc::new(trait_def))],
             pages: None,
             emits: None,
             listens: None,

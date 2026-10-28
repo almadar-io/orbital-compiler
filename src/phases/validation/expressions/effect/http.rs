@@ -518,7 +518,7 @@ pub(crate) fn validate_http_effects(schema: &OrbitalSchema) -> ValidationResult 
     for (trait_def, path) in inline_traits(schema) {
         let declared = collect_declared_emits(trait_def);
         let orbital = schema.orbitals.iter().find(|o| {
-            o.traits.iter().any(|t| matches!(t, orbital_core_base::schema::TraitReference::Inline(td) if std::ptr::eq(td, trait_def)))
+            o.traits.iter().any(|t| matches!(t, orbital_core_base::schema::TraitReference::Inline(td) if std::ptr::eq(&**td, trait_def)))
         });
         let scope = orbital_core_base::tab_call::WatchScope {
             caller_orbital: orbital.map(|o| o.name.as_str()),

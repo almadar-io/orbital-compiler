@@ -7,6 +7,7 @@
 //! success event's `totalCount` may not be read.
 
 use super::value_walk::all_sources;
+use std::sync::Arc;
 use super::{ErrorCode, ValidationError, ValidationResult};
 use orbital_core_base::bus_event::BusEventSource;
 use orbital_core_base::ir::{OirBinding, OirBindingRoot, OirExpr};
@@ -986,6 +987,7 @@ mod tests {
                 let TraitReference::Inline(emitter) = &mut s.orbitals[0].traits[0] else {
                     panic!("inline fetcher fixture");
                 };
+                let emitter = Arc::make_mut(emitter);
                 emitter.name = "RenamedF".into();
                 emitter.id = Some("trt_F".into());
                 if cross_orbital {
@@ -1020,6 +1022,7 @@ mod tests {
             let TraitReference::Inline(emitter) = &mut s.orbitals[0].traits[0] else {
                 panic!("inline fetcher fixture");
             };
+            let emitter = Arc::make_mut(emitter);
             emitter.id = emitter_id.map(str::to_owned);
             let expected = if restricted {
                 vec![ErrorCode::FetchDeliverIdsRowsRead]
@@ -1045,6 +1048,7 @@ mod tests {
             let TraitReference::Inline(emitter) = &mut s.orbitals[0].traits[0] else {
                 panic!("inline fetcher fixture");
             };
+            let emitter = Arc::make_mut(emitter);
             emitter.name = "RenamedF".into();
             emitter.id = Some("trt_F".into());
             let receiver = s.orbitals[0].traits.pop().unwrap();
@@ -1082,6 +1086,7 @@ mod tests {
             let TraitReference::Inline(emitter) = &mut s.orbitals[0].traits[0] else {
                 panic!("inline fetcher fixture");
             };
+            let emitter = Arc::make_mut(emitter);
             emitter.id = trait_id.map(str::to_owned);
             let receiver = s.orbitals[0].traits.pop().unwrap();
             let mut other = s.orbitals[0].clone();
@@ -1129,6 +1134,7 @@ mod tests {
                 let TraitReference::Inline(second_emitter) = &mut s.orbitals[0].traits[1] else {
                     panic!("inline fetcher fixture");
                 };
+                let second_emitter = Arc::make_mut(second_emitter);
                 second_emitter.name = "F2".into();
                 if reverse {
                     s.orbitals[0].traits.swap(0, 1);
@@ -1173,6 +1179,7 @@ mod tests {
                 let TraitReference::Inline(receiver) = &mut s.orbitals[0].traits[1] else {
                     panic!("inline listener fixture");
                 };
+                let receiver = Arc::make_mut(receiver);
                 receiver.listens.as_mut().unwrap()[0].triggers = Some("Loaded".into());
                 receiver.state_machine.transitions[0].event = "Loaded".into();
                 receiver.state_machine.transitions.push(own_transition);
@@ -1199,6 +1206,7 @@ mod tests {
             let TraitReference::Inline(receiver) = &mut s.orbitals[0].traits[1] else {
                 panic!("inline listener fixture");
             };
+            let receiver = Arc::make_mut(receiver);
             receiver.listens.as_mut().unwrap()[0].event = event.into();
             let expected = if restricted {
                 vec![ErrorCode::FetchDeliverIdsRowsRead]
@@ -1322,6 +1330,7 @@ mod tests {
                 let TraitReference::Inline(receiver) = &mut s.orbitals[0].traits[1] else {
                     panic!("inline listener fixture");
                 };
+                let receiver = Arc::make_mut(receiver);
                 let listen = &mut receiver.listens.as_mut().unwrap()[0];
                 listen.guard = Some(serde_json::from_str(guard).unwrap());
                 listen.payload_mapping = Some(serde_json::from_str(r#"{ "data": { "id": "safe" }, "totalCount": 7 }"#).unwrap());
@@ -1356,6 +1365,7 @@ mod tests {
                 let TraitReference::Inline(receiver) = &mut s.orbitals[0].traits[1] else {
                     panic!("inline listener fixture");
                 };
+                let receiver = Arc::make_mut(receiver);
                 receiver.listens.as_mut().unwrap()[0].payload_mapping = Some(serde_json::from_str(mapping).unwrap());
                 let found = codes(&s);
                 if restricted {
@@ -1380,6 +1390,7 @@ mod tests {
             let TraitReference::Inline(receiver) = &mut s.orbitals[0].traits[1] else {
                 panic!("inline listener fixture");
             };
+            let receiver = Arc::make_mut(receiver);
             receiver.listens.as_mut().unwrap()[0].payload_mapping = Some(serde_json::from_str(mapping).unwrap());
             assert!(codes(&s).is_empty(), "safe mapping: {mapping}; effects: {effects}");
         }
@@ -1399,6 +1410,7 @@ mod tests {
             let TraitReference::Inline(receiver) = &mut s.orbitals[0].traits[1] else {
                 panic!("inline listener fixture");
             };
+            let receiver = Arc::make_mut(receiver);
             receiver.listens.as_mut().unwrap()[0].payload_mapping = Some(serde_json::from_str(mapping).unwrap());
             let found = codes(&s);
             assert!(found.is_empty(), "constant mapping: {mapping}; effects: {effects}; found: {found:?}");
@@ -1424,6 +1436,7 @@ mod tests {
                     let TraitReference::Inline(receiver) = &mut s.orbitals[0].traits[1] else {
                         panic!("inline listener fixture");
                     };
+                    let receiver = Arc::make_mut(receiver);
                     receiver.listens.as_mut().unwrap()[0].payload_mapping = Some(serde_json::from_str(mapping).unwrap());
                     let found = codes(&s);
                     if restricted {
@@ -1515,6 +1528,7 @@ mod tests {
                 let TraitReference::Inline(second) = &mut s.orbitals[0].traits[1] else {
                     panic!("inline fetcher fixture");
                 };
+                let second = Arc::make_mut(second);
                 second.name = "F2".into();
                 let other = schema_of(&[&listener(r#"{ "kind": "trait", "trait": "F2" }"#, effects)]);
                 let TraitReference::Inline(other_listener) = &other.orbitals[0].traits[0] else {
@@ -1523,6 +1537,7 @@ mod tests {
                 let TraitReference::Inline(receiver) = &mut s.orbitals[0].traits[2] else {
                     panic!("inline listener fixture");
                 };
+                let receiver = Arc::make_mut(receiver);
                 let listens = receiver.listens.as_mut().unwrap();
                 listens[0].payload_mapping = Some(serde_json::from_str(r#"{ "data": { "id": "safe" }, "totalCount": 7 }"#).unwrap());
                 listens.push(other_listener.listens.as_ref().unwrap()[0].clone());
@@ -1582,6 +1597,7 @@ mod tests {
             let TraitReference::Inline(receiver) = &mut schema.orbitals[0].traits[1] else {
                 panic!("inline listener fixture");
             };
+            let receiver = Arc::make_mut(receiver);
             receiver.listens.as_mut().unwrap()[0].payload_mapping = Some(serde_json::from_str(mapping).unwrap());
             let found = codes(&schema);
             assert_eq!(found.contains(&ErrorCode::FetchDeliverIdsRowsRead), restricted, "mapping: {mapping}; found: {found:?}");

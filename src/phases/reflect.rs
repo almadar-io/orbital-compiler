@@ -5,6 +5,7 @@
 //! answer. Runs on the program a runtime receives, after validation has seen the program as written.
 
 use super::{CompileResult, CompilerError};
+use std::sync::Arc;
 use orbital_core_base::schema::quote::quote_expr;
 use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitReference};
 use std::path::Path;
@@ -25,15 +26,30 @@ pub fn register_trait_describer(describer: TraitDescriber) {
 
 const DESCRIBE: &str = "behavior/describe";
 
-/// Fold a program a runtime receives: the program and every lazily-used behavior it carries.
+/// The answers one fold has computed. A fold owns its cache and drops it on return, so nothing a
+/// build described outlives the build.
+#[derive(Default)]
+struct Described(std::collections::HashMap<(String, Option<std::path::PathBuf>), serde_json::Value>);
+
+/// Fold a program a runtime receives: the program and every lazily-used behavior it carries,
+/// sharing one set of answers.
 pub fn fold_program(
     schema: &mut OrbitalSchema,
     lazy: &mut [super::lazy::ResolvedLazy],
     from: Option<&Path>,
 ) -> CompileResult<()> {
-    fold_literal_reflection(schema, from)?;
+    fold_program_with(schema, lazy, from, &mut Described::default())
+}
+
+fn fold_program_with(
+    schema: &mut OrbitalSchema,
+    lazy: &mut [super::lazy::ResolvedLazy],
+    from: Option<&Path>,
+    described: &mut Described,
+) -> CompileResult<()> {
+    fold_schema(schema, from, described)?;
     for child in lazy {
-        fold_program(&mut child.schema, &mut child.lazy, from)?;
+        fold_program_with(&mut child.schema, &mut child.lazy, from, described)?;
     }
     Ok(())
 }
@@ -43,19 +59,28 @@ pub fn fold_literal_reflection(
     schema: &mut OrbitalSchema,
     from: Option<&Path>,
 ) -> CompileResult<()> {
+    fold_schema(schema, from, &mut Described::default())
+}
+
+fn fold_schema(
+    schema: &mut OrbitalSchema,
+    from: Option<&Path>,
+    described: &mut Described,
+) -> CompileResult<()> {
     for orbital in &mut schema.orbitals {
         for t in &mut orbital.traits {
             let TraitReference::Inline(td) = t else {
                 continue;
             };
+            let td = Arc::make_mut(td);
             for transition in &mut td.state_machine.transitions {
                 for effect in transition.effects.iter_mut().flatten() {
-                    fold(effect, from)?;
+                    fold(effect, from, described)?;
                 }
             }
             for tick in td.ticks.iter_mut().flatten() {
                 for effect in &mut tick.effects {
-                    fold(effect, from)?;
+                    fold(effect, from, described)?;
                 }
             }
         }
@@ -63,20 +88,24 @@ pub fn fold_literal_reflection(
     Ok(())
 }
 
-fn fold(expr: &mut SExpression, from: Option<&Path>) -> CompileResult<()> {
-    if let Some(answered) = answer(expr, from)? {
+fn fold(expr: &mut SExpression, from: Option<&Path>, described: &mut Described) -> CompileResult<()> {
+    if let Some(answered) = answer(expr, from, described)? {
         *expr = answered;
         return Ok(());
     }
     match expr {
-        SExpression::Array(items) => items.iter_mut().try_for_each(|e| fold(e, from)),
-        SExpression::Object(map) => map.values_mut().try_for_each(|e| fold(e, from)),
+        SExpression::Array(items) => items.iter_mut().try_for_each(|e| fold(e, from, described)),
+        SExpression::Object(map) => map.values_mut().try_for_each(|e| fold(e, from, described)),
         _ => Ok(()),
     }
 }
 
 /// The emit a literal describe folds to; `None` for anything else.
-fn answer(expr: &SExpression, from: Option<&Path>) -> CompileResult<Option<SExpression>> {
+fn answer(
+    expr: &SExpression,
+    from: Option<&Path>,
+    described: &mut Described,
+) -> CompileResult<Option<SExpression>> {
     let SExpression::Array(items) = expr else {
         return Ok(None);
     };
@@ -98,7 +127,7 @@ fn answer(expr: &SExpression, from: Option<&Path>) -> CompileResult<Option<SExpr
     })?;
     let value_json = serde_json::to_value(value)
         .map_err(|e| reflection_error(format!("cannot read the trait value: {e}")))?;
-    let description = described(*describer, &value_json, from)?;
+    let description = describe_once(described, *describer, &value_json, from)?;
     let Some(success) = success else {
         // Nothing observes a describe without a success route.
         return Ok(Some(SExpression::Array(vec![SExpression::String(
@@ -116,32 +145,24 @@ fn answer(expr: &SExpression, from: Option<&Path>) -> CompileResult<Option<SExpr
     ])))
 }
 
-/// One answer per trait value and program location for the life of the process: a site names
-/// the same trait from many pages, and each answer resolves a whole behavior.
-fn described(
+/// One answer per trait value and program location within a fold: a site names the same trait
+/// from many pages, and each answer resolves a whole behavior.
+fn describe_once(
+    described: &mut Described,
     describer: TraitDescriber,
     value: &serde_json::Value,
     from: Option<&Path>,
 ) -> CompileResult<serde_json::Value> {
-    type Cache = std::sync::Mutex<
-        std::collections::HashMap<(String, Option<std::path::PathBuf>), serde_json::Value>,
-    >;
-    static CACHE: OnceLock<Cache> = OnceLock::new();
     let key = (
         value.to_string(),
         from.and_then(Path::parent).map(Path::to_path_buf),
     );
-    let cache = CACHE.get_or_init(Default::default);
-    let poisoned = || reflection_error("the describe cache is poisoned".to_string());
-    if let Some(hit) = cache.lock().map_err(|_| poisoned())?.get(&key) {
+    if let Some(hit) = described.0.get(&key) {
         return Ok(hit.clone());
     }
     let description = describer(value, from)
         .map_err(|e| reflection_error(format!("cannot describe {value} at build time: {e}")))?;
-    cache
-        .lock()
-        .map_err(|_| poisoned())?
-        .insert(key, description.clone());
+    described.0.insert(key, description.clone());
     Ok(description)
 }
 
@@ -288,33 +309,45 @@ mod tests {
         assert!(err.to_string().contains("no such trait"), "{err}");
     }
 
+    fn calls_for(name: &str) -> usize {
+        CALLS.lock().unwrap().iter().filter(|t| *t == name).count()
+    }
+
     #[test]
-    fn the_same_literal_is_described_once_per_process() {
+    fn the_same_literal_is_described_once_within_one_fold() {
         let lit = serde_json::json!({ "behavior": "std/std-door", "trait": "DescribedOnce" });
-        let mut a = program(serde_json::json!([describe(lit.clone())]));
-        let mut b = program(serde_json::json!([
-            describe(lit),
-            [
-                "when",
-                true,
-                describe(
-                    serde_json::json!({ "behavior": "std/std-door", "trait": "DescribedOnce" })
-                )
-            ]
+        let mut schema = program(serde_json::json!([
+            describe(lit.clone()),
+            ["when", true, describe(lit)]
         ]));
+        fold_literal_reflection(&mut schema, None).expect("fold");
+        assert_eq!(calls_for("DescribedOnce"), 1);
+        let out = effects(&schema);
+        assert_eq!(out[0], out[1][2], "every occurrence gets the same answer");
+    }
+
+    #[test]
+    fn control_a_second_fold_describes_again_because_nothing_outlives_the_first() {
+        let lit = serde_json::json!({ "behavior": "std/std-door", "trait": "DescribedPerFold" });
+        let mut a = program(serde_json::json!([describe(lit.clone())]));
+        let mut b = program(serde_json::json!([describe(lit)]));
         fold_literal_reflection(&mut a, None).expect("fold");
         fold_literal_reflection(&mut b, None).expect("fold");
-        let calls = CALLS
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|t| *t == "DescribedOnce")
-            .count();
-        assert_eq!(calls, 1);
-        assert_eq!(
-            effects(&a)[0],
-            effects(&b)[0],
-            "every occurrence gets the same answer"
-        );
+        assert_eq!(calls_for("DescribedPerFold"), 2);
+        assert_eq!(effects(&a)[0], effects(&b)[0]);
+    }
+
+    #[test]
+    fn a_program_and_its_lazy_behaviors_share_one_fold() {
+        let lit = serde_json::json!({ "behavior": "std/std-door", "trait": "DescribedAcrossLazy" });
+        let mut root = program(serde_json::json!([describe(lit.clone())]));
+        let mut lazy = vec![super::super::lazy::ResolvedLazy {
+            orbital: "Child".to_string(),
+            orb_ref: "child".to_string(),
+            schema: program(serde_json::json!([describe(lit)])),
+            lazy: Vec::new(),
+        }];
+        fold_program(&mut root, &mut lazy, None).expect("fold");
+        assert_eq!(calls_for("DescribedAcrossLazy"), 1);
     }
 }

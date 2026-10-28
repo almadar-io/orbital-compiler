@@ -20,6 +20,7 @@
 //! rename is byte-identical through this pass.
 
 use super::rewrite::{rewrite_identifiers, rewrite_payload_entity_refs};
+use std::sync::Arc;
 use orbital_core_base::schema::{
     ConfigField, EntityRef, Orbital, OrbitalSchema, PageRef, SExpression, TraitDefinition,
     TraitReference,
@@ -179,6 +180,7 @@ fn normalize_trait_reference(
 ) {
     match tr {
         TraitReference::Inline(td) => {
+            let td = Arc::make_mut(td);
             normalize_inline_trait(td, entity_id_to_name, trait_id_to_name);
             normalize_config_ref_tokens(
                 td.config.as_mut(),

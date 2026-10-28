@@ -21,6 +21,7 @@
 //! composition + render-authority attribution).
 
 use super::r#trait::collect_sibling_trait_refs;
+use std::sync::Arc;
 use super::rewrite::trait_ref_name;
 use super::InlineError;
 use crate::phases::validation::render_ui::is_render_ui_effect;
@@ -71,6 +72,7 @@ pub(crate) fn splice_lambda_trait_refs(
         let TraitReference::Inline(td) = tr else {
             continue;
         };
+        let td = Arc::make_mut(td);
         let path = format!("{}.traits[name={}]", orbital_path, td.name);
         // The host's own embed side-map drives id-primary resolution for the
         // `@trait.X` tokens in ITS body. Cloned so the transitions/ticks below
@@ -552,7 +554,7 @@ mod tests {
                 indexes: None,
             }),
             auxiliary_entities: None,
-            traits: traits.into_iter().map(TraitReference::Inline).collect(),
+            traits: traits.into_iter().map(|td| TraitReference::Inline(Arc::new(td))).collect(),
             pages: None,
             emits: None,
             listens: None,

@@ -1,6 +1,7 @@
 //! Page reference inlining and call-site overrides.
 
 use super::context::{parse_reference, InlineContext, ParsedReference};
+use std::sync::Arc;
 use super::rewrite::{rewrite_identifiers, stale_entity_rebind_subs};
 use super::InlineError;
 use orbital_core_base::schema::{
@@ -120,6 +121,7 @@ fn apply_overrides_to_page(
                 if let Some(traits) = page_def.traits.as_mut() {
                     for trait_ref in traits.iter_mut() {
                         if let TraitReference::Inline(inline_trait) = trait_ref {
+                            let inline_trait = Arc::make_mut(inline_trait);
                             // V4 leverage-ids: augment the page-primary rebind
                             // subs with any stale token name the trait's
                             // `entity_ref_ids` side-map ties to its bound entity

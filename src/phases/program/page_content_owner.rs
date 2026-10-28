@@ -373,7 +373,7 @@ mod tests {
         traits: &[TraitDefinition],
     ) -> (EmbedAdjacency<'static>, EmbedAdjacency<'static>) {
         let refs: Vec<TraitReference> =
-            traits.iter().cloned().map(TraitReference::Inline).collect();
+            traits.iter().cloned().map(|td| TraitReference::Inline(std::sync::Arc::new(td))).collect();
         let orbital = Box::leak(Box::new(Orbital {
             spec: false,
             types: None,

@@ -178,7 +178,7 @@ pub fn validate_all_entity_mutations(schema: &OrbitalSchema, ctx: &mut Validatio
             .traits
             .iter()
             .filter_map(|t| match t {
-                TraitReference::Inline(def) => Some(def),
+                TraitReference::Inline(def) => Some(&**def),
                 TraitReference::Reference { .. } => None,
             })
             .collect();

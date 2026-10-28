@@ -5,6 +5,7 @@
 use orbital_core_base::schema::{
     EntityDefinition, EntityRef, Orbital, OrbitalSchema, PageRef, TraitDefinition, TraitReference,
 };
+use std::sync::Arc;
 use orbital_core_base::str_utils::to_snake_case;
 use std::collections::HashMap;
 
@@ -76,6 +77,7 @@ fn enrich_orbital(orbital: &mut Orbital, config: &EnrichmentConfig) {
     // Enrich inline traits
     for trait_ref in &mut orbital.traits {
         if let TraitReference::Inline(trait_def) = trait_ref {
+            let trait_def = Arc::make_mut(trait_def);
             enrich_trait(trait_def, config);
         }
     }

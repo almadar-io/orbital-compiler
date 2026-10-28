@@ -87,7 +87,7 @@ pub fn unhandled_controls(schema: &OrbitalSchema) -> Vec<UnhandledControl> {
             .traits
             .iter()
             .filter_map(|t| match t {
-                TraitReference::Inline(td) => Some(td),
+                TraitReference::Inline(td) => Some(&**td),
                 _ => None,
             })
             .collect();

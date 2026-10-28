@@ -7,6 +7,7 @@
 //! Faithful Rust port of `packages/almadar-core/src/builders/event-wiring.ts`.
 
 use super::compose_behaviors::ComposeError;
+use std::sync::Arc;
 use orbital_core_base::schema::{
     EmitDefinition, EventScope, ListenDefinition, Orbital, TraitDefinition, TraitReference,
 };
@@ -48,7 +49,7 @@ fn find_inline_trait_mut<'a>(
         for trait_ref in orbital.traits.iter_mut() {
             if let TraitReference::Inline(trait_def) = trait_ref {
                 if trait_def.name == name {
-                    return Some(trait_def);
+                    return Some(Arc::make_mut(trait_def));
                 }
             }
         }

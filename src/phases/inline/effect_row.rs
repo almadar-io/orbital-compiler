@@ -17,6 +17,7 @@
 //! two layers cannot disagree about what an effect row contains.
 
 use orbital_core_base::effect_row::{EffectRowBuilder, EffectSite};
+use std::sync::Arc;
 use orbital_core_base::schema::{Orbital, TraitReference};
 
 /// Re-derive the effect row of every inline trait on `orbital` from its
@@ -28,6 +29,7 @@ pub(crate) fn recompute_effect_rows(orbital: &mut Orbital) {
             // report; deriving a row from a stub would invent a surface.
             continue;
         };
+        let def = Arc::make_mut(def);
 
         let mut builder = EffectRowBuilder::new();
         for transition in &def.state_machine.transitions {

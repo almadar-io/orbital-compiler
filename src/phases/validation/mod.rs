@@ -327,7 +327,7 @@ pub fn inline_traits(
             .enumerate()
             .filter_map(move |(j, trait_ref)| match trait_ref {
                 TraitReference::Inline(trait_def) => {
-                    Some((trait_def, trait_path(i, &orbital.name, j, trait_ref)))
+                    Some((&**trait_def, trait_path(i, &orbital.name, j, trait_ref)))
                 }
                 TraitReference::Reference { .. } => None,
             })
@@ -724,7 +724,7 @@ fn collect_page_init_payload(
         for trait_ref in page_traits {
             // Get the trait definition (either inline or from the map)
             let trait_def = match trait_ref {
-                TraitReference::Inline(def) => Some(def),
+                TraitReference::Inline(def) => Some(&**def),
                 TraitReference::Reference {
                     reference, name, ..
                 } => {

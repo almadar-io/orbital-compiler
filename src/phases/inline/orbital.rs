@@ -18,6 +18,7 @@
 //! {}` override surface).
 
 use super::collect_sibling_trait_refs;
+use std::sync::Arc;
 use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::identity_normalize::{rewrite_config_embed_tokens, rewrite_trait_embed_tokens};
 use super::r#trait::{
@@ -596,7 +597,7 @@ pub(crate) fn resolve_orbital_reference(
             None => !omit_set.contains(td.name.as_str()),
         };
         if keep {
-            kept.push(td.clone());
+            kept.push(TraitDefinition::clone(td));
         } else {
             removed_names.insert(td.name.clone());
         }
@@ -1925,7 +1926,7 @@ pub(crate) fn resolve_orbital_reference(
         .collect();
     for sibling in siblings.iter_mut() {
         match sibling {
-            TraitReference::Inline(td) => rewrite_trait_embed_tokens(td, &embed_subs),
+            TraitReference::Inline(td) => rewrite_trait_embed_tokens(Arc::make_mut(td), &embed_subs),
             TraitReference::Reference { config, .. } => {
                 if let Some(config) = config.as_mut() {
                     rewrite_config_embed_tokens(config, &embed_subs);
@@ -1935,7 +1936,7 @@ pub(crate) fn resolve_orbital_reference(
     }
     for sibling in siblings.iter_mut() {
         let listens = match sibling {
-            TraitReference::Inline(td) => td.listens.as_mut(),
+            TraitReference::Inline(td) => Arc::make_mut(td).listens.as_mut(),
             TraitReference::Reference { listens, .. } => listens.as_mut(),
         };
         for listen in listens.into_iter().flatten() {
@@ -1955,7 +1956,7 @@ pub(crate) fn resolve_orbital_reference(
     }
     orbital.traits = kept
         .into_iter()
-        .map(TraitReference::Inline)
+        .map(|td| TraitReference::Inline(Arc::new(td)))
         .chain(siblings)
         .collect();
     orbital.pages = if final_pages.is_empty() {
@@ -2332,6 +2333,7 @@ pub(crate) fn bind_inherited_entity_expectations(
         }
         for td in orbital.traits.iter_mut() {
             if let TraitReference::Inline(td) = td {
+                let td = Arc::make_mut(td);
                 rename_entities_in_trait(td, &subs, &entity_ids);
                 rename_source_entity_definition(td, &subs, &entity_ids);
             }
@@ -2630,7 +2632,7 @@ fn rewrite_role_literals_in_trait(
         }
     }
     if let Some(src) = td.source_entity_definition.as_mut() {
-        rewrite_role_literals_in_entity(src, role_fields, roles);
+        rewrite_role_literals_in_entity(Arc::make_mut(src), role_fields, roles);
     }
 }
 
@@ -2776,6 +2778,7 @@ fn rename_source_entity_definition(
     let Some(src) = td.source_entity_definition.as_mut() else {
         return;
     };
+    let src = Arc::make_mut(src);
     if let Some(to) = entity_subs.get(&src.name) {
         src.name = to.clone();
     }
@@ -3389,6 +3392,7 @@ mod tests {
     ) -> (Orbital, Vec<OrbitalRefDiagnostic>) {
         let mut upstream = upstream_orbital(None);
         if let TraitReference::Inline(td) = &mut upstream.traits[2] {
+            let td = Arc::make_mut(td);
             td.dispatch = Some(orbital_core_base::schema::DispatchMode::Client);
         }
         let mut ctx = InlineContext::new();
@@ -3450,6 +3454,7 @@ mod tests {
     fn an_import_traits_override_without_a_mode_keeps_the_atoms_declared_mode() {
         let mut upstream = upstream_orbital(None);
         if let TraitReference::Inline(td) = &mut upstream.traits[2] {
+            let td = Arc::make_mut(td);
             td.dispatch = Some(orbital_core_base::schema::DispatchMode::Client);
         }
         let mut ctx = InlineContext::new();
@@ -3555,6 +3560,7 @@ mod tests {
             "pageSize": { "type": "number", "default": 10 }
         })));
         if let TraitReference::Inline(a) = &mut upstream.traits[0] {
+            let a = Arc::make_mut(a);
             a.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "limit".to_string(),
                 serde_json::from_value::<ConfigField>(json!({
@@ -3632,6 +3638,7 @@ mod tests {
         // UPSTREAM's app config never resolved).
         let mut upstream = upstream_orbital(None);
         if let TraitReference::Inline(td) = &mut upstream.traits[0] {
+            let td = Arc::make_mut(td);
             td.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "limit".to_string(),
                 serde_json::from_value::<ConfigField>(json!({
@@ -3707,6 +3714,7 @@ mod tests {
     fn schema_rung_never_falls_back_to_the_consumers_own_schema_config() {
         let mut upstream = upstream_orbital(None);
         if let TraitReference::Inline(td) = &mut upstream.traits[0] {
+            let td = Arc::make_mut(td);
             td.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "limit".to_string(),
                 serde_json::from_value::<ConfigField>(json!({
@@ -4075,6 +4083,7 @@ mod tests {
         // id in the UPSTREAM stamp's own id space (never valid in any other
         // schema).
         if let TraitReference::Inline(td) = &mut main.traits[0] {
+            let td = Arc::make_mut(td);
             td.entity_ref_ids = Some(orbital_core_base::collections::IndexMap::from([(
                 "PanelData".to_string(),
                 "ent_UPSTREAMPANELDATA00000000".to_string(),
@@ -4290,6 +4299,7 @@ mod tests {
     fn embedder_forwards_config_to_pulled_sibling() {
         let mut upstream = upstream_orbital(None);
         if let TraitReference::Inline(a) = &mut upstream.traits[0] {
+            let a = Arc::make_mut(a);
             a.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "itemClickEvent".to_string(),
                 serde_json::from_value::<ConfigField>(json!({
@@ -4299,6 +4309,7 @@ mod tests {
             )]));
         }
         if let TraitReference::Inline(b) = &mut upstream.traits[1] {
+            let b = Arc::make_mut(b);
             b.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "itemClickEvent".to_string(),
                 serde_json::from_value::<ConfigField>(json!({
@@ -4479,6 +4490,7 @@ mod tests {
             "itemClickEvent": { "type": "string", "default": "ORBITAL_DEFAULT" }
         })));
         if let TraitReference::Inline(a) = &mut upstream.traits[0] {
+            let a = Arc::make_mut(a);
             a.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "itemClickEvent".to_string(),
                 serde_json::from_value::<ConfigField>(json!({
@@ -4488,6 +4500,7 @@ mod tests {
             )]));
         }
         if let TraitReference::Inline(b) = &mut upstream.traits[1] {
+            let b = Arc::make_mut(b);
             b.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "itemClickEvent".to_string(),
                 serde_json::from_value::<ConfigField>(json!({
@@ -5147,6 +5160,7 @@ mod tests {
             "calendarSyncEnabled": { "type": "boolean", "default": false }
         })));
         if let TraitReference::Inline(td) = &mut upstream.traits[0] {
+            let td = Arc::make_mut(td);
             td.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "calendarSyncEnabled".to_string(),
                 serde_json::from_value::<ConfigField>(json!({
@@ -5778,7 +5792,7 @@ mod tests {
             "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
         }))
         .unwrap();
-        orbital.traits = vec![TraitReference::Inline(sibling_td)];
+        orbital.traits = vec![TraitReference::Inline(Arc::new(sibling_td))];
 
         let mut pages = orbital_core_base::collections::IndexMap::new();
         pages.insert("/main".to_string(), "/local-main".to_string());
@@ -5979,6 +5993,7 @@ mod tests {
     fn record_action_style_knob_event_member_is_renamed_via_events() {
         let mut upstream = upstream_orbital(None);
         if let TraitReference::Inline(a) = &mut upstream.traits[0] {
+            let a = Arc::make_mut(a);
             a.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "actions".to_string(),
                 serde_json::from_value::<ConfigField>(json!({
@@ -6054,6 +6069,7 @@ mod tests {
     ) -> (String, String) {
         let mut upstream = upstream_orbital(None);
         if let TraitReference::Inline(a) = &mut upstream.traits[0] {
+            let a = Arc::make_mut(a);
             a.config = Some(orbital_core_base::collections::IndexMap::from([
                 (
                     "one".to_string(),

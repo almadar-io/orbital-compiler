@@ -4,6 +4,7 @@
 //! declared types are static and the kernel checks no argument.
 
 use super::set::ExprReturnCtx;
+use std::sync::Arc;
 use super::TraitScopes;
 use orbital_core_base::ir::types::{DeclaredShape, OirType};
 use orbital_core_base::schema::types::PayloadField;
@@ -37,6 +38,7 @@ pub fn record_declared_shapes(schema: &mut OrbitalSchema) {
             let TraitReference::Inline(target) = &mut schema.orbitals[i].traits[j] else {
                 continue;
             };
+            let target = Arc::make_mut(target);
             for (k, transition) in trait_def.state_machine.transitions.iter().enumerate() {
                 let payload = scopes.payload_for(&transition.event);
                 let types = scopes.types_for(&view, trait_def, &transition.event);
