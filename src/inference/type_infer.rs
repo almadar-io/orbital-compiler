@@ -2769,7 +2769,7 @@ fn refine_type(
 fn handles_missing(name: &str) -> bool {
     matches!(
         name,
-        "or" | "and" | "not" | "str/default" | "math/default" | "=" | "==" | "!=" | "if" | "when" | "let"
+        "default" | "=" | "==" | "!=" | "if" | "when" | "let"
             | "do" | "list" | "quote" | "typed" | "validate/required" | "object/get"
     ) || orbital_core_eval::evaluator::operators::get_operator(name).and_then(|op| op.type_predicate()).is_some()
 }
@@ -3879,7 +3879,7 @@ mod tests {
     #[test]
     fn a_coalesce_with_a_present_fallback_is_present() {
         let row = Row(vec![("s", OirType::optional(OirType::String)), ("t", OirType::optional(OirType::String))]);
-        for op in ["or", "str/default"] {
+        for op in ["default"] {
             assert_eq!(
                 infer_oir_expr_type(&call(op, vec![entity(&["s"]), text("d")]), &row),
                 Some(OirType::String),

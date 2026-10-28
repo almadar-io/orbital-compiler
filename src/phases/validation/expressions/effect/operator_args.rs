@@ -277,7 +277,7 @@ fn report(
                     ),
                 )
                 .with_suggestion(format!(
-                    "Say what a missing value means: default it (`(math/default {operand} …)`), guard it, `(and (validate/required {operand}) ({operator} {operand} …))`, or put the call under an `if`/`when` on its presence, or give the field a default or make it required (`!`)"
+                    "Say what a missing value means: default it (`(default {operand} …)`), guard it, `(and (validate/required {operand}) ({operator} {operand} …))`, or put the call under an `if`/`when` on its presence, or give the field a default or make it required (`!`)"
                 )),
             );
             continue;
@@ -292,7 +292,7 @@ fn report(
                     ),
                 )
                 .with_suggestion(format!(
-                    "Say what a missing value means: default it, `(or {operand} …)` or `(str/default {operand} …)`, or bind it with `let` and branch on its presence, `(if (= x null) … …)`"
+                    "Say what a missing value means: default it, `(default {operand} …)`, or bind it with `let` and branch on its presence, `(if (= x null) … …)`"
                 )),
             );
             continue;
@@ -837,7 +837,7 @@ mod tests {
         for expr in [
             r#"["==", "@event.payload.id", "x"]"#,
             r#"["==", ["object/get", "@event.payload", "id"], "x"]"#,
-            r#"["str/default", "@event.source.trait", ""]"#,
+            r#"["default", "@event.source.trait", ""]"#,
             r#"["==", "@event.event", "GO"]"#,
             r#"["==", "@event.source.fromBridge", true]"#,
         ] {
@@ -1330,6 +1330,231 @@ mod tests {
                 ),
                 0
             );
+        }
+    }
+
+    /// K2 census (P-017): per operator, how many argument positions the static inference proves. Measurement only.
+    /// `K2_CENSUS_FILES` comma-separated `.orb`/`.lolo` paths, `K2_CENSUS_OUT` the JSON path.
+    mod k2_census {
+        use super::super::{with_fetch_filter_rows, BindingTypes, ExprReturnCtx};
+        use crate::type_infer::{is_effect, is_value_operator};
+        use orbital_core_base::ir::{OirExpr, OirType};
+        use orbital_core_base::schema::SExpression;
+        use std::collections::HashMap;
+        use crate::type_infer::ProvenKey;
+        use orbital_core_base::schema::TraitReference;
+        use std::collections::BTreeMap;
+
+        #[derive(Default, Clone, Copy)]
+        struct Row {
+            positions: usize,
+            proven: usize,
+            calls: usize,
+            all_proven: usize,
+        }
+
+        type Tally = BTreeMap<String, Row>;
+
+        fn markable(head: &str) -> bool {
+            is_value_operator(head)
+                && !is_effect(head)
+                && !matches!(
+                    head,
+                    "let" | "typed" | "proven" | "fn" | "lambda" | "do" | "list" | "if" | "when" | "unless" | "cond" | "match"
+                )
+        }
+
+        fn count(expr: &SExpression, proven: &HashMap<ProvenKey, Vec<usize>>, tally: &mut Tally) {
+            match expr {
+                SExpression::Object(fields) => fields.values().for_each(|v| count(v, proven, tally)),
+                SExpression::Array(items) => {
+                    let Some(SExpression::String(head)) = items.first() else {
+                        items.iter().for_each(|item| count(item, proven, tally));
+                        return;
+                    };
+                    if matches!(head.as_str(), "quote" | "quasiquote") {
+                        return;
+                    }
+                    items[1..].iter().for_each(|item| count(item, proven, tally));
+                    let arity = items.len() - 1;
+                    if arity == 0 || !markable(head) {
+                        return;
+                    }
+                    let n = orbital_core_eval::lower::lower_sexpr_keeping_typed(expr)
+                        .ok()
+                        .and_then(|oir| ProvenKey::of(&oir))
+                        .filter(|key| key.arity() == arity)
+                        .and_then(|key| proven.get(&key).map(Vec::len))
+                        .unwrap_or(0);
+                    let row = tally.entry(head.as_str().to_string()).or_default();
+                    row.positions += arity;
+                    row.proven += n;
+                    row.calls += 1;
+                    row.all_proven += usize::from(n == arity);
+                }
+                _ => {}
+            }
+        }
+
+        fn walk(expr: &SExpression, ctx: &ExprReturnCtx<'_>, condition: Option<&OirExpr>, tally: &mut Tally) {
+            match expr {
+                SExpression::Object(fields) => fields.values().for_each(|v| walk(v, ctx, condition, tally)),
+                SExpression::Array(items) => {
+                    if let Some(SExpression::String(head)) = items.first() {
+                        match head.as_str() {
+                            "quote" | "quasiquote" => return,
+                            "fn" | "lambda" => {
+                                if items.len() >= 3 {
+                                    walk(&items[items.len() - 1], ctx, condition, tally);
+                                }
+                                return;
+                            }
+                            name if is_effect(name) || is_value_operator(name) => {
+                                let mut rows = Vec::new();
+                                let read = with_fetch_filter_rows(expr, ctx, &mut rows);
+                                let proven = match orbital_core_eval::lower::lower_sexpr_keeping_typed(&read) {
+                                    Ok(oir) => crate::type_infer::proven_calls_under(&oir, condition, ctx),
+                                    Err(_) => HashMap::new(),
+                                };
+                                count(expr, &proven, tally);
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
+                    items.iter().for_each(|item| walk(item, ctx, condition, tally));
+                }
+                _ => {}
+            }
+        }
+
+        fn census_schema(schema: &orbital_core_base::schema::OrbitalSchema, trust_payload: bool) -> Tally {
+            let definitions = crate::phases::validation::entity_definitions_of(schema);
+            let no_payload: HashMap<String, String> = HashMap::new();
+            let mut tally = Tally::new();
+            for orbital in &schema.orbitals {
+                for trait_ref in &orbital.traits {
+                    let TraitReference::Inline(trait_def) = trait_ref else { continue };
+                    let scopes = crate::phases::validation::effect::TraitScopes::new(schema, trait_def, &definitions);
+                    let unproven = |mut types: BindingTypes| {
+                        if !trust_payload {
+                            types.payload.clear();
+                            types.prev_payload = None;
+                            types.user = OirType::Struct { additional: None, fields: Default::default() };
+                        }
+                        types
+                    };
+                    let mut run = |expr: &SExpression, guard: Option<&SExpression>, types: &BindingTypes| {
+                        let ctx = ExprReturnCtx {
+                            entity: &scopes.entity_field_types,
+                            payload: &no_payload,
+                            types: Some(types),
+                            schema: Some(schema),
+                        };
+                        let condition = guard.and_then(|g| orbital_core_eval::lower::lower_sexpr_keeping_typed(g).ok());
+                        walk(expr, &ctx, condition.as_ref(), &mut tally);
+                    };
+                    for transition in &trait_def.state_machine.transitions {
+                        let types = unproven(scopes.types_for(schema, trait_def, &transition.event));
+                        if let Some(guard) = &transition.guard {
+                            run(guard, None, &types);
+                        }
+                        for effect in transition.effects.iter().flatten() {
+                            run(effect, transition.guard.as_ref(), &types);
+                        }
+                    }
+                    if let Some(ticks) = &trait_def.ticks {
+                        let types = unproven(scopes.tick_types.clone());
+                        for tick in ticks {
+                            if let Some(guard) = &tick.guard {
+                                run(guard, None, &types);
+                            }
+                            for effect in &tick.effects {
+                                run(effect, tick.guard.as_ref(), &types);
+                            }
+                        }
+                    }
+                }
+            }
+            tally
+        }
+
+        fn total(tally: &Tally) -> Row {
+            tally.values().fold(Row::default(), |a, r| Row {
+                positions: a.positions + r.positions,
+                proven: a.proven + r.proven,
+                calls: a.calls + r.calls,
+                all_proven: a.all_proven + r.all_proven,
+            })
+        }
+
+        fn merge(into: &mut Tally, from: &Tally) {
+            for (op, r) in from {
+                let row = into.entry(op.clone()).or_default();
+                row.positions += r.positions;
+                row.proven += r.proven;
+                row.calls += r.calls;
+                row.all_proven += r.all_proven;
+            }
+        }
+
+        fn json(tally: &Tally) -> serde_json::Value {
+            let row = |r: &Row| {
+                serde_json::json!({ "positions": r.positions, "proven": r.proven, "calls": r.calls, "allProven": r.all_proven })
+            };
+            let mut map = serde_json::Map::new();
+            for (op, r) in tally {
+                map.insert(op.clone(), row(r));
+            }
+            map.insert("_total".to_string(), row(&total(tally)));
+            serde_json::Value::Object(map)
+        }
+
+        fn resolved(path: &std::path::Path) -> orbital_core_base::schema::OrbitalSchema {
+            crate::loader::register_source_lowerer(|path, _, _| orbital_test_support::lower_lolo_file(path));
+            let start = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let user_store = orbital_core_base::behavior_packages::user_store_dir().unwrap_or_else(|| start.clone());
+            let mut options = crate::CompilerOptions::default();
+            options.inline.loader_config.packages =
+                orbital_core_base::behavior_packages::discover(&start, &user_store).expect("package discovery");
+            let schema = if path.extension().and_then(|e| e.to_str()) == Some("lolo") {
+                orbital_test_support::lower_lolo_file(path).unwrap_or_else(|e| panic!("lower {}: {e}", path.display()))
+            } else {
+                crate::phases::parse_file(path).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
+            };
+            crate::phases::resolve_compiled_program_with_path(schema, &options, Some(path))
+                .unwrap_or_else(|e| panic!("resolve {}: {e}", path.display()))
+        }
+
+        #[test]
+        #[ignore]
+        fn k2_census_provable_argument_positions() {
+            let files = std::env::var("K2_CENSUS_FILES").expect("K2_CENSUS_FILES");
+            let out = std::env::var("K2_CENSUS_OUT").expect("K2_CENSUS_OUT");
+            let mut as_marked = Tally::new();
+            let mut typed = Tally::new();
+            let mut per_file = serde_json::Map::new();
+            for file in files.split(',').map(str::trim).filter(|f| !f.is_empty()) {
+                let path = std::fs::canonicalize(file).unwrap_or_else(|e| panic!("{file}: {e}"));
+                let schema = resolved(&path);
+                let a = census_schema(&schema, false);
+                let b = census_schema(&schema, true);
+                let row = |r: Row| serde_json::json!({ "positions": r.positions, "proven": r.proven, "calls": r.calls, "allProven": r.all_proven });
+                per_file.insert(
+                    file.to_string(),
+                    serde_json::json!({ "untrustedPayloads": row(total(&a)), "typedPayloads": row(total(&b)) }),
+                );
+                eprintln!("{file}: untrusted {:?} typed {:?}", total(&a).proven, total(&b).proven);
+                merge(&mut as_marked, &a);
+                merge(&mut typed, &b);
+            }
+            let mut report = match json(&as_marked) {
+                serde_json::Value::Object(m) => m,
+                _ => unreachable!(),
+            };
+            report.insert("_files".to_string(), serde_json::Value::Object(per_file));
+            report.insert("_typedPayloads".to_string(), json(&typed));
+            std::fs::write(&out, serde_json::to_string_pretty(&report).unwrap()).unwrap();
         }
     }
 }
