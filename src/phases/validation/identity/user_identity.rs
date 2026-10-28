@@ -181,8 +181,7 @@ fn check_config_role_lists(
     result: &mut ValidationResult,
 ) {
     use crate::phases::inline::rewrite::{role_list_literals, role_list_sites};
-    use std::collections::HashMap;
-    let mut role_fields: HashMap<String, Vec<String>> = HashMap::new();
+    let mut role_fields: orbital_core_base::collections::IndexMap<String, Vec<String>> = orbital_core_base::collections::IndexMap::new();
     for field in &identity.fields {
         if let (Some(name), Some(values)) = (field.name.as_ref(), vocabulary(field)) {
             role_fields.insert(name.clone(), values.clone());

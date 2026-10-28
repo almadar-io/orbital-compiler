@@ -24,7 +24,7 @@ use orbital_core_base::schema::{
     ConfigField, EntityRef, Orbital, OrbitalSchema, PageRef, SExpression, TraitDefinition,
     TraitReference,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Rewrite every id-carrying reference token to its current declaration name
 /// across the whole schema. Runs after `ensure_stamped`, before inline/validate.
@@ -71,7 +71,7 @@ pub fn normalize_identity_tokens(schema: &mut OrbitalSchema) {
 /// must be a function, and an arbitrary winner would silently rewrite the
 /// other owners' tokens (the multi-instance shared-id clobber).
 fn insert_unambiguous(
-    map: &mut HashMap<String, String>,
+    map: &mut orbital_core_base::collections::IndexMap<String, String>,
     poisoned: &mut HashSet<String>,
     id: &str,
     name: &str,
@@ -81,7 +81,7 @@ fn insert_unambiguous(
     }
     match map.get(id) {
         Some(existing) if existing != name => {
-            map.remove(id);
+            map.shift_remove(id);
             poisoned.insert(id.to_string());
         }
         Some(_) => {}
@@ -93,8 +93,8 @@ fn insert_unambiguous(
 
 /// `entity_id → current declaration name` for the orbital's primary + auxiliary
 /// inline entities. Reference/extends entities carry no local id to rename by.
-fn collect_entity_id_names(orbital: &Orbital) -> HashMap<String, String> {
-    let mut out = HashMap::new();
+fn collect_entity_id_names(orbital: &Orbital) -> orbital_core_base::collections::IndexMap<String, String> {
+    let mut out = orbital_core_base::collections::IndexMap::new();
     let mut poisoned = HashSet::new();
     if let EntityRef::Inline(e) = &orbital.entity {
         if let Some(id) = &e.id {
@@ -118,8 +118,8 @@ fn collect_entity_id_names(orbital: &Orbital) -> HashMap<String, String> {
 /// LOCAL decl `id` since the composed-surface backbone; their current name is
 /// the `name:` override else the reference's last segment). The imported
 /// TARGET's `ref_id` still resolves against the source registry during inline.
-fn collect_trait_id_names(orbital: &Orbital) -> HashMap<String, String> {
-    let mut out = HashMap::new();
+fn collect_trait_id_names(orbital: &Orbital) -> orbital_core_base::collections::IndexMap<String, String> {
+    let mut out = orbital_core_base::collections::IndexMap::new();
     let mut poisoned = HashSet::new();
     for tr in &orbital.traits {
         match tr {
@@ -153,8 +153,8 @@ fn collect_trait_id_names(orbital: &Orbital) -> HashMap<String, String> {
 /// declared events (the `emits` block). Events are first-class — a config knob
 /// typed `event` holds a dispatchable event key, resolved by id so a call-site
 /// `events: { OLD: NEW }` rename threads into the knob value like entity/trait.
-fn collect_event_id_names(orbital: &Orbital) -> HashMap<String, String> {
-    let mut out = HashMap::new();
+fn collect_event_id_names(orbital: &Orbital) -> orbital_core_base::collections::IndexMap<String, String> {
+    let mut out = orbital_core_base::collections::IndexMap::new();
     let mut poisoned = HashSet::new();
     for tr in &orbital.traits {
         if let TraitReference::Inline(td) = tr {
@@ -173,9 +173,9 @@ fn collect_event_id_names(orbital: &Orbital) -> HashMap<String, String> {
 /// defaults (`entity`/`trait`-typed knobs carrying a stamped `refId`).
 fn normalize_trait_reference(
     tr: &mut TraitReference,
-    entity_id_to_name: &HashMap<String, String>,
-    trait_id_to_name: &HashMap<String, String>,
-    event_id_to_name: &HashMap<String, String>,
+    entity_id_to_name: &orbital_core_base::collections::IndexMap<String, String>,
+    trait_id_to_name: &orbital_core_base::collections::IndexMap<String, String>,
+    event_id_to_name: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     match tr {
         TraitReference::Inline(td) => {
@@ -208,8 +208,8 @@ fn normalize_trait_reference(
 /// embeds to the current declaration names its id side-maps point at.
 fn normalize_inline_trait(
     td: &mut TraitDefinition,
-    entity_id_to_name: &HashMap<String, String>,
-    trait_id_to_name: &HashMap<String, String>,
+    entity_id_to_name: &orbital_core_base::collections::IndexMap<String, String>,
+    trait_id_to_name: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     normalize_trait_entity_tokens(td, entity_id_to_name);
     normalize_trait_embed_tokens(td, trait_id_to_name);
@@ -221,10 +221,10 @@ fn normalize_inline_trait(
 /// default so a renamed entity/trait/event flows into the config value the same
 /// way body tokens do.
 fn normalize_config_ref_tokens(
-    config: Option<&mut HashMap<String, ConfigField>>,
-    entity_id_to_name: &HashMap<String, String>,
-    trait_id_to_name: &HashMap<String, String>,
-    event_id_to_name: &HashMap<String, String>,
+    config: Option<&mut orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    entity_id_to_name: &orbital_core_base::collections::IndexMap<String, String>,
+    trait_id_to_name: &orbital_core_base::collections::IndexMap<String, String>,
+    event_id_to_name: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     let Some(config) = config else { return };
     for cf in config.values_mut() {
@@ -249,7 +249,7 @@ fn normalize_config_ref_tokens(
 /// `fetch`/`persist`/`ref`/`spawn`, payload types) + `linked_entity_id`.
 fn normalize_trait_entity_tokens(
     td: &mut TraitDefinition,
-    entity_id_to_name: &HashMap<String, String>,
+    entity_id_to_name: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     if entity_id_to_name.is_empty() {
         return;
@@ -263,7 +263,7 @@ fn normalize_trait_entity_tokens(
         }
     }
 
-    let mut entity_subs: HashMap<String, String> = HashMap::new();
+    let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
     if let Some(refs) = td.entity_ref_ids.as_ref() {
         for (token_name, entity_id) in refs {
             if let Some(cur) = entity_id_to_name.get(entity_id) {
@@ -277,7 +277,7 @@ fn normalize_trait_entity_tokens(
         return;
     }
 
-    let no_events: HashMap<String, String> = HashMap::new();
+    let no_events: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
     for p in td.propositions_mut() {
         rewrite_identifiers(p, &entity_subs, &no_events);
     }
@@ -308,12 +308,12 @@ fn normalize_trait_entity_tokens(
 /// effect trees, resolved by `trait_embed_ids`.
 fn normalize_trait_embed_tokens(
     td: &mut TraitDefinition,
-    trait_id_to_name: &HashMap<String, String>,
+    trait_id_to_name: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     if trait_id_to_name.is_empty() {
         return;
     }
-    let mut trait_subs: HashMap<String, String> = HashMap::new();
+    let mut trait_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
     if let Some(embeds) = td.trait_embed_ids.as_ref() {
         for (token_name, trait_id) in embeds {
             if let Some(cur) = trait_id_to_name.get(trait_id) {
@@ -339,7 +339,7 @@ fn normalize_trait_embed_tokens(
 /// (whose Reference-trait siblings carry no embed id to normalize by).
 pub(super) fn rewrite_trait_embed_tokens(
     td: &mut TraitDefinition,
-    trait_subs: &HashMap<String, String>,
+    trait_subs: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     for transition in td.state_machine.transitions.iter_mut() {
         if let Some(effects) = transition.effects.as_mut() {
@@ -370,8 +370,8 @@ pub(super) fn rewrite_trait_embed_tokens(
 /// `@trait.<X>` embeds inside config defaults (a composed trait's call-site
 /// `config {}` override, e.g. an `AppLayout`'s `contentTrait`).
 pub(super) fn rewrite_config_embed_tokens(
-    config: &mut HashMap<String, ConfigField>,
-    trait_subs: &HashMap<String, String>,
+    config: &mut orbital_core_base::collections::IndexMap<String, ConfigField>,
+    trait_subs: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     for cf in config.values_mut() {
         if let Some(default) = cf.default.as_mut() {
@@ -380,7 +380,7 @@ pub(super) fn rewrite_config_embed_tokens(
     }
 }
 
-fn rewrite_trait_embed_in_sexpr(expr: &mut SExpression, subs: &HashMap<String, String>) {
+fn rewrite_trait_embed_in_sexpr(expr: &mut SExpression, subs: &orbital_core_base::collections::IndexMap<String, String>) {
     match expr {
         SExpression::String(s) => {
             if let Some(rest) = s.strip_prefix("@trait.") {
@@ -411,7 +411,7 @@ fn rewrite_trait_embed_in_sexpr(expr: &mut SExpression, subs: &HashMap<String, S
 fn normalize_trait_ref(
     reference: &mut Option<String>,
     ref_id: Option<&str>,
-    trait_id_to_name: &HashMap<String, String>,
+    trait_id_to_name: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     if let (Some(rid), Some(reference_str)) = (ref_id, reference.as_mut()) {
         if let Some(cur) = trait_id_to_name.get(rid) {

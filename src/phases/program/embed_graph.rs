@@ -58,17 +58,17 @@ pub(crate) struct EmbedGraph {
     config_referrers: HashMap<String, Vec<String>>,
     /// trait name -> its own declared values (see module doc for what
     /// "declared" means per entry kind).
-    declared: HashMap<String, HashMap<String, ConfigField>>,
+    declared: HashMap<String, orbital_core_base::collections::IndexMap<String, ConfigField>>,
 }
 
 impl EmbedGraph {
     pub(crate) fn build(traits: &[TraitReference]) -> Self {
-        let mut declared: HashMap<String, HashMap<String, ConfigField>> = HashMap::new();
+        let mut declared: HashMap<String, orbital_core_base::collections::IndexMap<String, ConfigField>> = HashMap::new();
         let mut referrers: HashMap<String, Vec<String>> = HashMap::new();
         let mut config_referrers: HashMap<String, Vec<String>> = HashMap::new();
 
         for trait_ref in traits {
-            let (name, config): (&str, HashMap<String, ConfigField>) = match trait_ref {
+            let (name, config): (&str, orbital_core_base::collections::IndexMap<String, ConfigField>) = match trait_ref {
                 TraitReference::Inline(td) => {
                     (td.name.as_str(), td.config.clone().unwrap_or_default())
                 }
@@ -128,7 +128,7 @@ impl EmbedGraph {
     /// table, not just one lookup at a time.
     pub(crate) fn declared_iter(
         &self,
-    ) -> impl Iterator<Item = (&str, &HashMap<String, ConfigField>)> {
+    ) -> impl Iterator<Item = (&str, &orbital_core_base::collections::IndexMap<String, ConfigField>)> {
         self.declared.iter().map(|(k, v)| (k.as_str(), v))
     }
 
@@ -172,7 +172,7 @@ impl EmbedGraph {
     /// trait embedding itself, directly or transitively, is not a shape any
     /// authoring path produces) but the walk must terminate defensively
     /// regardless of malformed input.
-    pub(crate) fn embedder_chain(&self, trait_name: &str) -> Vec<&HashMap<String, ConfigField>> {
+    pub(crate) fn embedder_chain(&self, trait_name: &str) -> Vec<&orbital_core_base::collections::IndexMap<String, ConfigField>> {
         let mut chain = Vec::new();
         let mut visited: HashSet<&str> = HashSet::new();
         let mut current = trait_name;
@@ -230,7 +230,7 @@ impl EmbedGraph {
 fn overlay_only_embeds(td: &orbital_core_base::schema::TraitDefinition) -> HashSet<String> {
     fn scan(
         node: &SExpression,
-        config: &HashMap<String, ConfigField>,
+        config: &orbital_core_base::collections::IndexMap<String, ConfigField>,
         slots_by_trait: &mut HashMap<String, Vec<String>>,
     ) {
         let SExpression::Array(items) = node else {

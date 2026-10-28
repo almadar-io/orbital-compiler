@@ -13,7 +13,6 @@ use orbital_core_base::http_wire::split_tcp_url;
 use orbital_core_base::sql_guard::assert_read_only_select;
 use orbital_core_base::schema::{ConfigField, OrbitalSchema, SExpression, SObject};
 use orbital_core_base::secrets::config_knob;
-use std::collections::HashMap;
 
 const OPTION_KEYS: [&str; 7] = ["auth", "user", "database", "tls", "timeoutMs", "key", "emit"];
 const EMIT_KEYS: [&str; 2] = ["success", "failure"];
@@ -28,7 +27,7 @@ fn invalid(at: &str, message: impl Into<String>) -> ValidationError {
 
 fn check_origin(
     value: &SExpression,
-    config: Option<&HashMap<String, ConfigField>>,
+    config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
     at: &str,
     result: &mut ValidationResult,
 ) {
@@ -123,7 +122,7 @@ fn check_scalars(options: &SObject, at: &str, result: &mut ValidationResult) {
 
 fn check_call(
     arr: &[SExpression],
-    config: Option<&HashMap<String, ConfigField>>,
+    config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
     declared: &[super::DeclaredEmit],
     at: &str,
     result: &mut ValidationResult,

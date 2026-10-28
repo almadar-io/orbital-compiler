@@ -6,7 +6,6 @@ use super::InlineError;
 use orbital_core_base::schema::{
     ConfigField, PageAccess, PageDefinition, PageModifiers, PageRef, PageRefObject, TraitReference,
 };
-use std::collections::HashMap;
 
 /// An import's explicit page modifiers over the upstream page's: each declared
 /// one replaces it, absent ones inherit, and `public` over an upstream
@@ -109,9 +108,9 @@ fn apply_overrides_to_page(
         // the rebound primary_entity matches what callers see.
         if let Some(orig) = old_entity {
             if &orig != new_entity {
-                let mut entity_subs: HashMap<String, String> = HashMap::new();
+                let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
                 entity_subs.insert(orig, new_entity.clone());
-                let event_subs: HashMap<String, String> = HashMap::new();
+                let event_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
 
                 // Walk every inline trait the page declares so embedded
                 // SExpression entity refs are rewritten. References (the
@@ -252,8 +251,8 @@ pub(crate) fn inline_pages(
 /// forwarded config walks. A knob no rung supplies stays a live `@config` read.
 pub(crate) fn resolve_page_addresses(
     pages: &mut Option<Vec<PageRef>>,
-    orbital_config: Option<&HashMap<String, ConfigField>>,
-    schema_config: Option<&HashMap<String, ConfigField>>,
+    orbital_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    schema_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
 ) {
     for page_ref in pages.iter_mut().flatten() {
         let PageRef::Inline(page_def) = page_ref else {

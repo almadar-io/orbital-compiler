@@ -162,7 +162,7 @@ fn keyed(fields: Vec<FieldDefinition>) -> orbital_core_base::collections::IndexM
 /// Post-inline, `ConfigField.default` already carries the call site's override
 /// folded over the declared default — so this IS the resolved value, and no
 /// separate effective-config map is needed.
-fn knob_value(config: Option<&HashMap<String, ConfigField>>, knob: &str) -> Option<String> {
+fn knob_value(config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>, knob: &str) -> Option<String> {
     match config?.get(knob)?.default.as_ref()? {
         SExpression::String(s) => Some(s.clone().into_inner()),
         _ => None,

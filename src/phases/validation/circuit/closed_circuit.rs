@@ -954,7 +954,7 @@ struct RenderScope<'a> {
     /// leans. A set whose value does not resolve to a literal tree is simply
     /// skipped, never clearing an earlier resolved candidate.
     entity_fields: HashMap<String, Vec<SExpression>>,
-    config: Option<&'a HashMap<String, ConfigField>>,
+    config: Option<&'a orbital_core_base::collections::IndexMap<String, ConfigField>>,
 }
 
 impl<'a> RenderScope<'a> {

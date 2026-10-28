@@ -189,7 +189,7 @@ fn uniquify_orbital(
             return;
         };
         let disc = owner_key(td).to_string();
-        let mut subs: HashMap<String, String> = HashMap::new();
+        let mut subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         declared_event_ids(td, &mut |id| {
             if colliding.contains(id) && !subs.contains_key(id) {
                 subs.insert(id.to_string(), derive_id(id, &disc));
@@ -200,7 +200,7 @@ fn uniquify_orbital(
         }
         // Current key per rewritten id, for the ledger row (emits fill in ids
         // the event list doesn't carry).
-        let mut key_of: HashMap<String, String> = HashMap::new();
+        let mut key_of: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         for e in td.emits.iter().flatten() {
             if let Some(id) = &e.event_id {
                 key_of.entry(id.clone()).or_insert_with(|| e.event.clone());
@@ -247,7 +247,7 @@ fn uniquify_orbital(
     // position still holding one by its sibling NAME against the post-hygiene
     // declarations (first declaration wins, `events_any` semantics); a key that
     // resolves nowhere clears to None (the best-effort contract).
-    let mut key_to_id: HashMap<String, String> = HashMap::new();
+    let mut key_to_id: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
     for_each_inline_trait(orbital, &mut |td| {
         for ev in td.state_machine.events.iter().flatten() {
             if let Some(id) = &ev.id {
@@ -283,7 +283,7 @@ fn uniquify_orbital(
     });
 }
 
-fn swap_id(slot: &mut Option<String>, subs: &HashMap<String, String>) {
+fn swap_id(slot: &mut Option<String>, subs: &orbital_core_base::collections::IndexMap<String, String>) {
     if let Some(id) = slot.as_ref() {
         if let Some(new) = subs.get(id) {
             *slot = Some(new.clone());
@@ -295,7 +295,7 @@ fn reresolve(
     slot: &mut Option<String>,
     name: Option<&str>,
     retired: &HashSet<String>,
-    key_to_id: &HashMap<String, String>,
+    key_to_id: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     if let Some(id) = slot.as_ref() {
         if retired.contains(id) {
@@ -305,9 +305,9 @@ fn reresolve(
 }
 
 fn reresolve_config(
-    config: Option<&mut HashMap<String, orbital_core_base::schema::ConfigField>>,
+    config: Option<&mut orbital_core_base::collections::IndexMap<String, orbital_core_base::schema::ConfigField>>,
     retired: &HashSet<String>,
-    key_to_id: &HashMap<String, String>,
+    key_to_id: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     let Some(config) = config else { return };
     for cf in config.values_mut() {

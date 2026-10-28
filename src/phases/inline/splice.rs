@@ -48,8 +48,8 @@ pub(crate) fn splice_lambda_trait_refs(
     //   `embed_ids_by_name` — trait name → its own `trait_embed_ids`, so
     //                       nested splices switch to the wrapper's side-map
     //                       when recursing into its expanded template.
-    let mut id_to_name: HashMap<String, String> = HashMap::new();
-    let mut embed_ids_by_name: HashMap<String, Option<HashMap<String, String>>> = HashMap::new();
+    let mut id_to_name: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
+    let mut embed_ids_by_name: HashMap<String, Option<orbital_core_base::collections::IndexMap<String, String>>> = HashMap::new();
     for tr in &orbital.traits {
         if let TraitReference::Inline(td) = tr {
             templates.insert(
@@ -174,12 +174,12 @@ fn splice_expr(
     expr: &mut SExpression,
     in_lambda: bool,
     templates: &HashMap<String, SpliceEntry>,
-    embed_ids_by_name: &HashMap<String, Option<HashMap<String, String>>>,
-    id_to_name: &HashMap<String, String>,
+    embed_ids_by_name: &HashMap<String, Option<orbital_core_base::collections::IndexMap<String, String>>>,
+    id_to_name: &orbital_core_base::collections::IndexMap<String, String>,
     // The embed side-map of the trait whose body this subtree belongs to
     // (`None` when it has no `trait_embed_ids`). Switched to the wrapper's own
     // map when recursing into its expanded template.
-    cur_embed_ids: Option<&HashMap<String, String>>,
+    cur_embed_ids: Option<&orbital_core_base::collections::IndexMap<String, String>>,
     path: &str,
     visiting: &mut Vec<String>,
     merged: &mut Vec<(String, EmitDefinition)>,
@@ -763,7 +763,7 @@ mod tests {
         );
         wrapper.id = Some("trait-card".to_string());
         let mut host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.Card")]));
-        host.trait_embed_ids = Some(HashMap::from([(
+        host.trait_embed_ids = Some(orbital_core_base::collections::IndexMap::from([(
             "Card".to_string(),
             "trait-card".to_string(),
         )]));

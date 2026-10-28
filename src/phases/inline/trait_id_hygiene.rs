@@ -19,7 +19,7 @@ pub(super) fn uniquify_instance_trait_ids(schema: &mut OrbitalSchema) {
                 }
             }
         });
-        let mut renamed: HashMap<String, String> = HashMap::new();
+        let mut renamed: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         for (name, id) in declared {
             let owner = (orbital.name.clone(), name.clone());
             match owners.get(&id) {
@@ -59,7 +59,7 @@ pub(super) fn uniquify_instance_trait_ids(schema: &mut OrbitalSchema) {
 }
 
 /// Points every declaration and by-id reference to a renamed trait in `orbital` at its derived id.
-fn follow(orbital: &mut Orbital, renamed: &HashMap<String, String>) {
+fn follow(orbital: &mut Orbital, renamed: &orbital_core_base::collections::IndexMap<String, String>) {
     for_each_trait_ref_mut(orbital, &mut |tr| match tr {
         TraitReference::Inline(td) => {
             if let Some(fresh) = renamed.get(&td.name) {

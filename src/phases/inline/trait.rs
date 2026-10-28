@@ -5,9 +5,10 @@ use super::context::{parse_reference, InlineContext, ParsedReference};
 use super::identity_normalize::rewrite_trait_embed_tokens;
 use super::rewrite::{
     apply_inline_config_defaults, coerce_trait_knob_conditions, mark_config_literal_lists,
-    record_config_provenance, rewrite_entity_field_paths,
+    record_config_provenance, resolve_event_scope_renames, rewrite_entity_field_paths,
     rewrite_entity_ref_ids, rewrite_entity_typed_config_values, rewrite_identifiers,
-    rewrite_payload_entity_refs, rewrite_trait_event_fields, stale_entity_rebind_subs,
+    rewrite_payload_entity_refs, rewrite_persist_data_keys, rewrite_trait_event_fields,
+    stale_entity_rebind_subs,
 };
 use super::InlineError;
 use orbital_core_base::schema::{
@@ -48,15 +49,15 @@ pub(crate) fn apply_overrides_to_trait(
     // id-free callers); an unresolved target clears the id (justified: the
     // rebind target is not a node in the composed graph — a dangling foreign id
     // is never the right carry).
-    entity_ids: &HashMap<String, String>,
-    config: Option<&HashMap<String, ConfigField>>,
+    entity_ids: &orbital_core_base::collections::IndexMap<String, String>,
+    config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
     name: Option<&str>,
-    events: Option<&HashMap<String, String>>,
+    events: Option<&orbital_core_base::collections::IndexMap<String, String>>,
     // Per-key `@entity.<old>` → `@entity.<new>` field rename map. Mirrors
     // `events`: rewrites every entity-field read inside the resolved trait so a
     // DATA field the trait reads is satisfied by a differently-named field on
     // the rebind target. Also rewrites the trait's `entity_contract.requires`.
-    fields: Option<&HashMap<String, String>>,
+    fields: Option<&orbital_core_base::collections::IndexMap<String, String>>,
     // When true, fold call-site config overrides into the trait's declared
     // `config[k].default` (so they carry forward) but DO NOT substitute the
     // `@config.X` strings in the state machine. Used when resolving an import,
@@ -65,7 +66,7 @@ pub(crate) fn apply_overrides_to_trait(
     // values as before.
     defer_config_subst: bool,
     recorder: &mut Vec<ConfigProvenanceRecord>,
-) {
+) -> Result<(), InlineError> {
     let original_name = trait_def.name.clone();
     // 1. Direct name rename — applied first so all subsequent operations
     //    refer to the final name in any error messages.
@@ -78,7 +79,7 @@ pub(crate) fn apply_overrides_to_trait(
     // 2. Build the entity substitution map. The `linked_entity` arg means
     //    "the atom thinks its canonical entity is X; rebind it to Y". The
     //    pre-existing `trait_def.linked_entity` IS the from-key.
-    let mut entity_subs: HashMap<String, String> = HashMap::new();
+    let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
     // Secondary (non-`linked_entity`) positional references this trait
     // carries — independent of whether `linked_entity` itself changes here —
     // that already name an id the CONSUMER's own roster knows under a
@@ -127,7 +128,7 @@ pub(crate) fn apply_overrides_to_trait(
     // 3. Build the event substitution map directly from the caller args.
     //    Empty entries (or self-mapped no-ops) are pruned to keep the walker
     //    from doing redundant work.
-    let mut event_subs: HashMap<String, String> = HashMap::new();
+    let mut event_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
     if let Some(map) = events {
         for (from, to) in map.iter() {
             if from != to && !from.is_empty() && !to.is_empty() {
@@ -140,7 +141,7 @@ pub(crate) fn apply_overrides_to_trait(
     //     trait's `@entity.<from>` reads (and `(set @entity.<from> ...)`) to
     //     `@entity.<to>` so a renamed DATA field on the rebind target satisfies
     //     the read. Self-mapped no-ops and empty entries are pruned.
-    let mut field_subs: HashMap<String, String> = HashMap::new();
+    let mut field_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
     if let Some(map) = fields {
         for (from, to) in map.iter() {
             if from != to && !from.is_empty() && !to.is_empty() {
@@ -163,7 +164,7 @@ pub(crate) fn apply_overrides_to_trait(
     //      `effective_config` + the folded declared default below, and
     //      `contains_callsite_payload` (step 6) keeps a still-captured knob out
     //      of the child body.
-    let tagged_config: Option<HashMap<String, ConfigField>> = config.map(|c| {
+    let tagged_config: Option<orbital_core_base::collections::IndexMap<String, ConfigField>> = config.map(|c| {
         c.iter()
             .map(|(k, cf)| {
                 let mut cf = cf.clone();
@@ -215,7 +216,8 @@ pub(crate) fn apply_overrides_to_trait(
             ))
         });
     }
-    let mut effective_config: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
+    let mut effective_config: orbital_core_base::schema::SObject =
+        orbital_core_base::schema::SObject::new();
     if let Some(declared) = trait_def.config.as_ref() {
         for (k, field) in declared.iter() {
             if let Some(default) = field.default.as_ref() {
@@ -242,7 +244,7 @@ pub(crate) fn apply_overrides_to_trait(
     // A call-site override of an `entity`-typed knob retargets every effect that names `@config.<knob>`; the
     // `entity_ref_ids` side-map still carries the knob DEFAULT's entity, which names no node in the consumer's
     // program. Follow the override like a rebind: the old key goes, the override's entity joins under its current id.
-    let knob_retargets: HashMap<String, String> = trait_def
+    let knob_retargets: orbital_core_base::collections::IndexMap<String, String> = trait_def
         .config
         .as_ref()
         .map(|declared| {
@@ -250,8 +252,12 @@ pub(crate) fn apply_overrides_to_trait(
                 .iter()
                 .filter(|(_, field)| field.field_type == "entity")
                 .filter_map(|(knob, field)| {
-                    let SExpression::String(default) = field.default.as_ref()? else { return None };
-                    let SExpression::String(chosen) = effective_config.get(knob)? else { return None };
+                    let SExpression::String(default) = field.default.as_ref()? else {
+                        return None;
+                    };
+                    let SExpression::String(chosen) = effective_config.get(knob)? else {
+                        return None;
+                    };
                     (chosen != default).then(|| (default.to_string(), chosen.to_string()))
                 })
                 .collect()
@@ -260,7 +266,7 @@ pub(crate) fn apply_overrides_to_trait(
     if !knob_retargets.is_empty() {
         let mut refs = trait_def.entity_ref_ids.take().unwrap_or_default();
         for (default, chosen) in &knob_retargets {
-            if refs.remove(default).is_some() {
+            if refs.shift_remove(default).is_some() {
                 if let Some(id) = entity_ids.get(chosen) {
                     refs.insert(chosen.clone(), id.clone());
                 }
@@ -327,6 +333,9 @@ pub(crate) fn apply_overrides_to_trait(
                 for effect in effects.iter_mut() {
                     rewrite_identifiers(effect, &entity_subs, &event_subs);
                     rewrite_entity_field_paths(effect, &field_subs);
+                    if let Some(bound) = trait_def.linked_entity.as_deref() {
+                        rewrite_persist_data_keys(effect, &field_subs, bound);
+                    }
                 }
             }
         }
@@ -339,6 +348,9 @@ pub(crate) fn apply_overrides_to_trait(
                 for effect in tick.effects.iter_mut() {
                     rewrite_identifiers(effect, &entity_subs, &event_subs);
                     rewrite_entity_field_paths(effect, &field_subs);
+                    if let Some(bound) = trait_def.linked_entity.as_deref() {
+                        rewrite_persist_data_keys(effect, &field_subs, bound);
+                    }
                 }
             }
         }
@@ -365,7 +377,8 @@ pub(crate) fn apply_overrides_to_trait(
 
     // 5. Walk the structured event-key fields. These live outside SExpression
     //    payloads, so the SExpression walk above does not reach them.
-    rewrite_trait_event_fields(trait_def, &event_subs);
+    let event_scope = resolve_event_scope_renames([&*trait_def], &event_subs)?;
+    rewrite_trait_event_fields(trait_def, &event_scope, None)?;
 
     // 5b. Walk the typed payload schemas (emits[*].payloadSchema,
     //     state_machine.events[*].payloadSchema). Their `type` strings can
@@ -462,7 +475,7 @@ pub(crate) fn apply_overrides_to_trait(
             if !already_declared && cf.is_declaration_form() {
                 trait_def
                     .config
-                    .get_or_insert_with(HashMap::new)
+                    .get_or_insert_with(orbital_core_base::collections::IndexMap::new)
                     .insert(k.clone(), cf.clone());
             }
         }
@@ -601,18 +614,28 @@ pub(crate) fn apply_overrides_to_trait(
             .unwrap_or_default();
         coerce_trait_knob_conditions(trait_def, &trait_knobs, &effective_config);
         let secret = |knob: &str| {
-            trait_def.config.as_ref().and_then(|c| c.get(knob)).is_some_and(|f| {
-                f.field_type == crate::phases::inline::rewrite::SECRET_KNOB_TYPE
-            })
+            trait_def
+                .config
+                .as_ref()
+                .and_then(|c| c.get(knob))
+                .is_some_and(|f| f.field_type == crate::phases::inline::rewrite::SECRET_KNOB_TYPE)
         };
         let subst_config: orbital_core_base::schema::SObject = effective_config
             .iter()
             .filter(|(k, v)| !secret(k) && !orbital_core_base::schema::contains_callsite_payload(v))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
-        let declared = crate::phases::inline::rewrite::declared_list_types(trait_def.config.as_ref(), &subst_config);
-        crate::phases::inline::rewrite::rewrite_trait_config_bindings(trait_def, &subst_config, &declared);
+        let declared = crate::phases::inline::rewrite::declared_list_types(
+            trait_def.config.as_ref(),
+            &subst_config,
+        );
+        crate::phases::inline::rewrite::rewrite_trait_config_bindings(
+            trait_def,
+            &subst_config,
+            &declared,
+        );
     }
+    Ok(())
 }
 
 /// §61 OPEN 1 replacement: resolve every emit payload field AND matching
@@ -734,7 +757,8 @@ fn finalize_payload_type_conditionals(trait_def: &mut TraitDefinition) -> bool {
 /// `apply_payload_type_conditionals` pass) has landed — this IS the point
 /// that finalizes and clears every trait's `type_when`, gated trait or not.
 pub(crate) fn rewrite_narrowed_number_display_writes(schema: &mut OrbitalSchema) {
-    let mut entities: HashMap<String, Vec<orbital_core_base::schema::FieldDefinition>> = HashMap::new();
+    let mut entities: HashMap<String, Vec<orbital_core_base::schema::FieldDefinition>> =
+        HashMap::new();
     for orbital in &schema.orbitals {
         if let EntityRef::Inline(def) = &orbital.entity {
             entities.insert(def.name.clone(), def.fields.clone());
@@ -801,8 +825,7 @@ fn wrap_narrowed_display_set(expr: &mut SExpression, string_fields: &HashSet<Str
             && set_entity_field(&items[1]).is_some_and(|f| string_fields.contains(f));
         if is_narrowed_set {
             let value = items[2].clone();
-            items[2] =
-                SExpression::Array(vec![SExpression::string("str/concat"), value]);
+            items[2] = SExpression::Array(vec![SExpression::string("str/concat"), value]);
         }
         for item in items.iter_mut() {
             wrap_narrowed_display_set(item, string_fields);
@@ -983,11 +1006,11 @@ pub(super) fn forwarded_sibling_config(
     sibling: &TraitDefinition,
     result: &[TraitReference],
     parent_name: Option<&str>,
-    parent_of: &HashMap<String, String>,
-    orbital_config: Option<&HashMap<String, ConfigField>>,
-    schema_config: Option<&HashMap<String, ConfigField>>,
-) -> Option<HashMap<String, ConfigField>> {
-    let declared_config_of = |name: &str| -> Option<&HashMap<String, ConfigField>> {
+    parent_of: &orbital_core_base::collections::IndexMap<String, String>,
+    orbital_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    schema_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+) -> Option<orbital_core_base::collections::IndexMap<String, ConfigField>> {
+    let declared_config_of = |name: &str| -> Option<&orbital_core_base::collections::IndexMap<String, ConfigField>> {
         result.iter().find_map(|tr| match tr {
             TraitReference::Inline(td) if td.name == name => td.config.as_ref(),
             _ => None,
@@ -999,7 +1022,7 @@ pub(super) fn forwarded_sibling_config(
     // materialised so far) with a `visited` guard — defensive, `parent_of`
     // is acyclic by construction (each entry is recorded exactly once, at
     // the pull that resolves that final name).
-    let mut chain: Vec<&HashMap<String, ConfigField>> = Vec::new();
+    let mut chain: Vec<&orbital_core_base::collections::IndexMap<String, ConfigField>> = Vec::new();
     let mut visited: HashSet<String> = HashSet::new();
     let mut current = parent_name.map(|s| s.to_string());
     let bound = result.len().max(1);
@@ -1079,13 +1102,13 @@ pub(super) fn forwarded_sibling_config(
 /// `default` (`ConfigField::forwarded_from`'s doc comment).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn forwarded_sibling_config_from(
-    declared: Option<&HashMap<String, ConfigField>>,
-    embedder_chain: &[&HashMap<String, ConfigField>],
-    orbital_config: Option<&HashMap<String, ConfigField>>,
-    upstream_orbital_config: Option<&HashMap<String, ConfigField>>,
-    upstream_schema_config: Option<&HashMap<String, ConfigField>>,
-    schema_config: Option<&HashMap<String, ConfigField>>,
-) -> Option<HashMap<String, ConfigField>> {
+    declared: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    embedder_chain: &[&orbital_core_base::collections::IndexMap<String, ConfigField>],
+    orbital_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    upstream_orbital_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    upstream_schema_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    schema_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+) -> Option<orbital_core_base::collections::IndexMap<String, ConfigField>> {
     forwarded_sibling_config_from_tracked(
         declared,
         embedder_chain,
@@ -1107,14 +1130,14 @@ pub(super) fn forwarded_sibling_config_from(
 /// possibly multi-orbital data alone.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn forwarded_sibling_config_from_tracked(
-    declared: Option<&HashMap<String, ConfigField>>,
-    embedder_chain: &[&HashMap<String, ConfigField>],
-    orbital_config: Option<&HashMap<String, ConfigField>>,
-    upstream_orbital_config: Option<&HashMap<String, ConfigField>>,
-    upstream_schema_config: Option<&HashMap<String, ConfigField>>,
-    schema_config: Option<&HashMap<String, ConfigField>>,
+    declared: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    embedder_chain: &[&orbital_core_base::collections::IndexMap<String, ConfigField>],
+    orbital_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    upstream_orbital_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    upstream_schema_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    schema_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
     mut schema_only_keys: Option<&mut HashSet<String>>,
-) -> Option<HashMap<String, ConfigField>> {
+) -> Option<orbital_core_base::collections::IndexMap<String, ConfigField>> {
     let declared = declared?;
     let rungs = ForwardRungs {
         embedder_chain,
@@ -1123,7 +1146,7 @@ pub(super) fn forwarded_sibling_config_from_tracked(
         upstream_schema_config,
         schema_config,
     };
-    let mut out: HashMap<String, ConfigField> = std::collections::HashMap::new();
+    let mut out: orbital_core_base::collections::IndexMap<String, ConfigField> = orbital_core_base::collections::IndexMap::new();
     for (key, field) in declared.iter() {
         match field.default.as_ref() {
             Some(SExpression::String(forward)) => {
@@ -1184,11 +1207,11 @@ pub(super) fn forwarded_sibling_config_from_tracked(
 /// chain, the owning orbital, the upstream orbital and app (§8 trait-form
 /// references only), then the consumer's app config.
 struct ForwardRungs<'a> {
-    embedder_chain: &'a [&'a HashMap<String, ConfigField>],
-    orbital_config: Option<&'a HashMap<String, ConfigField>>,
-    upstream_orbital_config: Option<&'a HashMap<String, ConfigField>>,
-    upstream_schema_config: Option<&'a HashMap<String, ConfigField>>,
-    schema_config: Option<&'a HashMap<String, ConfigField>>,
+    embedder_chain: &'a [&'a orbital_core_base::collections::IndexMap<String, ConfigField>],
+    orbital_config: Option<&'a orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    upstream_orbital_config: Option<&'a orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    upstream_schema_config: Option<&'a orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    schema_config: Option<&'a orbital_core_base::collections::IndexMap<String, ConfigField>>,
 }
 
 struct ForwardHit<'a> {
@@ -1227,7 +1250,7 @@ impl<'a> ForwardRungs<'a> {
         let target = format!("@config.{current_key}");
         let is_still_forward =
             |v: &SExpression| matches!(v, SExpression::String(s) if s == &target);
-        let from = |c: Option<&'a HashMap<String, ConfigField>>| {
+        let from = |c: Option<&'a orbital_core_base::collections::IndexMap<String, ConfigField>>| {
             c.and_then(|c| c.get(&current_key))
                 .and_then(|f| f.default.as_ref())
         };
@@ -1263,8 +1286,8 @@ impl<'a> ForwardRungs<'a> {
 /// supplies replaced by its value; `None` when nothing changed.
 pub(super) fn forwarded_expression(
     expr: &SExpression,
-    orbital_config: Option<&HashMap<String, ConfigField>>,
-    schema_config: Option<&HashMap<String, ConfigField>>,
+    orbital_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    schema_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
 ) -> Option<SExpression> {
     let rungs = ForwardRungs {
         embedder_chain: &[],
@@ -1273,13 +1296,7 @@ pub(super) fn forwarded_expression(
         upstream_schema_config: None,
         schema_config,
     };
-    substitute_nested_forwards(
-        expr,
-        &HashMap::new(),
-        &rungs,
-        &mut Vec::new(),
-        &mut false,
-    )
+    substitute_nested_forwards(expr, &orbital_core_base::collections::IndexMap::new(), &rungs, &mut Vec::new(), &mut false)
 }
 
 /// Every `@config.<knob>` leaf in `expr`, whole-string or nested.
@@ -1309,7 +1326,7 @@ fn collect_config_forward_knobs(expr: &SExpression, out: &mut Vec<String>) {
 /// declares is the trait's own read and is never folded.
 fn substitute_nested_forwards(
     expr: &SExpression,
-    own: &HashMap<String, ConfigField>,
+    own: &orbital_core_base::collections::IndexMap<String, ConfigField>,
     rungs: &ForwardRungs<'_>,
     tokens: &mut Vec<String>,
     schema_only: &mut bool,
@@ -1493,7 +1510,8 @@ pub(crate) fn sibling_trait_refs_of(
                         }
                         match &listen.source {
                             Some(orbital_core_base::schema::ListenSource::Trait {
-                                trait_name, ..
+                                trait_name,
+                                ..
                             }) => trait_name == source_trait_name,
                             Some(orbital_core_base::schema::ListenSource::Orbital {
                                 orbital: source_orbital,
@@ -1529,7 +1547,7 @@ pub(crate) fn sibling_trait_refs_of(
 
 pub(crate) type InlinedTraits = (
     Vec<TraitReference>,
-    HashMap<String, String>,
+    orbital_core_base::collections::IndexMap<String, String>,
     Vec<EntityDefinition>,
     // Names of traits added by the auto-pull loop (siblings referenced via
     // `@trait.<Sibling>`). These keep their source name within an orbital so
@@ -1585,7 +1603,11 @@ type SiblingPull = (
 /// rename has been applied, so users with two distinct `name` overrides
 /// (e.g. `CartItemAddItem` and `CartItemEditItem`) are unaffected.
 #[allow(clippy::too_many_arguments)]
-fn inherit_embedder_dispatch(child: &mut TraitDefinition, traits: &[TraitReference], embedder: &str) {
+fn inherit_embedder_dispatch(
+    child: &mut TraitDefinition,
+    traits: &[TraitReference],
+    embedder: &str,
+) {
     if child.dispatch.is_some() {
         return;
     }
@@ -1602,14 +1624,14 @@ pub(crate) fn inline_traits(
     // Consumer-scope entity name → id map, used to keep every rebound
     // `linkedEntity` name's dual-carry id sibling pointing at the consumer's
     // entity node (see `apply_overrides_to_trait`).
-    entity_ids: &HashMap<String, String>,
+    entity_ids: &orbital_core_base::collections::IndexMap<String, String>,
     recorder: &mut Vec<ConfigProvenanceRecord>,
     // The two outer §4.5 config-forward rungs a pulled sibling's `@config.X`
     // falls through to when the embedder doesn't (yet) resolve it: this
     // orbital's own declared `config {}` (already final by the time this
     // runs — see `inline_orbital`), then the schema's app-level `config {}`.
-    orbital_config: Option<&HashMap<String, ConfigField>>,
-    schema_config: Option<&HashMap<String, ConfigField>>,
+    orbital_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    schema_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
     // §B4-R5: per-alias upstream app config, already folded with that
     // alias's `uses { config }` call-site override (`inline_orbital`'s
     // `alias_schema_configs`, built by the shared `fold_declared_config_override`
@@ -1617,7 +1639,7 @@ pub(crate) fn inline_traits(
     // Consulted only by the `Alias.traits.X` trait-form reference arm, as
     // the outer of the two extra rungs a trait's own unresolved `@config.X`
     // default falls through to when the consumer's chain doesn't resolve it.
-    alias_schema_configs: &HashMap<String, HashMap<String, ConfigField>>,
+    alias_schema_configs: &orbital_core_base::collections::IndexMap<String, orbital_core_base::collections::IndexMap<String, ConfigField>>,
 ) -> Result<InlinedTraits, InlineError> {
     let mut result = Vec::new();
     // Auxiliary entities surfaced by no-rebind sibling-pulls (see the pull loop).
@@ -1632,13 +1654,13 @@ pub(crate) fn inline_traits(
     // orbital's pages. Without this, `pages[].traits: [{ref: "OldName"}]`
     // entries become stale after the rename and fail validation with
     // `ORB_P_INVALID_TRAIT_REF`.
-    let mut rename_map: HashMap<String, String> = HashMap::new();
+    let mut rename_map: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
     // Per-trait event renames applied at the call site (`events {OLD: NEW}`),
     // keyed by the trait's FINAL name. A pulled sibling's source-scoped listen
     // names the host's emit by its pre-rename name; Phase 9.5 chases the
     // listen through this map so the route survives the rename
     // (C-EVENTS-RENAME-MISSES-FETCH-EMIT-MAP's listener half).
-    let mut event_renames_by_trait: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut event_renames_by_trait: orbital_core_base::collections::IndexMap<String, orbital_core_base::collections::IndexMap<String, String>> = orbital_core_base::collections::IndexMap::new();
     // App atoms keep a hand-rolled main trait and embed a curated variation as
     // a SIBLING trait, referencing it inside the main trait's render-ui as the
     // string literal `@trait.<SiblingName>`. When an organism composes ONLY the
@@ -1692,9 +1714,9 @@ pub(crate) fn inline_traits(
     // its host and co-siblings by their ATOM names; resolving them through the
     // orbital-wide `rename_map` cannot work once one atom is bound twice, because
     // that map holds one entry per source name.
-    let mut owner_subs: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut owner_subs: orbital_core_base::collections::IndexMap<String, orbital_core_base::collections::IndexMap<String, String>> = orbital_core_base::collections::IndexMap::new();
     // Pulled sibling final name → the owner it was materialised for.
-    let mut pulled_owner: HashMap<String, String> = HashMap::new();
+    let mut pulled_owner: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
     // §B4-R2: the "who embeds whom" graph over THIS orbital's pre-resolution
     // `traits` list — built once, up front, since it reads the untouched
     // `traits` slice, not `result`. Used below to resolve a `Reference`
@@ -1722,7 +1744,7 @@ pub(crate) fn inline_traits(
     // as an EXTRA substitution alongside that pull's own `entity_subs` —
     // scoped to the SAME alias, so it only ever fires on a token this
     // orbital's own authoring already established a rebind for.
-    let mut alias_entity_renames: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut alias_entity_renames: orbital_core_base::collections::IndexMap<String, orbital_core_base::collections::IndexMap<String, String>> = orbital_core_base::collections::IndexMap::new();
     for trait_ref in traits {
         let TraitReference::Reference {
             reference: Some(ref_str),
@@ -1806,7 +1828,7 @@ pub(crate) fn inline_traits(
                         None,
                         schema_config,
                     ) {
-                        let cfg = td.config.get_or_insert_with(HashMap::new);
+                        let cfg = td.config.get_or_insert_with(orbital_core_base::collections::IndexMap::new);
                         for (key, field) in resolved {
                             cfg.insert(key, field);
                         }
@@ -1879,14 +1901,20 @@ pub(crate) fn inline_traits(
                             match inlined {
                                 TraitReference::Inline(mut trait_def) => {
                                     if ctx.collect_references {
-                                        ctx.reference_pairs.borrow_mut().push(super::ReferencePair {
-                                            kind: super::ReferenceKind::Trait,
-                                            alias: alias.clone(),
-                                            name: name.clone(),
-                                            path: trait_path.clone(),
-                                            call_site: super::ReferenceCallSite::Trait(trait_ref.clone()),
-                                            declaration: super::ReferenceDeclaration::Trait(trait_def.clone()),
-                                        });
+                                        ctx.reference_pairs.borrow_mut().push(
+                                            super::ReferencePair {
+                                                kind: super::ReferenceKind::Trait,
+                                                alias: alias.clone(),
+                                                name: name.clone(),
+                                                path: trait_path.clone(),
+                                                call_site: super::ReferenceCallSite::Trait(
+                                                    trait_ref.clone(),
+                                                ),
+                                                declaration: super::ReferenceDeclaration::Trait(
+                                                    trait_def.clone(),
+                                                ),
+                                            },
+                                        );
                                     }
                                     // Carry the CONSUMER's declaration id onto
                                     // the resolved trait. `Reference.id` is the
@@ -1944,7 +1972,7 @@ pub(crate) fn inline_traits(
                                     // at the top-level target) resolves it
                                     // later, same as every other config fold
                                     // in this function.
-                                    let mut effective_ref_config: HashMap<String, ConfigField> =
+                                    let mut effective_ref_config: orbital_core_base::collections::IndexMap<String, ConfigField> =
                                         config.clone().unwrap_or_default();
                                     if !ctx.defer_config_subst {
                                         let entry_key = name_override.as_deref().unwrap_or("");
@@ -1999,7 +2027,7 @@ pub(crate) fn inline_traits(
                                             schema_config,
                                         ) {
                                             let cfg =
-                                                trait_def.config.get_or_insert_with(HashMap::new);
+                                                trait_def.config.get_or_insert_with(orbital_core_base::collections::IndexMap::new);
                                             for (k, v) in resolved {
                                                 cfg.insert(k, v);
                                             }
@@ -2032,7 +2060,7 @@ pub(crate) fn inline_traits(
                                             let declared =
                                                 trait_def.config.clone().unwrap_or_default();
                                             let cfg =
-                                                trait_def.config.get_or_insert_with(HashMap::new);
+                                                trait_def.config.get_or_insert_with(orbital_core_base::collections::IndexMap::new);
                                             for (k, v) in resolved {
                                                 let mut knobs: Vec<String> = Vec::new();
                                                 if let Some(value) = declared
@@ -2062,7 +2090,7 @@ pub(crate) fn inline_traits(
                                         fields_override.as_ref(),
                                         ctx.defer_config_subst,
                                         recorder,
-                                    );
+                                    )?;
                                     // Alias-scoped cross-trait entity rename
                                     // (see `alias_entity_renames`'s doc comment
                                     // above): a SIBLING pull from the SAME
@@ -2081,7 +2109,7 @@ pub(crate) fn inline_traits(
                                                     rewrite_identifiers(
                                                         guard,
                                                         subs,
-                                                        &HashMap::new(),
+                                                        &orbital_core_base::collections::IndexMap::new(),
                                                     );
                                                 }
                                                 if let Some(effects) = t.effects.as_mut() {
@@ -2089,7 +2117,7 @@ pub(crate) fn inline_traits(
                                                         rewrite_identifiers(
                                                             effect,
                                                             subs,
-                                                            &HashMap::new(),
+                                                            &orbital_core_base::collections::IndexMap::new(),
                                                         );
                                                     }
                                                 }
@@ -2100,14 +2128,14 @@ pub(crate) fn inline_traits(
                                                         rewrite_identifiers(
                                                             guard,
                                                             subs,
-                                                            &HashMap::new(),
+                                                            &orbital_core_base::collections::IndexMap::new(),
                                                         );
                                                     }
                                                     for effect in tick.effects.iter_mut() {
                                                         rewrite_identifiers(
                                                             effect,
                                                             subs,
-                                                            &HashMap::new(),
+                                                            &orbital_core_base::collections::IndexMap::new(),
                                                         );
                                                     }
                                                 }
@@ -2136,7 +2164,8 @@ pub(crate) fn inline_traits(
                                     // field after consuming it.
                                     trait_def.type_args = type_args_override.clone();
                                     // Call-site `[client]`/`[optimistic]` overrides the atom's declared dispatch.
-                                    trait_def.dispatch = (*call_site_dispatch).or(trait_def.dispatch);
+                                    trait_def.dispatch =
+                                        (*call_site_dispatch).or(trait_def.dispatch);
                                     owner_subs
                                         .entry(trait_def.name.clone())
                                         .or_default()
@@ -2145,7 +2174,7 @@ pub(crate) fn inline_traits(
                                         rename_map.insert(original_name, trait_def.name.clone());
                                     }
                                     if let Some(evmap) = events_override.as_ref() {
-                                        let pruned: HashMap<String, String> = evmap
+                                        let pruned: orbital_core_base::collections::IndexMap<String, String> = evmap
                                             .iter()
                                             .filter(|(from, to)| {
                                                 from != to && !from.is_empty() && !to.is_empty()
@@ -2297,7 +2326,7 @@ pub(crate) fn inline_traits(
         // forward hoisted through several layers of pulled chrome (see its
         // doc comment). Recorded once per pull, right after `final_name` is
         // known, alongside `pulled_as`/`pulled_owner` below.
-        let mut parent_of: HashMap<String, String> = HashMap::new();
+        let mut parent_of: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         // Consumer-declared names (explicit composition) keep first-wins skip.
         let consumer_declared: HashSet<String> = seen_names.clone();
         // Provenance of each consumer-declared trait, for the skip's gate
@@ -2327,8 +2356,8 @@ pub(crate) fn inline_traits(
         // name, scoped to that parent only (never schema-wide).
         let rewrite_parent =
             |result: &mut Vec<TraitReference>, parent: &str, from: &str, to: &str| {
-                let subs: HashMap<String, String> =
-                    HashMap::from([(from.to_string(), to.to_string())]);
+                let subs: orbital_core_base::collections::IndexMap<String, String> =
+                    orbital_core_base::collections::IndexMap::from([(from.to_string(), to.to_string())]);
                 for tr in result.iter_mut() {
                     if let TraitReference::Inline(td) = tr {
                         if td.name == parent {
@@ -2471,7 +2500,7 @@ pub(crate) fn inline_traits(
                 None,
                 ctx.defer_config_subst,
                 recorder,
-            );
+            )?;
             if final_name != sibling_name {
                 // Per-owner disambiguation: rename the pulled copy and point
                 // the pulling parent's tokens at it. The copy's own body still
@@ -2481,7 +2510,8 @@ pub(crate) fn inline_traits(
                 sibling_def.name = final_name.clone();
                 // A distinct declaration needs a distinct id: listens match sources by id.
                 if let Some(source_id) = sibling_def.id.clone() {
-                    sibling_def.id = Some(orbital_core_base::identity::derive_id(&source_id, &owner));
+                    sibling_def.id =
+                        Some(orbital_core_base::identity::derive_id(&source_id, &owner));
                 }
                 rewrite_parent(&mut result, &parent_name, &sibling_name, &final_name);
             }
@@ -2646,8 +2676,9 @@ pub(crate) fn inline_traits(
                 // the retain below sees a non-local name and silently drops
                 // the route — and renaming the host is the universal case.
                 for listen in listens.iter_mut() {
-                    if let Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) =
-                        listen.source.as_mut()
+                    if let Some(orbital_core_base::schema::ListenSource::Trait {
+                        trait_name, ..
+                    }) = listen.source.as_mut()
                     {
                         if let Some(renamed) = own_subs
                             .and_then(|subs| subs.get(trait_name.as_str()))
@@ -2662,9 +2693,9 @@ pub(crate) fn inline_traits(
                     // the host's emit was renamed, or the route (and the
                     // emitter index) dangles on the pre-rename name.
                     let source_name = match listen.source.as_ref() {
-                        Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) => {
-                            Some(trait_name.clone())
-                        }
+                        Some(orbital_core_base::schema::ListenSource::Trait {
+                            trait_name, ..
+                        }) => Some(trait_name.clone()),
                         _ => None,
                     };
                     if let Some(source_name) = source_name {
@@ -2796,7 +2827,10 @@ mod entity_id_reader_tests {
 
     #[test]
     fn embed_child_without_mode_takes_the_client_embedder_mode() {
-        assert_eq!(embed(Some(DispatchMode::Client), None), Some(DispatchMode::Client));
+        assert_eq!(
+            embed(Some(DispatchMode::Client), None),
+            Some(DispatchMode::Client)
+        );
     }
 
     #[test]
@@ -2814,7 +2848,10 @@ mod entity_id_reader_tests {
 
     #[test]
     fn grandchild_inherits_through_the_child() {
-        let mut traits = vec![TraitReference::Inline(named_with("Parent", Some(DispatchMode::Client)))];
+        let mut traits = vec![TraitReference::Inline(named_with(
+            "Parent",
+            Some(DispatchMode::Client),
+        ))];
         let mut child = named_with("Child", None);
         inherit_embedder_dispatch(&mut child, &traits, "Parent");
         traits.push(TraitReference::Inline(child));
@@ -3105,12 +3142,12 @@ mod entity_id_reader_tests {
         let mut td = trait_with_entity_token("Product");
         td.linked_entity = Some("Item".to_string());
         td.linked_entity_id = Some("ent-1".to_string());
-        td.entity_ref_ids = Some(HashMap::from([(
+        td.entity_ref_ids = Some(orbital_core_base::collections::IndexMap::from([(
             "Product".to_string(),
             "ent-1".to_string(),
         )]));
 
-        let entity_ids = HashMap::from([("Cart".to_string(), "ent-9".to_string())]);
+        let entity_ids = orbital_core_base::collections::IndexMap::from([("Cart".to_string(), "ent-9".to_string())]);
         let mut recorder = Vec::new();
         apply_overrides_to_trait(
             &mut td,
@@ -3122,7 +3159,8 @@ mod entity_id_reader_tests {
             None,
             false,
             &mut recorder,
-        );
+        )
+        .expect("overrides apply");
 
         let json = effect_json(&td);
         assert!(
@@ -3166,7 +3204,7 @@ mod entity_id_reader_tests {
         td.linked_entity_id = Some("ent-1".to_string());
         assert!(td.entity_ref_ids.is_none(), "fixture has no side-map");
 
-        let entity_ids = HashMap::from([("Cart".to_string(), "ent-9".to_string())]);
+        let entity_ids = orbital_core_base::collections::IndexMap::from([("Cart".to_string(), "ent-9".to_string())]);
         let mut recorder = Vec::new();
         apply_overrides_to_trait(
             &mut td,
@@ -3178,7 +3216,8 @@ mod entity_id_reader_tests {
             None,
             false,
             &mut recorder,
-        );
+        )
+        .expect("overrides apply");
 
         let json = effect_json(&td);
         assert!(
@@ -3208,7 +3247,7 @@ mod entity_id_reader_tests {
         td.linked_entity = Some("Product".to_string());
 
         // First rebind: Product -> Item (the atom's own internal rebind).
-        let entity_ids_1 = HashMap::from([("Item".to_string(), "ent-1".to_string())]);
+        let entity_ids_1 = orbital_core_base::collections::IndexMap::from([("Item".to_string(), "ent-1".to_string())]);
         let mut recorder = Vec::new();
         apply_overrides_to_trait(
             &mut td,
@@ -3220,7 +3259,8 @@ mod entity_id_reader_tests {
             None,
             false,
             &mut recorder,
-        );
+        )
+        .expect("overrides apply");
         let json_after_first = effect_json(&td);
         assert!(
             json_after_first.contains("@Item.title") && json_after_first.contains("\"Item\""),
@@ -3229,7 +3269,7 @@ mod entity_id_reader_tests {
 
         // Second rebind: Item -> Cart (the organism's call-site rebind of the
         // ALREADY-rebound trait pulled from the atom).
-        let entity_ids_2 = HashMap::from([("Cart".to_string(), "ent-9".to_string())]);
+        let entity_ids_2 = orbital_core_base::collections::IndexMap::from([("Cart".to_string(), "ent-9".to_string())]);
         apply_overrides_to_trait(
             &mut td,
             Some(&"Cart".to_string()),
@@ -3240,7 +3280,8 @@ mod entity_id_reader_tests {
             None,
             false,
             &mut recorder,
-        );
+        )
+        .expect("overrides apply");
 
         let json = effect_json(&td);
         assert!(
@@ -3289,7 +3330,7 @@ mod entity_id_reader_tests {
         td.linked_entity_id = Some("ent-page".to_string());
         // The atom's own side-map: WikiPage (primary) + WikiPageRevision
         // (secondary) each carry THEIR OWN id.
-        td.entity_ref_ids = Some(HashMap::from([
+        td.entity_ref_ids = Some(orbital_core_base::collections::IndexMap::from([
             ("WikiPage".to_string(), "ent-page".to_string()),
             ("WikiPageRevision".to_string(), "ent-revision".to_string()),
         ]));
@@ -3298,7 +3339,7 @@ mod entity_id_reader_tests {
         // happens to carry the SAME id the atom's `WikiPageRevision` side-map
         // entry does — established elsewhere (the sibling `WikiHistory`
         // pull's own rebind), not by this call.
-        let entity_ids = HashMap::from([
+        let entity_ids = orbital_core_base::collections::IndexMap::from([
             ("WikiPage".to_string(), "ent-page".to_string()),
             ("WikiRevision".to_string(), "ent-revision".to_string()),
         ]);
@@ -3313,7 +3354,8 @@ mod entity_id_reader_tests {
             None,
             false,
             &mut recorder,
-        );
+        )
+        .expect("overrides apply");
 
         let json = effect_json(&td);
         assert!(
@@ -3360,7 +3402,7 @@ mod entity_id_reader_tests {
             .push(SExpression::Array(vec![s("fetch"), s("WikiPage")]));
         td.linked_entity = Some("WikiAttachment".to_string());
         td.linked_entity_id = Some("ent-atom-attachment".to_string());
-        td.entity_ref_ids = Some(HashMap::from([
+        td.entity_ref_ids = Some(orbital_core_base::collections::IndexMap::from([
             (
                 "WikiAttachment".to_string(),
                 "ent-atom-attachment".to_string(),
@@ -3371,7 +3413,7 @@ mod entity_id_reader_tests {
         // The CONSUMER roster: its OWN "WikiAttachment" and "WikiPage" carry
         // ENTIRELY DIFFERENT ids than the atom's own copies — genuinely
         // different declarations that happen to share a name.
-        let entity_ids = HashMap::from([
+        let entity_ids = orbital_core_base::collections::IndexMap::from([
             (
                 "WikiAttachment".to_string(),
                 "ent-consumer-attachment".to_string(),
@@ -3389,7 +3431,8 @@ mod entity_id_reader_tests {
             None,
             false,
             &mut recorder,
-        );
+        )
+        .expect("overrides apply");
 
         assert_eq!(
             td.linked_entity_id.as_deref(),
@@ -3419,12 +3462,12 @@ mod entity_id_reader_tests {
         let mut td = trait_with_entity_token("Widget");
         td.linked_entity = Some("Widget".to_string());
         td.linked_entity_id = Some("ent-atom-widget".to_string());
-        td.entity_ref_ids = Some(HashMap::from([(
+        td.entity_ref_ids = Some(orbital_core_base::collections::IndexMap::from([(
             "InternalHelper".to_string(),
             "ent-atom-helper".to_string(),
         )]));
 
-        let entity_ids = HashMap::from([("Widget".to_string(), "ent-consumer-widget".to_string())]);
+        let entity_ids = orbital_core_base::collections::IndexMap::from([("Widget".to_string(), "ent-consumer-widget".to_string())]);
         let mut recorder = Vec::new();
         apply_overrides_to_trait(
             &mut td,
@@ -3436,7 +3479,8 @@ mod entity_id_reader_tests {
             None,
             false,
             &mut recorder,
-        );
+        )
+        .expect("overrides apply");
 
         assert_eq!(
             td.entity_ref_ids
@@ -3463,14 +3507,14 @@ mod forwarded_sibling_config_tests {
             .expect("config field deserializes")
     }
 
-    fn config_map(entries: &[(&str, serde_json::Value)]) -> HashMap<String, ConfigField> {
+    fn config_map(entries: &[(&str, serde_json::Value)]) -> orbital_core_base::collections::IndexMap<String, ConfigField> {
         entries
             .iter()
             .map(|(k, v)| (k.to_string(), config_field(v.clone())))
             .collect()
     }
 
-    fn trait_with_config(name: &str, config: HashMap<String, ConfigField>) -> TraitDefinition {
+    fn trait_with_config(name: &str, config: orbital_core_base::collections::IndexMap<String, ConfigField>) -> TraitDefinition {
         serde_json::from_value(serde_json::json!({
             "name": name,
             "linkedEntity": "Item",
@@ -3494,7 +3538,7 @@ mod forwarded_sibling_config_tests {
         let stack5 = config_map(&[("direction", serde_json::json!("column"))]);
         let stack8 = config_map(&[("gap", serde_json::json!("8"))]);
         let feed = config_map(&[("title", serde_json::json!("FeedTitle"))]);
-        let chain: Vec<&HashMap<String, ConfigField>> = vec![&stack5, &stack8, &feed];
+        let chain: Vec<&orbital_core_base::collections::IndexMap<String, ConfigField>> = vec![&stack5, &stack8, &feed];
 
         let resolved =
             forwarded_sibling_config_from(sibling.config.as_ref(), &chain, None, None, None, None)
@@ -3517,7 +3561,7 @@ mod forwarded_sibling_config_tests {
         );
         let stack8 = config_map(&[("title", serde_json::json!("@config.heading"))]);
         let feed = config_map(&[("heading", serde_json::json!("X"))]);
-        let chain: Vec<&HashMap<String, ConfigField>> = vec![&stack8, &feed];
+        let chain: Vec<&orbital_core_base::collections::IndexMap<String, ConfigField>> = vec![&stack8, &feed];
 
         let resolved =
             forwarded_sibling_config_from(sibling.config.as_ref(), &chain, None, None, None, None)
@@ -3539,7 +3583,7 @@ mod forwarded_sibling_config_tests {
         );
         let stack = config_map(&[("title", serde_json::json!("@config.title"))]);
         let feed = config_map(&[("title", serde_json::json!("FeedTitle"))]);
-        let chain: Vec<&HashMap<String, ConfigField>> = vec![&stack, &feed];
+        let chain: Vec<&orbital_core_base::collections::IndexMap<String, ConfigField>> = vec![&stack, &feed];
 
         let resolved =
             forwarded_sibling_config_from(sibling.config.as_ref(), &chain, None, None, None, None)
@@ -3574,7 +3618,7 @@ mod forwarded_sibling_config_tests {
         // never occur in real pull data (each `parent_of` entry is written
         // once, at the pull that resolves that final name) but is guarded
         // against defensively.
-        let parent_of: HashMap<String, String> = HashMap::from([
+        let parent_of: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::from([
             ("A".to_string(), "B".to_string()),
             ("B".to_string(), "A".to_string()),
         ]);
@@ -3626,7 +3670,7 @@ mod forwarded_sibling_config_tests {
 
         // The orbital doesn't declare the knob at all — falls through one
         // more rung, to the app-level schema config.
-        let empty_orbital_config: HashMap<String, ConfigField> = HashMap::new();
+        let empty_orbital_config: orbital_core_base::collections::IndexMap<String, ConfigField> = orbital_core_base::collections::IndexMap::new();
         let schema_config = config_map(&[("title", serde_json::json!("App Widgets"))]);
         let resolved_via_app = forwarded_sibling_config_from(
             sibling.config.as_ref(),
@@ -3763,7 +3807,7 @@ mod unbound_trait_knob_override_tests {
             .expect("config field deserializes")
     }
 
-    fn trait_with_config(name: &str, config: HashMap<String, ConfigField>) -> TraitDefinition {
+    fn trait_with_config(name: &str, config: orbital_core_base::collections::IndexMap<String, ConfigField>) -> TraitDefinition {
         serde_json::from_value(serde_json::json!({
             "name": name,
             "linkedEntity": "Item",
@@ -3787,7 +3831,11 @@ mod unbound_trait_knob_override_tests {
             }
         }))
         .expect("trait deserializes");
-        td.entity_ref_ids = Some(refs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect());
+        td.entity_ref_ids = Some(
+            refs.iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        );
         td
     }
 
@@ -3798,13 +3846,37 @@ mod unbound_trait_knob_override_tests {
     #[test]
     fn an_overridden_entity_knob_retargets_the_entity_ref_ids() {
         let mut td = persisting_trait(&[("AtomRecord", "ent-atom-record")]);
-        let overrides = HashMap::from([("e".to_string(), config_field("entity", serde_json::json!("MyEntity")))]);
-        let entity_ids = HashMap::from([("MyEntity".to_string(), "ent-my".to_string()), ("Cursor".to_string(), "ent-cursor".to_string())]);
+        let overrides = orbital_core_base::collections::IndexMap::from([(
+            "e".to_string(),
+            config_field("entity", serde_json::json!("MyEntity")),
+        )]);
+        let entity_ids = orbital_core_base::collections::IndexMap::from([
+            ("MyEntity".to_string(), "ent-my".to_string()),
+            ("Cursor".to_string(), "ent-cursor".to_string()),
+        ]);
         let mut recorder = Vec::new();
-        apply_overrides_to_trait(&mut td, None, &entity_ids, Some(&overrides), None, None, None, false, &mut recorder);
+        apply_overrides_to_trait(
+            &mut td,
+            None,
+            &entity_ids,
+            Some(&overrides),
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+        )
+        .expect("overrides apply");
         let refs = td.entity_ref_ids.as_ref().expect("side-map survives");
-        assert_eq!(refs.get("MyEntity"), Some(&"ent-my".to_string()), "{refs:?}");
-        assert!(!refs.contains_key("AtomRecord"), "the default's foreign id must not survive the override: {refs:?}");
+        assert_eq!(
+            refs.get("MyEntity"),
+            Some(&"ent-my".to_string()),
+            "{refs:?}"
+        );
+        assert!(
+            !refs.contains_key("AtomRecord"),
+            "the default's foreign id must not survive the override: {refs:?}"
+        );
     }
 
     /// Control: with no override the knob keeps its default and so does the side-map; an override that names an
@@ -3812,14 +3884,45 @@ mod unbound_trait_knob_override_tests {
     #[test]
     fn control_an_unoverridden_entity_knob_keeps_its_entity_ref_ids() {
         let mut td = persisting_trait(&[("AtomRecord", "ent-atom-record")]);
-        let entity_ids = HashMap::from([("Cursor".to_string(), "ent-cursor".to_string())]);
+        let entity_ids = orbital_core_base::collections::IndexMap::from([("Cursor".to_string(), "ent-cursor".to_string())]);
         let mut recorder = Vec::new();
-        apply_overrides_to_trait(&mut td, None, &entity_ids, None, None, None, None, false, &mut recorder);
-        assert_eq!(td.entity_ref_ids.as_ref().and_then(|m| m.get("AtomRecord")), Some(&"ent-atom-record".to_string()));
+        apply_overrides_to_trait(
+            &mut td,
+            None,
+            &entity_ids,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+        )
+        .expect("overrides apply");
+        assert_eq!(
+            td.entity_ref_ids.as_ref().and_then(|m| m.get("AtomRecord")),
+            Some(&"ent-atom-record".to_string())
+        );
         let mut unknown = persisting_trait(&[("AtomRecord", "ent-atom-record")]);
-        let overrides = HashMap::from([("e".to_string(), config_field("entity", serde_json::json!("Elsewhere")))]);
-        apply_overrides_to_trait(&mut unknown, None, &entity_ids, Some(&overrides), None, None, None, false, &mut recorder);
-        assert!(unknown.entity_ref_ids.as_ref().is_none_or(|m| !m.contains_key("AtomRecord")));
+        let overrides = orbital_core_base::collections::IndexMap::from([(
+            "e".to_string(),
+            config_field("entity", serde_json::json!("Elsewhere")),
+        )]);
+        apply_overrides_to_trait(
+            &mut unknown,
+            None,
+            &entity_ids,
+            Some(&overrides),
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+        )
+        .expect("overrides apply");
+        assert!(unknown
+            .entity_ref_ids
+            .as_ref()
+            .is_none_or(|m| !m.contains_key("AtomRecord")));
     }
 
     /// A declared `uiTrait : trait = @trait.DefaultForm` atom, composed with
@@ -3832,12 +3935,12 @@ mod unbound_trait_knob_override_tests {
     fn plain_wiring_none_override_canonicalizes_to_null() {
         let mut td = trait_with_config(
             "Body",
-            HashMap::from([(
+            orbital_core_base::collections::IndexMap::from([(
                 "uiTrait".to_string(),
                 config_field("trait", serde_json::json!("@trait.DefaultForm")),
             )]),
         );
-        let overrides = HashMap::from([(
+        let overrides = orbital_core_base::collections::IndexMap::from([(
             "uiTrait".to_string(),
             config_field("unknown", serde_json::json!("none")),
         )]);
@@ -3845,14 +3948,15 @@ mod unbound_trait_knob_override_tests {
         apply_overrides_to_trait(
             &mut td,
             None,
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             Some(&overrides),
             None,
             None,
             None,
             false,
             &mut recorder,
-        );
+        )
+        .expect("overrides apply");
 
         assert_eq!(
             td.config
@@ -3871,12 +3975,12 @@ mod unbound_trait_knob_override_tests {
     fn plain_wiring_none_override_on_non_trait_knob_is_untouched() {
         let mut td = trait_with_config(
             "Body",
-            HashMap::from([(
+            orbital_core_base::collections::IndexMap::from([(
                 "mode".to_string(),
                 config_field("string", serde_json::json!("edit")),
             )]),
         );
-        let overrides = HashMap::from([(
+        let overrides = orbital_core_base::collections::IndexMap::from([(
             "mode".to_string(),
             config_field("unknown", serde_json::json!("none")),
         )]);
@@ -3884,14 +3988,15 @@ mod unbound_trait_knob_override_tests {
         apply_overrides_to_trait(
             &mut td,
             None,
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             Some(&overrides),
             None,
             None,
             None,
             false,
             &mut recorder,
-        );
+        )
+        .expect("overrides apply");
 
         assert_eq!(
             td.config

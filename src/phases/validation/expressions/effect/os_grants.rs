@@ -11,7 +11,6 @@ use orbital_core_base::os_grants::{
 use orbital_core_base::schema::{
     ConfigField, OrbitalSchema, SExpression, TraitDefinition, TraitReference,
 };
-use std::collections::HashMap;
 
 fn each_os_call<'a>(expr: &'a SExpression, visit: &mut dyn FnMut(OsOp, &'a [SExpression])) {
     match expr {
@@ -275,7 +274,7 @@ pub(crate) fn validate_os_grants(schema: &OrbitalSchema) -> ValidationResult {
 /// literal key takes that field of each object. `None` for anything else; a knob with no value yields no candidate.
 fn config_values(
     expr: &SExpression,
-    config: &HashMap<String, ConfigField>,
+    config: &orbital_core_base::collections::IndexMap<String, ConfigField>,
 ) -> Option<Vec<SExpression>> {
     if let SExpression::Array(arr) = expr {
         if expr.is_call() {
@@ -332,7 +331,7 @@ fn config_values(
 /// piece cannot be resolved or a value is not a string.
 fn concat_roots(
     expr: &SExpression,
-    config: &HashMap<String, ConfigField>,
+    config: &orbital_core_base::collections::IndexMap<String, ConfigField>,
 ) -> Option<Vec<SExpression>> {
     let mut roots: Vec<Vec<SExpression>> = vec![vec![SExpression::string("str/concat")]];
     for piece in concat_static_prefix(expr, &config_rooted)? {

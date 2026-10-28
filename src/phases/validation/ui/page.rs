@@ -525,7 +525,7 @@ fn mentions_pages_sigil(expr: &SExpression) -> bool {
 }
 
 fn schema_uses_pages_sigil(schema: &OrbitalSchema) -> bool {
-    let config_uses = |config: Option<&HashMap<String, orbital_core_base::schema::ConfigField>>| {
+    let config_uses = |config: Option<&orbital_core_base::collections::IndexMap<String, orbital_core_base::schema::ConfigField>>| {
         config
             .into_iter()
             .flat_map(|c| c.values())

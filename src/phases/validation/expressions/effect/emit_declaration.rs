@@ -9,8 +9,9 @@ use super::{
     validate_emit, validate_emit_config, validate_fetch, validate_navigate,
     validate_os_effect, validate_persist, validate_program_eval,
     validate_set, validate_set_return_type, validate_set_value_type,
-    DeclaredEmit, EntityFieldMeta,
+    DeclaredEmit, EntityFieldMeta, ExprReturnCtx, RowSite,
 };
+use super::set::validate_set_relation_literal;
 use crate::embedded::ServiceRegistryData;
 use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
@@ -250,6 +251,7 @@ pub(crate) fn validate_effect_in(
             effect,
             path,
             known_entities,
+            entity_definitions,
             page_init_payloads,
             service_registry,
             declared_emits,
@@ -305,6 +307,7 @@ fn validate_leaf_effect(
     effect: &SExpression,
     path: &str,
     known_entities: &HashSet<String>,
+    entity_definitions: &HashMap<String, EntityDefinition>,
     page_init_payloads: &HashMap<String, PageInitPayload>,
     service_registry: &ServiceRegistryData,
     declared_emits: Option<&[DeclaredEmit]>,
@@ -318,6 +321,13 @@ fn validate_leaf_effect(
     types: Option<&super::set::BindingTypes>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
+    let row_ctx = ExprReturnCtx {
+        entity: entity_field_types,
+        payload: payload_field_types,
+        types,
+        schema,
+    };
+    let rows = RowSite { entities: entity_definitions, ctx: &row_ctx };
 
     match effect {
         // S-expression array form: ["operator", ...args]
@@ -357,6 +367,7 @@ fn validate_leaf_effect(
                             schema,
                             types,
                         ));
+                        result.merge(validate_set_relation_literal(arr, path, entity_field_types, &rows));
                     }
                     "fetch" => {
                         result.merge(validate_fetch(arr, path, known_entities, declared_emits));
@@ -375,6 +386,7 @@ fn validate_leaf_effect(
                             path,
                             known_entities,
                             declared_emits,
+                            Some(&rows),
                         ));
                     }
                     "emit" => {

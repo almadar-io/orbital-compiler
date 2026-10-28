@@ -243,7 +243,7 @@ fn walk<'a>(expr: &'a SExpression, visit: &mut dyn FnMut(&'a SExpression)) {
 }
 
 /// Fold a render tree into a skeleton node.
-fn fold(tree: &SExpression, config: Option<&HashMap<String, ConfigField>>) -> Option<SkeletonNode> {
+fn fold(tree: &SExpression, config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>) -> Option<SkeletonNode> {
     let SExpression::Object(node) = tree else {
         return None;
     };
@@ -276,7 +276,7 @@ fn fold(tree: &SExpression, config: Option<&HashMap<String, ConfigField>>) -> Op
 
 fn shape_from_spec(
     spec: &SExpression,
-    config: Option<&HashMap<String, ConfigField>>,
+    config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
 ) -> Option<SkeletonShape> {
     match spec {
         SExpression::String(variant) if is_variant(variant) => Some(SkeletonShape {
@@ -303,7 +303,7 @@ fn shape_from_spec(
 
 fn declared_spec<'a>(
     value: &'a SExpression,
-    config: Option<&'a HashMap<String, ConfigField>>,
+    config: Option<&'a orbital_core_base::collections::IndexMap<String, ConfigField>>,
 ) -> Option<&'a SExpression> {
     match value {
         SExpression::String(s) => match s.strip_prefix("@config.") {
@@ -326,7 +326,7 @@ fn is_variant(name: &str) -> bool {
 /// A literal count, or an `@config.<knob>` resolved against the trait's config default.
 fn count(
     value: Option<&SExpression>,
-    config: Option<&HashMap<String, ConfigField>>,
+    config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
 ) -> Option<u32> {
     match value? {
         SExpression::Number(n) if *n >= 1.0 => Some(*n as u32),

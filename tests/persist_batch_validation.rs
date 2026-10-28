@@ -259,3 +259,136 @@ fn control_a_single_persist_failure_has_no_index() {
     let r = validate_with(single, saved_payload(), failed_with(&["error", "index"]));
     assert!(has(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", codes(&r));
 }
+
+fn hero() -> Value {
+    json!({
+        "name": "Hero", "persistence": "persistent", "collection": "heroes",
+        "fields": [
+            { "name": "id", "type": "string", "required": true },
+            { "name": "fxKind", "type": "enum", "values": ["a", "b"] },
+            { "name": "power", "type": "number" }
+        ]
+    })
+}
+
+fn validate_rows(fields: Value, types: Value, effects: Value) -> ValidationResult {
+    let schema: OrbitalSchema = serde_json::from_value(json!({
+        "name": "fixture", "version": "1.0.0",
+        "orbitals": [{
+            "name": "Rows",
+            "entity": { "name": "Row", "persistence": "persistent", "collection": "rows", "fields": fields },
+            "auxiliaryEntities": [hero()],
+            "types": types,
+            "traits": [{
+                "name": "Writer", "linkedEntity": "Row", "category": "interaction",
+                "emits": [{ "event": "DONE" }],
+                "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "events": [{ "key": "INIT" }],
+                    "transitions": [{ "from": "idle", "to": "idle", "event": "INIT", "effects": effects }]
+                }
+            }],
+            "pages": []
+        }]
+    }))
+    .expect("schema");
+    validate_comprehensive_without_services(&schema)
+}
+
+fn row_fields() -> Value {
+    json!([
+        { "name": "id", "type": "string", "required": true },
+        { "name": "title", "type": "string", "required": true },
+        { "name": "count", "type": "int" },
+        { "name": "hero", "type": "relation", "relation": { "entity": "Hero", "cardinality": "one" } }
+    ])
+}
+
+fn with_code(r: &ValidationResult, code: ErrorCode) -> Vec<String> {
+    r.errors.iter().filter(|e| e.code == code).map(|e| e.message.clone()).collect()
+}
+
+fn persist_create(data: Value) -> Value {
+    json!([["persist", "create", "Row", data]])
+}
+
+#[test]
+fn a_persist_data_literal_naming_a_field_the_entity_lacks_is_reported() {
+    let r = validate_rows(row_fields(), json!({}), persist_create(json!({ "title": "t", "bogus": "x" })));
+    let found = with_code(&r, ErrorCode::RowLiteralUnknownField);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("'bogus'"), "{found:?}");
+    let ok = validate_rows(row_fields(), json!({}), persist_create(json!({ "title": "t", "id": "a" })));
+    assert!(with_code(&ok, ErrorCode::RowLiteralUnknownField).is_empty(), "control: declared and stamped keys pass");
+}
+
+#[test]
+fn a_persist_data_literal_of_the_wrong_type_is_reported() {
+    let r = validate_rows(row_fields(), json!({}), persist_create(json!({ "title": 5 })));
+    assert_eq!(with_code(&r, ErrorCode::RowLiteralFieldTypeMismatch).len(), 1, "{:?}", codes(&r));
+    for ok in [json!({ "title": "t", "count": 3 }), json!({ "title": "t", "hero": "h1" }), json!({ "title": "@payload.t" })] {
+        let r = validate_rows(row_fields(), json!({}), persist_create(ok.clone()));
+        assert!(with_code(&r, ErrorCode::RowLiteralFieldTypeMismatch).is_empty(), "{ok}: {:?}", codes(&r));
+    }
+    let fractional = validate_rows(row_fields(), json!({}), persist_create(json!({ "title": "t", "count": 1.5 })));
+    assert_eq!(with_code(&fractional, ErrorCode::RowLiteralFieldTypeMismatch).len(), 1);
+}
+
+#[test]
+fn a_persist_create_missing_a_required_column_is_reported_but_an_update_is_not() {
+    let r = validate_rows(row_fields(), json!({}), persist_create(json!({ "count": 1 })));
+    let found = with_code(&r, ErrorCode::RowLiteralMissingRequired);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("title"), "{found:?}");
+    let update = validate_rows(row_fields(), json!({}), json!([["persist", "update", "Row", { "count": 1 }]]));
+    assert!(with_code(&update, ErrorCode::RowLiteralMissingRequired).is_empty(), "{:?}", codes(&update));
+    let full = validate_rows(row_fields(), json!({}), persist_create(json!({ "title": "t" })));
+    assert!(with_code(&full, ErrorCode::RowLiteralMissingRequired).is_empty());
+    let mut defaulted = row_fields();
+    defaulted[1]["default"] = json!("untitled");
+    let r = validate_rows(defaulted, json!({}), persist_create(json!({ "count": 1 })));
+    assert!(with_code(&r, ErrorCode::RowLiteralMissingRequired).is_empty(), "a defaulted column is filled by the store");
+}
+
+#[test]
+fn persist_batch_ops_inherit_the_row_literal_checks() {
+    let bad = batch(json!([["create", "Row", { "title": "t", "bogus": 1 }]]));
+    let r = validate_rows(row_fields(), json!({}), bad);
+    assert_eq!(with_code(&r, ErrorCode::RowLiteralUnknownField).len(), 1, "{:?}", codes(&r));
+    let ok = batch(json!([["create", "Row", { "title": "t" }]]));
+    let r = validate_rows(row_fields(), json!({}), ok);
+    assert!(with_code(&r, ErrorCode::RowLiteralUnknownField).is_empty(), "{:?}", codes(&r));
+}
+
+#[test]
+fn a_record_set_into_a_relation_field_is_checked_against_the_related_entity() {
+    let set = |value: Value| json!([["set", "@entity.hero", value]]);
+    let unknown = validate_rows(row_fields(), json!({}), set(json!({ "bogus": 1 })));
+    assert_eq!(with_code(&unknown, ErrorCode::RowLiteralUnknownField).len(), 1, "{:?}", codes(&unknown));
+    let enum_member = validate_rows(row_fields(), json!({}), set(json!({ "fxKind": "nonsense" })));
+    assert_eq!(with_code(&enum_member, ErrorCode::EnumValueNotMember).len(), 1, "{:?}", codes(&enum_member));
+    let wrong_type = validate_rows(row_fields(), json!({}), set(json!({ "power": "high" })));
+    assert_eq!(with_code(&wrong_type, ErrorCode::RowLiteralFieldTypeMismatch).len(), 1, "{:?}", codes(&wrong_type));
+    for ok in [json!({ "fxKind": "a", "power": 3 }), json!({ "fxKind": "@payload.k" }), json!({})] {
+        let r = validate_rows(row_fields(), json!({}), set(ok.clone()));
+        assert!(
+            with_code(&r, ErrorCode::RowLiteralUnknownField).is_empty()
+                && with_code(&r, ErrorCode::EnumValueNotMember).is_empty()
+                && with_code(&r, ErrorCode::RowLiteralFieldTypeMismatch).is_empty(),
+            "{ok}: {:?}",
+            codes(&r)
+        );
+    }
+}
+
+#[test]
+fn json_parse_naming_no_declared_type_is_reported_in_effects_and_declared_types_pass() {
+    let parse = |shape: &str| json!([["set", "@entity.title", ["object/get", ["json/parse", "{}", shape], "t", ""]]]);
+    let types = json!({ "Point": [{ "name": "t", "type": "string" }] });
+    let unknown = validate_rows(row_fields(), types.clone(), parse("Nope"));
+    let found = with_code(&unknown, ErrorCode::OperatorArgTypeMismatch);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("`Nope`"), "{found:?}");
+    let declared = validate_rows(row_fields(), types, parse("Point"));
+    assert!(with_code(&declared, ErrorCode::OperatorArgTypeMismatch).is_empty(), "{:?}", codes(&declared));
+}

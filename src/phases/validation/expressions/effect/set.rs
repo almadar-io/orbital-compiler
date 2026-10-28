@@ -292,6 +292,41 @@ pub(crate) fn validate_set_return_type(
     result
 }
 
+/// G-ORB-457: `(set @entity.<relation> { … })` writes a record into a to-one relation field. The literal is checked
+/// against the entity the relation points at, as a `persist` data literal is: its keys, its enum members and the
+/// types of its values.
+pub(crate) fn validate_set_relation_literal(
+    arr: &[SExpression],
+    path: &str,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+    site: &super::row_literal::RowSite<'_>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let [_, target, value, ..] = arr else {
+        return result;
+    };
+    let Some(field) = set_entity_field(target) else {
+        return result;
+    };
+    let Some(orbital_core_base::ir::OirType::Reference { entity }) = entity_field_types.get(field).map(|m| &m.shape)
+    else {
+        return result;
+    };
+    if let Some(definition) = site.entities.get(entity.as_str()) {
+        let what = format!("set @entity.{field}");
+        super::row_literal::check_row_literal(
+            definition,
+            value,
+            super::row_literal::RowWrite::Partial,
+            &what,
+            path,
+            site,
+            &mut result,
+        );
+    }
+    result
+}
+
 /// Infer an array-form value expression's result type — through the canonical
 /// `infer_oir_expr_type` derivation, resolving `@entity.<f>` / `@payload.<f>`
 /// bindings via the field-type maps — and return `Some(inferred)` when the

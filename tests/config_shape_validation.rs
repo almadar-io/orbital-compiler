@@ -13,7 +13,7 @@ use orbital_core_base::schema::{
     SExpression, StateDefinition, StateMachine, StringOrArray, TraitDefinition, TraitReference,
     TransitionDefinition,
 };
-use std::collections::HashMap;
+use orbital_core_base::collections::IndexMap;
 
 // ============================================================================
 // Helpers
@@ -178,7 +178,7 @@ fn metric_spec_items() -> FieldDefinition {
     }
 }
 
-fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
+fn schema_with_config(config: orbital_core_base::collections::IndexMap<String, ConfigField>) -> OrbitalSchema {
     let entity = EntityDefinition {
         timestamps: None,
         soft_delete: None,
@@ -330,7 +330,7 @@ fn shape_errors(schema: &OrbitalSchema) -> Vec<String> {
 
 #[test]
 fn good_array_of_metricspec_passes() {
-    let mut config = HashMap::new();
+    let mut config = IndexMap::new();
     let mut good_metric: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     good_metric.insert(
         "label".to_string(),
@@ -371,7 +371,7 @@ fn good_array_of_metricspec_passes() {
 
 #[test]
 fn string_value_where_number_expected_fails() {
-    let mut config = HashMap::new();
+    let mut config = IndexMap::new();
     let mut bad_metric: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     bad_metric.insert(
         "label".to_string(),
@@ -473,7 +473,7 @@ fn bare_string_in_array_of_objects_fails() {
         record: None,
         derived: None,
     };
-    let mut config = HashMap::new();
+    let mut config = IndexMap::new();
     config.insert(
         "formats".to_string(),
         ConfigField {
@@ -512,7 +512,7 @@ fn bare_string_in_array_of_objects_fails() {
 
 #[test]
 fn missing_required_field_fails() {
-    let mut config = HashMap::new();
+    let mut config = IndexMap::new();
     // `label` is required on MetricSpec; omit it.
     let mut no_label: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     no_label.insert("value".to_string(), SExpression::Number(10.0));
@@ -551,7 +551,7 @@ fn missing_required_field_fails() {
 
 #[test]
 fn enum_value_outside_allowed_set_fails() {
-    let mut config = HashMap::new();
+    let mut config = IndexMap::new();
     let mut bad_enum: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     bad_enum.insert(
         "label".to_string(),
@@ -600,7 +600,7 @@ fn enum_value_outside_allowed_set_fails() {
 fn binding_strings_pass_the_check() {
     // `@entity.X` / `@config.X` / `@payload.X` are late-bound; the static
     // checker can't adjudicate their concrete type, so they pass.
-    let mut config = HashMap::new();
+    let mut config = IndexMap::new();
     let mut binding_metric: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     binding_metric.insert(
         "label".to_string(),
@@ -652,7 +652,7 @@ fn computed_sexpr_call_for_array_items_defers() {
     // — the same `Array` variant as a literal list, but it's an operator
     // call whose shape only materializes at runtime. It must defer, not
     // be misread as a 3-element literal array of MetricSpec objects.
-    let mut config = HashMap::new();
+    let mut config = IndexMap::new();
     let call = SExpression::Array(vec![
         SExpression::String(("array/map".to_string()).into()),
         SExpression::String(("@entity.tiles".to_string()).into()),
@@ -700,7 +700,7 @@ fn computed_sexpr_call_nested_in_object_property_defers() {
     // `{ label: "Revenue", value: (sum @entity.rows) }`. The per-element
     // object check must defer that property instead of type-mismatching
     // it against the declared `number` leaf.
-    let mut config = HashMap::new();
+    let mut config = IndexMap::new();
     let mut metric: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     metric.insert(
         "label".to_string(),
@@ -800,7 +800,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
         record: None,
         derived: None,
     };
-    let mut config = HashMap::new();
+    let mut config = IndexMap::new();
     config.insert(
         "formats".to_string(),
         ConfigField {
@@ -838,7 +838,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
 
 #[test]
 fn array_typed_slot_with_scalar_default_fails() {
-    let mut config = HashMap::new();
+    let mut config = IndexMap::new();
     config.insert(
         "metrics".to_string(),
         ConfigField {
@@ -877,7 +877,7 @@ fn array_typed_slot_with_scalar_default_fails() {
 #[test]
 fn number_on_a_name_carrying_scalar_tag_fails() {
     for tag in ["icon", "slot", "pattern", "component"] {
-        let mut config = HashMap::new();
+        let mut config = IndexMap::new();
         config.insert(
             "knob".to_string(),
             ConfigField {
@@ -917,7 +917,7 @@ fn number_on_a_name_carrying_scalar_tag_fails() {
 #[test]
 fn string_and_null_on_a_name_carrying_scalar_tag_pass() {
     for value in [SExpression::String(("circle".to_string()).into()), SExpression::Null] {
-        let mut config = HashMap::new();
+        let mut config = IndexMap::new();
         config.insert(
             "knob".to_string(),
             ConfigField {
@@ -954,7 +954,7 @@ fn string_and_null_on_a_name_carrying_scalar_tag_pass() {
 #[test]
 fn non_number_on_int_or_float_fails() {
     for tag in ["int", "float"] {
-        let mut config = HashMap::new();
+        let mut config = IndexMap::new();
         config.insert(
             "knob".to_string(),
             ConfigField {
@@ -1015,7 +1015,7 @@ fn string_value_field() -> FieldDefinition {
 }
 
 fn map_knob(default: SExpression) -> OrbitalSchema {
-    let mut config = HashMap::new();
+    let mut config = IndexMap::new();
     config.insert(
         "labels".to_string(),
         ConfigField {
@@ -1101,7 +1101,7 @@ fn map_with_a_non_object_default_is_reported() {
 /// guard is on the `Map<` prefix precisely so this stays on the array path.
 #[test]
 fn an_array_type_merely_starting_with_map_is_not_treated_as_a_map() {
-    let mut config = HashMap::new();
+    let mut config = IndexMap::new();
     config.insert(
         "markers".to_string(),
         ConfigField {
@@ -1157,7 +1157,7 @@ fn sexpr_args_slot(item_type: FieldType, default: Vec<SExpression>) -> OrbitalSc
         record: None,
         derived: None,
     };
-    let mut config = HashMap::new();
+    let mut config = IndexMap::new();
     config.insert(
         "args".to_string(),
         ConfigField {

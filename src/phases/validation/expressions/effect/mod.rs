@@ -27,6 +27,7 @@ mod persist;
 mod postgres;
 mod program_eval;
 mod redis;
+mod row_literal;
 mod set;
 mod typed_args;
 mod utils;
@@ -51,6 +52,7 @@ pub(crate) use operator_args::{validate_operator_arg_types, validate_operator_ar
 pub(crate) use os_grants::{validate_final_os_targets, validate_os_grants};
 pub(crate) use os_watch::validate_os_effect;
 pub(crate) use persist::{persist_entity_index, validate_persist};
+pub(crate) use row_literal::RowSite;
 pub(crate) use program_eval::validate_program_eval;
 pub(crate) use postgres::validate_postgres_effects;
 pub(crate) use redis::validate_redis_effects;

@@ -38,6 +38,9 @@ mod trait_value_refs;
 pub use identity_normalize::normalize_identity_tokens;
 use identity_normalize::rewrite_trait_embed_tokens;
 
+/// Rename records carry no wall-clock time: a resolve is a pure function of its input.
+const RENAME_UNSTAMPED: &str = "";
+
 // Re-exports so the orchestration fns below — and the in-module
 // `#[cfg(test)] mod tests { use super::*; }` block — keep resolving every helper
 // under its original unqualified name after the split into submodules.
@@ -73,7 +76,7 @@ use entity::trait_referenced_fields_of_entity;
 #[cfg(test)]
 use r#trait::apply_overrides_to_trait;
 #[cfg(test)]
-use rewrite::{rewrite_entity_refs, rewrite_identifiers, rewrite_trait_event_fields};
+use rewrite::{rewrite_entity_refs, rewrite_identifiers};
 
 use crate::loader::{ExternalOrbitalLoader, ImportChain, LoaderConfig, LoaderError};
 use orbital_core_base::schema::{
@@ -262,6 +265,15 @@ pub enum InlineError {
 
     #[error("`unquote` at {path} appears outside a quasiquote body")]
     UnquoteOutsideQuasiquote { path: String },
+
+    #[error(
+        "Trait '{trait_name}' renames event '{event}' but {site} carries no id; the program is not stamped"
+    )]
+    UnknownEventRef {
+        trait_name: String,
+        event: String,
+        site: String,
+    },
 }
 
 impl InlineError {
@@ -308,6 +320,7 @@ impl InlineError {
             InlineError::BehaviorRefUnresolved { .. } => "ORB_T_BEHAVIOR_REF_UNRESOLVED",
             InlineError::BehaviorRefNotLiteral { .. } => "ORB_T_BEHAVIOR_REF_NOT_LITERAL",
             InlineError::UnquoteOutsideQuasiquote { .. } => "ORB_T_UNQUOTE_OUTSIDE_QUASIQUOTE",
+            InlineError::UnknownEventRef { .. } => "ORB_ID_UNKNOWN_REF",
             InlineError::Loader(LoaderError::PackageNotInstalled { .. })
             | InlineError::Loader(LoaderError::BehaviorPackageNotInstalled { .. }) => {
                 "ORB_BEHAVIOR_PACKAGE_NOT_INSTALLED"
@@ -547,7 +560,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // entity is excluded by construction, which is exactly right: its real
     // entity doesn't exist yet at this point, so it can't be a valid
     // `entities {}` target anyway.
-    let mut consumer_entity_ids: HashMap<String, String> = inline_entity_ids(&schema.orbitals);
+    let mut consumer_entity_ids: orbital_core_base::collections::IndexMap<String, String> = inline_entity_ids(&schema.orbitals);
 
     // (B) fix: the build above excludes reference-form orbitals BY
     // CONSTRUCTION (their real primary entity doesn't exist until THEY
@@ -578,7 +591,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // Process each orbital, recording the names the auto-pull loop added and
     // the config→knob provenance for substituted render-ui props.
     let mut pulled_by_orbital: Vec<(usize, Vec<String>)> = Vec::new();
-    let mut all_provenance: HashMap<String, Vec<ConfigProvenanceRecord>> = std::collections::HashMap::new();
+    let mut all_provenance: orbital_core_base::collections::IndexMap<String, Vec<ConfigProvenanceRecord>> = orbital_core_base::collections::IndexMap::new();
     // One orbital's inline failure must not leave its SIBLINGS un-inlined: a
     // `?` here abandoned every later orbital, and validators (which index
     // Inline traits only) then cascaded spurious ORB_T_UNDEFINED_TRAIT /
@@ -978,11 +991,11 @@ fn uniquify_cross_orbital_pulled_siblings(
     // (`derive_id(source_id, orbital_name)` + a cloned ledger row) — one ledger
     // row cannot carry two curNames.
     let mut id_claimed: HashSet<String> = HashSet::new();
-    let mut qualified_renames: Vec<(String, HashMap<String, String>)> = Vec::new();
+    let mut qualified_renames: Vec<(String, orbital_core_base::collections::IndexMap<String, String>)> = Vec::new();
     for (orbital_idx, pulled) in pulled_by_orbital {
         let orbital_name = orbitals[*orbital_idx].name.clone();
-        let mut renames: HashMap<String, String> = HashMap::new();
-        let mut id_renames: HashMap<String, String> = HashMap::new();
+        let mut renames: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
+        let mut id_renames: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         // (source_id, new_name, derived_copy_id) — applied to the ledger after
         // the trait borrow ends.
         let mut ledger_ops: Vec<(String, String, Option<String>)> = Vec::new();
@@ -1032,17 +1045,17 @@ fn uniquify_cross_orbital_pulled_siblings(
         }
         if !ledger_ops.is_empty() {
             if let Some(ledger) = ledger.as_deref_mut() {
-                let at = orbital_core_base::time_util::now_rfc3339();
+                let at = RENAME_UNSTAMPED;
                 for (source_id, new_name, copy_id) in &ledger_ops {
                     match copy_id {
-                        None => ledger.rename(source_id, new_name, &at),
+                        None => ledger.rename(source_id, new_name, at),
                         Some(copy_id) => {
                             if let Some(src) = ledger.entries.get(source_id).cloned() {
                                 let mut rename_hist = src.renames;
                                 rename_hist.push(orbital_core_base::identity::RenameRecord {
                                     from: src.cur_name,
                                     to: new_name.clone(),
-                                    at: at.clone(),
+                                    at: at.to_string(),
                                 });
                                 ledger.entries.insert(
                                     copy_id.clone(),
@@ -1134,8 +1147,8 @@ fn precompute_reference_form_primary_ids(
     loader: &mut ExternalOrbitalLoader,
     chain: &mut ImportChain,
     source_path: Option<&Path>,
-) -> HashMap<String, String> {
-    let mut out: HashMap<String, String> = HashMap::new();
+) -> orbital_core_base::collections::IndexMap<String, String> {
+    let mut out: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
     for orbital in orbitals {
         let Some(reference) = orbital.reference.as_ref() else {
             continue;
@@ -1408,7 +1421,7 @@ fn flattened_traits(
 
 /// Entity name → id over a batch of orbitals' inline entities (primary and
 /// auxiliary); a reference-form orbital's unresolved placeholder doesn't count.
-fn inline_entity_ids(orbitals: &[Orbital]) -> HashMap<String, String> {
+fn inline_entity_ids(orbitals: &[Orbital]) -> orbital_core_base::collections::IndexMap<String, String> {
     orbitals
         .iter()
         .flat_map(|o| {
@@ -1548,13 +1561,13 @@ fn inline_orbital(
     // Schema-level (app) declared `config {}` — the outermost §4.5 rung, for
     // both `resolve_orbital_reference`'s config fold and (further down) the
     // sibling-pull chain's fallback.
-    schema_config: Option<&HashMap<String, ConfigField>>,
+    schema_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
     // Stage B: every consumer orbital's own primary + aux entity name → id,
     // built once in `inline_schema_with_orbital_diagnostics` — threaded
     // through recursive `inline_orbital` calls unchanged (an import's OWN
     // `entities {}` remap still resolves against the TOP-LEVEL consumer's
     // roster, since that is what "declares an entity for this name" means).
-    consumer_entity_ids: &HashMap<String, String>,
+    consumer_entity_ids: &orbital_core_base::collections::IndexMap<String, String>,
     // G1 (`docs/Almadar_Compiler_Gaps.md` §82): every reference-form orbital
     // AMONG THIS CALL'S OWN SIBLINGS (the top-level `schema.orbitals`, or —
     // for a recursive call loading an alias — that alias's own orbitals),
@@ -1629,7 +1642,7 @@ fn inline_orbital(
                             None,
                             schema_config,
                         ) {
-                            let cfg = trait_def.config.get_or_insert_with(HashMap::new);
+                            let cfg = trait_def.config.get_or_insert_with(orbital_core_base::collections::IndexMap::new);
                             for (key, field) in resolved {
                                 cfg.insert(key, field);
                             }
@@ -1670,7 +1683,7 @@ fn inline_orbital(
     // of receiving the CONSUMER's own top-level `schema_config` — a
     // different file's app knobs entirely, which is what it was
     // (incorrectly) receiving before.
-    let mut alias_schema_configs: HashMap<String, HashMap<String, ConfigField>> = HashMap::new();
+    let mut alias_schema_configs: orbital_core_base::collections::IndexMap<String, orbital_core_base::collections::IndexMap<String, ConfigField>> = orbital_core_base::collections::IndexMap::new();
 
     for use_decl in uses.iter().filter(|u| u.lazy != Some(true)) {
         // Phase F.10: recursive composition. The loaded orbital may itself
@@ -1756,7 +1769,7 @@ fn inline_orbital(
         // same `uses { config }` override, so it is inlined once per (file,
         // override) and reused. Its own reference-form orbitals resolve
         // `@config.X` against the alias config folded with that override.
-        let alias_config: Option<HashMap<String, ConfigField>> = alias_schema_configs
+        let alias_config: Option<orbital_core_base::collections::IndexMap<String, ConfigField>> = alias_schema_configs
             .get(&use_decl.alias)
             .cloned()
             .or_else(|| loaded_schema_config.clone());
@@ -2670,7 +2683,7 @@ fn mount_pulled_receivers(orbital: &mut Orbital, receiver_mounts: &[(String, Str
     if receiver_mounts.is_empty() {
         return;
     }
-    let ids: HashMap<String, String> = orbital
+    let ids: orbital_core_base::collections::IndexMap<String, String> = orbital
         .traits
         .iter()
         .filter_map(|t| match t {
@@ -2722,8 +2735,8 @@ fn mount_pulled_receivers(orbital: &mut Orbital, receiver_mounts: &[(String, Str
 /// primary inline entity plus every inline auxiliary entity. Used to keep a
 /// rebound `linkedEntity` name's id sibling pointing at the consumer's own
 /// entity node instead of the source file's.
-fn collect_orbital_entity_ids(orbital: &Orbital) -> HashMap<String, String> {
-    let mut ids = HashMap::new();
+fn collect_orbital_entity_ids(orbital: &Orbital) -> orbital_core_base::collections::IndexMap<String, String> {
+    let mut ids = orbital_core_base::collections::IndexMap::new();
     if let EntityRef::Inline(e) = &orbital.entity {
         if let Some(id) = &e.id {
             ids.insert(e.name.clone(), id.clone());
@@ -2856,7 +2869,7 @@ fn reconcile_orbital_ref_event_id_renames(
 
     // Sole-owner ids rename their ledger entry in place; shared ids mint a
     // fresh derived id, scoped to exactly the (orbital, trait) that needs it.
-    let mut rename_in_place: HashMap<String, String> = HashMap::new(); // old_id -> new_key
+    let mut rename_in_place: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new(); // old_id -> new_key
     let mut derive_sites: Vec<(&EventIdRenameSite, String)> = Vec::new(); // (site, new_id)
     let mut seen: HashSet<&str> = HashSet::new();
     for site in &sites {
@@ -2949,9 +2962,9 @@ fn reconcile_orbital_ref_event_id_renames(
         .collect();
 
     let ledger = schema.ledger.as_mut().expect("checked Some above");
-    let at = orbital_core_base::time_util::now_rfc3339();
+    let at = RENAME_UNSTAMPED;
     for (old_id, new_key) in rename_in_place {
-        ledger.rename(&old_id, &new_key, &at);
+        ledger.rename(&old_id, &new_key, at);
     }
     for ((site, new_id), parent) in derive_sites.into_iter().zip(derive_parents) {
         let Some(src) = ledger.entries.get(&site.old_id) else {
@@ -2961,7 +2974,7 @@ fn reconcile_orbital_ref_event_id_renames(
         renames.push(orbital_core_base::identity::RenameRecord {
             from: src.cur_name.clone(),
             to: site.new_key.clone(),
-            at: at.clone(),
+            at: at.to_string(),
         });
         ledger.entries.insert(
             new_id.clone(),
@@ -3223,8 +3236,8 @@ struct ObligationRenames<'a> {
     trait_name: &'a str,
     local_name: &'a str,
     entity_to: Option<&'a str>,
-    events: Option<&'a HashMap<String, String>>,
-    fields: Option<&'a HashMap<String, String>>,
+    events: Option<&'a orbital_core_base::collections::IndexMap<String, String>>,
+    fields: Option<&'a orbital_core_base::collections::IndexMap<String, String>>,
     /// The entities the importing orbital holds after its imports' auxiliary entities travelled.
     held: &'a HashSet<String>,
 }
@@ -3986,14 +3999,14 @@ mod tests {
         apply_overrides_to_trait(
             &mut trait_def,
             None,
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             None,
             Some("CartItemAddItem"),
             None,
             None,
             false,
             &mut Vec::new(),
-        );
+        ).expect("overrides apply");
         assert_eq!(
             trait_def.name, "CartItemAddItem",
             "name override must rename the trait"
@@ -4010,14 +4023,14 @@ mod tests {
         apply_overrides_to_trait(
             &mut trait_def,
             None,
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             None,
             Some("ModalRecordModal"),
             None,
             None,
             false,
             &mut Vec::new(),
-        );
+        ).expect("overrides apply");
         assert_eq!(trait_def.name, "ModalRecordModal");
     }
 
@@ -4028,14 +4041,14 @@ mod tests {
         apply_overrides_to_trait(
             &mut trait_def,
             None,
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             None,
             None,
             None,
             None,
             false,
             &mut Vec::new(),
-        );
+        ).expect("overrides apply");
         assert_eq!(trait_def.name, "ModalRecordModal");
     }
 
@@ -4071,14 +4084,14 @@ mod tests {
         apply_overrides_to_trait(
             &mut trait_def,
             Some(&linked),
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             None,
             Some("CartItemAddItem"),
             None,
             None,
             false,
             &mut Vec::new(),
-        );
+        ).expect("overrides apply");
 
         assert_eq!(
             trait_def.name, "CartItemAddItem",
@@ -4117,7 +4130,7 @@ mod tests {
         let mut trait_def = make_trait("ModalRecordModal");
         trait_def.linked_entity_id = Some("ent_SOURCEFOREIGN00000000000".to_string());
 
-        let mut entity_ids = HashMap::new();
+        let mut entity_ids = orbital_core_base::collections::IndexMap::new();
         entity_ids.insert(
             "CartItem".to_string(),
             "ent_CONSUMER0000000000000000".to_string(),
@@ -4134,7 +4147,7 @@ mod tests {
             None,
             false,
             &mut Vec::new(),
-        );
+        ).expect("overrides apply");
 
         assert_eq!(trait_def.linked_entity.as_deref(), Some("CartItem"));
         assert_eq!(
@@ -4156,14 +4169,14 @@ mod tests {
         apply_overrides_to_trait(
             &mut trait_def,
             Some(&linked),
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             None,
             None,
             None,
             None,
             false,
             &mut Vec::new(),
-        );
+        ).expect("overrides apply");
         assert_eq!(trait_def.linked_entity.as_deref(), Some("CartItem"));
         assert_eq!(
             trait_def.linked_entity_id, None,
@@ -4347,11 +4360,11 @@ mod tests {
             &traits,
             &ctx,
             "<test>",
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             &mut Vec::new(),
             None,
             None,
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
         )
         .expect("inlines");
         let dispatch_of = |name: &str| {
@@ -4385,11 +4398,11 @@ mod tests {
             &traits,
             &ctx,
             "<test>",
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             &mut Vec::new(),
             None,
             None,
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
         )
         .expect("inlines");
         let dispatch_of = |name: &str| {
@@ -4419,11 +4432,11 @@ mod tests {
             &traits,
             &ctx,
             "<test>",
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             &mut Vec::new(),
             None,
             None,
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
         );
         match result {
             Err(InlineError::DuplicateTraitName { name, .. }) => {
@@ -4455,11 +4468,11 @@ mod tests {
             &traits,
             &ctx,
             "<test>",
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             &mut Vec::new(),
             None,
             None,
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
         )
         .expect("two distinct `name` overrides must inline successfully without collision");
         assert_eq!(result.len(), 2, "both references must be inlined");
@@ -4505,11 +4518,11 @@ mod tests {
             &traits,
             &ctx,
             "<test>",
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             &mut Vec::new(),
             None,
             None,
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
         )
         .expect("one renamed + one not-renamed must succeed (no name collision)");
         assert_eq!(result.len(), 2);
@@ -4542,11 +4555,11 @@ mod tests {
             &traits,
             &ctx,
             "<test>",
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             &mut Vec::new(),
             None,
             None,
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
         );
         match result {
             Err(InlineError::DuplicateTraitName { name, .. }) => {
@@ -5289,7 +5302,7 @@ mod tests {
         // The walker accepts a HashMap with multiple entries; every entry
         // fires independently. `["fetch", "A"]` and `["fetch", "B"]` in the
         // same tree both get rewritten in a single walk.
-        let mut entity_subs: HashMap<String, String> = HashMap::new();
+        let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         entity_subs.insert("A".to_string(), "X".to_string());
         entity_subs.insert("B".to_string(), "Y".to_string());
 
@@ -5304,7 +5317,7 @@ mod tests {
             ]),
         ]);
 
-        rewrite_identifiers(&mut expr, &entity_subs, &HashMap::new());
+        rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
         if let SExpression::Array(items) = &expr {
             // Both nested fetch calls were rewritten in one pass.
@@ -5324,7 +5337,7 @@ mod tests {
         // `["emit", "OPEN"]` is the symmetric event-side counterpart of
         // `["fetch", "EntityName"]`. With OPEN → ADD_ITEM in event_subs,
         // the second element gets substituted.
-        let mut event_subs: HashMap<String, String> = HashMap::new();
+        let mut event_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         event_subs.insert("OPEN".to_string(), "ADD_ITEM".to_string());
 
         let mut expr = SExpression::Array(vec![
@@ -5332,7 +5345,7 @@ mod tests {
             SExpression::String(("OPEN".to_string()).into()),
         ]);
 
-        rewrite_identifiers(&mut expr, &HashMap::new(), &event_subs);
+        rewrite_identifiers(&mut expr, &orbital_core_base::collections::IndexMap::new(), &event_subs);
 
         if let SExpression::Array(items) = &expr {
             assert_eq!(items[1], SExpression::String(("ADD_ITEM".to_string()).into()));
@@ -5349,7 +5362,7 @@ mod tests {
         // `["emit", "FILTER", { value: "" }]` through unchanged, leaving
         // a stale event reference that the validator flagged as
         // ORB_T_EVT_UNDECLARED.
-        let mut event_subs: HashMap<String, String> = HashMap::new();
+        let mut event_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         event_subs.insert("FILTER".to_string(), "NARROW".to_string());
 
         let mut payload_obj: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
@@ -5361,7 +5374,7 @@ mod tests {
             SExpression::object(payload_obj),
         ]);
 
-        rewrite_identifiers(&mut expr, &HashMap::new(), &event_subs);
+        rewrite_identifiers(&mut expr, &orbital_core_base::collections::IndexMap::new(), &event_subs);
 
         if let SExpression::Array(items) = &expr {
             assert_eq!(items.len(), 3, "payload tail should be preserved");
@@ -5379,9 +5392,9 @@ mod tests {
         // After the emit-event rewrite we DON'T return — the walk
         // continues into the payload tail. A nested `["fetch", X]` inside
         // the payload should still get entity-rewritten in the same pass.
-        let mut entity_subs: HashMap<String, String> = HashMap::new();
+        let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         entity_subs.insert("OldEntity".to_string(), "NewEntity".to_string());
-        let mut event_subs: HashMap<String, String> = HashMap::new();
+        let mut event_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         event_subs.insert("OPEN".to_string(), "ADD_ITEM".to_string());
 
         let mut expr = SExpression::Array(vec![
@@ -5415,7 +5428,7 @@ mod tests {
         // value under "action" that matches an event_subs key gets rewritten.
         // This handles render-ui button event references that live inside
         // object maps rather than `["emit", X]` arrays.
-        let mut event_subs: HashMap<String, String> = HashMap::new();
+        let mut event_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         event_subs.insert("OPEN".to_string(), "ADD_ITEM".to_string());
 
         let mut object = orbital_core_base::schema::SObject::new();
@@ -5429,7 +5442,7 @@ mod tests {
         );
         let mut expr = SExpression::object(object);
 
-        rewrite_identifiers(&mut expr, &HashMap::new(), &event_subs);
+        rewrite_identifiers(&mut expr, &orbital_core_base::collections::IndexMap::new(), &event_subs);
 
         if let SExpression::Object(map) = &expr {
             assert_eq!(
@@ -5453,7 +5466,7 @@ mod tests {
         // rewritten even if it equals an event key. This protects content
         // strings like `{ "type": "typography", "content": "OPEN" }` from
         // accidental substitution.
-        let mut event_subs: HashMap<String, String> = HashMap::new();
+        let mut event_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         event_subs.insert("OPEN".to_string(), "ADD_ITEM".to_string());
 
         let mut object = orbital_core_base::schema::SObject::new();
@@ -5463,7 +5476,7 @@ mod tests {
         );
         let mut expr = SExpression::object(object);
 
-        rewrite_identifiers(&mut expr, &HashMap::new(), &event_subs);
+        rewrite_identifiers(&mut expr, &orbital_core_base::collections::IndexMap::new(), &event_subs);
 
         if let SExpression::Object(map) = &expr {
             assert_eq!(
@@ -5472,6 +5485,15 @@ mod tests {
                 "content strings must NOT be substituted by event_subs"
             );
         }
+    }
+
+    fn rewrite_trait_event_fields(
+        trait_def: &mut TraitDefinition,
+        event_subs: &orbital_core_base::collections::IndexMap<String, String>,
+    ) -> Result<Vec<rewrite::EventIdRename>, InlineError> {
+        let scope = rewrite::resolve_event_scope_renames([&*trait_def], event_subs)?;
+        rewrite::rewrite_trait_event_fields(trait_def, &scope, None)?;
+        Ok(scope.renames)
     }
 
     #[test]
@@ -5502,7 +5524,7 @@ mod tests {
                 }],
                 events: Some(vec![
                     EventDefinition {
-                        id: None,
+                        id: Some("evt_open".to_string()),
                         key: "OPEN".to_string(),
                         name: None,
                         description: None,
@@ -5515,7 +5537,7 @@ mod tests {
                         inbound: None,
                     },
                     EventDefinition {
-                        id: None,
+                        id: Some("evt_close".to_string()),
                         key: "CLOSE".to_string(),
                         name: None,
                         description: None,
@@ -5530,7 +5552,7 @@ mod tests {
                 ]),
                 transitions: vec![
                     TransitionDefinition {
-                        event_id: None,
+                        event_id: Some("evt_open".to_string()),
                         from: StringOrArray::Single("closed".to_string()),
                         to: "open".to_string(),
                         event: "OPEN".to_string(),
@@ -5539,7 +5561,7 @@ mod tests {
                         ensures: None,
                     },
                     TransitionDefinition {
-                        event_id: None,
+                        event_id: Some("evt_close".to_string()),
                         from: StringOrArray::Single("open".to_string()),
                         to: "closed".to_string(),
                         event: "CLOSE".to_string(),
@@ -5561,11 +5583,11 @@ mod tests {
             trait_embed_ids: None,
         };
 
-        let mut event_subs = HashMap::new();
+        let mut event_subs = orbital_core_base::collections::IndexMap::new();
         event_subs.insert("OPEN".to_string(), "ADD_ITEM".to_string());
         event_subs.insert("CLOSE".to_string(), "CANCEL_ADD".to_string());
 
-        rewrite_trait_event_fields(&mut trait_def, &event_subs);
+        rewrite_trait_event_fields(&mut trait_def, &event_subs).expect("stamped trait");
 
         // StateMachine.events keys are rewritten.
         let event_keys: Vec<&str> = trait_def
@@ -5585,6 +5607,159 @@ mod tests {
         assert_eq!(trait_def.state_machine.transitions[0].event, "ADD_ITEM");
         assert_eq!(trait_def.state_machine.transitions[1].event, "CANCEL_ADD");
     }
+
+    fn stamped_event_trait() -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "T",
+            "stateMachine": {
+                "states": [
+                    { "name": "closed", "isInitial": true },
+                    { "name": "open" }
+                ],
+                "events": [
+                    { "key": "OPEN", "id": "evt_open" },
+                    { "key": "CLOSE", "id": "evt_close" }
+                ],
+                "transitions": [
+                    { "from": "closed", "to": "open", "event": "OPEN", "eventId": "evt_open" },
+                    { "from": "open", "to": "closed", "event": "CLOSE", "eventId": "evt_close" }
+                ]
+            },
+            "emits": [{ "event": "OPEN", "eventId": "evt_open" }],
+            "listens": [
+                { "event": "PING", "triggers": "OPEN", "triggersId": "evt_open" },
+                { "event": "OPEN", "eventId": "evt_open" }
+            ]
+        }))
+        .expect("trait")
+    }
+
+    #[test]
+    fn rewrite_trait_event_fields_matches_references_by_id_not_name() {
+        let mut t = stamped_event_trait();
+        t.state_machine.transitions[1].event = "OPEN".to_string();
+        let subs: orbital_core_base::collections::IndexMap<String, String> =
+            [("OPEN".to_string(), "ADD_ITEM".to_string())].into_iter().collect();
+        rewrite_trait_event_fields(&mut t, &subs).expect("stamped trait");
+        assert_eq!(t.state_machine.transitions[0].event, "ADD_ITEM");
+        assert_eq!(
+            t.state_machine.transitions[1].event, "OPEN",
+            "a transition whose eventId names another event is not renamed by its name string"
+        );
+    }
+
+    #[test]
+    fn rewrite_trait_event_fields_renamed_event_carries_transitions_emits_listens_by_id() {
+        let mut t = stamped_event_trait();
+        let subs: orbital_core_base::collections::IndexMap<String, String> =
+            [("OPEN".to_string(), "ADD_ITEM".to_string())].into_iter().collect();
+        let renames = rewrite_trait_event_fields(&mut t, &subs).expect("stamped trait");
+        assert_eq!(
+            renames,
+            vec![rewrite::EventIdRename {
+                id: "evt_open".to_string(),
+                from: "OPEN".to_string(),
+                to: "ADD_ITEM".to_string()
+            }]
+        );
+        let keys: Vec<&str> = t
+            .state_machine
+            .events
+            .iter()
+            .flatten()
+            .map(|e| e.key.as_str())
+            .collect();
+        assert_eq!(keys, vec!["ADD_ITEM", "CLOSE"]);
+        let ids: Vec<&str> = t
+            .state_machine
+            .events
+            .iter()
+            .flatten()
+            .filter_map(|e| e.id.as_deref())
+            .collect();
+        assert_eq!(ids, vec!["evt_open", "evt_close"]);
+        assert_eq!(t.state_machine.transitions[0].event, "ADD_ITEM");
+        assert_eq!(
+            t.state_machine.transitions[0].event_id.as_deref(),
+            Some("evt_open")
+        );
+        assert_eq!(t.state_machine.transitions[1].event, "CLOSE");
+        let emits = t.emits.as_ref().expect("emits");
+        assert_eq!(emits[0].event, "ADD_ITEM");
+        assert_eq!(emits[0].event_id.as_deref(), Some("evt_open"));
+        let listens = t.listens.as_ref().expect("listens");
+        assert_eq!(listens[0].event, "PING");
+        assert_eq!(listens[0].triggers.as_deref(), Some("ADD_ITEM"));
+        assert_eq!(listens[0].triggers_id.as_deref(), Some("evt_open"));
+        assert_eq!(listens[1].event, "ADD_ITEM");
+    }
+
+    #[test]
+    fn rewrite_trait_event_fields_unstamped_declaration_is_a_typed_error_not_a_name_match() {
+        let mut t = stamped_event_trait();
+        t.state_machine.events.as_mut().expect("events")[0].id = None;
+        let subs: orbital_core_base::collections::IndexMap<String, String> =
+            [("OPEN".to_string(), "ADD_ITEM".to_string())].into_iter().collect();
+        let err = rewrite_trait_event_fields(&mut t, &subs).expect_err("unstamped");
+        assert_eq!(err.structured_code(), "ORB_ID_UNKNOWN_REF");
+        assert_eq!(t.state_machine.transitions[0].event, "OPEN");
+
+        let mut t = stamped_event_trait();
+        t.state_machine.transitions[0].event_id = None;
+        let err = rewrite_trait_event_fields(&mut t, &subs).expect_err("unstamped ref");
+        assert_eq!(err.structured_code(), "ORB_ID_UNKNOWN_REF");
+        assert_eq!(t.state_machine.events.as_ref().expect("events")[0].key, "OPEN");
+    }
+
+    fn stamped_emit_only_trait() -> TraitDefinition {
+        let mut schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "P",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "E", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                "traits": [{
+                    "name": "T",
+                    "linkedEntity": "E",
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "events": [{ "key": "GO", "name": "GO" }],
+                        "transitions": [{ "from": "idle", "to": "idle", "event": "GO" }]
+                    },
+                    "emits": [{ "event": "DONE" }]
+                }],
+                "pages": []
+            }]
+        }))
+        .expect("schema");
+        orbital_core_base::stamp::ensure_stamped(&mut schema);
+        match schema.orbitals.remove(0).traits.remove(0) {
+            TraitReference::Inline(td) => td,
+            TraitReference::Reference { .. } => unreachable!("fixture trait is inline"),
+        }
+    }
+
+    #[test]
+    fn rewrite_trait_event_fields_renames_an_event_the_trait_only_emits() {
+        let mut t = stamped_emit_only_trait();
+        assert!(t.emits.as_ref().expect("emits")[0].event_id.is_some());
+        let subs: orbital_core_base::collections::IndexMap<String, String> =
+            [("DONE".to_string(), "FINISHED".to_string())].into_iter().collect();
+        let renames = rewrite_trait_event_fields(&mut t, &subs).expect("emit-only rename");
+        assert_eq!(renames.len(), 1);
+        assert_eq!(t.emits.as_ref().expect("emits")[0].event, "FINISHED");
+        assert_eq!(t.state_machine.transitions[0].event, "GO");
+    }
+
+    #[test]
+    fn control_renaming_a_declared_event_leaves_an_emit_only_event_alone() {
+        let mut t = stamped_emit_only_trait();
+        let subs: orbital_core_base::collections::IndexMap<String, String> =
+            [("GO".to_string(), "START".to_string())].into_iter().collect();
+        rewrite_trait_event_fields(&mut t, &subs).expect("declared rename");
+        assert_eq!(t.state_machine.transitions[0].event, "START");
+        assert_eq!(t.emits.as_ref().expect("emits")[0].event, "DONE");
+    }
+
 
     #[test]
     fn apply_overrides_to_trait_renames_events_via_events_arg() {
@@ -5617,7 +5792,7 @@ mod tests {
                     holds: None,
                 }],
                 events: Some(vec![EventDefinition {
-                    id: None,
+                    id: Some("evt_open".to_string()),
                     key: "OPEN".to_string(),
                     name: None,
                     description: None,
@@ -5630,7 +5805,7 @@ mod tests {
                     inbound: None,
                 }]),
                 transitions: vec![TransitionDefinition {
-                    event_id: None,
+                    event_id: Some("evt_open".to_string()),
                     from: StringOrArray::Single("closed".to_string()),
                     to: "open".to_string(),
                     event: "OPEN".to_string(),
@@ -5654,20 +5829,20 @@ mod tests {
             trait_embed_ids: None,
         };
 
-        let mut events_arg = HashMap::new();
+        let mut events_arg = orbital_core_base::collections::IndexMap::new();
         events_arg.insert("OPEN".to_string(), "ADD_ITEM".to_string());
 
         apply_overrides_to_trait(
             &mut trait_def,
             None,
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             None,
             None,
             Some(&events_arg),
             None,
             false,
             &mut Vec::new(),
-        );
+        ).expect("overrides apply");
 
         // Structured field rewritten.
         assert_eq!(trait_def.state_machine.transitions[0].event, "ADD_ITEM");
@@ -5691,11 +5866,11 @@ mod tests {
     fn rewrite_identifiers_rewrites_fetch_entity_slot() {
         // Atom trait effect: ["fetch", "Source"]. With entity_subs
         // Source → Target, position 1 must be rewritten.
-        let mut entity_subs: HashMap<String, String> = HashMap::new();
+        let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
         let mut expr = SExpression::Array(vec![s("fetch"), s("Source")]);
-        rewrite_identifiers(&mut expr, &entity_subs, &HashMap::new());
+        rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
         assert_eq!(expr, SExpression::Array(vec![s("fetch"), s("Target")]));
     }
@@ -5705,7 +5880,7 @@ mod tests {
         // ["fetch", "Source", {criteria...}] — the entity slot at index 1
         // is rewritten; the trailing object is untouched (criteria objects
         // don't carry entity names by convention).
-        let mut entity_subs: HashMap<String, String> = HashMap::new();
+        let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
         let mut criteria = orbital_core_base::schema::SObject::new();
@@ -5716,7 +5891,7 @@ mod tests {
             s("Source"),
             SExpression::object(criteria.clone()),
         ]);
-        rewrite_identifiers(&mut expr, &entity_subs, &HashMap::new());
+        rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
         assert_eq!(
             expr,
@@ -5728,7 +5903,7 @@ mod tests {
     fn rewrite_identifiers_rewrites_persist_create_entity_slot() {
         // ["persist", "create", "Source", {payload}] — index 2 is the entity
         // name and must be rewritten. The payload object is untouched.
-        let mut entity_subs: HashMap<String, String> = HashMap::new();
+        let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
         let mut payload = orbital_core_base::schema::SObject::new();
@@ -5740,7 +5915,7 @@ mod tests {
             s("Source"),
             SExpression::object(payload.clone()),
         ]);
-        rewrite_identifiers(&mut expr, &entity_subs, &HashMap::new());
+        rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
         assert_eq!(
             expr,
@@ -5757,22 +5932,49 @@ mod tests {
     fn rewrite_identifiers_rewrites_persist_update_and_delete_entity_slot() {
         // update + delete variants share the single-record shape and must
         // rewrite index 2 identically to create.
-        let mut entity_subs: HashMap<String, String> = HashMap::new();
+        let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
         let mut update = SExpression::Array(vec![s("persist"), s("update"), s("Source")]);
-        rewrite_identifiers(&mut update, &entity_subs, &HashMap::new());
+        rewrite_identifiers(&mut update, &entity_subs, &orbital_core_base::collections::IndexMap::new());
         assert_eq!(
             update,
             SExpression::Array(vec![s("persist"), s("update"), s("Target")])
         );
 
         let mut delete = SExpression::Array(vec![s("persist"), s("delete"), s("Source")]);
-        rewrite_identifiers(&mut delete, &entity_subs, &HashMap::new());
+        rewrite_identifiers(&mut delete, &entity_subs, &orbital_core_base::collections::IndexMap::new());
         assert_eq!(
             delete,
             SExpression::Array(vec![s("persist"), s("delete"), s("Target")])
         );
+    }
+
+    fn persist_row(entity: &str, key: &str) -> SExpression {
+        let mut data = orbital_core_base::schema::SObject::new();
+        data.insert(key.to_string(), s("@payload.v"));
+        SExpression::Array(vec![
+            s("persist"),
+            s("upsert"),
+            s(entity),
+            SExpression::object(data),
+        ])
+    }
+
+    #[test]
+    fn field_remap_renames_the_data_keys_of_a_persist_to_the_bound_entity() {
+        let subs: orbital_core_base::collections::IndexMap<String, String> = [("value".to_string(), "renamed".to_string())].into();
+        let mut expr = persist_row("Final", "value");
+        rewrite::rewrite_persist_data_keys(&mut expr, &subs, "Final");
+        assert_eq!(expr, persist_row("Final", "renamed"));
+    }
+
+    #[test]
+    fn control_field_remap_keeps_the_data_keys_of_a_persist_to_another_entity() {
+        let subs: orbital_core_base::collections::IndexMap<String, String> = [("value".to_string(), "renamed".to_string())].into();
+        let mut expr = persist_row("Other", "value");
+        rewrite::rewrite_persist_data_keys(&mut expr, &subs, "Final");
+        assert_eq!(expr, persist_row("Other", "value"));
     }
 
     #[test]
@@ -5780,7 +5982,7 @@ mod tests {
         // ["persist", "batch", [row1, row2]] — index 2 is a rows array,
         // NOT an entity name. The walker must NOT rewrite it as a string
         // substitution, and the rows array must stay structurally intact.
-        let mut entity_subs: HashMap<String, String> = HashMap::new();
+        let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
         let mut row1 = orbital_core_base::schema::SObject::new();
@@ -5795,7 +5997,7 @@ mod tests {
 
         let mut expr = SExpression::Array(vec![s("persist"), s("batch"), rows.clone()]);
         let snapshot = expr.clone();
-        rewrite_identifiers(&mut expr, &entity_subs, &HashMap::new());
+        rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
         // Batch shape is byte-identical after rewrite — the walker must not
         // touch the rows array.
@@ -5810,7 +6012,7 @@ mod tests {
         // Recursion test: ["render-ui", "main", {children: [["fetch",
         // "Source"]]}] — the nested fetch effect must be found and rewritten
         // by the recursive walk.
-        let mut entity_subs: HashMap<String, String> = HashMap::new();
+        let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
         let mut obj: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
@@ -5821,7 +6023,7 @@ mod tests {
 
         let mut expr =
             SExpression::Array(vec![s("render-ui"), s("main"), SExpression::object(obj)]);
-        rewrite_identifiers(&mut expr, &entity_subs, &HashMap::new());
+        rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
         if let SExpression::Array(items) = &expr {
             if let SExpression::Object(map) = &items[2] {
@@ -5843,12 +6045,12 @@ mod tests {
     fn rewrite_identifiers_leaves_unrelated_fetch_entity_untouched() {
         // Negative: ["fetch", "OtherEntity"] where OtherEntity is NOT the
         // from-entity. The walker must leave it as-is.
-        let mut entity_subs: HashMap<String, String> = HashMap::new();
+        let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
         let mut expr = SExpression::Array(vec![s("fetch"), s("OtherEntity")]);
         let snapshot = expr.clone();
-        rewrite_identifiers(&mut expr, &entity_subs, &HashMap::new());
+        rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
         assert_eq!(
             expr, snapshot,
@@ -5921,14 +6123,14 @@ mod tests {
         apply_overrides_to_trait(
             &mut trait_def,
             Some(&linked),
-            &HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             None,
             None,
             None,
             None,
             false,
             &mut Vec::new(),
-        );
+        ).expect("overrides apply");
 
         // linked_entity field flipped.
         assert_eq!(trait_def.linked_entity.as_deref(), Some("Target"));
@@ -7153,7 +7355,7 @@ mod tests {
     /// Builds the consumer schema: one orbital with primary entity
     /// `HostEntity` (`id`, `stars`), composing `Pickup.traits.Pickup ->
     /// HostEntity` with an optional call-site `fields` rename.
-    fn pickup_consumer_schema(field_rename: Option<HashMap<String, String>>) -> OrbitalSchema {
+    fn pickup_consumer_schema(field_rename: Option<orbital_core_base::collections::IndexMap<String, String>>) -> OrbitalSchema {
         let host_entity = EntityDefinition {
             timestamps: None,
             soft_delete: None,
@@ -7755,7 +7957,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         write_pickup_atom(dir.path());
 
-        let mut rename = HashMap::new();
+        let mut rename = orbital_core_base::collections::IndexMap::new();
         rename.insert("pickups".to_string(), "stars".to_string());
         let mut schema = pickup_consumer_schema(Some(rename));
 
@@ -9236,7 +9438,7 @@ fn settle_shadowed_auxiliaries(orbitals: &mut [Orbital], deferred_merges: &[Defe
 /// existed before the owner inlined) belongs to the owner's record: its merged fields move
 /// there, so which orbital inlined first never decides where a field lives.
 fn move_copy_merges_to_owners(orbitals: &mut [Orbital]) {
-    let owners: HashMap<String, usize> = orbitals
+    let owners: orbital_core_base::collections::IndexMap<String, usize> = orbitals
         .iter()
         .enumerate()
         .filter_map(|(i, o)| match &o.entity {
@@ -9271,7 +9473,7 @@ fn move_copy_merges_to_owners(orbitals: &mut [Orbital]) {
 }
 
 pub(crate) fn drop_shadowed_auxiliaries(orbitals: &mut [Orbital]) {
-    let owned: HashMap<String, EntityDefinition> = orbitals
+    let owned: orbital_core_base::collections::IndexMap<String, EntityDefinition> = orbitals
         .iter()
         .filter_map(|o| match &o.entity {
             EntityRef::Inline(e) => Some((e.name.clone(), e.clone())),

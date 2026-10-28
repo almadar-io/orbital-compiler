@@ -430,7 +430,7 @@ impl InlineContext {
         alias: &str,
         trait_name: &str,
         trait_ref_id: Option<&str>,
-    ) -> Option<HashMap<String, ConfigField>> {
+    ) -> Option<orbital_core_base::collections::IndexMap<String, ConfigField>> {
         let entry = self.aliases.get(alias)?;
         let (orbital, _) = Self::find_orbital_for_trait(entry, trait_name, trait_ref_id)?;
         orbital.config.clone()

@@ -1927,6 +1927,14 @@ fn g5_events_rename_reaches_sourced_listen_and_rederives_the_shared_id() {
         "the rename must be logged in the ledger's own history, got {:?}",
         entry.renames
     );
+    assert!(
+        ledger
+            .entries
+            .values()
+            .flat_map(|e| e.renames.iter())
+            .all(|r| r.at.is_empty()),
+        "resolve must not stamp wall-clock time on rename records (G-ORB-107)"
+    );
 
     // The event declaration + its transition must also carry the new id.
     let ev = decision

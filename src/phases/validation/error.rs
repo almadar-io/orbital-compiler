@@ -905,6 +905,13 @@ pub enum ErrorCode {
     /// value passed silently. The lolo crate catches this at author time for
     /// `.lolo`; this is the raw-`.orb` defense-in-depth backstop.
     EnumValueNotMember,
+    /// A record literal written into an entity (a `persist` data literal, or a `set` into a relation field) names a
+    /// key the entity does not declare.
+    RowLiteralUnknownField,
+    /// A record literal written into an entity carries a value whose type the declared field does not admit.
+    RowLiteralFieldTypeMismatch,
+    /// A `persist create` data literal omits a column the entity requires (no default, not framework-stamped).
+    RowLiteralMissingRequired,
     /// `(set @entity.X (op …))` assigns an operator/expression value whose
     /// inferred result type is incompatible with the target field's declared
     /// type (e.g. `(set @entity.count (str/concat …))` into a `number` field).
@@ -1834,6 +1841,9 @@ impl ErrorCode {
             ErrorCode::BindingPayloadTypeIncompatible => "ORB_BINDING_PAYLOAD_TYPE_INCOMPATIBLE",
             ErrorCode::SetValueTypeMismatch => "ORB_X_SET_VALUE_TYPE_MISMATCH",
             ErrorCode::EnumValueNotMember => "ORB_X_ENUM_VALUE_NOT_MEMBER",
+            ErrorCode::RowLiteralUnknownField => "ORB_X_ROW_LITERAL_UNKNOWN_FIELD",
+            ErrorCode::RowLiteralFieldTypeMismatch => "ORB_X_ROW_LITERAL_FIELD_TYPE_MISMATCH",
+            ErrorCode::RowLiteralMissingRequired => "ORB_X_ROW_LITERAL_MISSING_REQUIRED",
             ErrorCode::SetReturnTypeMismatch => "ORB_X_SET_RETURN_TYPE_MISMATCH",
             ErrorCode::ComparisonOperandTypeMismatch => "ORB_X_COMPARISON_OPERAND_TYPE_MISMATCH",
             ErrorCode::OperatorArgTypeMismatch => "ORB_X_OPERATOR_ARG_TYPE_MISMATCH",
@@ -2247,6 +2257,9 @@ impl ErrorCode {
             | ErrorCode::FetchTotalNoneRead
             | ErrorCode::SetValueTypeMismatch
             | ErrorCode::EnumValueNotMember
+            | ErrorCode::RowLiteralUnknownField
+            | ErrorCode::RowLiteralFieldTypeMismatch
+            | ErrorCode::RowLiteralMissingRequired
             | ErrorCode::SetReturnTypeMismatch
             | ErrorCode::ComparisonOperandTypeMismatch
             | ErrorCode::OperatorArgTypeMismatch

@@ -1,6 +1,8 @@
 //! SExpression / payload identifier rewriting and config-binding substitution.
 
+use super::InlineError;
 use crate::embedded::get_pattern;
+use crate::phases::validation::effect::persist_entity_index;
 use crate::phases::validation::sync::patterns::{PATTERN_EVENT_LIST_PROPS, PATTERN_EVENT_PROPS};
 use crate::phases::validation::user_identity::{user_field_of, EQUALITY_OPS};
 use crate::phases::validation::value_walk::all_sources;
@@ -30,7 +32,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 pub(crate) fn fold_event_typed_members(
     value: &mut SExpression,
     items: Option<&orbital_core_base::schema::FieldDefinition>,
-    event_subs: &HashMap<String, String>,
+    event_subs: &orbital_core_base::collections::IndexMap<String, String>,
 ) -> bool {
     map_event_typed_members(value, items, None, &mut |current| {
         event_subs.get(current).cloned()
@@ -156,7 +158,7 @@ pub(crate) fn map_config_event_addresses(td: &mut TraitDefinition, f: &mut Addre
 /// [`map_config_event_addresses`] over a bare knob map: an import's folded
 /// orbital-level config, before its values are substituted into effects.
 pub(crate) fn map_config_fields_event_addresses(
-    cfg: &mut HashMap<String, orbital_core_base::schema::ConfigField>,
+    cfg: &mut orbital_core_base::collections::IndexMap<String, orbital_core_base::schema::ConfigField>,
     f: &mut AddressMap<'_>,
 ) {
     use orbital_core_base::schema::{join_event_address, split_event_address};
@@ -174,7 +176,7 @@ pub(crate) fn map_config_fields_event_addresses(
 }
 
 pub(crate) fn map_fields_event_values(
-    cfg: &mut HashMap<String, orbital_core_base::schema::ConfigField>,
+    cfg: &mut orbital_core_base::collections::IndexMap<String, orbital_core_base::schema::ConfigField>,
     on_value: &mut dyn FnMut(&str) -> Option<String>,
 ) {
     for field in cfg.values_mut() {
@@ -242,8 +244,8 @@ pub(crate) fn map_fields_event_values(
 /// recurses, but no rewrites fire).
 pub(crate) fn rewrite_identifiers(
     expr: &mut SExpression,
-    entity_subs: &HashMap<String, String>,
-    event_subs: &HashMap<String, String>,
+    entity_subs: &orbital_core_base::collections::IndexMap<String, String>,
+    event_subs: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     rewrite_identifiers_inner(expr, entity_subs, event_subs);
 }
@@ -400,8 +402,8 @@ pub(crate) fn collect_entity_slots(
 /// config-field defaults all funnel through here from `orbital.rs`).
 pub(crate) fn rewrite_role_literals(
     expr: &mut SExpression,
-    role_fields: &HashMap<String, Vec<String>>,
-    roles: &HashMap<String, Vec<String>>,
+    role_fields: &orbital_core_base::collections::IndexMap<String, Vec<String>>,
+    roles: &orbital_core_base::collections::IndexMap<String, Vec<String>>,
 ) {
     if let SExpression::Array(items) = expr {
         if let Some(rewritten) = try_rewrite_role_equality(items, role_fields, roles) {
@@ -428,7 +430,7 @@ pub(crate) fn rewrite_role_literals(
 /// filtered to fields `role_fields` actually declares.
 fn direct_role_user_field<'a>(
     expr: &SExpression,
-    role_fields: &'a HashMap<String, Vec<String>>,
+    role_fields: &'a orbital_core_base::collections::IndexMap<String, Vec<String>>,
 ) -> Option<&'a str> {
     let SExpression::String(s) = expr else {
         return None;
@@ -442,8 +444,8 @@ fn direct_role_user_field<'a>(
 /// (node untouched) otherwise.
 fn try_rewrite_role_equality(
     items: &[SExpression],
-    role_fields: &HashMap<String, Vec<String>>,
-    roles: &HashMap<String, Vec<String>>,
+    role_fields: &orbital_core_base::collections::IndexMap<String, Vec<String>>,
+    roles: &orbital_core_base::collections::IndexMap<String, Vec<String>>,
 ) -> Option<SExpression> {
     let SExpression::String(op) = items.first()? else {
         return None;
@@ -475,10 +477,7 @@ fn try_rewrite_role_equality(
         ])
     };
     if targets.len() > 1 && is_negated {
-        Some(SExpression::Array(vec![
-            SExpression::string("not"),
-            node,
-        ]))
+        Some(SExpression::Array(vec![SExpression::string("not"), node]))
     } else {
         Some(node)
     }
@@ -492,8 +491,8 @@ fn try_rewrite_role_equality(
 /// into a node this fn already fully handled.
 fn try_rewrite_role_includes(
     items: &mut [SExpression],
-    role_fields: &HashMap<String, Vec<String>>,
-    roles: &HashMap<String, Vec<String>>,
+    role_fields: &orbital_core_base::collections::IndexMap<String, Vec<String>>,
+    roles: &orbital_core_base::collections::IndexMap<String, Vec<String>>,
 ) -> bool {
     if items.len() < 3 {
         return false;
@@ -547,7 +546,7 @@ fn try_rewrite_role_includes(
 /// dropped by callers' all-literal precheck, never reached here.
 fn expand_role_members(
     members: &[SExpression],
-    roles: &HashMap<String, Vec<String>>,
+    roles: &orbital_core_base::collections::IndexMap<String, Vec<String>>,
 ) -> Vec<SExpression> {
     let mut expanded: Vec<String> = Vec::new();
     for v in members.iter() {
@@ -585,8 +584,8 @@ pub(crate) struct RoleListSite {
 /// `viewerRole: @user.role` binding).
 fn role_source_field<'a>(
     expr: &SExpression,
-    cfg: &HashMap<String, ConfigField>,
-    role_fields: &'a HashMap<String, Vec<String>>,
+    cfg: &orbital_core_base::collections::IndexMap<String, ConfigField>,
+    role_fields: &'a orbital_core_base::collections::IndexMap<String, Vec<String>>,
 ) -> Option<&'a str> {
     if let Some(f) = direct_role_user_field(expr, role_fields) {
         return Some(f);
@@ -636,8 +635,8 @@ fn resolve_role_collection(expr: &SExpression, scope: &ItemScope) -> Option<(Str
 fn collect_role_list_sites(
     expr: &SExpression,
     scope: &ItemScope,
-    cfg: &HashMap<String, ConfigField>,
-    role_fields: &HashMap<String, Vec<String>>,
+    cfg: &orbital_core_base::collections::IndexMap<String, ConfigField>,
+    role_fields: &orbital_core_base::collections::IndexMap<String, Vec<String>>,
     out: &mut Vec<RoleListSite>,
 ) {
     match expr {
@@ -740,7 +739,7 @@ fn literal_role_members(value: &SExpression) -> Option<&[SExpression]> {
         .then_some(members)
 }
 
-fn expand_role_list_in_place(value: &mut SExpression, roles: &HashMap<String, Vec<String>>) {
+fn expand_role_list_in_place(value: &mut SExpression, roles: &orbital_core_base::collections::IndexMap<String, Vec<String>>) {
     let Some(members) = literal_role_members(value) else {
         return;
     };
@@ -792,7 +791,7 @@ fn visit_role_lists_at(
 /// literal-membership check.
 pub(crate) fn role_list_sites(
     td: &TraitDefinition,
-    role_fields: &HashMap<String, Vec<String>>,
+    role_fields: &orbital_core_base::collections::IndexMap<String, Vec<String>>,
 ) -> Vec<RoleListSite> {
     let Some(cfg) = td.config.as_ref() else {
         return Vec::new();
@@ -869,8 +868,8 @@ pub(crate) fn role_list_literals(default: &SExpression, site: &RoleListSite) -> 
 /// (`schema_only_keys`) are the consumer's vocabulary and are never touched.
 pub(crate) fn rewrite_role_literals_in_config_lists(
     td: &mut TraitDefinition,
-    role_fields: &HashMap<String, Vec<String>>,
-    roles: &HashMap<String, Vec<String>>,
+    role_fields: &orbital_core_base::collections::IndexMap<String, Vec<String>>,
+    roles: &orbital_core_base::collections::IndexMap<String, Vec<String>>,
     schema_only_keys: &HashSet<String>,
 ) {
     if roles.is_empty() {
@@ -895,8 +894,8 @@ pub(crate) fn rewrite_role_literals_in_config_lists(
 
 fn rewrite_identifiers_inner(
     expr: &mut SExpression,
-    entity_subs: &HashMap<String, String>,
-    event_subs: &HashMap<String, String>,
+    entity_subs: &orbital_core_base::collections::IndexMap<String, String>,
+    event_subs: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     visit_entity_slots(expr, &mut |name| {
         if let Some(to) = entity_subs.get(name.as_str()) {
@@ -1124,7 +1123,7 @@ const ROW_ALIAS_SIGILS: &[&str] = &["@entity.", "@item.", "@row.", "@fromEntity.
 /// from detection to rewriting. Empty map = identity walk.
 pub(crate) fn rewrite_entity_field_paths(
     expr: &mut SExpression,
-    field_subs: &HashMap<String, String>,
+    field_subs: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     if field_subs.is_empty() {
         return;
@@ -1175,6 +1174,51 @@ pub(crate) fn rewrite_entity_field_paths(
     }
 }
 
+/// A `fields {}` remap renames the keys of the data literal of a `persist` that writes the bound entity, so the
+/// written columns follow the `@entity.<field>` reads rewritten beside them. A persist to another entity keeps its keys.
+pub(crate) fn rewrite_persist_data_keys(
+    expr: &mut SExpression,
+    field_subs: &orbital_core_base::collections::IndexMap<String, String>,
+    bound_entity: &str,
+) {
+    if field_subs.is_empty() {
+        return;
+    }
+    match expr {
+        SExpression::Array(items) => {
+            if matches!(items.first(), Some(SExpression::String(op)) if op == "persist") {
+                let entity_index = persist_entity_index(items);
+                let writes_bound = matches!(
+                    items.get(entity_index),
+                    Some(SExpression::String(name)) if name == bound_entity
+                );
+                if writes_bound {
+                    if let Some(SExpression::Object(data)) = items.get_mut(entity_index + 1) {
+                        let renamed: Vec<(String, String)> = data
+                            .keys()
+                            .filter_map(|k| field_subs.get(k).map(|to| (k.clone(), to.clone())))
+                            .collect();
+                        for (from, to) in renamed {
+                            if let Some(value) = data.shift_remove(&from) {
+                                data.insert(to, value);
+                            }
+                        }
+                    }
+                }
+            }
+            for item in items.iter_mut() {
+                rewrite_persist_data_keys(item, field_subs, bound_entity);
+            }
+        }
+        SExpression::Object(map) => {
+            for v in map.values_mut() {
+                rewrite_persist_data_keys(v, field_subs, bound_entity);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// A `fields {}` rename must also reach a config knob's OWN default value
 /// when the default value itself IS the field-name reference: a bare
 /// string equal to the renamed field (`searchField : string = title`,
@@ -1199,7 +1243,7 @@ pub(crate) fn rewrite_entity_field_paths(
 /// value happens to literally equal one of those few old names.
 pub(crate) fn rewrite_bare_field_name_config_default(
     default: &mut SExpression,
-    field_subs: &HashMap<String, String>,
+    field_subs: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     if field_subs.is_empty() {
         return;
@@ -1243,7 +1287,7 @@ pub(crate) fn rewrite_bare_field_name_config_default(
 /// being renamed) bounds how broad a match can be.
 pub(crate) fn collect_stale_field_name_literals(
     default: &SExpression,
-    field_subs: &HashMap<String, String>,
+    field_subs: &orbital_core_base::collections::IndexMap<String, String>,
     out: &mut HashSet<String>,
 ) {
     match default {
@@ -1299,8 +1343,8 @@ pub(crate) fn collect_stale_field_name_literals(
 pub(crate) fn stale_entity_rebind_subs(
     trait_def: &TraitDefinition,
     new_entity: &str,
-) -> HashMap<String, String> {
-    let mut out = HashMap::new();
+) -> orbital_core_base::collections::IndexMap<String, String> {
+    let mut out = orbital_core_base::collections::IndexMap::new();
     if let (Some(bound_id), Some(map)) = (
         trait_def.linked_entity_id.as_deref(),
         trait_def.entity_ref_ids.as_ref(),
@@ -1337,9 +1381,9 @@ pub(crate) fn stale_entity_rebind_subs(
 /// already receives.
 pub(crate) fn consumer_known_entity_rebind_subs(
     trait_def: &TraitDefinition,
-    consumer_entity_ids: &HashMap<String, String>,
-) -> HashMap<String, String> {
-    let mut out = HashMap::new();
+    consumer_entity_ids: &orbital_core_base::collections::IndexMap<String, String>,
+) -> orbital_core_base::collections::IndexMap<String, String> {
+    let mut out = orbital_core_base::collections::IndexMap::new();
     let Some(refs) = trait_def.entity_ref_ids.as_ref() else {
         return out;
     };
@@ -1368,9 +1412,9 @@ pub(crate) fn consumer_known_entity_rebind_subs(
 /// on the positional `(from, to)` API.
 #[allow(dead_code)]
 pub(crate) fn rewrite_entity_refs(expr: &mut SExpression, from_entity: &str, to_entity: &str) {
-    let mut entity_subs = HashMap::new();
+    let mut entity_subs = orbital_core_base::collections::IndexMap::new();
     entity_subs.insert(from_entity.to_string(), to_entity.to_string());
-    rewrite_identifiers(expr, &entity_subs, &HashMap::new());
+    rewrite_identifiers(expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 }
 
 /// Disambiguate a literal list from an S-expression call.
@@ -1669,7 +1713,9 @@ fn literal_reads_narrower(ty: &orbital_core_base::ir::OirType) -> bool {
         match peel(t) {
             // A field name written as a string literal reads as a string, not as the field reference it is.
             OirType::Map { .. } | OirType::FieldRef { .. } => true,
-            OirType::Struct { fields, .. } => fields.iter().any(|f| !f.required || record(&f.field_type)),
+            OirType::Struct { fields, .. } => {
+                fields.iter().any(|f| !f.required || record(&f.field_type))
+            }
             _ => false,
         }
     }
@@ -1684,7 +1730,7 @@ fn literal_reads_narrower(ty: &orbital_core_base::ir::OirType) -> bool {
 /// reading the knob gets its literal bound by a declaring `let` (see [`declared_read`]), so the checker reads the
 /// knob's type instead of one inferred from the items.
 pub(crate) fn declared_list_types(
-    declared: Option<&HashMap<String, ConfigField>>,
+    declared: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
     config_subs: &orbital_core_base::schema::SObject,
 ) -> orbital_core_base::schema::SObject {
     let mut out = orbital_core_base::schema::SObject::new();
@@ -1705,7 +1751,10 @@ pub(crate) fn declared_list_types(
         }
         let mut field = field.clone();
         let named = |record: &Option<String>| -> Option<String> {
-            let knob = record.as_deref()?.strip_prefix("@entity(")?.strip_suffix(')')?;
+            let knob = record
+                .as_deref()?
+                .strip_prefix("@entity(")?
+                .strip_suffix(')')?;
             match config_subs.get(knob)? {
                 SExpression::String(name) => Some(name.clone().into_inner()),
                 _ => None,
@@ -1721,7 +1770,8 @@ pub(crate) fn declared_list_types(
         let list_type = matches!(&ty, orbital_core_base::ir::OirType::Array { .. })
             || matches!(&ty, orbital_core_base::ir::OirType::Optional { inner } if matches!(**inner, orbital_core_base::ir::OirType::Array { .. }));
         if matches!(value, SExpression::Array(_)) != list_type
-            || (!crate::phases::validation::effect::needs_declaration(&ty) && !literal_reads_narrower(&ty))
+            || (!crate::phases::validation::effect::needs_declaration(&ty)
+                && !literal_reads_narrower(&ty))
         {
             continue;
         }
@@ -1817,7 +1867,8 @@ pub(crate) fn rewrite_config_bindings(
         .into_iter()
         .flatten()
         .map(|slot| match slot {
-            orbital_core_base::schema::ValueSlot::Arg(i) | orbital_core_base::schema::ValueSlot::LambdaBody(i) => i,
+            orbital_core_base::schema::ValueSlot::Arg(i)
+            | orbital_core_base::schema::ValueSlot::LambdaBody(i) => i,
         })
         .collect();
     match expr {
@@ -1895,7 +1946,8 @@ pub(crate) fn rewrite_config_bindings(
                         for pair in pairs.iter_mut() {
                             if let SExpression::Array(parts) = pair {
                                 if parts.len() == 2 {
-                                    if let Some((knob, shape)) = declared_knob(&parts[1], declared) {
+                                    if let Some((knob, shape)) = declared_knob(&parts[1], declared)
+                                    {
                                         if let Some(literal) = config_subs.get(knob) {
                                             parts[1] = literal.clone();
                                             parts.push(shape);
@@ -1915,7 +1967,10 @@ pub(crate) fn rewrite_config_bindings(
                         continue;
                     }
                 }
-                if reads_as_operand && !(at >= 1 && result_operands.contains(&(at - 1))) && take_declared(item, config_subs, declared) {
+                if reads_as_operand
+                    && !(at >= 1 && result_operands.contains(&(at - 1)))
+                    && take_declared(item, config_subs, declared)
+                {
                     continue;
                 }
                 rewrite_config_bindings(item, config_subs, declared);
@@ -2112,7 +2167,7 @@ fn resolve_object_path<'a>(value: &'a SExpression, path: &str) -> Option<&'a SEx
 /// `Matter?`, `{ data: [Matter], cursor: string }`. We substitute on word
 /// boundaries so `MatterStub` (a fictitious sibling type) doesn't get mauled
 /// into `MatterCaseStub` when the rebind is `Matter → MatterCase`.
-fn rewrite_entity_in_type_string(s: &str, entity_subs: &HashMap<String, String>) -> String {
+fn rewrite_entity_in_type_string(s: &str, entity_subs: &orbital_core_base::collections::IndexMap<String, String>) -> String {
     if entity_subs.is_empty() {
         return s.to_string();
     }
@@ -2169,12 +2224,12 @@ fn rewrite_entity_in_type_string(s: &str, entity_subs: &HashMap<String, String>)
 /// ONE owner for both markers, so a future third one lands here too.
 pub(crate) fn rewrite_payload_entity_refs(
     trait_def: &mut TraitDefinition,
-    entity_subs: &HashMap<String, String>,
+    entity_subs: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     if entity_subs.is_empty() {
         return;
     }
-    fn rewrite_fields(fields: &mut [PayloadField], entity_subs: &HashMap<String, String>) {
+    fn rewrite_fields(fields: &mut [PayloadField], entity_subs: &orbital_core_base::collections::IndexMap<String, String>) {
         for field in fields.iter_mut() {
             field.field_type = rewrite_entity_in_type_string(&field.field_type, entity_subs);
             if let Some(entity) = field.entity.as_ref() {
@@ -2305,13 +2360,13 @@ pub(crate) fn rewrite_payload_entity_refs(
 /// "side-maps always cover their nodes" invariant) assume never happens.
 pub(crate) fn rewrite_entity_ref_ids(
     trait_def: &mut TraitDefinition,
-    entity_subs: &HashMap<String, String>,
-    entity_ids: &HashMap<String, String>,
+    entity_subs: &orbital_core_base::collections::IndexMap<String, String>,
+    entity_ids: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     let Some(refs) = trait_def.entity_ref_ids.take() else {
         return;
     };
-    let mut out: HashMap<String, String> = std::collections::HashMap::with_capacity(refs.len());
+    let mut out: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::with_capacity(refs.len());
     for (from, old_id) in refs {
         let name = entity_subs
             .get(&from)
@@ -2350,8 +2405,8 @@ pub(crate) fn rewrite_entity_ref_ids(
 /// rebind's `apply_overrides_to_trait` both call this now, one owner.
 pub(crate) fn rewrite_entity_typed_config_values(
     trait_def: &mut TraitDefinition,
-    entity_subs: &HashMap<String, String>,
-    entity_ids: &HashMap<String, String>,
+    entity_subs: &orbital_core_base::collections::IndexMap<String, String>,
+    entity_ids: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
     if entity_subs.is_empty() {
         return;
@@ -2633,7 +2688,8 @@ fn rewrite_recorded_shapes(
                                 {
                                     if rewrite(&mut shape) {
                                         *declaration = serde_json::to_string(&shape)
-                                            .expect("declared shape serializes").into();
+                                            .expect("declared shape serializes")
+                                            .into();
                                         changed = true;
                                     }
                                 }
@@ -2674,7 +2730,7 @@ fn resolve_payload_entity_schema(
     entity_def: Option<&EntityDefinition>,
     subs: &HashMap<String, ParamSub>,
     declared_names: &HashSet<String>,
-    explicit_args: Option<&HashMap<String, String>>,
+    explicit_args: Option<&orbital_core_base::collections::IndexMap<String, String>>,
 ) -> bool {
     let Some(origin) = payload_entity.clone() else {
         return false;
@@ -3133,66 +3189,153 @@ pub(crate) fn resolve_orbital_type_param_sentinels(orbital: &mut Orbital) {
     }
 }
 
-/// Apply event-name substitutions to all structured event-key fields of a
-/// `TraitDefinition`. These fields live OUTSIDE SExpressions and so are not
-/// reached by `rewrite_identifiers`.
-pub(crate) fn rewrite_trait_event_fields(
-    trait_def: &mut TraitDefinition,
-    event_subs: &HashMap<String, String>,
-) {
+/// One `events { FROM: TO }` rename resolved to the declaring event's stable id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EventIdRename {
+    pub id: String,
+    pub from: String,
+    pub to: String,
+}
+
+/// An `events { FROM: TO }` map resolved once, at the scope it is declared,
+/// to the stable ids of the events it renames.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct EventScopeRenames {
+    pub renames: Vec<EventIdRename>,
+    to_by_id: orbital_core_base::collections::IndexMap<String, String>,
+    renamed_from: HashSet<String>,
+}
+
+/// Resolve `event_subs` against every trait of one scope (a single trait for a
+/// trait-scope rename, every kept trait of an import for an orbital-scope one).
+/// A FROM resolves to the id of each `state_machine.events[]` declaration keyed
+/// FROM and of each `emits[]` entry named FROM that carries an id. A declaration
+/// keyed FROM without an id is an unstamped program: a typed error.
+pub(crate) fn resolve_event_scope_renames<'a>(
+    traits: impl IntoIterator<Item = &'a TraitDefinition>,
+    event_subs: &orbital_core_base::collections::IndexMap<String, String>,
+) -> Result<EventScopeRenames, InlineError> {
+    let mut scope = EventScopeRenames::default();
     if event_subs.is_empty() {
-        return;
+        return Ok(scope);
+    }
+    for td in traits {
+        for ev in td.state_machine.events.iter().flatten() {
+            if let Some(to) = event_subs.get(&ev.key) {
+                let id = ev.id.clone().ok_or_else(|| InlineError::UnknownEventRef {
+                    trait_name: td.name.clone(),
+                    event: ev.key.clone(),
+                    site: "stateMachine.events[].id".to_string(),
+                })?;
+                scope.add(id, &ev.key, to);
+            }
+        }
+        for emit in td.emits.iter().flatten() {
+            if let (Some(to), Some(id)) = (event_subs.get(&emit.event), emit.event_id.as_ref()) {
+                scope.add(id.clone(), &emit.event, to);
+            }
+        }
+    }
+    Ok(scope)
+}
+
+impl EventScopeRenames {
+    fn add(&mut self, id: String, from: &str, to: &str) {
+        if self.to_by_id.insert(id.clone(), to.to_string()).is_none() {
+            self.renames.push(EventIdRename {
+                id,
+                from: from.to_string(),
+                to: to.to_string(),
+            });
+        }
+        self.renamed_from.insert(from.to_string());
     }
 
-    // StateMachine.events[*].key — the canonical declaration set.
+    fn to_for(&self, id: Option<&String>) -> Option<&String> {
+        id.and_then(|id| self.to_by_id.get(id))
+    }
+}
+
+/// Apply a resolved event rename to one `TraitDefinition`. Every structured
+/// reference (`state_machine.events[].id`, `transition.event_id`,
+/// `emits[].event_id`, `listens[].event_id`, `listens[].triggers_id`) is
+/// matched by id, never by its name string; ids are unchanged. A sourced
+/// listen's `event` is renamed only when its source trait's name is in
+/// `sourced_in_scope`. A transition, emit or trigger with no id whose name is a
+/// renamed FROM is an unstamped program: a typed error, no name fallback; the
+/// trait is untouched on error.
+pub(crate) fn rewrite_trait_event_fields(
+    trait_def: &mut TraitDefinition,
+    scope: &EventScopeRenames,
+    sourced_in_scope: Option<&HashSet<&str>>,
+) -> Result<(), InlineError> {
+    if scope.to_by_id.is_empty() {
+        return Ok(());
+    }
+    let unresolved = |site: &str, event: &str| InlineError::UnknownEventRef {
+        trait_name: trait_def.name.clone(),
+        event: event.to_string(),
+        site: site.to_string(),
+    };
+    let is_renamed_from = |name: &str| scope.renamed_from.contains(name);
+
+    for t in trait_def.state_machine.transitions.iter() {
+        if t.event_id.is_none() && is_renamed_from(&t.event) {
+            return Err(unresolved("transitions[].eventId", &t.event));
+        }
+    }
+    for emit in trait_def.emits.iter().flatten() {
+        if emit.event_id.is_none() && is_renamed_from(&emit.event) {
+            return Err(unresolved("emits[].eventId", &emit.event));
+        }
+    }
+    for listen in trait_def.listens.iter().flatten() {
+        if let (Some(triggers), None) = (listen.triggers.as_deref(), listen.triggers_id.as_ref()) {
+            if is_renamed_from(triggers) {
+                return Err(unresolved("listens[].triggersId", triggers));
+            }
+        }
+    }
+
     if let Some(events) = trait_def.state_machine.events.as_mut() {
         for ev in events.iter_mut() {
-            if let Some(to) = event_subs.get(&ev.key) {
+            if let Some(to) = scope.to_for(ev.id.as_ref()) {
                 ev.key = to.clone();
             }
         }
     }
-
-    // StateMachine.transitions[*].event — the trigger field.
     for transition in trait_def.state_machine.transitions.iter_mut() {
-        if let Some(to) = event_subs.get(&transition.event) {
+        if let Some(to) = scope.to_for(transition.event_id.as_ref()) {
             transition.event = to.clone();
         }
     }
-
-    // emits[*].event — the trait's outbound event declarations.
     if let Some(emits) = trait_def.emits.as_mut() {
         for emit in emits.iter_mut() {
-            if let Some(to) = event_subs.get(&emit.event) {
+            if let Some(to) = scope.to_for(emit.event_id.as_ref()) {
                 emit.event = to.clone();
             }
         }
     }
-
-    // listens[*].event and listens[*].triggers — the trait's inbound event
-    // declarations and any internal trigger mapping. A sourced listen's
-    // `event` names an event in the SOURCE trait's vocabulary, not this
-    // trait's, so the call-site rename map covers only the trigger side;
-    // the event side follows the source trait's own renames via
-    // `event_renames_by_trait` in `inline_traits`.
     if let Some(listens) = trait_def.listens.as_mut() {
         for listen in listens.iter_mut() {
-            let sourced = matches!(
-                listen.source,
-                Some(ListenSource::Trait { .. }) | Some(ListenSource::Orbital { .. })
-            );
-            if !sourced {
-                if let Some(to) = event_subs.get(&listen.event) {
+            let event_in_scope = match listen.source.as_ref() {
+                Some(ListenSource::Trait { trait_name, .. })
+                | Some(ListenSource::Orbital { trait_name, .. }) => {
+                    sourced_in_scope.is_some_and(|names| names.contains(trait_name.as_str()))
+                }
+                Some(ListenSource::Any) | None => true,
+            };
+            if event_in_scope {
+                if let Some(to) = scope.to_for(listen.event_id.as_ref()) {
                     listen.event = to.clone();
                 }
             }
-            if let Some(triggers) = listen.triggers.as_mut() {
-                if let Some(to) = event_subs.get(triggers) {
-                    *triggers = to.clone();
-                }
+            if let Some(to) = scope.to_for(listen.triggers_id.as_ref()) {
+                listen.triggers = Some(to.clone());
             }
         }
     }
+    Ok(())
 }
 
 /// Name of a trait reference regardless of kind (inline name or ref target).
@@ -3206,7 +3349,6 @@ pub(crate) fn trait_ref_name(tr: &TraitReference) -> Option<&str> {
 #[cfg(test)]
 mod literal_list_tests {
     use super::*;
-    use std::collections::HashMap;
 
     fn arr(items: Vec<SExpression>) -> SExpression {
         SExpression::Array(items)
@@ -3253,11 +3395,11 @@ mod literal_list_tests {
             "entityRefIds": { "BrowseItem": "ent_browse", "Other": "ent_other" }
         }))
         .expect("trait");
-        let subs: HashMap<String, String> =
+        let subs: orbital_core_base::collections::IndexMap<String, String> =
             [("BrowseItem".to_string(), "ChannelMember".to_string())]
                 .into_iter()
                 .collect();
-        rewrite_entity_ref_ids(&mut t, &subs, &std::collections::HashMap::new());
+        rewrite_entity_ref_ids(&mut t, &subs, &orbital_core_base::collections::IndexMap::new());
         let refs = t.entity_ref_ids.expect("refs");
         assert!(!refs.contains_key("ChannelMember"), "{refs:?}");
         assert_eq!(refs.get("Other").map(String::as_str), Some("ent_other"));
@@ -3373,7 +3515,10 @@ mod literal_list_tests {
         mark_literal_list_in_place(&mut v, "[json]");
         match &v {
             SExpression::Array(items) => {
-                assert_eq!(items[0], SExpression::String(("array/concat".to_string()).into()));
+                assert_eq!(
+                    items[0],
+                    SExpression::String(("array/concat".to_string()).into())
+                );
             }
             _ => panic!("expected array"),
         }
@@ -3383,7 +3528,10 @@ mod literal_list_tests {
     fn ignores_non_array_slots() {
         let mut scalar = arr(vec![SExpression::String(("path".to_string()).into())]);
         mark_literal_list_in_place(&mut scalar, "string");
-        assert_eq!(scalar, arr(vec![SExpression::String(("path".to_string()).into())]));
+        assert_eq!(
+            scalar,
+            arr(vec![SExpression::String(("path".to_string()).into())])
+        );
     }
 
     #[test]
@@ -3453,8 +3601,14 @@ mod literal_list_tests {
         let arg = &effect[2][1];
         assert_eq!(arg[0], "let", "{effect}");
         let binding = &arg[1][0];
-        assert!(binding[2].is_string(), "the binding declares its type: {effect}");
-        assert_eq!(arg[2], "@knob_commands", "the read is the declared local: {effect}");
+        assert!(
+            binding[2].is_string(),
+            "the binding declares its type: {effect}"
+        );
+        assert_eq!(
+            arg[2], "@knob_commands",
+            "the read is the declared local: {effect}"
+        );
         assert_eq!(
             binding[1][0], "list",
             "the value is the marked literal: {effect}"
@@ -3472,7 +3626,11 @@ mod literal_list_tests {
         let mut t = mixed_commands_trait(serde_json::json!([
             "set",
             "@entity.n",
-            ["let", [["cmds", "@config.commands"]], ["array/len", "@cmds"]]
+            [
+                "let",
+                [["cmds", "@config.commands"]],
+                ["array/len", "@cmds"]
+            ]
         ]));
         apply_inline_config_defaults(&mut t, &mut Vec::new());
         let effect = serde_json::to_value(first_effect(&t)).unwrap();
@@ -3481,7 +3639,10 @@ mod literal_list_tests {
         assert_eq!(binding[1][0], "list", "{effect}");
         let declared: orbital_core_base::ir::OirType =
             serde_json::from_str(binding[2].as_str().expect("type text")).expect("an IR type");
-        assert!(matches!(declared, orbital_core_base::ir::OirType::Array { .. }), "{declared:?}");
+        assert!(
+            matches!(declared, orbital_core_base::ir::OirType::Array { .. }),
+            "{declared:?}"
+        );
         let mut plain = mixed_commands_trait(serde_json::json!([
             "set",
             "@entity.n",
@@ -3489,7 +3650,11 @@ mod literal_list_tests {
         ]));
         apply_inline_config_defaults(&mut plain, &mut Vec::new());
         let effect = serde_json::to_value(first_effect(&plain)).unwrap();
-        assert_eq!(effect[2][1][0].as_array().map(Vec::len), Some(2), "control: a binding of another value stays a pair: {effect}");
+        assert_eq!(
+            effect[2][1][0].as_array().map(Vec::len),
+            Some(2),
+            "control: a binding of another value stays a pair: {effect}"
+        );
     }
 
     #[test]
@@ -3500,10 +3665,17 @@ mod literal_list_tests {
         apply_inline_config_defaults(&mut t, &mut Vec::new());
         let effect = serde_json::to_value(first_effect(&t)).unwrap();
         assert_eq!(effect[2]["itemActions"][2][0], "list", "{effect}");
-        let mut counted = mixed_commands_trait(serde_json::json!(["set", "@entity.n", ["array/len", "@config.commands"]]));
+        let mut counted = mixed_commands_trait(serde_json::json!([
+            "set",
+            "@entity.n",
+            ["array/len", "@config.commands"]
+        ]));
         apply_inline_config_defaults(&mut counted, &mut Vec::new());
         let effect = serde_json::to_value(first_effect(&counted)).unwrap();
-        assert_eq!(effect[2][1][0], "let", "control: an operand the result is not drawn from keeps the declaration: {effect}");
+        assert_eq!(
+            effect[2][1][0], "let",
+            "control: an operand the result is not drawn from keeps the declaration: {effect}"
+        );
     }
 
     fn knob_trait(knob: serde_json::Value, effect: serde_json::Value) -> TraitDefinition {
@@ -3541,7 +3713,10 @@ mod literal_list_tests {
         );
         apply_inline_config_defaults(&mut required, &mut Vec::new());
         let effect = serde_json::to_value(first_effect(&required)).unwrap();
-        assert_ne!(effect[2][1][0], "let", "control: a literal that fills every field reads as itself: {effect}");
+        assert_ne!(
+            effect[2][1][0], "let",
+            "control: a literal that fills every field reads as itself: {effect}"
+        );
     }
 
     #[test]
@@ -3554,8 +3729,12 @@ mod literal_list_tests {
         let effect = serde_json::to_value(first_effect(&t)).unwrap();
         assert_eq!(effect[2][1][0], "let", "{effect}");
         let declared: orbital_core_base::ir::OirType =
-            serde_json::from_str(effect[2][1][1][0][2].as_str().expect("type text")).expect("an IR type");
-        assert!(matches!(declared, orbital_core_base::ir::OirType::Map { .. }), "{declared:?}");
+            serde_json::from_str(effect[2][1][1][0][2].as_str().expect("type text"))
+                .expect("an IR type");
+        assert!(
+            matches!(declared, orbital_core_base::ir::OirType::Map { .. }),
+            "{declared:?}"
+        );
     }
 
     #[test]
@@ -3650,8 +3829,14 @@ mod conditional_event_list_tests {
 
     fn descriptor(event: &str) -> SExpression {
         let mut dm = orbital_core_base::schema::SObject::new();
-        dm.insert("name".to_string(), SExpression::String(("Edit".to_string()).into()));
-        dm.insert("event".to_string(), SExpression::String(event.to_string().into()));
+        dm.insert(
+            "name".to_string(),
+            SExpression::String(("Edit".to_string()).into()),
+        );
+        dm.insert(
+            "event".to_string(),
+            SExpression::String(event.to_string().into()),
+        );
         SExpression::object(dm)
     }
 
@@ -3678,8 +3863,8 @@ mod conditional_event_list_tests {
         ]);
         let mut expr = data_list_with_item_actions(item_actions);
 
-        let entity_subs = std::collections::HashMap::new();
-        let mut event_subs = std::collections::HashMap::new();
+        let entity_subs = orbital_core_base::collections::IndexMap::new();
+        let mut event_subs = orbital_core_base::collections::IndexMap::new();
         event_subs.insert("EDIT_ITEM".to_string(), "EditRow".to_string());
         event_subs.insert("VIEW_ITEM".to_string(), "ViewRow".to_string());
         rewrite_identifiers(&mut expr, &entity_subs, &event_subs);
@@ -3705,8 +3890,14 @@ mod conditional_event_list_tests {
             },
             _ => None,
         };
-        assert_eq!(then_event, Some(SExpression::String(("EditRow".to_string()).into())));
-        assert_eq!(else_event, Some(SExpression::String(("ViewRow".to_string()).into())));
+        assert_eq!(
+            then_event,
+            Some(SExpression::String(("EditRow".to_string()).into()))
+        );
+        assert_eq!(
+            else_event,
+            Some(SExpression::String(("ViewRow".to_string()).into()))
+        );
     }
 
     /// Literal (non-conditional) `itemActions` rename is unaffected — the
@@ -3717,8 +3908,8 @@ mod conditional_event_list_tests {
         let item_actions = SExpression::Array(vec![descriptor("EDIT_ITEM")]);
         let mut expr = data_list_with_item_actions(item_actions);
 
-        let entity_subs = std::collections::HashMap::new();
-        let mut event_subs = std::collections::HashMap::new();
+        let entity_subs = orbital_core_base::collections::IndexMap::new();
+        let mut event_subs = orbital_core_base::collections::IndexMap::new();
         event_subs.insert("EDIT_ITEM".to_string(), "EditRow".to_string());
         rewrite_identifiers(&mut expr, &entity_subs, &event_subs);
 
@@ -3731,7 +3922,10 @@ mod conditional_event_list_tests {
         let SExpression::Object(dm) = &items[0] else {
             panic!("expected descriptor object");
         };
-        assert_eq!(dm["event"], SExpression::String(("EditRow".to_string()).into()));
+        assert_eq!(
+            dm["event"],
+            SExpression::String(("EditRow".to_string()).into())
+        );
     }
 }
 
@@ -3740,19 +3934,19 @@ mod role_literal_tests {
     use super::*;
     use serde_json::json;
 
-    fn role_fields() -> HashMap<String, Vec<String>> {
-        std::collections::HashMap::from([(
+    fn role_fields() -> orbital_core_base::collections::IndexMap<String, Vec<String>> {
+        orbital_core_base::collections::IndexMap::from([(
             "role".to_string(),
             vec!["employee".to_string(), "approver".to_string()],
         )])
     }
 
-    fn roles_single() -> HashMap<String, Vec<String>> {
-        std::collections::HashMap::from([("approver".to_string(), vec!["owner".to_string()])])
+    fn roles_single() -> orbital_core_base::collections::IndexMap<String, Vec<String>> {
+        orbital_core_base::collections::IndexMap::from([("approver".to_string(), vec!["owner".to_string()])])
     }
 
-    fn roles_list() -> HashMap<String, Vec<String>> {
-        std::collections::HashMap::from([(
+    fn roles_list() -> orbital_core_base::collections::IndexMap<String, Vec<String>> {
+        orbital_core_base::collections::IndexMap::from([(
             "approver".to_string(),
             vec!["owner".to_string(), "project_manager".to_string()],
         )])
@@ -3938,8 +4132,8 @@ mod role_literal_tests {
         );
     }
 
-    fn hr_roles() -> HashMap<String, Vec<String>> {
-        std::collections::HashMap::from([
+    fn hr_roles() -> orbital_core_base::collections::IndexMap<String, Vec<String>> {
+        orbital_core_base::collections::IndexMap::from([
             (
                 "hr-director".to_string(),
                 vec!["owner".to_string(), "operations_director".to_string()],
@@ -4185,7 +4379,7 @@ mod role_literal_tests {
         rewrite_role_literals_in_config_lists(
             &mut td,
             &role_fields(),
-            &std::collections::HashMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
             &HashSet::new(),
         );
         assert_eq!(knob(&td, "allowedRoles"), json!(["hr-director"]));
@@ -4259,14 +4453,14 @@ mod entity_slot_tests {
     /// rename with the rest of the program; entity-less shapes are left alone.
     #[test]
     fn persist_batch_op_tuples_are_entity_slots() {
-        let mut subs = std::collections::HashMap::new();
+        let mut subs = orbital_core_base::collections::IndexMap::new();
         subs.insert("Other".to_string(), "Renamed".to_string());
         let mut literal = sexpr(json!([
             "persist",
             "batch",
             [["create", "Other", {}], ["delete", "Other", "i"]]
         ]));
-        rewrite_identifiers(&mut literal, &subs, &std::collections::HashMap::new());
+        rewrite_identifiers(&mut literal, &subs, &orbital_core_base::collections::IndexMap::new());
         assert_eq!(
             literal,
             sexpr(json!([
@@ -4284,7 +4478,7 @@ mod entity_slot_tests {
                 ["fn", "r", ["update", "Other", "@r", {}]]
             ]
         ]));
-        rewrite_identifiers(&mut mapped, &subs, &std::collections::HashMap::new());
+        rewrite_identifiers(&mut mapped, &subs, &orbital_core_base::collections::IndexMap::new());
         assert_eq!(
             mapped,
             sexpr(json!([
@@ -4311,9 +4505,9 @@ mod entity_slot_tests {
     #[test]
     fn visit_and_collect_agree_on_position() {
         let mut expr = sexpr(json!(["fetch", "Other", {}]));
-        let mut subs = std::collections::HashMap::new();
+        let mut subs = orbital_core_base::collections::IndexMap::new();
         subs.insert("Other".to_string(), "Renamed".to_string());
-        rewrite_identifiers(&mut expr, &subs, &std::collections::HashMap::new());
+        rewrite_identifiers(&mut expr, &subs, &orbital_core_base::collections::IndexMap::new());
         let mut out = HashSet::new();
         collect_entity_slots(&expr, &candidates(), &mut out);
         assert!(out.is_empty(), "the name was renamed away: {expr:?}");
@@ -4329,7 +4523,7 @@ mod entity_slot_tests {
 /// orbital-import splice), so a white-box test of the function itself covers
 /// every call site's actual substitution shape (a straight rebind map, a
 /// prefix-rename map, an out-of-orbital retarget map — all just
-/// `HashMap<String, String>` to this function).
+/// `orbital_core_base::collections::IndexMap<String, String>` to this function).
 #[cfg(test)]
 mod payload_entity_marker_tests {
     use super::*;
@@ -4365,7 +4559,7 @@ mod payload_entity_marker_tests {
             { "name": "id", "type": "string" },
             { "name": "row", "type": "object", "entity": "ConfirmAction" }
         ]));
-        let mut subs = std::collections::HashMap::new();
+        let mut subs = orbital_core_base::collections::IndexMap::new();
         subs.insert("ConfirmAction".to_string(), "Note".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         let fields = payload_fields(&td);
@@ -4385,7 +4579,7 @@ mod payload_entity_marker_tests {
         let mut td = trait_with_payload_fields(json!([
             { "name": "rows", "type": "[object]", "entity": "ConfirmAction" }
         ]));
-        let mut subs = std::collections::HashMap::new();
+        let mut subs = orbital_core_base::collections::IndexMap::new();
         subs.insert("ConfirmAction".to_string(), "Note".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("Note"));
@@ -4401,7 +4595,7 @@ mod payload_entity_marker_tests {
             { "name": "other", "type": "string", "projectedFrom": { "type": "Elsewhere", "field": "id" } },
             { "name": "named", "type": "object", "projectedFrom": { "type": "ConfirmAction" } }
         ]));
-        let mut subs = std::collections::HashMap::new();
+        let mut subs = orbital_core_base::collections::IndexMap::new();
         subs.insert("ConfirmAction".to_string(), "Note".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         let fields = payload_fields(&td);
@@ -4413,7 +4607,10 @@ mod payload_entity_marker_tests {
             Some("Note")
         );
         assert_eq!(
-            fields[0].projected_from.as_ref().and_then(|p| p.field.as_deref()),
+            fields[0]
+                .projected_from
+                .as_ref()
+                .and_then(|p| p.field.as_deref()),
             Some("id")
         );
         assert_eq!(
@@ -4423,7 +4620,13 @@ mod payload_entity_marker_tests {
                 .map(|p| p.type_name.as_str()),
             Some("Elsewhere")
         );
-        assert_eq!(fields[2].projected_from.as_ref().map(|projection| projection.type_name.as_str()), Some("Note"));
+        assert_eq!(
+            fields[2]
+                .projected_from
+                .as_ref()
+                .map(|projection| projection.type_name.as_str()),
+            Some("Note")
+        );
         assert!(fields[2].projected_from.as_ref().unwrap().field.is_none());
     }
 
@@ -4440,7 +4643,7 @@ mod payload_entity_marker_tests {
                 ]
             }
         ]));
-        let mut subs = std::collections::HashMap::new();
+        let mut subs = orbital_core_base::collections::IndexMap::new();
         subs.insert("ConfirmAction".to_string(), "Note".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         let outer = &payload_fields(&td)[0];
@@ -4456,7 +4659,7 @@ mod payload_entity_marker_tests {
         let mut td = trait_with_payload_fields(json!([
             { "name": "row", "type": "object", "entity": "Widget" }
         ]));
-        let mut subs = std::collections::HashMap::new();
+        let mut subs = orbital_core_base::collections::IndexMap::new();
         subs.insert("Widget".to_string(), "LocalWidget".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(
@@ -4472,7 +4675,7 @@ mod payload_entity_marker_tests {
         let mut td = trait_with_payload_fields(json!([
             { "name": "row", "type": "object", "entity": "Other" }
         ]));
-        let mut subs = std::collections::HashMap::new();
+        let mut subs = orbital_core_base::collections::IndexMap::new();
         subs.insert("Other".to_string(), "ConsumerOther".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(
@@ -4488,7 +4691,7 @@ mod payload_entity_marker_tests {
         let mut td = trait_with_payload_fields(json!([
             { "name": "row", "type": "object", "entity": "SomeoneElse" }
         ]));
-        let mut subs = std::collections::HashMap::new();
+        let mut subs = orbital_core_base::collections::IndexMap::new();
         subs.insert("ConfirmAction".to_string(), "Note".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(
@@ -4525,7 +4728,7 @@ mod payload_entity_marker_tests {
         let changed = resolve_type_param_sentinels(
             &mut td,
             Some(&note),
-            &std::collections::HashMap::new(),
+            &HashMap::new(),
             &BTreeMap::new(),
         );
         assert!(changed);
@@ -4549,7 +4752,7 @@ mod payload_entity_marker_tests {
         resolve_type_param_sentinels(
             &mut td,
             Some(&note),
-            &std::collections::HashMap::new(),
+            &HashMap::new(),
             &BTreeMap::new(),
         );
         let fields = payload_fields(&td);
@@ -4573,7 +4776,7 @@ mod payload_entity_marker_tests {
         let changed = resolve_type_param_sentinels(
             &mut td,
             Some(&note),
-            &std::collections::HashMap::new(),
+            &HashMap::new(),
             &BTreeMap::new(),
         );
         assert!(changed);
@@ -4603,7 +4806,7 @@ mod payload_entity_marker_tests {
         resolve_type_param_sentinels(
             &mut td,
             Some(&note),
-            &std::collections::HashMap::new(),
+            &HashMap::new(),
             &BTreeMap::new(),
         );
         assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("Note"));
@@ -4611,7 +4814,7 @@ mod payload_entity_marker_tests {
         // A later rename (e.g. this trait rides an orbital-import splice
         // that prefixes every closure entity) must retarget the marker
         // through the SAME general walker, not a parallel one.
-        let mut subs = std::collections::HashMap::new();
+        let mut subs = orbital_core_base::collections::IndexMap::new();
         subs.insert("Note".to_string(), "LocalNote".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("LocalNote"));
@@ -4646,13 +4849,23 @@ mod payload_entity_marker_tests {
         td
     }
 
-    fn shape_of(td: &TraitDefinition, listened: bool, name: &str) -> orbital_core_base::ir::OirType {
+    fn shape_of(
+        td: &TraitDefinition,
+        listened: bool,
+        name: &str,
+    ) -> orbital_core_base::ir::OirType {
         let fields = if listened {
             payload_fields(td)
         } else {
-            td.emits.as_ref().expect("emits carried")[0].payload_schema.as_ref().expect("payloadSchema carried")
+            td.emits.as_ref().expect("emits carried")[0]
+                .payload_schema
+                .as_ref()
+                .expect("payloadSchema carried")
         };
-        let field = fields.iter().find(|f| f.name == name).expect("field carried");
+        let field = fields
+            .iter()
+            .find(|f| f.name == name)
+            .expect("field carried");
         orbital_core_base::ir::types::payload_field_shape(field)
     }
 
@@ -4662,11 +4875,25 @@ mod payload_entity_marker_tests {
     fn a_defaulted_type_parameter_resolves_a_listened_list_element_like_the_emitted_field() {
         use orbital_core_base::ir::OirType;
         let mut td = generic_trait(json!({}));
-        assert!(resolve_type_param_sentinels(&mut td, None, &std::collections::HashMap::new(), &BTreeMap::new()));
-        assert_eq!(shape_of(&td, true, "accepted"), OirType::array(OirType::String));
-        assert_eq!(shape_of(&td, false, "entries"), OirType::array(OirType::String));
+        assert!(resolve_type_param_sentinels(
+            &mut td,
+            None,
+            &HashMap::new(),
+            &BTreeMap::new()
+        ));
+        assert_eq!(
+            shape_of(&td, true, "accepted"),
+            OirType::array(OirType::String)
+        );
+        assert_eq!(
+            shape_of(&td, false, "entries"),
+            OirType::array(OirType::String)
+        );
         assert_eq!(shape_of(&td, false, "entry"), OirType::String);
-        assert!(payload_fields(&td)[0].items.is_none(), "the sentinel element is gone with the sentinel");
+        assert!(
+            payload_fields(&td)[0].items.is_none(),
+            "the sentinel element is gone with the sentinel"
+        );
     }
 
     /// EDGE: a call-site binding that differs from the parameter's default wins on both sides.
@@ -4674,9 +4901,20 @@ mod payload_entity_marker_tests {
     fn a_bound_type_parameter_differing_from_its_default_resolves_both_sides_to_the_binding() {
         use orbital_core_base::ir::OirType;
         let mut td = generic_trait(json!({ "e": "number" }));
-        resolve_type_param_sentinels(&mut td, None, &std::collections::HashMap::new(), &BTreeMap::new());
-        assert_eq!(shape_of(&td, true, "accepted"), OirType::array(OirType::Number));
-        assert_eq!(shape_of(&td, false, "entries"), OirType::array(OirType::Number));
+        resolve_type_param_sentinels(
+            &mut td,
+            None,
+            &HashMap::new(),
+            &BTreeMap::new(),
+        );
+        assert_eq!(
+            shape_of(&td, true, "accepted"),
+            OirType::array(OirType::Number)
+        );
+        assert_eq!(
+            shape_of(&td, false, "entries"),
+            OirType::array(OirType::Number)
+        );
         assert_eq!(shape_of(&td, false, "entry"), OirType::Number);
     }
 
@@ -4690,8 +4928,15 @@ mod payload_entity_marker_tests {
             kind: "Type".to_string(),
             default: None,
         }]);
-        resolve_type_param_sentinels(&mut td, None, &std::collections::HashMap::new(), &BTreeMap::new());
-        let var = OirType::Var { name: "e".to_string() };
+        resolve_type_param_sentinels(
+            &mut td,
+            None,
+            &HashMap::new(),
+            &BTreeMap::new(),
+        );
+        let var = OirType::Var {
+            name: "e".to_string(),
+        };
         assert_eq!(shape_of(&td, true, "accepted"), OirType::array(var.clone()));
         assert_eq!(shape_of(&td, false, "entries"), OirType::array(var.clone()));
         assert_eq!(shape_of(&td, false, "entry"), var);
@@ -4710,7 +4955,12 @@ mod payload_entity_marker_tests {
             default: None,
         }]);
         let note = entity_fixture("Note");
-        resolve_type_param_sentinels(&mut td, Some(&note), &std::collections::HashMap::new(), &BTreeMap::new());
+        resolve_type_param_sentinels(
+            &mut td,
+            Some(&note),
+            &HashMap::new(),
+            &BTreeMap::new(),
+        );
         let field = &payload_fields(&td)[0];
         assert_eq!(field.field_type, "[object]");
         assert_eq!(field.entity.as_deref(), Some("Note"));
@@ -4777,14 +5027,14 @@ mod payload_entity_marker_tests {
             ]
         }))
         .expect("entity fixture deserializes");
-        let mut entities = std::collections::HashMap::new();
+        let mut entities = HashMap::new();
         entities.insert("Message".to_string(), message.clone());
         resolve_type_param_sentinels(&mut td, None, &entities, &BTreeMap::new());
         let fields: Vec<PayloadField> = td.emits.as_ref().expect("emits carried")[0]
             .payload_schema
             .clone()
             .expect("payloadSchema carried");
-        let by_name: HashMap<&str, &PayloadField> =
+        let by_name: orbital_core_base::collections::IndexMap<&str, &PayloadField> =
             fields.iter().map(|f| (f.name.as_str(), f)).collect();
         assert_eq!(by_name["id"].required, Some(true));
         assert_eq!(by_name["content"].required, Some(true));
@@ -4819,7 +5069,7 @@ mod payload_entity_marker_tests {
             .expect("fixture deserializes")
         };
         let item = entity_with_fields("Item", &[("id", "string"), ("title", "string")]);
-        let entities = std::collections::HashMap::from([("Item".to_string(), item.clone())]);
+        let entities = HashMap::from([("Item".to_string(), item.clone())]);
         let mut td = trait_with(json!({ "v": "number" }));
         resolve_type_param_sentinels(&mut td, Some(&item), &entities, &BTreeMap::new());
         let members = td.config.as_ref().expect("config")["rows"]
@@ -4870,7 +5120,7 @@ mod payload_entity_marker_tests {
         }))
         .expect("fixture deserializes");
         let item = entity_with_fields("Item", &[("id", "string"), ("title", "string")]);
-        let entities = std::collections::HashMap::from([("Item".to_string(), item.clone())]);
+        let entities = HashMap::from([("Item".to_string(), item.clone())]);
         resolve_type_param_sentinels(&mut td, Some(&item), &entities, &BTreeMap::new());
         let config = td.config.as_ref().expect("config");
         assert_eq!(config["result"].field_type, "number");
@@ -4913,7 +5163,7 @@ mod payload_entity_marker_tests {
                 ("workspaceId", "string"),
             ],
         );
-        let mut entities_by_name = std::collections::HashMap::new();
+        let mut entities_by_name = HashMap::new();
         entities_by_name.insert("Item".to_string(), item);
         let changed =
             resolve_type_param_sentinels(&mut td, None, &entities_by_name, &BTreeMap::new());
@@ -4946,7 +5196,7 @@ mod payload_entity_marker_tests {
             Some("Item"),
             json!([ { "name": "hourlyRate", "type": "number" } ]),
         );
-        let mut subs = std::collections::HashMap::new();
+        let mut subs = orbital_core_base::collections::IndexMap::new();
         subs.insert("Item".to_string(), "LocalItem".to_string());
         rewrite_payload_entity_refs(&mut td, &subs);
         assert_eq!(
@@ -4956,7 +5206,7 @@ mod payload_entity_marker_tests {
 
         let local_item =
             entity_with_fields("LocalItem", &[("id", "string"), ("billRate", "number")]);
-        let mut entities_by_name = std::collections::HashMap::new();
+        let mut entities_by_name = HashMap::new();
         entities_by_name.insert("LocalItem".to_string(), local_item);
         resolve_type_param_sentinels(&mut td, None, &entities_by_name, &BTreeMap::new());
         let names: Vec<&str> = td.emits.as_ref().unwrap()[0]
@@ -4983,7 +5233,7 @@ mod payload_entity_marker_tests {
         let changed = resolve_type_param_sentinels(
             &mut td,
             None,
-            &std::collections::HashMap::new(),
+            &HashMap::new(),
             &BTreeMap::new(),
         );
         assert!(!changed);
@@ -5068,7 +5318,8 @@ mod native_record_generic_metadata_tests {
                 "items": { "type": "number", "nullable": true } }
         }))
         .unwrap();
-        let bindings = orbital_core_base::collections::IndexMap::from([("V".into(), bound.clone())]);
+        let bindings =
+            orbital_core_base::collections::IndexMap::from([("V".into(), bound.clone())]);
         for (tag, array) in [("$V", false), ("[$V]", true)] {
             let mut knob: ConfigField = serde_json::from_value(json!({
                 "type": tag, "required": true, "nullable": false
@@ -5138,13 +5389,13 @@ mod cancelled_event_rename_tests {
             { "key": "k", "emit": { "success": "DONE", "cancelled": "STOPPED" } }
         ]))
         .unwrap();
-        let event_subs: HashMap<String, String> = [
+        let event_subs: orbital_core_base::collections::IndexMap<String, String> = [
             ("DONE".to_string(), "FINISHED".to_string()),
             ("STOPPED".to_string(), "ABORTED".to_string()),
         ]
         .into_iter()
         .collect();
-        rewrite_identifiers(&mut effect, &std::collections::HashMap::new(), &event_subs);
+        rewrite_identifiers(&mut effect, &orbital_core_base::collections::IndexMap::new(), &event_subs);
         let expected: SExpression = serde_json::from_value(json!([
             "call-service", "svc", "run", {},
             { "key": "k", "emit": { "success": "FINISHED", "cancelled": "ABORTED" } }

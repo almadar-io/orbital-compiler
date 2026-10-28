@@ -17,7 +17,7 @@ use orbital_core_base::schema::{
 };
 use orbital_core_eval::lower::{ExprLowerer, LowerError};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use thiserror::Error;
 
 /// Resolution error
@@ -40,7 +40,7 @@ pub enum ResolveError {
 }
 
 /// A schema id map (unordered) as the IR's, keys sorted so the IR is deterministic.
-fn sorted_id_map(map: &HashMap<String, String>) -> orbital_core_base::ir::OirIdMap {
+fn sorted_id_map(map: &orbital_core_base::collections::IndexMap<String, String>) -> orbital_core_base::ir::OirIdMap {
     let mut entries: Vec<(String, String)> =
         map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     entries.sort();

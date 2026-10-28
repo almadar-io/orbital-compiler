@@ -1,6 +1,7 @@
 //! persist effect validation.
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
+use super::row_literal::{check_row_literal, RowSite, RowWrite};
 use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
 use orbital_core_base::schema::SExpression;
 use std::collections::HashSet;
@@ -16,6 +17,10 @@ pub(crate) fn persist_entity_index(arr: &[SExpression]) -> usize {
         Some(SExpression::String(op)) if op == "create" || op == "upsert" || op == "update" || op == "delete" => 2,
         _ => 1,
     }
+}
+
+fn is_emit_options(arg: &SExpression) -> bool {
+    matches!(arg, SExpression::Object(options) if extract_emit_object_ref(options).is_some())
 }
 
 /// `batch` is the action word of `["persist", "batch", <ops>, { emit }?]`.
@@ -34,6 +39,7 @@ fn validate_persist_batch(
     path: &str,
     known_entities: &HashSet<String>,
     declared_emits: Option<&[DeclaredEmit]>,
+    rows: Option<&RowSite<'_>>,
 ) -> ValidationResult {
     use orbital_core_base::persist_batch::{
         batch_op_arity, classify_ops, is_op_tuple, mapped_body, BatchOps,
@@ -61,7 +67,7 @@ fn validate_persist_batch(
         if tuple[0].as_str() != Some("delete") {
             single.extend(tuple.last().cloned());
         }
-        result.merge(validate_persist(&single, op_path, known_entities, None));
+        result.merge(validate_persist(&single, op_path, known_entities, None, rows));
     };
 
     let check_tuple = |tuple: &[SExpression], op_path: &str, result: &mut ValidationResult| {
@@ -145,9 +151,10 @@ pub(crate) fn validate_persist(
     path: &str,
     known_entities: &HashSet<String>,
     declared_emits: Option<&[DeclaredEmit]>,
+    rows: Option<&RowSite<'_>>,
 ) -> ValidationResult {
     if is_batch(arr) {
-        return validate_persist_batch(arr, path, known_entities, declared_emits);
+        return validate_persist_batch(arr, path, known_entities, declared_emits, rows);
     }
     let mut result = ValidationResult::new();
 
@@ -183,6 +190,22 @@ pub(crate) fn validate_persist(
                     )
                     .with_valid_values(known_entities.iter().cloned().collect()),
                 );
+            }
+        }
+    }
+
+    if let (Some(rows), SExpression::String(entity_name), Some(data)) =
+        (rows, &arr[entity_index], arr.get(entity_index + 1).filter(|d| !is_emit_options(d)))
+    {
+        if let Some(entity) = rows.entities.get(entity_name.as_str()) {
+            let write = match arr[1].as_str() {
+                Some("create") => Some(RowWrite::Create),
+                Some("update" | "upsert") => Some(RowWrite::Partial),
+                _ => None,
+            };
+            if let Some(write) = write {
+                let what = format!("persist {} {entity_name}", arr[1].as_str().unwrap_or_default());
+                check_row_literal(entity, data, write, &what, path, rows, &mut result);
             }
         }
     }
