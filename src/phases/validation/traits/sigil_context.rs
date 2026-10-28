@@ -157,7 +157,7 @@ fn walk_expr(
                                 for name in bindings.keys() {
                                     extended.insert(name.clone());
                                 }
-                                for (name, value_expr) in bindings {
+                                for (name, value_expr) in bindings.iter() {
                                     walk_expr(
                                         value_expr,
                                         &format!("{}[1].{}", path, name),
@@ -213,7 +213,7 @@ fn walk_expr(
             }
         }
         SExpression::Object(obj) => {
-            for (k, v) in obj {
+            for (k, v) in obj.iter() {
                 walk_expr(
                     v,
                     &format!("{}.{}", path, k),

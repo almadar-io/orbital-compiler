@@ -87,6 +87,31 @@ pub enum CompilerError {
 
     #[error("Reflection error: {0}")]
     Reflection(String),
+
+    #[error("{path} was resolved by orb {orb} for type contract {resolved}; this orb reads {current} — resolve it again from source")]
+    ResolvedContract {
+        path: String,
+        orb: String,
+        resolved: u32,
+        current: u32,
+    },
+}
+
+/// Whether `schema` is already resolved (carries `resolved`): `Ok(true)` when its type contract is the one this
+/// orb reads, an error naming both when it is not. The one place a resolved input is judged.
+pub fn already_resolved(schema: &OrbitalSchema, source_path: Option<&Path>) -> CompileResult<bool> {
+    let Some(mark) = &schema.resolved else {
+        return Ok(false);
+    };
+    if mark.type_contract_version != orbital_core_base::schema::TYPE_CONTRACT_VERSION {
+        return Err(CompilerError::ResolvedContract {
+            path: source_path.map_or_else(|| schema.name.clone(), |p| p.display().to_string()),
+            orb: mark.orb.clone(),
+            resolved: mark.type_contract_version,
+            current: orbital_core_base::schema::TYPE_CONTRACT_VERSION,
+        });
+    }
+    Ok(true)
 }
 
 /// Compilation result
@@ -238,6 +263,9 @@ pub(crate) fn resolve_schema_with_inline(
     inline: &inline::InlineConfig,
     source_path: Option<&Path>,
 ) -> CompileResult<OrbitalSchema> {
+    if already_resolved(&schema, source_path)? {
+        return Ok(schema);
+    }
     // Intrinsic identity: a raw/name-only `.orb` reaching the compiler (e.g.
     // `orb emit ts <name-only.orb>`, which parses through the raw core
     // deserializer) is stamped here — the single pre-inline chokepoint — so
@@ -270,6 +298,10 @@ pub(crate) fn resolve_schema_with_inline(
     // The declared type of every `json/parse` / `as` shape naming a program alias, and the knob types that name aliases.
     validation::effect::record_declared_shapes(&mut schema);
 
+    schema.resolved = Some(orbital_core_base::schema::ResolvedMark {
+        orb: env!("CARGO_PKG_VERSION").to_string(),
+        type_contract_version: orbital_core_base::schema::TYPE_CONTRACT_VERSION,
+    });
     Ok(schema)
 }
 
@@ -498,6 +530,51 @@ mod tests {
         let declared = watch_program("Watcher.SEEN");
         assert!(!has_event_address_error(&validate_comprehensive_without_services(&declared)));
         assert!(!has_event_address_error(&validate_for_compile(&declared, &CompilerOptions::default())));
+    }
+
+    fn program_importing_a_missing_file() -> OrbitalSchema {
+        let mut value = serde_json::to_value(watch_program("Watcher.SEEN")).expect("value");
+        value["orbitals"][0]["uses"] = json!([{ "from": "./does-not-exist.orb", "as": "Missing" }]);
+        serde_json::from_value(value).expect("schema")
+    }
+
+    #[test]
+    fn resolving_stamps_the_program_and_a_resolved_program_is_returned_unchanged_without_inlining() {
+        let options = CompilerOptions::default();
+        let resolved = resolve_schema_with_path(watch_program("Watcher.SEEN"), &options, None).expect("resolves");
+        let mark = resolved.resolved.clone().expect("stamped");
+        assert_eq!(mark.type_contract_version, orbital_core_base::schema::TYPE_CONTRACT_VERSION);
+        assert_eq!(mark.orb, env!("CARGO_PKG_VERSION"));
+
+        let before = serde_json::to_string(&resolved).expect("json");
+        let again = resolve_schema_with_path(resolved, &options, None).expect("resolved again");
+        assert_eq!(serde_json::to_string(&again).expect("json"), before);
+
+        let mut importing = program_importing_a_missing_file();
+        importing.resolved = Some(mark);
+        let before = serde_json::to_string(&importing).expect("json");
+        let untouched = resolve_schema_with_path(importing, &options, None).expect("an import would fail if inlined");
+        assert_eq!(serde_json::to_string(&untouched).expect("json"), before);
+    }
+
+    #[test]
+    fn control_an_unresolved_program_is_inlined() {
+        let err = resolve_schema_with_path(program_importing_a_missing_file(), &CompilerOptions::default(), None);
+        assert!(err.is_err(), "the missing import is only reached when the program is not resolved");
+    }
+
+    #[test]
+    fn a_program_resolved_under_another_type_contract_is_refused() {
+        let mut program = watch_program("Watcher.SEEN");
+        program.resolved = Some(orbital_core_base::schema::ResolvedMark {
+            orb: "0.0.1".to_string(),
+            type_contract_version: orbital_core_base::schema::TYPE_CONTRACT_VERSION + 1,
+        });
+        let err = resolve_schema_with_path(program, &CompilerOptions::default(), Some(Path::new("/app/app.orb")))
+            .expect_err("refused")
+            .to_string();
+        assert!(err.contains("/app/app.orb was resolved by orb 0.0.1 for type contract 2; this orb reads 1"), "{err}");
+        assert!(err.contains("resolve it again from source"), "{err}");
     }
 
     #[test]

@@ -764,7 +764,7 @@ fn is_field_provided(
 
     // (iii) any `@entity.<field>` reference in the resolved obj
     let needle = format!("@entity.{}", field);
-    if sexpr_references_binding(&SExpression::Object(obj.clone()), &needle) {
+    if sexpr_references_binding(&SExpression::object(obj.clone()), &needle) {
         return true;
     }
 
@@ -967,7 +967,7 @@ mod entity_prop_contract_tests {
             entity_with_fields("Article", &["title"]),
         );
 
-        let columns = SExpression::Array(vec![SExpression::Object(pattern_obj(vec![(
+        let columns = SExpression::Array(vec![SExpression::object(pattern_obj(vec![(
             "field",
             SExpression::String(("subtitle".to_string()).into()),
         )]))]);
@@ -1207,7 +1207,7 @@ mod children_operator_tests {
         for (k, v) in pairs {
             m.insert((*k).to_string(), v.clone());
         }
-        SExpression::Object(m)
+        SExpression::object(m)
     }
     fn stack_with(children: SExpression) -> SExpression {
         obj(&[("type", s("stack")), ("children", children)])

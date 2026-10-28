@@ -269,7 +269,7 @@ fn validate_emit_literal(
 
     // The literal payload object is at index 2; absent when an emit has no payload.
     let payload_obj = match arr.get(2) {
-        Some(SExpression::Object(o)) => Some(o),
+        Some(SExpression::Object(o)) => Some(&**o),
         _ => None,
     };
 
@@ -340,6 +340,21 @@ fn validate_emit_literal(
                         );
                     }
                     let expected = field.field_type.as_str();
+                    if let Some(slot) = null_into_non_null_slot(field, value, type_ctx, schema_types, guard) {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::EmitPayloadFieldTypeMismatch,
+                                path,
+                                format!(
+                                    "Emit '{}' field '{}' builds a null where '{}' is declared",
+                                    event_name,
+                                    key,
+                                    orbital_core_base::signature::describe_type(&slot)
+                                ),
+                            )
+                            .with_suggestion("Give the member a value of its declared type, or declare it optional (`T?`)"),
+                        );
+                    }
                     // An empty list has no element type of its own; it takes the slot's.
                     let empty_list_in_list_slot = matches!(value, SExpression::Array(items) if items.is_empty())
                         && (expected.starts_with('[') || expected == "array");
@@ -450,6 +465,28 @@ fn validate_emit_literal(
     result
 }
 
+/// The declared type of the never-null slot a literal `null` written inside `value` (a record, or an expression that
+/// builds records such as an `array/map` lambda) flows into, read top-down from the field's declared type.
+fn null_into_non_null_slot(
+    field: &PayloadField,
+    value: &SExpression,
+    type_ctx: &ExprReturnCtx<'_>,
+    schema_types: &OrbitalSchema,
+    guard: Option<&SExpression>,
+) -> Option<orbital_core_base::ir::OirType> {
+    if !matches!(value, SExpression::Array(_) | SExpression::Object(_)) {
+        return None;
+    }
+    let lowered = orbital_core_eval::lower::lower_sexpr(value).ok()?;
+    let condition = guard.and_then(|guard| orbital_core_eval::lower::lower_sexpr(guard).ok());
+    crate::type_infer::null_at_declared_slot(
+        &lowered,
+        &crate::phases::resolve::payload_field_oir_type(field, schema_types),
+        condition.as_ref(),
+        type_ctx,
+    )
+}
+
 /// The failable operator whose maybe-missing result `value` is, when the payload field it fills may not be null.
 fn missing_into_non_null_field(
     field: &PayloadField,
@@ -460,8 +497,8 @@ fn missing_into_non_null_field(
     if field.nullable == Some(true) || field.field_type.ends_with('?') {
         return None;
     }
-    let oir = orbital_core_eval::lower::lower_sexpr_keeping_typed(value).ok()?;
-    let condition = guard.and_then(|guard| orbital_core_eval::lower::lower_sexpr_keeping_typed(guard).ok());
+    let oir = orbital_core_eval::lower::lower_sexpr(value).ok()?;
+    let condition = guard.and_then(|guard| orbital_core_eval::lower::lower_sexpr(guard).ok());
     crate::type_infer::missing_failable_result(&oir, condition.as_ref(), type_ctx)
 }
 
@@ -980,6 +1017,29 @@ mod tests {
         assert_eq!(null_into_field("number", false, parsed), 1, "the parse can answer null");
         assert_eq!(null_into_field("number", true, parsed), 0, "control: a nullable field takes it");
         assert_eq!(null_into_field("number", false, r#"["or", ["str/to-number", "@entity.content"], 0]"#), 0, "control: a default answers it");
+    }
+
+    fn null_member(nullable: bool, value: &str) -> usize {
+        let nullable = if nullable { r#", "nullable": true"# } else { "" };
+        let ctx = check(
+            &format!(
+                r#"{{ "event": "Parsed", "payloadSchema": [{{ "name": "units", "type": "[object]", "properties": [{{ "name": "content", "type": "string", "required": true{nullable} }}] }}] }}"#
+            ),
+            &format!(r#"["emit", "Parsed", {{ "units": ["array/map", ["list", 1], ["fn", "r", {{ "content": {value} }}]] }}]"#),
+        );
+        ctx.result
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch && e.message.contains("builds a null"))
+            .count()
+    }
+
+    #[test]
+    fn a_null_built_in_a_lambda_record_into_a_never_null_member_is_refused() {
+        assert_eq!(null_member(false, "null"), 1);
+        assert_eq!(null_member(false, r#"["if", true, "a", null]"#), 1, "an if arm that is null");
+        assert_eq!(null_member(true, "null"), 0, "control: an optional member takes it");
+        assert_eq!(null_member(false, r#""text""#), 0, "control: a present string passes");
     }
 
     const CREATE_FAILING: &str = r#"["persist", "create", "ThreadPost", { "content": "@entity.content" }, { "emit": { "failure": "ThreadPostFailed" } }]"#;

@@ -373,7 +373,7 @@ mod tests {
         arr(vec![
             s("render-ui"),
             s("main"),
-            SExpression::Object({
+            SExpression::object({
                 let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("val".to_string(), s(&format!("@entity.{}", field)));
                 m
@@ -453,7 +453,7 @@ mod tests {
         arr(vec![
             s("render-ui"),
             s(slot),
-            SExpression::Object({
+            SExpression::object({
                 let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("val".to_string(), s(&format!("@entity.{}", field)));
                 m
@@ -496,7 +496,7 @@ mod tests {
         arr(vec![
             s("render-ui"),
             s("main"),
-            SExpression::Object({
+            SExpression::object({
                 let mut m = orbital_core_base::schema::SObject::new();
                 m.insert("val".to_string(), s(&format!("@entity.{}", field)));
                 m.insert(

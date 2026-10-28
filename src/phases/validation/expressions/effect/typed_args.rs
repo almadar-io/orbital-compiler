@@ -1,6 +1,7 @@
 //! Declared shapes recorded in the resolved program: a `json/parse` / `as` shape naming a program alias gets that
-//! alias's type, and a knob's `typed` value (`inline::rewrite::declared_list_types`) gets the program types it names.
-//! No operator argument is wrapped any more: declared types are static and the kernel checks no argument.
+//! alias's type, and a `let` binding's declared type (a local annotation, or a knob's literal bound by
+//! `inline::rewrite::declared_list_types`) gets the program types it names. No operator argument is wrapped any more:
+//! declared types are static and the kernel checks no argument.
 
 use super::set::ExprReturnCtx;
 use super::TraitScopes;
@@ -98,7 +99,7 @@ fn recorded_type(name: Option<String>, ty: OirType, aliases: &Aliases, version: 
 }
 
 /// `expr` with every `json/parse` whose shape names a program alias given that alias's recorded type, and every
-/// `typed` declaration given the program types it names, so the kernel checks the value against them.
+/// `let` binding's declared type given the program types it names.
 fn record_parse_shapes(expr: &SExpression, aliases: &Aliases, version: Option<u32>) -> SExpression {
     let rewritten: Result<SExpression, std::convert::Infallible> = expr.try_rewrite(
         |node| {
@@ -113,22 +114,31 @@ fn record_parse_shapes(expr: &SExpression, aliases: &Aliases, version: Option<u3
                 SExpression::Array(out) => out,
                 other => return Ok(other),
             };
+            if out.first().and_then(SExpression::as_str) == Some("let") {
+                if let Some(SExpression::Array(bindings)) = out.get_mut(1) {
+                    for binding in bindings {
+                        // A knob's declaration records its type before the orbital's aliases are in reach; the
+                        // types it names are added here.
+                        if let SExpression::Array(parts) = binding {
+                            if let [_, _, SExpression::String(shape)] = parts.as_mut_slice() {
+                                if let Some(mut declared) = DeclaredShape::parse(shape) {
+                                    declared.version = version.or(declared.version);
+                                    *shape = if declared.named.is_empty() {
+                                        recorded_type(declared.name, declared.ty, aliases, declared.version).into()
+                                    } else {
+                                        serde_json::to_string(&declared).unwrap_or_default().into()
+                                    };
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if let [SExpression::String(head), _, SExpression::String(shape)] = out.as_slice() {
                 if head == "json/parse" || head == "as" {
                     if let Some(declared) = DeclaredShape::of_alias(shape, aliases) {
                         out[2] =
                             SExpression::string(recorded_type(declared.name, declared.ty, aliases, version.or(declared.version)));
-                    }
-                } else if head == "typed" {
-                    // A knob's `typed` value (inline `declared_list_types`) records its type before the orbital's
-                    // aliases are in reach; the types it names are added here.
-                    if let Some(mut declared) = DeclaredShape::parse(shape) {
-                        declared.version = version.or(declared.version);
-                        out[2] = SExpression::String(if declared.named.is_empty() {
-                            recorded_type(declared.name, declared.ty, aliases, declared.version).into()
-                        } else {
-                            serde_json::to_string(&declared).unwrap_or_default().into()
-                        });
                     }
                 }
             }
@@ -229,11 +239,8 @@ mod tests {
                     "let",
                     [[
                         "values",
-                        [
-                            "typed",
-                            ["array/filter", "@payload.via", ["fn", "x", true]],
-                            serde_json::to_string(&ty).unwrap()
-                        ]
+                        ["array/filter", "@payload.via", ["fn", "x", true]],
+                        serde_json::to_string(&ty).unwrap()
                     ]],
                     ["array/len", "@values"]
                 ]

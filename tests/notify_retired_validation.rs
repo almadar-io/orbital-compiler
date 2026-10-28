@@ -105,7 +105,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
 
     OrbitalSchema {
         type_contract_version: None,
-        types: None,
+        resolved: None,        types: None,
         store: None,
         theme_definitions: None,
         themes: None,
@@ -186,7 +186,7 @@ fn a_render_ui_toast_effect_carries_no_retirement_error() {
     let toast = SExpression::Array(vec![
         SExpression::String(("render-ui".to_string()).into()),
         SExpression::String(("toast".to_string()).into()),
-        SExpression::Object(
+        SExpression::object(
             [
                 (
                     "type".to_string(),

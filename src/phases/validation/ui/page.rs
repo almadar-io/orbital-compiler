@@ -698,7 +698,7 @@ fn grant_problem(
         }),
         protocols::GrantKind::NetListen => {
             let record = match page.address.as_ref() {
-                Some(SExpression::Object(record)) => Some(record),
+                Some(SExpression::Object(record)) => Some(&**record),
                 _ => None,
             };
             let host = record
@@ -793,7 +793,7 @@ mod tests {
     fn href_obj(href: SExpression) -> SExpression {
         let mut m = std::collections::HashMap::new();
         m.insert("href".to_string(), href);
-        SExpression::Object(m.into_iter().collect())
+        SExpression::object(m.into_iter().collect())
     }
 
     fn concat(parts: &[SExpression]) -> SExpression {

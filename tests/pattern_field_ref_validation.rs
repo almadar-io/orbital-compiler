@@ -88,7 +88,7 @@ fn filter_group_effect(entity_name: &str, filters: Vec<&str>) -> SExpression {
     SExpression::Array(vec![
         SExpression::String(("render-ui".to_string()).into()),
         SExpression::String(("filter".to_string()).into()),
-        SExpression::Object(
+        SExpression::object(
             [
                 (
                     "type".to_string(),
@@ -257,7 +257,7 @@ fn pattern_prop_without_marker_is_not_validated() {
     let effect = SExpression::Array(vec![
         SExpression::String(("render-ui".to_string()).into()),
         SExpression::String(("main".to_string()).into()),
-        SExpression::Object(
+        SExpression::object(
             [
                 (
                     "type".to_string(),
@@ -310,7 +310,7 @@ fn data_grid_image_field_valid_scalar() {
     let effect = SExpression::Array(vec![
         SExpression::String(("render-ui".to_string()).into()),
         SExpression::String(("main".to_string()).into()),
-        SExpression::Object(
+        SExpression::object(
             [
                 (
                     "type".to_string(),
@@ -357,7 +357,7 @@ fn data_grid_image_field_invalid_scalar_warns() {
     let effect = SExpression::Array(vec![
         SExpression::String(("render-ui".to_string()).into()),
         SExpression::String(("main".to_string()).into()),
-        SExpression::Object(
+        SExpression::object(
             [
                 (
                     "type".to_string(),

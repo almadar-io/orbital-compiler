@@ -1156,7 +1156,7 @@ mod array_into_record_tests {
     }
 
     fn pattern(ty: &str, prop: &str, value: &str) -> SExpression {
-        SExpression::Object(
+        SExpression::object(
             [
                 ("type".to_string(), SExpression::String(ty.to_string().into())),
                 (prop.to_string(), SExpression::String(value.to_string().into())),
@@ -1350,7 +1350,7 @@ mod array_element_kind_tests {
             event_payload: None,
             sibling_trait_names: &[],
         };
-        let pat = SExpression::Object(
+        let pat = SExpression::object(
             [
                 ("type".to_string(), SExpression::String(ty.to_string().into())),
                 (prop.to_string(), SExpression::String(value.to_string().into())),

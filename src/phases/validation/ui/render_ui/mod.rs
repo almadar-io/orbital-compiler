@@ -173,7 +173,7 @@ mod tests {
         let effect = SExpression::Array(vec![
             SExpression::String(("render-ui".to_string()).into()),
             SExpression::String(("main".to_string()).into()),
-            SExpression::Object(
+            SExpression::object(
                 [("type".to_string(), SExpression::String(("card".to_string()).into()))]
                     .into_iter()
                     .collect(),
@@ -190,7 +190,7 @@ mod tests {
         let effect = SExpression::Array(vec![
             SExpression::String(("render-ui".to_string()).into()),
             SExpression::String(("invalid-slot".to_string()).into()),
-            SExpression::Object(
+            SExpression::object(
                 [("type".to_string(), SExpression::String(("card".to_string()).into()))]
                     .into_iter()
                     .collect(),
@@ -211,7 +211,7 @@ mod tests {
         let effect = SExpression::Array(vec![
             SExpression::String(("render-ui".to_string()).into()),
             SExpression::String(("main".to_string()).into()),
-            SExpression::Object(
+            SExpression::object(
                 [
                     (
                         "type".to_string(),
@@ -219,7 +219,7 @@ mod tests {
                     ),
                     (
                         "itemActions".to_string(),
-                        SExpression::Array(vec![SExpression::Object(
+                        SExpression::Array(vec![SExpression::object(
                             [
                                 (
                                     "label".to_string(),
@@ -259,7 +259,7 @@ mod tests {
         SExpression::String(v.to_string().into())
     }
     fn obj(pairs: &[(&str, SExpression)]) -> SExpression {
-        SExpression::Object(
+        SExpression::object(
             pairs
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.clone()))
@@ -699,7 +699,7 @@ mod tests {
         let effect = SExpression::Array(vec![
             SExpression::String(("render-ui".to_string()).into()),
             SExpression::String(("main".to_string()).into()),
-            SExpression::Object(
+            SExpression::object(
                 [
                     (
                         "type".to_string(),
@@ -738,7 +738,7 @@ mod tests {
         let effect = SExpression::Array(vec![
             SExpression::String(("render-ui".to_string()).into()),
             SExpression::String(("main".to_string()).into()),
-            SExpression::Object(
+            SExpression::object(
                 [
                     (
                         "type".to_string(),
@@ -777,7 +777,7 @@ mod tests {
         let effect = SExpression::Array(vec![
             SExpression::String(("render-ui".to_string()).into()),
             SExpression::String(("filter".to_string()).into()),
-            SExpression::Object(
+            SExpression::object(
                 [
                     (
                         "type".to_string(),
@@ -950,7 +950,7 @@ mod tests {
         let effect = SExpression::Array(vec![
             SExpression::String(("render-ui".to_string()).into()),
             SExpression::String(("main".to_string()).into()),
-            SExpression::Object(
+            SExpression::object(
                 [
                     (
                         "type".to_string(),
@@ -1046,7 +1046,7 @@ mod tests {
         let effect = SExpression::Array(vec![
             SExpression::String(("render-ui".to_string()).into()),
             SExpression::String(("main".to_string()).into()),
-            SExpression::Object(
+            SExpression::object(
                 [
                     (
                         "type".to_string(),

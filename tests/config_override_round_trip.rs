@@ -177,7 +177,7 @@ fn extract_render_ui_object(
         SExpression::Array(items) => {
             assert_eq!(items.len(), 3, "render-ui effect must be 3 elements");
             match &items[2] {
-                SExpression::Object(map) => map.clone(),
+                SExpression::Object(map) => (**map).clone(),
                 other => panic!("expected render-ui payload to be Object, got: {:?}", other),
             }
         }

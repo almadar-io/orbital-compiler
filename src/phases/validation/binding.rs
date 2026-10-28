@@ -240,7 +240,7 @@ fn validate_expr_bindings_with_locals(
                                 for name in bindings.keys() {
                                     extended_locals.insert(name.clone());
                                 }
-                                for (name, value_expr) in bindings {
+                                for (name, value_expr) in bindings.iter() {
                                     result.merge(validate_expr_bindings_with_locals(
                                         value_expr,
                                         &format!("{}[1].{}", path, name),
@@ -304,7 +304,7 @@ fn validate_expr_bindings_with_locals(
             }
         }
         SExpression::Object(obj) => {
-            for (key, value) in obj {
+            for (key, value) in obj.iter() {
                 result.merge(validate_expr_bindings_with_locals(
                     value,
                     &format!("{}.{}", path, key),
@@ -578,7 +578,7 @@ mod tests {
     #[test]
     fn fc5_item_in_scope_inside_array_map_children() {
         // ["array/map", "@entity.items", ["fn", "item", { type: badge, label: "@item.name" }]]
-        let node = SExpression::Object(
+        let node = SExpression::object(
             [
                 ("type".to_string(), SExpression::String(("badge".to_string()).into())),
                 (
@@ -612,7 +612,7 @@ mod tests {
     #[test]
     fn fc5_item_out_of_scope_outside_array_map() {
         // A bare `@item.name` with no enclosing map/lambda → unknown root.
-        let expr = SExpression::Object(
+        let expr = SExpression::object(
             [
                 ("type".to_string(), SExpression::String(("badge".to_string()).into())),
                 (

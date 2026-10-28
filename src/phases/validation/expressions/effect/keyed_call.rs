@@ -49,7 +49,7 @@ pub(super) fn trailing_options(arr: &[SExpression]) -> Option<&orbital_core_base
         Some(SExpression::Object(opts))
             if opts.contains_key("emit") || opts.contains_key("key") =>
         {
-            Some(opts)
+            Some(&**opts)
         }
         _ => None,
     }
@@ -235,7 +235,7 @@ pub(super) fn collect_call_key_facts(
                     trailing_options(arr)
                 } else if ON_DEVICE_OPERATORS.contains(&head.as_str()) {
                     match arr.last() {
-                        Some(SExpression::Object(o)) => Some(o),
+                        Some(SExpression::Object(o)) => Some(&**o),
                         _ => None,
                     }
                 } else {

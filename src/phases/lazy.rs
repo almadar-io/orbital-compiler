@@ -79,7 +79,7 @@ pub fn split_lazy(schema: &mut OrbitalSchema) -> Vec<LazyArtifact> {
                 orb_ref: lazy_orb_ref(&name),
                 schema: OrbitalSchema {
                     type_contract_version: None,
-                    types: None,
+                    resolved: None,                    types: None,
                     store: schema.store.clone(),
                     theme_definitions: None,
                     themes: None,
@@ -189,6 +189,9 @@ fn split_lazy_and_resolve_in(
     inline: &InlineConfig,
     source_path: Option<&Path>,
 ) -> CompileResult<Vec<ResolvedLazy>> {
+    if super::already_resolved(schema, source_path)? {
+        return Ok(Vec::new());
+    }
     let mut resolved = Vec::new();
     for artifact in split_lazy(schema) {
         let mut child = artifact.schema.clone();
@@ -212,6 +215,9 @@ pub fn resolve_program_with_path(
     options: &CompilerOptions,
     source_path: Option<&Path>,
 ) -> CompileResult<(OrbitalSchema, Vec<ResolvedLazy>)> {
+    if super::already_resolved(&schema, source_path)? {
+        return Ok((schema, Vec::new()));
+    }
     let inline = program_inline(options);
     let mut lazy = split_lazy_and_resolve_in(&mut schema, options, &inline, source_path)?;
     let mut schema = resolve_schema_with_inline(schema, options, &inline, source_path)?;

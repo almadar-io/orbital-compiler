@@ -50,11 +50,11 @@ mod async_result_collector_tests {
             emit_map.insert((*k).to_string(), SExpression::String(((*v).to_string()).into()));
         }
         let mut options = orbital_core_base::schema::SObject::new();
-        options.insert("emit".to_string(), SExpression::Object(emit_map));
+        options.insert("emit".to_string(), SExpression::object(emit_map));
         SExpression::Array(vec![
             SExpression::String(op.to_string().into()),
             SExpression::String(("Item".to_string()).into()),
-            SExpression::Object(options),
+            SExpression::object(options),
         ])
     }
 

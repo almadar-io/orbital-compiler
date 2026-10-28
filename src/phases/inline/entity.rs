@@ -775,7 +775,7 @@ mod render_ui_pattern_contract_reference_tests {
             "events".to_string(),
             SExpression::String(("@entity".to_string()).into()),
         );
-        SExpression::Object(obj)
+        SExpression::object(obj)
     }
 
     /// PASS: a render-ui node whose pattern (`calendar-grid`) declares
@@ -801,14 +801,14 @@ mod render_ui_pattern_contract_reference_tests {
     fn render_ui_pattern_contract_field_not_referenced_for_a_different_bound_entity() {
         let e = entity("Schedule");
         let mut obj = match calendar_grid_node() {
-            SExpression::Object(o) => o,
+            SExpression::Object(o) => *o,
             _ => unreachable!(),
         };
         obj.insert(
             "entity".to_string(),
             SExpression::String(("Other".to_string()).into()),
         );
-        let t = trait_with_render_ui("Schedule", SExpression::Object(obj));
+        let t = trait_with_render_ui("Schedule", SExpression::object(obj));
         let fields = trait_references_entity_fields(&t, &e);
         assert!(
             !fields.contains("title") && !fields.contains("startTime"),

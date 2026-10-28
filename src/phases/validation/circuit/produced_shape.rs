@@ -392,7 +392,7 @@ fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
             || orbital_core_base::language::registry::is_program_host_effect(op) =>
         {
             args.iter().skip(1).rev().find_map(|arg| match arg {
-                SExpression::Object(options) if options.contains_key("emit") => Some(options),
+                SExpression::Object(options) if options.contains_key("emit") => Some(&**options),
                 _ => None,
             })
             .is_some_and(|options| !matches!(options.get("key"), None | Some(SExpression::Null)))

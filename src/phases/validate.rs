@@ -563,7 +563,7 @@ mod tests {
     fn create_minimal_schema() -> OrbitalSchema {
         OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -670,7 +670,7 @@ mod tests {
         };
         OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,

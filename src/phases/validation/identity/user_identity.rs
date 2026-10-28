@@ -276,13 +276,24 @@ pub(crate) fn identity_type(
             .iter()
             .filter_map(|f| {
                 let name = f.name.clone()?;
-                Some(orbital_core_base::ir::OirField::new(
-                    name,
-                    orbital_core_base::ir::types::field_shape(f),
-                ))
+                let shape = orbital_core_base::ir::types::field_shape(f);
+                let guaranteed = viewer_guarantees(&name) || f.required == Some(true);
+                let shape = if guaranteed || shape.is_optional() {
+                    shape
+                } else {
+                    orbital_core_base::ir::OirType::optional(shape)
+                };
+                Some(orbital_core_base::ir::OirField::new(name, shape))
             })
             .collect(),
     }
+}
+
+/// Whether the `Viewer` program type declares member `name` required: the members every viewer carries.
+fn viewer_guarantees(name: &str) -> bool {
+    orbital_core_base::language::program_types::viewer_fields()
+        .iter()
+        .any(|f| f.name.as_deref() == Some(name) && f.required == Some(true))
 }
 
 /// The `@user` shape of a program with no `[identity]` entity: the viewer alone.
@@ -564,6 +575,36 @@ mod tests {
                 .map(|n| serde_json::json!({ "name": n, "type": "string" })),
         );
         serde_json::Value::Array(fields)
+    }
+
+    #[test]
+    fn a_member_declared_without_bang_is_typed_optional_and_a_guaranteed_one_is_not() {
+        use orbital_core_base::ir::OirType;
+        let OirType::Struct { fields, .. } = identity_type(
+            &reading("@user.id", Some(roster(&["teamId"])), None),
+            "DocView",
+        ) else {
+            panic!("a record")
+        };
+        let optional = |name: &str| {
+            fields
+                .iter()
+                .find(|f| f.name == name)
+                .unwrap_or_else(|| panic!("{name} declared"))
+                .field_type
+                .is_optional()
+        };
+        assert!(optional("teamId"), "a roster member without `!`");
+        assert!(
+            optional("name"),
+            "a viewer member the viewer does not require"
+        );
+        assert!(optional("role"));
+        assert!(!optional("id"), "control: the viewer's id is required");
+        assert!(
+            !optional("claims"),
+            "control: the viewer's claims are required"
+        );
     }
 
     #[test]

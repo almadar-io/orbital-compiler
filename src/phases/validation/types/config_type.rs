@@ -503,7 +503,7 @@ fn knob_prop_type_union(trait_def: &TraitDefinition, value_str: &str) -> Option<
             SExpression::Object(map) => {
                 if let Some(SExpression::String(ty)) = map.get("type") {
                     if let Some(props) = crate::pattern_registry::get_props_schema(ty.as_str()) {
-                        for (k, v) in map {
+                        for (k, v) in map.iter() {
                             let SExpression::String(s) = v else { continue };
                             if s != value_str {
                                 continue;
@@ -981,7 +981,7 @@ fn validate_config_field(
 /// this call site (an unbound type variable, a knob that holds no literal): nothing is checked then.
 fn field_ref_record_fields(
     record: Option<&str>,
-    properties: Option<&HashMap<String, FieldDefinition>>,
+    properties: Option<&orbital_core_base::collections::IndexMap<String, FieldDefinition>>,
     bctx: &ReferenceBindingCtx,
 ) -> Option<(String, Vec<(String, OrbitalOirType)>)> {
     use orbital_core_base::ir::types::{field_shape, payload_field_shape};
@@ -1147,7 +1147,7 @@ fn check_field_ref_names(
     knob: &str,
     named: Vec<(String, &str)>,
     record: Option<&str>,
-    properties: Option<&HashMap<String, FieldDefinition>>,
+    properties: Option<&orbital_core_base::collections::IndexMap<String, FieldDefinition>>,
     element: Option<&FieldDefinition>,
     bctx: &ReferenceBindingCtx,
 ) -> ValidationResult {
@@ -1273,7 +1273,7 @@ fn check_config_default_shape(
         if let Some(value_schema) = &field.items {
             let ancestors = root_ancestor_map(field, Some(value_schema));
             let mut probe = ValidationResult::new();
-            for (key, entry) in entries {
+            for (key, entry) in entries.iter() {
                 probe.merge(check_field_def_shape(
                     value_schema,
                     entry,
@@ -2133,7 +2133,7 @@ fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
                     }
                     _ => None,
                 };
-                for (k, v) in map {
+                for (k, v) in map.iter() {
                     let ctx =
                         pattern_props.map(|props| (k.as_str(), props.contains_key(k.as_str())));
                     collect_config_keys_inner(v, ctx, out);
@@ -3495,7 +3495,7 @@ mod recursive_type_literal_tests {
             record: None,
             derived: None,
         };
-        let mut props = HashMap::new();
+        let mut props = orbital_core_base::collections::IndexMap::new();
         props.insert("label".to_string(), label);
         props.insert("subMenu".to_string(), sub_menu_array);
         let menu_item = FieldDefinition {
@@ -3546,7 +3546,7 @@ mod recursive_type_literal_tests {
         let mut obj = orbital_core_base::schema::SObject::new();
         obj.insert("label".to_string(), SExpression::String(label.to_string().into()));
         obj.insert("subMenu".to_string(), SExpression::Array(sub_menu));
-        SExpression::Object(obj)
+        SExpression::object(obj)
     }
 
     /// Feature test 5, valid half: a depth-3 literal against MenuItem
@@ -3589,7 +3589,7 @@ mod recursive_type_literal_tests {
             SExpression::String(("C".to_string()).into()),
         );
         typo_leaf.insert("subMenu".to_string(), SExpression::Array(vec![]));
-        let depth3 = item("A", vec![item("B", vec![SExpression::Object(typo_leaf)])]);
+        let depth3 = item("A", vec![item("B", vec![SExpression::object(typo_leaf)])]);
         let result = check_config_default_shape(
             &field,
             &SExpression::Array(vec![depth3]),
@@ -3638,7 +3638,7 @@ mod required_member_tests {
             record: None,
             derived: None,
         };
-        let mut props = HashMap::new();
+        let mut props = orbital_core_base::collections::IndexMap::new();
         props.insert("id".to_string(), required_string("id"));
         props.insert("kind".to_string(), required_string("kind"));
         FieldDefinition {
@@ -3670,7 +3670,7 @@ mod required_member_tests {
     #[test]
     fn strict_mode_rejects_incomplete_object_literal() {
         let schema = alias_with_required_members();
-        let empty = SExpression::Object(orbital_core_base::schema::SObject::new());
+        let empty = SExpression::object(orbital_core_base::schema::SObject::new());
         let result = check_field_def_shape(
             &schema,
             &empty,
@@ -3713,7 +3713,7 @@ mod required_member_tests {
         assert!(text.errors.is_empty(), "a string is the string variant: {:?}", text.errors);
         let mut env = orbital_core_base::schema::SObject::new();
         env.insert("env".to_string(), SExpression::String(("HOME".to_string()).into()));
-        let record = check(SExpression::Object(env));
+        let record = check(SExpression::object(env));
         assert!(record.errors.is_empty(), "a record variant still fits: {:?}", record.errors);
         assert!(
             !check(SExpression::Number(3.0)).errors.is_empty(),

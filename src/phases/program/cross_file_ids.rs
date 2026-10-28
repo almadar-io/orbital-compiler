@@ -584,7 +584,7 @@ mod tests {
         }
         OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -667,7 +667,7 @@ mod tests {
     fn resolves_dotted_trait_ref_from_imported_ledger() {
         let mut schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -720,7 +720,7 @@ mod tests {
     fn leaves_unresolvable_dotted_ref_none_without_panic() {
         let mut schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -773,7 +773,7 @@ mod tests {
     fn leaves_unknown_alias_ref_none() {
         let mut schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -895,7 +895,7 @@ mod tests {
 
         let mut schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -973,7 +973,7 @@ mod tests {
 
         let mut schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,

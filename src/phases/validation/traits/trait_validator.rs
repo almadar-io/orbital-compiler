@@ -139,7 +139,7 @@ mod tests {
                     effects: Some(vec![orbital_core_base::schema::SExpression::Array(vec![
                         orbital_core_base::schema::SExpression::String(("render-ui".to_string()).into()),
                         orbital_core_base::schema::SExpression::String(("main".to_string()).into()),
-                        orbital_core_base::schema::SExpression::Object({
+                        orbital_core_base::schema::SExpression::object({
                             let mut m = orbital_core_base::schema::SObject::new();
                             m.insert(
                                 "type".to_string(),

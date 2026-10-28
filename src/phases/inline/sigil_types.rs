@@ -152,7 +152,7 @@ pub(crate) fn field_of(p: &PayloadField) -> FieldDefinition {
     }
 }
 
-fn keyed(fields: Vec<FieldDefinition>) -> HashMap<String, FieldDefinition> {
+fn keyed(fields: Vec<FieldDefinition>) -> orbital_core_base::collections::IndexMap<String, FieldDefinition> {
     fields
         .into_iter()
         .filter_map(|f| f.name.clone().map(|n| (n, f)))

@@ -182,12 +182,12 @@ fn check_webpush(request: &SObject, call: &[SExpression], site: &Site, result: &
 
 pub(super) fn http_objects(arr: &[SExpression]) -> (Option<&SObject>, Option<&SObject>) {
     let options = trailing_options(arr).or_else(|| match (arr.len(), arr.last()) {
-        (6, Some(SExpression::Object(o))) => Some(o),
+        (6, Some(SExpression::Object(o))) => Some(&**o),
         _ => None,
     });
     let request = match (arr.len(), options.is_some()) {
         (6, _) | (5, false) => match arr.get(4) {
-            Some(SExpression::Object(r)) => Some(r),
+            Some(SExpression::Object(r)) => Some(&**r),
             _ => None,
         },
         _ => None,
@@ -228,7 +228,7 @@ fn check_headers(expr: &SExpression, grant: bool, path: &str, ctx: &ExprReturnCt
         }
         return;
     };
-    for (name, value) in headers {
+    for (name, value) in headers.iter() {
         if !is_header_name(name) {
             result.add_error(ValidationError::error(ErrorCode::HttpHeaderInvalid, path, "HTTP header name must be a token"));
             continue;
@@ -412,11 +412,11 @@ const BEACON_EMIT_KEYS: [&str; 3] = ["success", "failure", "cancelled"];
 /// `browser/beacon`: the `key` (request or options) and `emit` options.
 fn check_beacon_call(arr: &[SExpression], site: &Site, result: &mut ValidationResult) {
     let request = match arr.get(2) {
-        Some(SExpression::Object(request)) => Some(request),
+        Some(SExpression::Object(request)) => Some(&**request),
         _ => None,
     };
     let options = match arr.get(3) {
-        Some(SExpression::Object(options)) => Some(options),
+        Some(SExpression::Object(options)) => Some(&**options),
         _ => None,
     };
     if let Some(emit) = options.and_then(extract_emit_object_ref) {

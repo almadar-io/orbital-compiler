@@ -339,8 +339,8 @@ pub(crate) fn expr_return_incompatible_given<C: crate::type_infer::TypeCtx>(
     guard: Option<&SExpression>,
 ) -> Option<orbital_core_base::ir::OirType> {
     // A `typed` value (an annotated `let` local) is read as the type the program declared for it.
-    let oir_value = orbital_core_eval::lower::lower_sexpr_keeping_typed(value).ok()?;
-    let condition = guard.and_then(|g| orbital_core_eval::lower::lower_sexpr_keeping_typed(g).ok());
+    let oir_value = orbital_core_eval::lower::lower_sexpr(value).ok()?;
+    let condition = guard.and_then(|g| orbital_core_eval::lower::lower_sexpr(g).ok());
     if crate::type_infer::admits(&oir_value, declared, condition.as_ref(), ctx) {
         return None;
     }

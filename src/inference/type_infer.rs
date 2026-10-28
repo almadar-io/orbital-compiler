@@ -159,6 +159,8 @@ struct Inferer<'c> {
     proven: RefCell<std::collections::HashMap<ProvenKey, Vec<bool>>>,
     /// Whether calls record [`Self::proven`]; off for validation, which only reports.
     record: std::cell::Cell<bool>,
+    /// The first declared slot a literal `null` reached in a contextual read that admits no null.
+    null_slot: RefCell<Option<OirType>>,
 }
 
 struct ScopeState {
@@ -191,6 +193,7 @@ impl<'c> Inferer<'c> {
             named_types: RefCell::new(std::sync::Arc::default()),
             proven: RefCell::new(std::collections::HashMap::new()),
             record: std::cell::Cell::new(false),
+            null_slot: RefCell::new(None),
         }
     }
 
@@ -512,23 +515,6 @@ impl<'c> Inferer<'c> {
                 }
                 None => self.call("if", &[condition, then_branch, else_branch]),
             },
-            OirExpr::Call { function, args } if function == "typed" && args.len() == 2 => {
-                let ty = self.infer(&args[0]);
-                let OirExpr::String { value } = &args[1] else {
-                    return ty;
-                };
-                // A value the program declared a type for (a substituted config knob) is read as that type.
-                if let Some(declared) = orbital_core_base::ir::types::DeclaredShape::parse(value) {
-                    let mut known = self.named_types.borrow_mut();
-                    for (name, ty) in declared.named {
-                        if !known.contains_key(&name) {
-                            std::sync::Arc::make_mut(&mut known).insert(name, ty);
-                        }
-                    }
-                    return Some(declared.ty);
-                }
-                ty
-            }
             OirExpr::Call { function, args } if function == "let" => self.infer_let(args),
             OirExpr::Call { function, args } if quoted_scalar(function, args).is_some() => {
                 quoted_scalar(function, args)
@@ -575,13 +561,6 @@ impl<'c> Inferer<'c> {
                 accumulated
             }
             OirExpr::Lambda { .. } => None,
-            // An `os/` effect has no value; its arguments are checked against the operation's parameters where it stands.
-            OirExpr::Effect { effect }
-                if matches!(effect.as_ref(), orbital_core_base::ir::OirEffect::Os { .. }) =>
-            {
-                self.known(expr);
-                None
-            }
             // A `set` value is a value expression: its reads are checked exactly as they are in a guard.
             OirExpr::Effect { effect }
                 if matches!(
@@ -599,7 +578,12 @@ impl<'c> Inferer<'c> {
                 }
                 None
             }
-            OirExpr::Effect { .. } => None,
+            // Any other effect has no value; the expressions it is handed (an `os/` effect's arguments against the
+            // operation's parameters, an emit payload's record fields at any depth) are checked where they stand.
+            OirExpr::Effect { .. } => {
+                self.known(expr);
+                None
+            }
         }
     }
 
@@ -725,7 +709,7 @@ impl<'c> Inferer<'c> {
                 if let (Some(OirExpr::String { value: name }), Some(value)) =
                     (items.first(), items.get(1))
                 {
-                    let ty = self.infer_local_initializer(value);
+                    let ty = self.infer_local_initializer(value, items.get(2));
                     let missing = self.missing_result_source(value, ty.as_ref());
                     let absent = self.absent_operand(value).is_some();
                     let alias = member_read(value);
@@ -784,19 +768,23 @@ impl<'c> Inferer<'c> {
         Some(out)
     }
 
-    fn infer_local_initializer(&self, value: &OirExpr) -> Option<OirType> {
-        let OirExpr::Call { function, args } = value else {
+    /// The type of a `let` binding's initializer: the binding's declared shape (`[name, value, shape]`) when it proves
+    /// the initializer, else the initializer's own type.
+    fn infer_local_initializer(&self, value: &OirExpr, declaration: Option<&OirExpr>) -> Option<OirType> {
+        let Some(OirExpr::String { value: declaration }) = declaration else {
             return self.infer(value);
         };
-        let [initializer, OirExpr::String { value: declaration }] = args.as_slice() else {
+        let Some(shape) = orbital_core_base::ir::types::DeclaredShape::parse(declaration) else {
             return self.infer(value);
         };
-        let Some(shape) = (function == "typed")
-            .then(|| orbital_core_base::ir::types::DeclaredShape::parse(declaration))
-            .flatten()
-        else {
-            return self.infer(value);
-        };
+        {
+            let mut known = self.named_types.borrow_mut();
+            for (name, ty) in &shape.named {
+                if !known.contains_key(name) {
+                    std::sync::Arc::make_mut(&mut known).insert(name.clone(), ty.clone());
+                }
+            }
+        }
         let mark = self.diagnostics.borrow().len();
         let resolve = |name: &str| {
             shape
@@ -808,7 +796,7 @@ impl<'c> Inferer<'c> {
         if orbital_core_base::type_compat::checked_sub_with_named(&shape.ty, &shape.ty, &resolve)
             .is_some()
             && self
-                .infer_contextual(initializer, &shape.ty, &shape.named, &mut Vec::new())
+                .infer_contextual(value, &shape.ty, &shape.named, &mut Vec::new())
                 .is_some()
             && self.diagnostics.borrow().len() == mark
         {
@@ -822,7 +810,7 @@ impl<'c> Inferer<'c> {
                 actual: "an initializer whose declared type is not proved".into(),
             },
             expression: orbital_core_base::ir::pretty_print_expr(value),
-            argument: orbital_core_base::ir::pretty_print_expr(initializer),
+            argument: orbital_core_base::ir::pretty_print_expr(value),
         });
         None
     }
@@ -971,6 +959,18 @@ impl<'c> Inferer<'c> {
             }
         }
         match (expr, expected) {
+            (OirExpr::Null, _)
+                if !orbital_core_base::type_compat::is_unknowable(expected)
+                    && !matches!(
+                        expected,
+                        OirType::Var { .. } | OirType::Optional { .. } | OirType::Union { .. }
+                    ) =>
+            {
+                self.null_slot.borrow_mut().get_or_insert_with(|| expected.clone());
+                let actual = self.infer(expr)?;
+                orbital_core_base::type_compat::checked_sub_with_named(&actual, expected, &resolve)?;
+                Some(expected.clone())
+            }
             (OirExpr::String { value }, OirType::Enum { name }) => {
                 orbital_core_base::type_compat::literal_union_members(name)
                     .filter(|members| members.contains(value))
@@ -2285,10 +2285,22 @@ fn present_calls(expr: &OirExpr, truth: bool) -> Vec<CallFact> {
         _ => None,
     };
     let signed = |value: &OirExpr, sign: Sign| (!value.is_literal()).then(|| CallFact::Signed(value.clone(), sign));
+    // A list whose length is positive has a first and a last element.
+    let ends_present = |value: &OirExpr| -> Vec<CallFact> {
+        match as_call(value) {
+            Some(("array/len", args)) if args.len() == 1 => ["array/first", "array/last"]
+                .into_iter()
+                .map(|end| CallFact::Present(OirExpr::Call { function: end.to_string(), args: vec![args[0].clone()] }))
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
     // What `value > floor` (or `>=` when `inclusive`) shows of `value`.
     let above = |value: &OirExpr, floor: Option<f64>, inclusive: bool| -> Vec<CallFact> {
         match floor {
-            Some(floor) if floor > 0.0 || (floor == 0.0 && !inclusive) => signed(value, Sign::Positive).into_iter().collect(),
+            Some(floor) if floor > 0.0 || (floor == 0.0 && !inclusive) => {
+                signed(value, Sign::Positive).into_iter().chain(ends_present(value)).collect()
+            }
             Some(floor) if floor == 0.0 => signed(value, Sign::NonNegative).into_iter().collect(),
             _ => Vec::new(),
         }
@@ -2847,7 +2859,7 @@ fn handles_missing(name: &str) -> bool {
     matches!(
         name,
         "default" | "=" | "==" | "!=" | "if" | "when" | "let"
-            | "do" | "list" | "quote" | "typed" | "validate/required" | "object/get"
+            | "do" | "list" | "quote" | "validate/required"
     ) || orbital_core_eval::evaluator::operators::get_operator(name).and_then(|op| op.type_predicate()).is_some()
 }
 
@@ -2956,16 +2968,25 @@ pub fn admits<C: TypeCtx>(expr: &OirExpr, declared: &OirType, condition: Option<
         && inferer.diagnostics.borrow().is_empty()
 }
 
+/// The declared type of the slot a literal `null` in `expr` flows into when that slot admits no null, read top-down as
+/// [`admits`] reads; `None` when no such null is written.
+pub fn null_at_declared_slot<C: TypeCtx>(expr: &OirExpr, declared: &OirType, condition: Option<&OirExpr>, ctx: &C) -> Option<OirType> {
+    let inferer = Inferer::new(ctx);
+    inferer.assume(condition);
+    inferer.infer_contextual(expr, declared, &Default::default(), &mut Vec::new());
+    inferer.null_slot.into_inner()
+}
+
 pub fn infer_under_condition<C: TypeCtx>(condition: &OirExpr, expr: &OirExpr, ctx: &C) -> Option<OirType> {
     let inferer = Inferer::new(ctx);
     inferer.assume(Some(condition));
     inferer.infer(expr)
 }
 
-/// The type a `let` binds its local to: an annotated initializer (`(x : T value)`) is its declared type when the value
-/// fits it, any other initializer its inferred type.
-pub fn local_initializer_type<C: TypeCtx>(expr: &OirExpr, ctx: &C) -> Option<OirType> {
-    Inferer::new(ctx).infer_local_initializer(expr)
+/// The type a `let` binds its local to: an annotated binding (`(x : T value)`, `[x, value, shape]`) is its declared
+/// type when the value fits it, any other initializer its inferred type.
+pub fn local_initializer_type<C: TypeCtx>(expr: &OirExpr, declaration: Option<&OirExpr>, ctx: &C) -> Option<OirType> {
+    Inferer::new(ctx).infer_local_initializer(expr, declaration)
 }
 
 /// The failable operator whose maybe-missing result `expr` is (a direct call or arithmetic still typed optional),
@@ -3126,10 +3147,8 @@ mod tests {
             vec![
                 list_of(vec![list_of(vec![
                     text("checked"),
-                    call(
-                        "typed",
-                        vec![value, text(&serde_json::to_string(&ty).unwrap())],
-                    ),
+                    value,
+                    text(&serde_json::to_string(&ty).unwrap()),
                 ])]),
                 OirExpr::Binding {
                     binding: OirBinding {
@@ -3519,7 +3538,7 @@ mod tests {
             Some(OirType::SExpr)
         );
         assert_eq!(
-            infer_oir_expr_type(&quoted(S::Object(Default::default())), &NoCtx),
+            infer_oir_expr_type(&quoted(S::object(Default::default())), &NoCtx),
             Some(OirType::SExpr)
         );
     }
@@ -3561,15 +3580,15 @@ mod tests {
 
     #[test]
     fn a_polymorphic_call_is_the_concrete_type_of_its_arguments() {
-        // (array/first @entity.tags) is a string when tags is [string]; the control is a [number].
+        // (array/first @entity.tags) is a string? when tags is [string] (empty → null); the control is a [number].
         let row = tags_row();
         assert_eq!(
             infer_oir_expr_type(&call("array/first", vec![entity(&["tags"])]), &row),
-            Some(OirType::String)
+            Some(OirType::optional(OirType::String))
         );
         assert_eq!(
             infer_oir_expr_type(&call("array/first", vec![list_of(vec![num(1.0)])]), &NoCtx),
-            Some(OirType::Number)
+            Some(OirType::optional(OirType::Number))
         );
     }
 
@@ -3797,8 +3816,57 @@ mod tests {
             }
         }
         let count = |expr: OirExpr| check_oir_expr(&expr, &Named).iter().filter(|d| matches!(d.mismatch, Mismatch::MissingResult { .. })).count();
-        assert_eq!(count(read(None)), 1, "the parse can answer null, and so the read");
-        assert_eq!(count(read(Some(num(0.0)))), 0, "control: a default answers the read");
+        assert_eq!(count(read(None)), 1, "the parse can answer null, and object/get raises on a null object");
+        assert_eq!(count(read(Some(num(0.0)))), 1, "a field default does not stand in for a missing object");
+        let defaulted = call(
+            "+",
+            vec![call("object/get", vec![call("default", vec![parsed(), call("object/fromEntries", vec![list_of(vec![list_of(vec![text("x"), num(0.0)])])])]), text("x")]), num(1.0)],
+        );
+        assert_eq!(count(defaulted), 0, "control: `default` says what a missing parse means");
+    }
+
+    #[test]
+    fn an_optional_read_through_object_get_is_one_finding_inline_or_bound() {
+        // G-ORB-546: (object/get (array/first @entity.rows) "k" "") and the same through a let local.
+        let row = Row(vec![("rows", OirType::array(OirType::Struct { fields: vec![OirField::new("k", OirType::String)].into(), additional: None }))]);
+        let first = || call("array/first", vec![entity(&["rows"])]);
+        let null_operands = |expr: OirExpr| check_oir_expr(&expr, &row).iter().filter(|d| matches!(d.mismatch, Mismatch::NullOperand { .. })).count();
+        assert_eq!(null_operands(call("object/get", vec![first(), text("k"), text("")])), 1, "inline: the first row can be missing");
+        let bound = call("let", vec![list_of(vec![list_of(vec![text("v"), first()])]), call("object/get", vec![local("v"), text("k"), text("")])]);
+        assert_eq!(null_operands(bound), 1, "bound: the same read through a local");
+        let defaulted = call("object/get", vec![call("default", vec![first(), record(vec![("k", text(""))])]), text("k"), text("")]);
+        assert_eq!(null_operands(defaulted), 0, "control: `default` answers the missing row");
+    }
+
+    #[test]
+    fn a_default_around_a_read_does_not_cover_the_read_object() {
+        // `(default (object/get (array/find rows f) "k") "")`: default answers object/get's missing RESULT; its
+        // missing OBJECT still raises in the kernel.
+        let row = Row(vec![("rows", OirType::array(OirType::Struct { fields: vec![OirField::new("k", OirType::String)].into(), additional: None }))]);
+        let found = || call("array/find", vec![entity(&["rows"]), call("fn", vec![text("v"), OirExpr::Bool { value: true }])]);
+        let first = || call("array/first", vec![entity(&["rows"])]);
+        let null_operands = |expr: OirExpr| check_oir_expr(&expr, &row).iter().filter(|d| matches!(d.mismatch, Mismatch::NullOperand { .. })).count();
+        assert_eq!(null_operands(call("default", vec![call("object/get", vec![found(), text("k")]), text("")])), 1, "find");
+        assert_eq!(null_operands(call("default", vec![call("object/get", vec![first(), text("k")]), text("")])), 1, "first");
+        assert_eq!(
+            null_operands(call("object/get", vec![call("default", vec![first(), record(vec![("k", text(""))])]), text("k")])),
+            0,
+            "control: defaulting the object answers it"
+        );
+    }
+
+    #[test]
+    fn a_positive_length_shows_the_first_and_last_element_present() {
+        let row = Row(vec![("rows", OirType::array(OirType::Struct { fields: vec![OirField::new("k", OirType::String)].into(), additional: None }))]);
+        let read = |end: &str| call("object/get", vec![call(end, vec![entity(&["rows"])]), text("k"), text("")]);
+        let guarded = |cond: OirExpr, end: &str| call("if", vec![cond, read(end), text("")]);
+        let len = || call("array/len", vec![entity(&["rows"])]);
+        let null_operands = |expr: OirExpr| check_oir_expr(&expr, &row).iter().filter(|d| matches!(d.mismatch, Mismatch::NullOperand { .. })).count();
+        assert_eq!(null_operands(guarded(call(">", vec![len(), num(0.0)]), "array/first")), 0, "len > 0 shows the first element");
+        assert_eq!(null_operands(guarded(call(">=", vec![len(), num(1.0)]), "array/last")), 0, "len >= 1 shows the last element");
+        assert_eq!(null_operands(guarded(call(">=", vec![len(), num(0.0)]), "array/first")), 1, "control: len >= 0 shows nothing");
+        let nth = call("if", vec![call(">", vec![len(), num(0.0)]), call("object/get", vec![call("array/nth", vec![entity(&["rows"]), num(1.0)]), text("k"), text("")]), text("")]);
+        assert_eq!(null_operands(nth), 1, "control: a positive length does not show an element at an index");
     }
 
     #[test]
@@ -4076,7 +4144,7 @@ mod tests {
 
     fn nested_optional_array_findings(source: &str, required: bool) -> Vec<Diagnostic> {
         let expr: orbital_core_base::schema::SExpression = serde_json::from_str(source).unwrap();
-        let expr = orbital_core_eval::lower::lower_sexpr_keeping_typed(&expr).unwrap();
+        let expr = orbital_core_eval::lower::lower_sexpr(&expr).unwrap();
         check_oir_expr(&expr, &NestedOptionalPayload { required })
     }
 
@@ -4377,15 +4445,15 @@ mod tests {
         let program = |kind: &str| {
             let sexpr: orbital_core_base::schema::SExpression = serde_json::from_value(serde_json::json!([
                 "let",
-                [["r", ["typed",
+                [["r",
                     ["array/concat",
                         ["array/map", ["list", "a", "b"], ["fn", "x", { "name": "@x", "kind": "input", "address": "@x" }]],
                         ["let", [["n", "e"]], ["list", { "name": "read", "kind": kind, "entity": "@n" }]]],
-                    declared(list.clone())]]],
+                    declared(list.clone())]],
                 ["array/len", "@r"]
             ]))
             .expect("s-expression");
-            orbital_core_eval::lower::lower_sexpr_keeping_typed(&sexpr).expect("lowers")
+            orbital_core_eval::lower::lower_sexpr(&sexpr).expect("lowers")
         };
         let found = check_oir_expr(&program("read"), &Row(vec![]));
         assert!(found.is_empty(), "{found:?}");
@@ -4393,11 +4461,11 @@ mod tests {
         assert!(!wrong.is_empty(), "control: a kind outside the enum is still refused");
     }
 
-    /// G-ORB-515: the declaration a `typed` list carries reads as the same type in the bare form
+    /// G-ORB-515: the declaration a `let` binding carries reads as the same type in the bare form
     /// `.lolo` validation sees (before `orb resolve`) and in the versioned envelope the resolved `.orb`
     /// records, so a lambda over the list types its parameter the same in both.
     #[test]
-    fn a_typed_list_declaration_types_a_lambda_parameter_the_same_bare_or_versioned() {
+    fn a_declared_binding_types_a_lambda_parameter_the_same_bare_or_versioned() {
         let list = OirType::array(OirType::Struct {
             additional: None,
             fields: vec![{
@@ -4416,12 +4484,12 @@ mod tests {
         .unwrap();
         let findings = |declaration: &str, body: serde_json::Value| {
             let sexpr: orbital_core_base::schema::SExpression = serde_json::from_value(serde_json::json!([
-                "array/map",
-                ["typed", ["list", { "label": "a" }], declaration],
-                ["fn", "m", body]
+                "let",
+                [["rows", ["list", { "label": "a" }], declaration]],
+                ["array/map", "@rows", ["fn", "m", body]]
             ]))
             .expect("s-expression");
-            let program = orbital_core_eval::lower::lower_sexpr_keeping_typed(&sexpr).expect("lowers");
+            let program = orbital_core_eval::lower::lower_sexpr(&sexpr).expect("lowers");
             check_oir_expr(&program, &Row(vec![]))
         };
         for declaration in [&bare, &versioned] {

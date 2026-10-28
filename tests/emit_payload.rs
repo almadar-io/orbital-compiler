@@ -157,7 +157,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
     };
     OrbitalSchema {
         type_contract_version: None,
-        types: None,
+        resolved: None,        types: None,
         store: None,
         theme_definitions: None,
         themes: None,
@@ -212,7 +212,7 @@ fn missing_required_field_emits_warning() {
     // Emit omits `id`.
     let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("name".to_string(), string_sexpr("Ada"));
-    let emit = emit_effect("USER_SAVED", Some(SExpression::Object(literal)));
+    let emit = emit_effect("USER_SAVED", Some(SExpression::object(literal)));
     let declared = declared_emit_with_payload(
         "USER_SAVED",
         vec![
@@ -240,7 +240,7 @@ fn extra_field_emits_warning() {
     let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("id".to_string(), string_sexpr("u-1"));
     literal.insert("nickname".to_string(), string_sexpr("ada"));
-    let emit = emit_effect("USER_SAVED", Some(SExpression::Object(literal)));
+    let emit = emit_effect("USER_SAVED", Some(SExpression::object(literal)));
     let declared =
         declared_emit_with_payload("USER_SAVED", vec![payload_field("id", "string", false)]);
     let schema = schema_with_emit(emit, declared);
@@ -262,7 +262,7 @@ fn primitive_type_mismatch_emits_warning() {
     // USER_SAVED declares { count: number }. Emit provides a string literal.
     let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("count".to_string(), string_sexpr("seventeen"));
-    let emit = emit_effect("USER_SAVED", Some(SExpression::Object(literal)));
+    let emit = emit_effect("USER_SAVED", Some(SExpression::object(literal)));
     let declared =
         declared_emit_with_payload("USER_SAVED", vec![payload_field("count", "number", false)]);
     let schema = schema_with_emit(emit, declared);
@@ -285,7 +285,7 @@ fn valid_emit_passes_without_warnings() {
     let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("id".to_string(), string_sexpr("u-1"));
     literal.insert("name".to_string(), string_sexpr("Ada"));
-    let emit = emit_effect("USER_SAVED", Some(SExpression::Object(literal)));
+    let emit = emit_effect("USER_SAVED", Some(SExpression::object(literal)));
     let declared = declared_emit_with_payload(
         "USER_SAVED",
         vec![
@@ -315,7 +315,7 @@ fn number_literal_matches_number_declared_type() {
     // Guard against false positives on numeric literals.
     let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("count".to_string(), number_sexpr(42.0));
-    let emit = emit_effect("COUNT_UPDATED", Some(SExpression::Object(literal)));
+    let emit = emit_effect("COUNT_UPDATED", Some(SExpression::object(literal)));
     let declared = declared_emit_with_payload(
         "COUNT_UPDATED",
         vec![payload_field("count", "number", true)],
@@ -336,7 +336,7 @@ fn number_literal_matches_number_declared_type() {
 fn list_field_emit(value: SExpression) -> bool {
     let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("icons".to_string(), value);
-    let emit = emit_effect("USER_SAVED", Some(SExpression::Object(literal)));
+    let emit = emit_effect("USER_SAVED", Some(SExpression::object(literal)));
     let declared =
         declared_emit_with_payload("USER_SAVED", vec![payload_field("icons", "[string]", true)]);
     let result = validate_comprehensive_without_services(&emit_schema(emit, declared));
@@ -371,7 +371,7 @@ fn declared_shape_emit_mismatches(
     let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("value".to_string(), value);
     let mut schema = schema_with_emit(
-        emit_effect("USER_SAVED", Some(SExpression::Object(literal))),
+        emit_effect("USER_SAVED", Some(SExpression::object(literal))),
         declared_emit_with_payload("USER_SAVED", vec![serde_json::from_value(declared).unwrap()]),
     );
     schema.orbitals[0].types = Some(serde_json::from_value(aliases).unwrap());

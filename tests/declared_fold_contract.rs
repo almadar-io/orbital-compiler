@@ -19,7 +19,7 @@ orbital Probe {
   initial: ready
   state ready {
    ASK -> ready
-   (set @entity.out (let ((initial : ValueMap {}) (values (object/set @initial "answer" 42)) (sample : number (prob/uniform 0 1))) [@sample, @sample, (prob/uniform 0 1), (object/get @values "answer")]))
+   (set @entity.out (let ((initial : ValueMap {}) (values (default (object/set @initial "answer" 42) @initial)) (sample : number (prob/uniform 0 1))) [@sample, @sample, (prob/uniform 0 1), (object/get @values "answer")]))
   }
   listens { ASK {} @description "Checked locals." }
  }
@@ -513,7 +513,7 @@ orbital Probe {
   initial: ready
   state ready {
    ASK -> ready
-   (set @entity.out (let ((result (if ?flag {cells: [{kind: "a"}]} {cells: [{kind: "b", kids: ["x"]}]}))) (array/len (object/get (array/first (object/get @result "cells")) "kids" []))))
+   (set @entity.out (let ((result (if ?flag {cells: [{kind: "a"}]} {cells: [{kind: "b", kids: ["x"]}]}))) (if (> (array/len (object/get @result "cells")) 0) (array/len (object/get (array/first (object/get @result "cells")) "kids" [])) 0)))
   }
   listens { ASK { flag : boolean! } @description "Probe retained list fields." }
  }

@@ -26,8 +26,6 @@ const EFFECT_POSITION_EXTRA: &[&str] = &[
     "let",  // Local variable binding in effects
     "when", // Conditional effect (like if but for effects)
     "fn",   // Lambda wrapping effects
-    // Legacy trigger: not in the `os/` family (no grant, no `host: 'os'`)
-    "os/watch-http",
     // Agent operators (Phase 1: agent/* namespace)
     "agent/memorize",
     "agent/forget",
@@ -291,7 +289,7 @@ mod tests {
     }
 
     fn call_service_with_emit(keys: &[(&str, &str)]) -> SExpression {
-        let params = SExpression::Object(
+        let params = SExpression::object(
             [
                 (
                     "to".to_string(),
@@ -309,12 +307,12 @@ mod tests {
             .into_iter()
             .collect(),
         );
-        let emit = SExpression::Object(
+        let emit = SExpression::object(
             keys.iter()
                 .map(|(k, v)| (k.to_string(), SExpression::String(v.to_string().into())))
                 .collect(),
         );
-        let envelope = SExpression::Object([("emit".to_string(), emit)].into_iter().collect());
+        let envelope = SExpression::object([("emit".to_string(), emit)].into_iter().collect());
         SExpression::Array(vec![
             SExpression::String(("call-service".to_string()).into()),
             SExpression::String(("email".to_string()).into()),
@@ -406,7 +404,7 @@ mod tests {
         let effect = SExpression::Array(vec![
             SExpression::String(("navigate".to_string()).into()),
             SExpression::String(("/inspection/123".to_string()).into()),
-            SExpression::Object(
+            SExpression::object(
                 vec![(
                     "id".to_string(),
                     SExpression::String(("@entity.id".to_string()).into()),

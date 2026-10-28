@@ -29,13 +29,13 @@ fn emit_object(entries: &[(&str, &str)]) -> SExpression {
     for (k, v) in entries {
         m.insert((*k).to_string(), SExpression::String(((*v).to_string()).into()));
     }
-    SExpression::Object(m)
+    SExpression::object(m)
 }
 
 fn options_with_emit(emit: SExpression) -> SExpression {
     let mut opts: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     opts.insert("emit".to_string(), emit);
-    SExpression::Object(opts)
+    SExpression::object(opts)
 }
 
 /// Build an inline orbital containing one trait with the given effects.
@@ -140,7 +140,7 @@ fn schema_with_effects(
 
     OrbitalSchema {
         type_contract_version: None,
-        types: None,
+        resolved: None,        types: None,
         store: None,
         theme_definitions: None,
         themes: None,
@@ -373,41 +373,20 @@ fn undeclared_event_is_warning() {
 }
 
 #[test]
-fn os_watch_http_on_message_is_valid() {
-    let effects = vec![SExpression::Array(vec![
-        SExpression::String(("os/watch-http".to_string()).into()),
-        SExpression::String(("wss://push".to_string()).into()),
-        options_with_emit(emit_object(&[("onMessage", "PUSH_RECEIVED")])),
-    ])];
-    let schema = schema_with_effects(effects, vec![declared_emit("PUSH_RECEIVED", false)]);
-    let result = validate_comprehensive_without_services(&schema);
-    assert!(
-        !result
+fn os_watch_http_is_retired_and_unknown_while_a_known_os_operator_is_not() {
+    let unknown = |op: &str| {
+        let effects = vec![SExpression::Array(vec![
+            str_expr(op),
+            str_expr("wss://push"),
+        ])];
+        let schema = schema_with_effects(effects, vec![]);
+        validate_comprehensive_without_services(&schema)
             .errors
             .iter()
-            .any(|e| e.code == ErrorCode::EffectEmitKeyInvalid),
-        "unexpected EffectEmitKeyInvalid, got: {:?}",
-        result.errors
-    );
-}
-
-#[test]
-fn snake_case_stream_keys_are_not_a_second_spelling() {
-    // One spelling per key, the runtime's route name: `on_message` is an unknown key.
-    for (op, key) in [("os/watch-http", "on_message")] {
-        let effects = vec![SExpression::Array(vec![
-            SExpression::String(op.to_string().into()),
-            SExpression::String("wss://push".to_string().into()),
-            options_with_emit(emit_object(&[(key, "PUSH_RECEIVED")])),
-        ])];
-        let schema = schema_with_effects(effects, vec![declared_emit("PUSH_RECEIVED", false)]);
-        let result = validate_comprehensive_without_services(&schema);
-        assert!(
-            result.errors.iter().any(|e| e.code == ErrorCode::EffectEmitKeyInvalid),
-            "{op} emit.{key} must be rejected, got: {:?}",
-            result.errors
-        );
-    }
+            .any(|e| e.code == ErrorCode::EffectUnknownType)
+    };
+    assert!(unknown("os/watch-http"));
+    assert!(!unknown("os/watch-port"));
 }
 
 // ============================================================================
@@ -415,7 +394,7 @@ fn snake_case_stream_keys_are_not_a_second_spelling() {
 // ============================================================================
 
 fn options(entries: Vec<(&str, SExpression)>) -> SExpression {
-    SExpression::Object(
+    SExpression::object(
         entries
             .into_iter()
             .map(|(k, v)| (k.to_string(), v))

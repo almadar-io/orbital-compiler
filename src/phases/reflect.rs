@@ -112,7 +112,7 @@ fn answer(expr: &SExpression, from: Option<&Path>) -> CompileResult<Option<SExpr
     Ok(Some(SExpression::Array(vec![
         SExpression::string("emit"),
         SExpression::string(success.to_string()),
-        SExpression::Object(payload),
+        SExpression::object(payload),
     ])))
 }
 

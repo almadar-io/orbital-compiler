@@ -3914,7 +3914,7 @@ mod tests {
         obj.insert("title".to_string(), s("@ModalRecord.name"));
 
         let mut expr =
-            SExpression::Array(vec![s("render-ui"), s("main"), SExpression::Object(obj)]);
+            SExpression::Array(vec![s("render-ui"), s("main"), SExpression::object(obj)]);
 
         rewrite_entity_refs(&mut expr, "ModalRecord", "ShoppingCart");
 
@@ -5176,7 +5176,7 @@ mod tests {
         );
 
         let mut expr =
-            SExpression::Array(vec![s("render-ui"), s("main"), SExpression::Object(obj)]);
+            SExpression::Array(vec![s("render-ui"), s("main"), SExpression::object(obj)]);
         let snapshot = expr.clone();
         rewrite_entity_refs(&mut expr, "ModalRecord", "ShoppingCart");
         assert_eq!(expr, snapshot);
@@ -5358,7 +5358,7 @@ mod tests {
         let mut expr = SExpression::Array(vec![
             SExpression::String(("emit".to_string()).into()),
             SExpression::String(("FILTER".to_string()).into()),
-            SExpression::Object(payload_obj),
+            SExpression::object(payload_obj),
         ]);
 
         rewrite_identifiers(&mut expr, &HashMap::new(), &event_subs);
@@ -5427,7 +5427,7 @@ mod tests {
             "action".to_string(),
             SExpression::String(("OPEN".to_string()).into()),
         );
-        let mut expr = SExpression::Object(object);
+        let mut expr = SExpression::object(object);
 
         rewrite_identifiers(&mut expr, &HashMap::new(), &event_subs);
 
@@ -5461,7 +5461,7 @@ mod tests {
             "content".to_string(),
             SExpression::String(("OPEN".to_string()).into()),
         );
-        let mut expr = SExpression::Object(object);
+        let mut expr = SExpression::object(object);
 
         rewrite_identifiers(&mut expr, &HashMap::new(), &event_subs);
 
@@ -5714,13 +5714,13 @@ mod tests {
         let mut expr = SExpression::Array(vec![
             s("fetch"),
             s("Source"),
-            SExpression::Object(criteria.clone()),
+            SExpression::object(criteria.clone()),
         ]);
         rewrite_identifiers(&mut expr, &entity_subs, &HashMap::new());
 
         assert_eq!(
             expr,
-            SExpression::Array(vec![s("fetch"), s("Target"), SExpression::Object(criteria),])
+            SExpression::Array(vec![s("fetch"), s("Target"), SExpression::object(criteria),])
         );
     }
 
@@ -5738,7 +5738,7 @@ mod tests {
             s("persist"),
             s("create"),
             s("Source"),
-            SExpression::Object(payload.clone()),
+            SExpression::object(payload.clone()),
         ]);
         rewrite_identifiers(&mut expr, &entity_subs, &HashMap::new());
 
@@ -5748,7 +5748,7 @@ mod tests {
                 s("persist"),
                 s("create"),
                 s("Target"),
-                SExpression::Object(payload),
+                SExpression::object(payload),
             ])
         );
     }
@@ -5789,8 +5789,8 @@ mod tests {
         row2.insert("name".to_string(), s("row-2"));
 
         let rows = SExpression::Array(vec![
-            SExpression::Object(row1.clone()),
-            SExpression::Object(row2.clone()),
+            SExpression::object(row1.clone()),
+            SExpression::object(row2.clone()),
         ]);
 
         let mut expr = SExpression::Array(vec![s("persist"), s("batch"), rows.clone()]);
@@ -5820,7 +5820,7 @@ mod tests {
         );
 
         let mut expr =
-            SExpression::Array(vec![s("render-ui"), s("main"), SExpression::Object(obj)]);
+            SExpression::Array(vec![s("render-ui"), s("main"), SExpression::object(obj)]);
         rewrite_identifiers(&mut expr, &entity_subs, &HashMap::new());
 
         if let SExpression::Array(items) = &expr {
@@ -7227,7 +7227,7 @@ mod tests {
         };
         OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -7983,7 +7983,7 @@ mod tests {
         };
         let mut schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -8098,7 +8098,7 @@ mod tests {
         };
         let mut schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -8188,7 +8188,7 @@ mod tests {
         };
         let mut schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -8562,7 +8562,7 @@ mod tests {
         };
         let mut schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -8646,7 +8646,7 @@ mod tests {
         };
         let mut schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -8713,7 +8713,7 @@ mod tests {
         };
         let mut schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -8908,7 +8908,7 @@ mod tests {
         };
         let mut schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -9043,7 +9043,7 @@ mod tests {
         };
         OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -9186,7 +9186,7 @@ mod tests {
                         s("persist"),
                         s("create"),
                         s("Other"),
-                        SExpression::Object(
+                        SExpression::object(
                             [("flag".to_string(), s("true"))].into_iter().collect(),
                         ),
                     ]),

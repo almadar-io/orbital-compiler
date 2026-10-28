@@ -68,7 +68,7 @@ mod tests {
     use super::*;
 
     fn obj(pairs: &[(&str, SExpression)]) -> SExpression {
-        SExpression::Object(
+        SExpression::object(
             pairs
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.clone()))

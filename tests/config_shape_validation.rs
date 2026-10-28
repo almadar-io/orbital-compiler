@@ -20,7 +20,7 @@ use std::collections::HashMap;
 // ============================================================================
 
 fn metric_spec_items() -> FieldDefinition {
-    let mut props: HashMap<String, FieldDefinition> = HashMap::new();
+    let mut props: orbital_core_base::collections::IndexMap<String, FieldDefinition> = orbital_core_base::collections::IndexMap::new();
     props.insert(
         "label".to_string(),
         FieldDefinition {
@@ -270,7 +270,7 @@ fn schema_with_config(config: HashMap<String, ConfigField>) -> OrbitalSchema {
     };
     OrbitalSchema {
         type_contract_version: None,
-        types: None,
+        resolved: None,        types: None,
         store: None,
         theme_definitions: None,
         themes: None,
@@ -347,7 +347,7 @@ fn good_array_of_metricspec_passes() {
             nullable: None,
             additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
-            default: Some(SExpression::Array(vec![SExpression::Object(good_metric)])),
+            default: Some(SExpression::Array(vec![SExpression::object(good_metric)])),
             label: None,
             description: None,
             synonyms: None,
@@ -386,7 +386,7 @@ fn string_value_where_number_expected_fails() {
             nullable: None,
             additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
-            default: Some(SExpression::Array(vec![SExpression::Object(bad_metric)])),
+            default: Some(SExpression::Array(vec![SExpression::object(bad_metric)])),
             label: None,
             description: None,
             synonyms: None,
@@ -423,7 +423,7 @@ fn bare_string_in_array_of_objects_fails() {
     // The DefaultExport workspace bug: LLM emitted `formats: ["csv", "pdf"]`
     // for a slot typed `[FormatOption]` (array of `{id, format, label}`
     // objects). Each bare string should fail the per-element shape check.
-    let mut format_props: HashMap<String, FieldDefinition> = HashMap::new();
+    let mut format_props: orbital_core_base::collections::IndexMap<String, FieldDefinition> = orbital_core_base::collections::IndexMap::new();
     for name in &["id", "format", "label"] {
         format_props.insert(
             (*name).to_string(),
@@ -522,7 +522,7 @@ fn missing_required_field_fails() {
             nullable: None,
             additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
-            default: Some(SExpression::Array(vec![SExpression::Object(no_label)])),
+            default: Some(SExpression::Array(vec![SExpression::object(no_label)])),
             label: None,
             description: None,
             synonyms: None,
@@ -570,7 +570,7 @@ fn enum_value_outside_allowed_set_fails() {
             nullable: None,
             additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
-            default: Some(SExpression::Array(vec![SExpression::Object(bad_enum)])),
+            default: Some(SExpression::Array(vec![SExpression::object(bad_enum)])),
             label: None,
             description: None,
             synonyms: None,
@@ -616,7 +616,7 @@ fn binding_strings_pass_the_check() {
             nullable: None,
             additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
-            default: Some(SExpression::Array(vec![SExpression::Object(
+            default: Some(SExpression::Array(vec![SExpression::object(
                 binding_metric,
             )])),
             label: None,
@@ -659,7 +659,7 @@ fn computed_sexpr_call_for_array_items_defers() {
         SExpression::Array(vec![
             SExpression::String(("fn".to_string()).into()),
             SExpression::Array(vec![SExpression::String(("t".to_string()).into())]),
-            SExpression::Object(orbital_core_base::schema::SObject::new()),
+            SExpression::object(orbital_core_base::schema::SObject::new()),
         ]),
     ]);
     config.insert(
@@ -719,7 +719,7 @@ fn computed_sexpr_call_nested_in_object_property_defers() {
             nullable: None,
             additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
-            default: Some(SExpression::Array(vec![SExpression::Object(metric)])),
+            default: Some(SExpression::Array(vec![SExpression::object(metric)])),
             label: None,
             description: None,
             synonyms: None,
@@ -752,7 +752,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
     // real literal mismatches. Reuses the same `[FormatOption]` shape as
     // `bare_string_in_array_of_objects_fails` to pin that the fix is
     // additive, not a broadening of what passes.
-    let mut format_props: HashMap<String, FieldDefinition> = HashMap::new();
+    let mut format_props: orbital_core_base::collections::IndexMap<String, FieldDefinition> = orbital_core_base::collections::IndexMap::new();
     format_props.insert(
         "id".to_string(),
         FieldDefinition {
@@ -1052,7 +1052,7 @@ fn map_with_conforming_values_passes() {
         SExpression::String(("Draft".to_string()).into()),
     );
     entries.insert("sent".to_string(), SExpression::String(("Sent".to_string()).into()));
-    let schema = map_knob(SExpression::Object(entries));
+    let schema = map_knob(SExpression::object(entries));
     assert!(shape_errors(&schema).is_empty());
     assert!(
         shape_errors(&schema).is_empty(),
@@ -1069,7 +1069,7 @@ fn map_with_conforming_values_passes() {
 fn map_with_a_wrong_typed_value_is_reported() {
     let mut entries: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     entries.insert("draft".to_string(), SExpression::Number(3.0));
-    let schema = map_knob(SExpression::Object(entries));
+    let schema = map_knob(SExpression::object(entries));
     let warns = shape_errors(&schema);
     assert_eq!(
         warns.len(),
@@ -1195,7 +1195,7 @@ fn persist_args() -> Vec<SExpression> {
         SExpression::Bool(true),
         SExpression::Null,
         SExpression::Array(vec![SExpression::String(("object/get".to_string()).into()), SExpression::String(("@entity".to_string()).into()), SExpression::String(("total".to_string()).into())]),
-        SExpression::Object(opts),
+        SExpression::object(opts),
     ]
 }
 

@@ -1355,7 +1355,7 @@ fn substitute_nested_forwards(
                     }
                 })
                 .collect();
-            changed.then_some(SExpression::Object(next))
+            changed.then_some(SExpression::object(next))
         }
         SExpression::Null | SExpression::Bool(_) | SExpression::Number(_) => None,
     }
@@ -3063,7 +3063,7 @@ mod entity_id_reader_tests {
                     effects: Some(vec![SExpression::Array(vec![
                         s("render-ui"),
                         s("main"),
-                        SExpression::Object(
+                        SExpression::object(
                             vec![
                                 ("title".to_string(), s(&format!("@{}.title", token))),
                                 (
@@ -3283,7 +3283,7 @@ mod entity_id_reader_tests {
                 s("persist"),
                 s("create"),
                 s("WikiPageRevision"),
-                SExpression::Object(orbital_core_base::schema::SObject::new()),
+                SExpression::object(orbital_core_base::schema::SObject::new()),
             ]));
         td.linked_entity = Some("WikiPage".to_string());
         td.linked_entity_id = Some("ent-page".to_string());

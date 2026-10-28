@@ -436,7 +436,7 @@ mod tests {
         SExpression::Array(items)
     }
     fn obj(pairs: Vec<(&str, SExpression)>) -> SExpression {
-        SExpression::Object(pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+        SExpression::object(pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
     }
 
     fn render_only_trait(name: &str, pattern: SExpression) -> TraitDefinition {

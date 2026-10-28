@@ -1888,7 +1888,7 @@ mod tests {
     fn empty_schema() -> OrbitalSchema {
         OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -2284,7 +2284,7 @@ mod tests {
         .expect("field fixture must deserialize");
         let schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -2444,7 +2444,7 @@ mod tests {
         .expect("field fixture must deserialize");
         let schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -2484,7 +2484,7 @@ mod tests {
     fn a_union_without_variant_shapes_is_refused_not_degraded() {
         let schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -2910,7 +2910,7 @@ mod tests {
     fn test_resolve_minimal_schema() {
         let schema = OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -2960,7 +2960,7 @@ mod tests {
         static SCHEMA: std::sync::OnceLock<OrbitalSchema> = std::sync::OnceLock::new();
         let schema = SCHEMA.get_or_init(|| OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,

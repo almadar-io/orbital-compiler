@@ -49,7 +49,7 @@ pub(crate) use keyed_call::validate_call_key_literals_are_used;
 use keyed_call::CallKeyFacts;
 pub(crate) use operator_args::{validate_operator_arg_types, validate_operator_arg_types_under};
 pub(crate) use os_grants::{validate_final_os_targets, validate_os_grants};
-pub(crate) use os_watch::{validate_os_effect, validate_os_watch};
+pub(crate) use os_watch::validate_os_effect;
 pub(crate) use persist::{persist_entity_index, validate_persist};
 pub(crate) use program_eval::validate_program_eval;
 pub(crate) use postgres::validate_postgres_effects;

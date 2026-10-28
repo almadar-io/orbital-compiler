@@ -127,7 +127,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
     let emit = SExpression::Array(vec![
         s("emit"),
         s(strict_target_event),
-        SExpression::Object(payload_obj),
+        SExpression::object(payload_obj),
     ]);
 
     let trait_def = TraitDefinition {
@@ -182,7 +182,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
 
     OrbitalSchema {
         type_contract_version: None,
-        types: None,
+        resolved: None,        types: None,
         store: None,
         theme_definitions: None,
         themes: None,
@@ -370,7 +370,7 @@ fn schema_with_two_emitters_and_listener_source(
     };
     OrbitalSchema {
         type_contract_version: None,
-        types: None,
+        resolved: None,        types: None,
         store: None,
         theme_definitions: None,
         themes: None,
@@ -561,8 +561,8 @@ fn button_action_payload_effect(event: &str, payload_key: &str, entity_field: &s
         payload_key.to_string(),
         s(&format!("@entity.{}", entity_field)),
     );
-    node.insert("actionPayload".to_string(), SExpression::Object(payload));
-    SExpression::Array(vec![s("render-ui"), s("main"), SExpression::Object(node)])
+    node.insert("actionPayload".to_string(), SExpression::object(payload));
+    SExpression::Array(vec![s("render-ui"), s("main"), SExpression::object(node)])
 }
 
 /// A trait whose only production of `event` is the rendered button above —
@@ -760,7 +760,7 @@ fn schema_with_render_action_payload(
     };
     OrbitalSchema {
         type_contract_version: None,
-        types: None,
+        resolved: None,        types: None,
         store: None,
         theme_definitions: None,
         themes: None,

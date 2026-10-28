@@ -303,7 +303,7 @@ pub(crate) fn validate_sexpr_with_locals(
                                 for name in bindings.keys() {
                                     extended_locals.insert(name.clone());
                                 }
-                                for (name, value_expr) in bindings {
+                                for (name, value_expr) in bindings.iter() {
                                     result.merge(validate_sexpr_with_locals(
                                         value_expr,
                                         &format!("{}[1].{}", path, name),
@@ -499,7 +499,7 @@ pub(crate) fn validate_sexpr_with_locals(
         }
         SExpression::Object(obj) => {
             // Recursively validate object values
-            for (key, value) in obj {
+            for (key, value) in obj.iter() {
                 let value_result = validate_sexpr_with_locals(
                     value,
                     &format!("{}.{}", path, key),

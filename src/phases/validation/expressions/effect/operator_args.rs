@@ -42,7 +42,7 @@ pub(crate) fn validate_operator_arg_types_under(
         types: Some(types),
         schema,
     };
-    let condition = guard.and_then(|guard| orbital_core_eval::lower::lower_sexpr_keeping_typed(guard).ok());
+    let condition = guard.and_then(|guard| orbital_core_eval::lower::lower_sexpr(guard).ok());
     collect(expr, path, &ctx, condition.as_ref(), &mut result, false);
     result
 }
@@ -101,8 +101,20 @@ fn collect(
                     // around them scopes their locals.
                     name if !covered && (is_effect(name) || is_value_operator(name)) => {
                         let mut rows = Vec::new();
-                        let expr = with_fetch_filter_rows(expr, ctx, &mut rows);
-                        report(&expr, path, ctx, condition, &rows, result);
+                        let mut row_locals = Vec::new();
+                        let expr = with_fetch_filter_rows(expr, ctx, &mut rows, &mut row_locals);
+                        match with_row_locals(ctx, row_locals) {
+                            Some(types) => {
+                                let scoped = ExprReturnCtx {
+                                    entity: ctx.entity,
+                                    payload: ctx.payload,
+                                    types: Some(&types),
+                                    schema: ctx.schema,
+                                };
+                                report(&expr, path, &scoped, condition, &rows, result);
+                            }
+                            None => report(&expr, path, ctx, condition, &rows, result),
+                        }
                         covered = true;
                     }
                     _ => {}
@@ -136,7 +148,7 @@ fn required_field_from_missing_result(
     if !ctx.entity.get(field).is_some_and(|meta| meta.required) {
         return result;
     }
-    let Ok(oir) = orbital_core_eval::lower::lower_sexpr_keeping_typed(value) else {
+    let Ok(oir) = orbital_core_eval::lower::lower_sexpr(value) else {
         return result;
     };
     if let Some(source) = crate::type_infer::missing_failable_result(&oir, condition, ctx) {
@@ -175,8 +187,15 @@ fn effect_in(expr: &SExpression) -> Option<String> {
 /// `expr` with the row operand of each `(object/get @entity k)` in a `fetch` filter over a declared entity read as
 /// that entity's row: the filter's whole `@entity` there is the candidate row it admits, while `@entity.f` stays the
 /// issuing trait's (`interpolate_filter_trait_refs`).
+/// The row read becomes a local of the checker's own (`locals` collects each one's name and row type; the checker's
+/// binding types carry them, see [`with_row_locals`]), so no declaration reaches the program.
 /// `rows` collects how each row read prints, so a finding names it `@entity` as written.
-fn with_fetch_filter_rows(expr: &SExpression, ctx: &ExprReturnCtx<'_>, rows: &mut Vec<String>) -> SExpression {
+fn with_fetch_filter_rows(
+    expr: &SExpression,
+    ctx: &ExprReturnCtx<'_>,
+    rows: &mut Vec<String>,
+    locals: &mut Vec<(String, orbital_core_base::ir::OirType)>,
+) -> SExpression {
     fn row_reads(expr: &SExpression, row: &SExpression) -> SExpression {
         match expr {
             SExpression::Array(items) => {
@@ -187,26 +206,23 @@ fn with_fetch_filter_rows(expr: &SExpression, ctx: &ExprReturnCtx<'_>, rows: &mu
                 SExpression::Array(items)
             }
             SExpression::Object(map) => {
-                SExpression::Object(map.iter().map(|(k, v)| (k.clone(), row_reads(v, row))).collect())
+                SExpression::object(map.iter().map(|(k, v)| (k.clone(), row_reads(v, row))).collect())
             }
             other => other.clone(),
         }
     }
     match expr {
         SExpression::Array(items) => {
-            let mut items: Vec<SExpression> = items.iter().map(|item| with_fetch_filter_rows(item, ctx, rows)).collect();
+            let mut items: Vec<SExpression> = items.iter().map(|item| with_fetch_filter_rows(item, ctx, rows, locals)).collect();
             if let [SExpression::String(head), SExpression::String(target), SExpression::Object(options), ..] = items.as_mut_slice() {
                 if let (true, Some(row_type)) = (head == "fetch", ctx.entity_type(target)) {
                     if let Some(filter) = options.get_mut("filter") {
-                        let shape = serde_json::to_string(&row_type).unwrap_or_default();
-                        let row = SExpression::Array(vec![
-                            SExpression::string("typed"),
-                            SExpression::string("@entity"),
-                            SExpression::string(shape),
-                        ]);
-                        if let Ok(lowered) = orbital_core_eval::lower::lower_sexpr_keeping_typed(&row) {
+                        let name = format!("fetch-row-{}", locals.len());
+                        let row = SExpression::string(format!("@{name}"));
+                        if let Ok(lowered) = orbital_core_eval::lower::lower_sexpr(&row) {
                             rows.push(orbital_core_base::ir::pretty_print_expr(&lowered));
                         }
+                        locals.push((name, row_type));
                         *filter = row_reads(filter, &row);
                     }
                 }
@@ -214,10 +230,23 @@ fn with_fetch_filter_rows(expr: &SExpression, ctx: &ExprReturnCtx<'_>, rows: &mu
             SExpression::Array(items)
         }
         SExpression::Object(map) => {
-            SExpression::Object(map.iter().map(|(k, v)| (k.clone(), with_fetch_filter_rows(v, ctx, rows))).collect())
+            SExpression::object(map.iter().map(|(k, v)| (k.clone(), with_fetch_filter_rows(v, ctx, rows, locals))).collect())
         }
         other => other.clone(),
     }
+}
+
+/// The binding types of `ctx` with each fetch row `locals` bound to its row type; `None` when there are none.
+fn with_row_locals(
+    ctx: &ExprReturnCtx<'_>,
+    locals: Vec<(String, orbital_core_base::ir::OirType)>,
+) -> Option<BindingTypes> {
+    if locals.is_empty() {
+        return None;
+    }
+    let mut types = ctx.types?.clone();
+    types.locals.extend(locals);
+    Some(types)
 }
 
 fn report(
@@ -228,8 +257,7 @@ fn report(
     rows: &[String],
     result: &mut ValidationResult,
 ) {
-    // A `typed` value is read as the type the program declared for it.
-    let Ok(oir) = orbital_core_eval::lower::lower_sexpr_keeping_typed(expr) else {
+    let Ok(oir) = orbital_core_eval::lower::lower_sexpr(expr) else {
         return;
     };
     for found in check_oir_expr_under(&oir, condition, ctx) {
@@ -607,6 +635,36 @@ mod tests {
     }
 
     #[test]
+    fn an_optional_viewer_member_is_a_possibly_missing_operand_and_the_guaranteed_id_is_not() {
+        let schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "DocOrbital",
+                "entity": { "name": "Doc", "persistence": "persistent", "collection": "docs",
+                            "fields": [{ "name": "id", "type": "string", "required": true }] },
+                "traits": [{ "name": "DocView", "linkedEntity": "Doc",
+                            "stateMachine": { "events": [], "states": [], "transitions": [] } }],
+                "pages": []
+            }]
+        }))
+        .expect("schema fixture");
+        let types = BindingTypes {
+            user: crate::phases::validation::user_identity::identity_type(&schema, "DocView"),
+            ..no_types()
+        };
+        let nulls = |json: &str| {
+            validate_operator_arg_types(&parse(json), "p", &HashMap::new(), &HashMap::new(), &types, None)
+                .errors
+                .iter()
+                .filter(|e| e.code == ErrorCode::OperatorNullOperand)
+                .count()
+        };
+        assert_eq!(nulls(r#"["str/split", "@user.name", " "]"#), 1);
+        assert_eq!(nulls(r#"["str/split", ["default", "@user.name", ""], " "]"#), 0, "control: defaulted");
+        assert_eq!(nulls(r#"["str/split", "@user.id", " "]"#), 0, "control: the viewer's id is guaranteed");
+    }
+
+    #[test]
     fn a_substituted_config_list_carrying_its_declared_type_is_typed() {
         let mixed = serde_json::json!(["list", { "anchor": "exe-dir", "path": "tool" }, "tool"]);
         let ty = crate::phases::resolve::config_field_carried_type(&serde_json::from_value(serde_json::json!({
@@ -618,7 +676,7 @@ mod tests {
                     "path": { "name": "path", "type": "string", "required": true } } }
             } }
         })).expect("knob"));
-        let typed = serde_json::json!(["array/len", ["typed", mixed, serde_json::to_string(&ty).unwrap()]]).to_string();
+        let typed = serde_json::json!(["array/len", ["let", [["knob_commands", mixed, serde_json::to_string(&ty).unwrap()]], "@knob_commands"]]).to_string();
         assert!(undetermined(&typed, HashMap::new()).is_empty(), "{:?}", undetermined(&typed, HashMap::new()));
         let inline = serde_json::json!(["array/len", mixed]).to_string();
         assert_eq!(undetermined(&inline, HashMap::new()).len(), 1, "control: a mixed literal written inline is refused");
@@ -1275,6 +1333,20 @@ mod tests {
             assert_eq!(null_findings(r#"["+", 1, "@entity.p"]"#, entity(true, false)), 0, "control: a required operand");
         }
 
+        // G-ORB-548: an emit payload's record literal holds value expressions, checked at any depth.
+        #[test]
+        fn a_missing_read_inside_a_nested_emit_payload_record_is_flagged_once() {
+            let find = r#"["array/find", ["list", {"value": "x"}], ["fn", "v", true]]"#;
+            let read = format!(r#"["object/get", {find}, "value"]"#);
+            let defaulted = format!(r#"["object/get", ["default", {find}, {{"value": ""}}], "value"]"#);
+            let nested = |value: &str| format!(r#"["emit", "ENV_CHECK", {{"env": {{"a": {value}}}}}]"#);
+            assert_eq!(null_findings(&nested(&read), HashMap::new()), 1, "a nested record field");
+            assert_eq!(null_findings(&nested(&defaulted), HashMap::new()), 0, "control: defaulted");
+            assert_eq!(null_findings(&format!(r#"["emit", "EV", {{"a": {read}}}]"#), HashMap::new()), 1, "a top-level payload field");
+            assert_eq!(null_findings(&format!(r#"["emit", "EV", {{"xs": ["list", {read}]}}]"#), HashMap::new()), 1, "a list literal item");
+            assert_eq!(null_findings(&read, HashMap::new()), 1, "control: a bare read is flagged once");
+        }
+
         #[test]
         fn an_optional_field_in_an_ordering_position_is_an_error() {
             for op in ["<", "<=", ">", ">="] {
@@ -1355,7 +1427,7 @@ mod tests {
     /// K2 census (P-017): per operator, how many argument positions the static inference proves. Measurement only.
     /// `K2_CENSUS_FILES` comma-separated `.orb`/`.lolo` paths, `K2_CENSUS_OUT` the JSON path.
     mod k2_census {
-        use super::super::{with_fetch_filter_rows, BindingTypes, ExprReturnCtx};
+        use super::super::{with_fetch_filter_rows, with_row_locals, BindingTypes, ExprReturnCtx};
         use crate::type_infer::{is_effect, is_value_operator};
         use orbital_core_base::ir::{OirExpr, OirType};
         use orbital_core_base::schema::SExpression;
@@ -1379,7 +1451,7 @@ mod tests {
                 && !is_effect(head)
                 && !matches!(
                     head,
-                    "let" | "typed" | "proven" | "fn" | "lambda" | "do" | "list" | "if" | "when" | "unless" | "cond" | "match"
+                    "let" | "proven" | "fn" | "lambda" | "do" | "list" | "if" | "when" | "unless" | "cond" | "match"
                 )
         }
 
@@ -1399,7 +1471,7 @@ mod tests {
                     if arity == 0 || !markable(head) {
                         return;
                     }
-                    let n = orbital_core_eval::lower::lower_sexpr_keeping_typed(expr)
+                    let n = orbital_core_eval::lower::lower_sexpr(expr)
                         .ok()
                         .and_then(|oir| ProvenKey::of(&oir))
                         .filter(|key| key.arity() == arity)
@@ -1430,9 +1502,23 @@ mod tests {
                             }
                             name if is_effect(name) || is_value_operator(name) => {
                                 let mut rows = Vec::new();
-                                let read = with_fetch_filter_rows(expr, ctx, &mut rows);
-                                let proven = match orbital_core_eval::lower::lower_sexpr_keeping_typed(&read) {
-                                    Ok(oir) => crate::type_infer::proven_calls_under(&oir, condition, ctx),
+                                let mut row_locals = Vec::new();
+                                let read = with_fetch_filter_rows(expr, ctx, &mut rows, &mut row_locals);
+                                let scoped = with_row_locals(ctx, row_locals);
+                                let proven = match orbital_core_eval::lower::lower_sexpr(&read) {
+                                    Ok(oir) => match &scoped {
+                                        Some(types) => crate::type_infer::proven_calls_under(
+                                            &oir,
+                                            condition,
+                                            &ExprReturnCtx {
+                                                entity: ctx.entity,
+                                                payload: ctx.payload,
+                                                types: Some(types),
+                                                schema: ctx.schema,
+                                            },
+                                        ),
+                                        None => crate::type_infer::proven_calls_under(&oir, condition, ctx),
+                                    },
                                     Err(_) => HashMap::new(),
                                 };
                                 count(expr, &proven, tally);
@@ -1470,7 +1556,7 @@ mod tests {
                             types: Some(types),
                             schema: Some(schema),
                         };
-                        let condition = guard.and_then(|g| orbital_core_eval::lower::lower_sexpr_keeping_typed(g).ok());
+                        let condition = guard.and_then(|g| orbital_core_eval::lower::lower_sexpr(g).ok());
                         walk(expr, &ctx, condition.as_ref(), &mut tally);
                     };
                     for transition in &trait_def.state_machine.transitions {

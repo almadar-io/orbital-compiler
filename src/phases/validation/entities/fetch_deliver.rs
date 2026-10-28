@@ -417,7 +417,7 @@ impl<'a> Checker<'a> {
     fn scan(&mut self, expr: &SExpression, at: &str, mode: Consumption) -> Annotations {
         if let Some(scope) = expr.sequential_bindings() {
             let depth = self.locals.len();
-            for (name, initializer) in scope.bindings {
+            for (name, initializer, _) in scope.bindings {
                 let source = self.scan(
                     initializer,
                     &format!("{at}.let.{name}"),
@@ -433,7 +433,7 @@ impl<'a> Checker<'a> {
             SExpression::String(text) => self.string(text, at, mode),
             SExpression::Object(fields) => {
                 let mut source = Annotations::default();
-                for (name, value) in fields {
+                for (name, value) in fields.iter() {
                     source.union(&self.scan(value, &format!("{at}.{name}"), mode).beneath(name));
                 }
                 source
@@ -474,7 +474,7 @@ impl<'a> Checker<'a> {
         for (index, arg) in args.iter().enumerate() {
             let here = format!("{at}[{}]", index + 1);
             if let SExpression::Object(props) = arg {
-                for (name, value) in props {
+                for (name, value) in props.iter() {
                     let here = format!("{here}.{name}");
                     if let SExpression::String(text) = value {
                         if text == DATA_REF || text == "@event.payload.data" {

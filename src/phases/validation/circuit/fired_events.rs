@@ -457,7 +457,7 @@ mod tests {
     fn minimal_schema(traits: Vec<TraitReference>) -> OrbitalSchema {
         OrbitalSchema {
             type_contract_version: None,
-            types: None,
+            resolved: None,            types: None,
             store: None,
             theme_definitions: None,
             themes: None,
@@ -577,7 +577,7 @@ mod tests {
             effects: Some(vec![SExpression::Array(vec![
                 SExpression::String(("render-ui".to_string()).into()),
                 SExpression::String(("main".to_string()).into()),
-                SExpression::Object(
+                SExpression::object(
                     [
                         (
                             "type".to_string(),
@@ -795,6 +795,41 @@ mod tests {
             .contains(&("T".to_string(), "B".to_string())));
     }
 
+    fn render_with_item_actions(actions: serde_json::Value) -> SExpression {
+        serde_json::from_value(serde_json::json!([
+            "render-ui", "main",
+            { "type": "data-list", "itemActions": ["let", [["knob_itemActions", actions, "{\"kind\":\"array\"}"]], "@knob_itemActions"] }
+        ]))
+        .unwrap()
+    }
+
+    #[test]
+    fn an_event_declared_only_in_a_knob_literal_is_a_control_producer() {
+        let knobs = orbital_core_base::schema::SObject::new();
+        let mut fired = FiredEvents::default();
+        let effect = render_with_item_actions(serde_json::json!([{ "label": "Book", "event": "BOOK" }]));
+        collect_fired_with_knobs("Shelf", &effect, &knobs, &mut fired);
+        assert!(fired.by_control.contains(&("Shelf".to_string(), "BOOK".to_string())), "{:?}", fired.by_control);
+        let mut other = FiredEvents::default();
+        let effect = render_with_item_actions(serde_json::json!([{ "label": "Book", "event": "OTHER" }]));
+        collect_fired_with_knobs("Shelf", &effect, &knobs, &mut other);
+        assert!(!other.by_control.contains(&("Shelf".to_string(), "BOOK".to_string())), "control: BOOK is absent");
+    }
+
+    #[test]
+    fn value_leaves_see_through_a_declared_knob_let() {
+        let value: SExpression = serde_json::from_value(serde_json::json!(
+            ["let", [["knob_k", ["list", "A"], "{}"]], "@knob_k"]
+        ))
+        .unwrap();
+        assert_eq!(value.declared_knob_literal(), Some(&serde_json::from_value::<SExpression>(serde_json::json!(["list", "A"])).unwrap()));
+        let leaves = value.value_leaves(&live_sources());
+        assert_eq!(leaves.len(), 1);
+        assert_eq!(leaves[0].operator(), Some("list"));
+        let plain: SExpression = serde_json::from_value(serde_json::json!(["let", [["x", 1, "{}"]], "@x"])).unwrap();
+        assert!(plain.declared_knob_literal().is_none(), "control: only a knob_ local read back is a knob read");
+    }
+
     #[test]
     fn live_sources_skips_false_branch() {
         let value = SExpression::Array(vec![s("if"), s(""), s("SAVE"), s("CANCEL")]);
@@ -821,12 +856,12 @@ mod tests {
     #[test]
     fn event_map_values_count_as_by_control_producers() {
         // { type: "control-grid", directionEvents: { left: "STEER_LEFT", right: "STEER_RIGHT" } }
-        let node = SExpression::Object(
+        let node = SExpression::object(
             [
                 ("type".to_string(), s("control-grid")),
                 (
                     "directionEvents".to_string(),
-                    SExpression::Object(
+                    SExpression::object(
                         [
                             ("left".to_string(), s("STEER_LEFT")),
                             ("right".to_string(), s("STEER_RIGHT")),
@@ -861,7 +896,7 @@ mod tests {
     fn event_map_binding_to_the_whole_object_is_skipped_not_crashed() {
         // directionEvents: "@config.directionEvents" — a whole-map binding,
         // not itself an object of literal event names; unresolvable, skipped.
-        let node = SExpression::Object(
+        let node = SExpression::object(
             [
                 ("type".to_string(), s("control-grid")),
                 ("directionEvents".to_string(), s("@config.directionEvents")),

@@ -141,7 +141,7 @@ pub(crate) fn extract_emit_object_ref(
     options: &orbital_core_base::schema::SObject,
 ) -> Option<&orbital_core_base::schema::SObject> {
     match options.get("emit")? {
-        SExpression::Object(obj) => Some(obj),
+        SExpression::Object(obj) => Some(&**obj),
         _ => None,
     }
 }
