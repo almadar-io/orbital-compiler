@@ -1589,13 +1589,13 @@ mod tests {
     }
 
     #[test]
-    fn s8_lambda_header_scope_survives_runtime_ignored_let_items() {
+    fn s8_lambda_header_scope_survives_a_nested_let() {
         for (reference, restricted) in [("@original", true), ("@received", false)] {
             let effects = format!(r#"["let", [["received", "@payload"], ["original", "@payload"]],
                 ["set", "@entity.value", ["array/reduce", "@config.items", {{}},
                     ["fn", ["received", "item"],
-                        ["let", [[7, "@payload.data"], ["safe", true, "@payload.data"]],
-                            ["object/get", "{reference}", "data.0.id"], "@payload.data"]]]]]"#);
+                        ["let", [["safe", true]],
+                            ["object/get", "{reference}", "data.0.id"]]]]]]"#);
             let found = codes(&schema_with(r#""deliver": "ids", "total": "exact""#, &effects, None));
             assert_eq!(found.contains(&ErrorCode::FetchDeliverIdsRowsRead), restricted, "reference: {reference}; found: {found:?}");
             assert!(codes(&schema_with(r#""deliver": "rows", "total": "exact""#, &effects, None)).is_empty(), "rows control: {reference}");

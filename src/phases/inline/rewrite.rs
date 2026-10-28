@@ -3522,7 +3522,7 @@ mod literal_list_tests {
             panic!("inline trait")
         };
         apply_inline_config_defaults(t, &mut Vec::new());
-        crate::phases::validation::effect::record_declared_list_types(&mut schema);
+        crate::phases::validation::effect::record_declared_shapes(&mut schema);
         let TraitReference::Inline(t) = &schema.orbitals[0].traits[0] else {
             panic!("inline trait")
         };
@@ -3547,8 +3547,12 @@ mod literal_list_tests {
     }
 
     #[test]
-    fn control_a_recursive_union_knob_list_refuses_an_element_outside_the_union() {
-        assert!(recursive_union_knob_len(serde_json::json!(["a", ["b", 1]])).is_err());
+    fn control_the_kernel_does_not_check_a_knob_list_against_its_declared_union() {
+        // The declared type is static: refusing an element outside the union is the validator's knob check.
+        assert_eq!(
+            recursive_union_knob_len(serde_json::json!(["a", ["b", 1]])),
+            Ok(orbital_core_base::value::Value::Number(2.0))
+        );
     }
 }
 

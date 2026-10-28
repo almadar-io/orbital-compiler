@@ -922,10 +922,11 @@ pub enum ErrorCode {
     /// `count: number`, `(+ "a" 1)`. Both evaluators raise the same typed
     /// mismatch at run time (D-12), so the program can never do what it says.
     OperatorArgTypeMismatch,
-    /// A value handed to an operator's type variable has no determined type — an unresolved expression, an
-    /// expression value, json, a list whose items share no type — so what the variable stands for, and the type of
-    /// the call's result, is unknown. There are no generic types: give the value a real type (a declared
-    /// payload or entity shape, a named union alias for a list of differently-shaped items).
+    /// A value handed to an operator has no determined type — an unresolved expression, an expression value, json,
+    /// a loose union, a list whose items share no type — so it cannot be checked against the type the operator
+    /// declares (or, at a type variable, what the variable stands for and the type of the result are unknown).
+    /// Narrow it with `(as value T)` (checked, null on a misfit), or give it a real type (a declared payload or
+    /// entity shape, a named union alias for a list of differently-shaped items).
     OperatorArgUndetermined,
     /// An ordering comparison (`<`, `<=`, `>`, `>=`) over an operand that can be missing or null — an optional
     /// entity field with no default, an optional payload field — that the program neither guards with a presence

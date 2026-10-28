@@ -59,7 +59,7 @@ pub(crate) use set::{
     validate_set_required_field_from_optional_knob, validate_set_return_type,
     validate_set_value_type, BindingTypes, EntityFieldMeta, ExprReturnCtx,
 };
-pub use typed_args::record_declared_list_types;
+pub use typed_args::record_declared_shapes;
 pub(crate) use typed_args::needs_declaration;
 pub use utils::effect_operators;
 pub(crate) use utils::{extract_payload_fields, is_valid_event_identifier};

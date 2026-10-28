@@ -429,7 +429,7 @@ orbital Probe {
   initial: ready
   state ready {
    ASK -> ready
-   (set @entity.out (json/stringify (or (object/set ?value "x" 0) ?value)))
+   (set @entity.out (json/stringify (default (object/set ?value "x" 0) ?value)))
   }
   listens { ASK { value : V! } @description "Probe record bound." }
  }

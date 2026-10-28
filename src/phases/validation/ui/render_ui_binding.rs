@@ -946,7 +946,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_or_operator_first_truthy() {
+    fn resolves_default_operator_coalesce() {
         let t = empty_trait("T", None);
         let entities: HashMap<String, EntityDefinition> = HashMap::new();
         let payload = vec![PayloadField {
@@ -969,11 +969,11 @@ mod tests {
             event_payload: Some(&payload),
             sibling_trait_names: &[],
         };
-        // `(or @payload.totalCount 10)` — both args resolve to Number,
-        // so `or`'s signature (`T, T -> T`) returns Number (NOT boolean —
-        // gap #24's lift).
+        // `(default @payload.totalCount 10)` — both args resolve to Number,
+        // so `default`'s signature (`T, T -> T`) returns Number. `or` is
+        // boolean-only: it is no coalesce.
         let expr = SExpression::Array(vec![
-            SExpression::String(("or".to_string()).into()),
+            SExpression::String(("default".to_string()).into()),
             SExpression::String(("@payload.totalCount".to_string()).into()),
             SExpression::Number(10.0),
         ]);

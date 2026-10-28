@@ -99,6 +99,15 @@ pub(crate) fn signature_of(name: &str) -> Option<Signature<'static>> {
 }
 
 /// A closed `shape` parameter, whose literal argument is checked field by field.
+/// Whether a variable's bound is a record, or a union with one.
+fn bound_reads_a_record(bound: &OperatorTypeRef) -> bool {
+    match bound {
+        OperatorTypeRef::Tagged(OperatorTypeRefKind::Record) => true,
+        OperatorTypeRef::Tagged(OperatorTypeRefKind::Union { of }) => of.iter().any(bound_reads_a_record),
+        _ => false,
+    }
+}
+
 fn is_closed_shape(formal: &OperatorTypeRef) -> bool {
     matches!(formal, OperatorTypeRef::Tagged(OperatorTypeRefKind::Object { fields, open, .. }) if *open != Some(true) && !fields.is_empty())
 }
@@ -145,8 +154,6 @@ struct Inferer<'c> {
     fact_aliases: RefCell<Vec<FactAlias>>,
     children: RefCell<Vec<ChildrenDependency>>,
     named_types: RefCell<std::sync::Arc<std::collections::BTreeMap<String, OirType>>>,
-    /// The type inferred for each `["typed", value, "#slot:<n>"]` the typed-arguments pass tagged.
-    slots: RefCell<Vec<(String, Option<OirType>)>>,
     /// Per call (keyed by [`ProvenKey`]), whether each argument position was proven: its type determined and bound by
     /// the signature on every visit of the call.
     proven: RefCell<std::collections::HashMap<ProvenKey, Vec<bool>>>,
@@ -182,7 +189,6 @@ impl<'c> Inferer<'c> {
             fact_aliases: RefCell::new(Vec::new()),
             children: RefCell::new(Vec::new()),
             named_types: RefCell::new(std::sync::Arc::default()),
-            slots: RefCell::new(Vec::new()),
             proven: RefCell::new(std::collections::HashMap::new()),
             record: std::cell::Cell::new(false),
         }
@@ -511,8 +517,7 @@ impl<'c> Inferer<'c> {
                 let OirExpr::String { value } = &args[1] else {
                     return ty;
                 };
-                // A value the program declared a type for (a substituted config knob, a recorded argument) is read
-                // as that type; a slot tag only records what was inferred.
+                // A value the program declared a type for (a substituted config knob) is read as that type.
                 if let Some(declared) = orbital_core_base::ir::types::DeclaredShape::parse(value) {
                     let mut known = self.named_types.borrow_mut();
                     for (name, ty) in declared.named {
@@ -522,7 +527,6 @@ impl<'c> Inferer<'c> {
                     }
                     return Some(declared.ty);
                 }
-                self.slots.borrow_mut().push((value.clone(), ty.clone()));
                 ty
             }
             OirExpr::Call { function, args } if function == "let" => self.infer_let(args),
@@ -1324,6 +1328,36 @@ impl<'c> Inferer<'c> {
         }
     }
 
+    /// `=` and `!=` against the null literal: only an optional value (or one that holds anything, json) can be null.
+    fn null_comparison(&self, name: &str, args: &[&OirExpr], arg_types: &[Option<OirType>]) {
+        let [left, right] = args else { return };
+        let other = match (matches!(left, OirExpr::Null), matches!(right, OirExpr::Null)) {
+            (false, true) => 0,
+            (true, false) => 1,
+            _ => return,
+        };
+        let Some(Some(ty)) = arg_types.get(other) else { return };
+        let ty = self.unfold(ty.clone());
+        let can_be_null = |ty: &OirType| matches!(ty, OirType::Optional { .. } | OirType::Json | OirType::SExpr);
+        let holds_null = match &ty {
+            OirType::Union { variants } => variants.iter().any(|v| can_be_null(&v.field_type)),
+            other => can_be_null(other),
+        };
+        if holds_null {
+            return;
+        }
+        self.diagnostics.borrow_mut().push(Diagnostic {
+            function: name.to_string(),
+            index: other,
+            mismatch: Mismatch::Type {
+                expected: "an optional value (`T?`), the only kind that compares with null".to_string(),
+                actual: orbital_core_base::signature::describe_type(&ty),
+            },
+            expression: printed(name, args),
+            argument: printed_arg(args.get(other)),
+        });
+    }
+
     fn call(&self, name: &str, args: &[&OirExpr]) -> Option<OirType> {
         let signature = signature_of(name)?;
         self.call_signed(name, &signature, args)
@@ -1338,10 +1372,8 @@ impl<'c> Inferer<'c> {
         let name_fn = name;
         let mut bindings = CallBindings::new();
         bindings.use_named_types(std::sync::Arc::clone(&self.named_types.borrow()));
-        // A proof binds apart, in the strict mode: every value of the argument's type fits (G-CROSS-335).
+        // The one binder is the strict one: every value of the argument's type fits, so a call that binds is proven (G-CROSS-335).
         let recording = self.record.get();
-        let mut proof = CallBindings::new();
-        proof.use_named_types(std::sync::Arc::clone(&self.named_types.borrow()));
         let mut sound = true;
         // An argument whose type is not determined is a finding, but it refutes only what depends on it: a result
         // its variable does not reach (a reduce's accumulator over a list of unknown items) stays determined.
@@ -1362,11 +1394,18 @@ impl<'c> Inferer<'c> {
                 }
             }
         }
+        // The null rule is the signature's: an operand whose declared type excludes null is refused when it can be
+        // missing (a field or local), is the null literal, or (below, once typed) is optional.
+        let mut null_flagged = vec![false; args.len()];
         for (index, arg) in args.iter().enumerate() {
             if !signature.rejects_null(index) {
                 continue;
             }
-            if let Some(operand) = self.absent_operand(arg) {
+            let operand = self
+                .absent_operand(arg)
+                .or_else(|| matches!(arg, OirExpr::Null).then(|| "null".to_string()));
+            if let Some(operand) = operand {
+                null_flagged[index] = true;
                 self.diagnostics.borrow_mut().push(Diagnostic {
                     function: name.to_string(),
                     index,
@@ -1390,7 +1429,7 @@ impl<'c> Inferer<'c> {
                 texts: None,
                 lambda: None,
             };
-            let _ = signature.bind(&mut bindings, at, &actual, Mode::Static);
+            let _ = signature.bind(&mut bindings, at, &actual, Mode::Proof);
         }
         let declared_node = signature
             .shape_position()
@@ -1415,10 +1454,6 @@ impl<'c> Inferer<'c> {
             if let Some(declared) = &declared_node {
                 self.register_named_types(declared, &mut bindings);
                 signature.bind_declared_node(&mut bindings, index, declared.clone());
-                if recording {
-                    self.register_named_types(declared, &mut proof);
-                    signature.bind_declared_node(&mut proof, index, declared.clone());
-                }
             }
             let refined = self.refinements.borrow().len();
             let guards = {
@@ -1494,7 +1529,10 @@ impl<'c> Inferer<'c> {
                         texts: None,
                         lambda: Some(&run),
                     };
-                    signature.bind(&mut bindings, index, &actual, Mode::Static)
+                    match lambda_arity_breach(signature.formal(index), params.len(), index_at) {
+                        Some(mismatch) => Err(mismatch),
+                        None => signature.bind(&mut bindings, index, &actual, Mode::Proof),
+                    }
                 }
                 OirExpr::Object { fields }
                     if signature.formal(index).is_some_and(is_closed_shape) =>
@@ -1512,16 +1550,13 @@ impl<'c> Inferer<'c> {
                         })
                         .collect();
                     signature
-                        .bind_shape_literal(&mut bindings, index, &actuals, Mode::Static)
+                        .bind_shape_literal(&mut bindings, index, &actuals, Mode::Proof)
                         .unwrap_or(Ok(()))
                 }
                 other => {
                     let known = self.known(other);
                     if let Some(Known::Type(ty)) = &known {
                         self.register_named_types(ty, &mut bindings);
-                        if recording {
-                            self.register_named_types(ty, &mut proof);
-                        }
                     }
                     arg_types[index] = match &known {
                         Some(Known::Type(ty)) => Some(ty.clone()),
@@ -1531,6 +1566,45 @@ impl<'c> Inferer<'c> {
                         OirExpr::Number { value } => value.fract() == 0.0,
                         _ => matches!(&known, Some(Known::Type(OirType::Integer))),
                     };
+                    // An optional value at a position that excludes null is refused once, by the null rule; the value it
+                    // holds is then checked against the declared type like any other.
+                    let admits_null = signature.formal(index).is_none_or(|formal| formal.admits_null());
+                    let stripped = !admits_null
+                        && !handles_missing(name)
+                        && matches!(&known, Some(Known::Type(OirType::Optional { .. })));
+                    // A failable operator's missing result is reported once, naming that operator (MissingResult); an
+                    // operator that handles a missing operand takes the optional as it is.
+                    let reported_elsewhere = !stripped
+                        || self.missing_result_source(other, arg_types[index].as_ref()).is_some();
+                    if !reported_elsewhere && signature.rejects_null(index) && !null_flagged[index] {
+                        null_flagged[index] = true;
+                        self.diagnostics.borrow_mut().push(Diagnostic {
+                            function: name.to_string(),
+                            index,
+                            mismatch: Mismatch::NullOperand {
+                                operator: name.to_string(),
+                                operand: printed_arg(args.get(index)),
+                            },
+                            expression: printed(name, args),
+                            argument: printed_arg(args.get(index)),
+                        });
+                    }
+                    let known = match known {
+                        Some(Known::Type(OirType::Optional { inner })) if stripped => Some(Known::Type(*inner)),
+                        other => other,
+                    };
+                    // A record-bound position reads a declared row (an included relation) as the row it stands for; a bare relation is the related row's id.
+                    let reads_a_record = matches!(
+                        signature.formal(index),
+                        Some(OperatorTypeRef::Tagged(OperatorTypeRefKind::Var { bound: Some(bound), .. }))
+                            if bound_reads_a_record(bound)
+                    );
+                    let known = match known {
+                        Some(Known::Type(ty @ OirType::Row { .. })) if reads_a_record => {
+                            Some(Known::Type(self.unfold_rows(ty)))
+                        }
+                        other => other,
+                    };
                     let actual = Actual {
                         known,
                         text: Self::literal_text(other),
@@ -1538,9 +1612,10 @@ impl<'c> Inferer<'c> {
                         lambda: None,
                     };
                     determined = recording
-                        && matches!(&actual.known, Some(Known::Type(_)))
-                        && signature.bind(&mut proof, index, &actual, Mode::Proof).is_ok();
-                    signature.bind(&mut bindings, index, &actual, Mode::Static)
+                        && !stripped
+                        && !null_flagged[index]
+                        && matches!(&actual.known, Some(Known::Type(_)));
+                    signature.bind(&mut bindings, index, &actual, Mode::Proof)
                 }
             };
             self.present.borrow_mut().truncate(narrowed);
@@ -1582,8 +1657,10 @@ impl<'c> Inferer<'c> {
             });
         }
         if recording {
-            let proof_sound = sound && signature.finish(&proof, args.len()).is_ok();
-            self.record_proven(name, args, if proof_sound { proven_at } else { vec![false; args.len()] });
+            self.record_proven(name, args, if sound { proven_at } else { vec![false; args.len()] });
+        }
+        if matches!(name_fn, "=" | "!=") {
+            self.null_comparison(name_fn, args, &arg_types);
         }
         self.void
             .set(sound && (signature.returns_void() || signature.result_is_void(&bindings)));
@@ -2826,6 +2903,19 @@ fn live_branch(expr: &OirExpr) -> Option<(&OirExpr, &OirExpr)> {
     }
 }
 
+/// A lambda with more parameters than its position can supply (the declared ones, and the index where the operator
+/// hands one) would read the extras as null.
+fn lambda_arity_breach(formal: Option<&OperatorTypeRef>, given: usize, index_at: Option<usize>) -> Option<Mismatch> {
+    let OperatorTypeRef::Tagged(OperatorTypeRefKind::Fn { params, .. }) = formal? else {
+        return None;
+    };
+    let supplied = params.len().max(index_at.map_or(0, |at| at + 1));
+    (given > supplied).then(|| Mismatch::Type {
+        expected: format!("a function of at most {supplied} parameter{}", if supplied == 1 { "" } else { "s" }),
+        actual: format!("a function of {given} parameters"),
+    })
+}
+
 fn printed_arg(arg: Option<&&OirExpr>) -> String {
     arg.map(|a| orbital_core_base::ir::pretty_print_expr(a))
         .unwrap_or_default()
@@ -2870,23 +2960,6 @@ pub fn infer_under_condition<C: TypeCtx>(condition: &OirExpr, expr: &OirExpr, ct
     let inferer = Inferer::new(ctx);
     inferer.assume(Some(condition));
     inferer.infer(expr)
-}
-
-/// Every call in `expr` (lambda bodies included, with their parameters typed) whose argument contradicts the
-/// operator's signature.
-/// The type inferred for each slot tag (`["typed", value, "<tag>"]`) in `expr`, by tag; an undetermined slot is absent.
-pub fn typed_slot_types<C: TypeCtx>(
-    expr: &OirExpr,
-    ctx: &C,
-) -> std::collections::HashMap<String, OirType> {
-    let inferer = Inferer::new(ctx);
-    inferer.known(expr);
-    inferer
-        .slots
-        .into_inner()
-        .into_iter()
-        .filter_map(|(tag, ty)| ty.map(|ty| (tag, ty)))
-        .collect()
 }
 
 /// The type a `let` binds its local to: an annotated initializer (`(x : T value)`) is its declared type when the value
@@ -3627,9 +3700,9 @@ mod tests {
             Some(OirType::array(OirType::String))
         );
         assert!(check_oir_expr(&call("array/append", vec![empty(), text("x")]), &row).is_empty());
-        // (or @entity.tags []) is the tags' type; so is (if c [] @entity.tags).
+        // (default @entity.tags []) is the tags' type; so is (if c [] @entity.tags).
         assert_eq!(
-            infer_oir_expr_type(&call("or", vec![entity(&["tags"]), empty()]), &row),
+            infer_oir_expr_type(&call("default", vec![entity(&["tags"]), empty()]), &row),
             Some(OirType::array(OirType::String))
         );
         // control: nothing types (array/first []) or (array/len []).
@@ -3645,7 +3718,7 @@ mod tests {
         assert!(check_oir_expr(&call("array/len", vec![entity(&["tags"])]), &row).is_empty());
         // control: two empty lists type each other no better.
         assert_eq!(
-            check_oir_expr(&call("or", vec![empty(), empty()]), &row).len(),
+            check_oir_expr(&call("default", vec![empty(), empty()]), &row).len(),
             1
         );
     }
@@ -3657,11 +3730,11 @@ mod tests {
             call("let", vec![list_of(vec![list_of(vec![text("xs"), init])]), call("array/take", vec![local("xs"), num(1.0)])])
         };
         assert_eq!(
-            infer_oir_expr_type(&call("or", vec![maybe(), list_of(vec![])]), &NoCtx),
+            infer_oir_expr_type(&call("default", vec![maybe(), list_of(vec![])]), &NoCtx),
             Some(OirType::array(OirType::String)),
             "an empty-list fallback is never absent"
         );
-        assert!(check_oir_expr(&bound(call("or", vec![maybe(), list_of(vec![])])), &NoCtx).is_empty(), "nor is the local it binds");
+        assert!(check_oir_expr(&bound(call("default", vec![maybe(), list_of(vec![])])), &NoCtx).is_empty(), "nor is the local it binds");
         assert!(!check_oir_expr(&bound(maybe()), &NoCtx).is_empty(), "control: the optional list itself can be missing");
     }
 
@@ -4091,7 +4164,7 @@ mod tests {
     fn nested_named_optional_collection_can_be_guarded_or_defaulted() {
         for source in [
             r#"["if", ["!=", "@payload.result.rejections", null], ["array/some", "@payload.result.rejections", ["fn", "r", true]], false]"#,
-            r#"["array/some", ["or", "@payload.result.rejections", ["list"]], ["fn", "r", true]]"#,
+            r#"["array/some", ["default", "@payload.result.rejections", ["list"]], ["fn", "r", true]]"#,
         ] {
             let found = nested_optional_array_findings(source, false);
             assert!(found.is_empty(), "{source}: {found:?}");
@@ -4265,7 +4338,9 @@ mod tests {
         let lookup = serde_json::json!(["array/cosine", ["object/get", "@entity.m", "k"], "@entity.v"]);
         let guarded = |has: serde_json::Value| lowered(serde_json::json!(["when", has, lookup.clone()]));
         assert!(!check_oir_expr(&lowered(lookup.clone()), &row).is_empty(), "control: an optional map can be missing");
-        let present = guarded(serde_json::json!(["object/has", "@entity.m", "k"]));
+        let bare = lowered(serde_json::json!(["object/has", "@entity.m", "k"]));
+        assert!(!check_oir_expr(&bare, &row).is_empty(), "control: object/has raises on a null map, so an optional one is guarded first");
+        let present = guarded(serde_json::json!(["and", ["!=", "@entity.m", null], ["object/has", "@entity.m", "k"]]));
         assert!(check_oir_expr(&present, &row).is_empty(), "{:?}", check_oir_expr(&present, &row));
         let other = guarded(serde_json::json!(["object/has", "@entity.v", "k"]));
         assert!(!check_oir_expr(&other, &row).is_empty(), "control: a test of another value shows nothing of m");
@@ -5015,22 +5090,30 @@ mod tests {
     }
 
     #[test]
-    fn and_or_results_are_the_operand_type() {
-        let both_strings = OirExpr::BinaryOp {
+    fn and_or_take_booleans_and_are_not_a_coalesce() {
+        let strings = OirExpr::BinaryOp {
             op: OirBinaryOp::Or,
             left: Box::new(entity(&["name"])),
             right: Box::new(text("anon")),
         };
-        assert_eq!(
-            infer_oir_expr_type(&both_strings, &tags_row()),
-            Some(OirType::String)
-        );
+        assert_eq!(check_oir_expr(&strings, &tags_row()).len(), 2, "both string operands are refused");
         let mixed = OirExpr::BinaryOp {
             op: OirBinaryOp::Or,
             left: Box::new(entity(&["name"])),
             right: Box::new(OirExpr::Bool { value: true }),
         };
         assert_eq!(check_oir_expr(&mixed, &tags_row()).len(), 1);
+        let booleans = OirExpr::BinaryOp {
+            op: OirBinaryOp::Or,
+            left: Box::new(OirExpr::Bool { value: false }),
+            right: Box::new(OirExpr::Bool { value: true }),
+        };
+        assert!(check_oir_expr(&booleans, &tags_row()).is_empty());
+        assert_eq!(
+            infer_oir_expr_type(&call("default", vec![entity(&["name"]), text("anon")]), &tags_row()),
+            Some(OirType::String),
+            "default is the coalesce"
+        );
     }
 
     // ---- Phase 4: collect_guard_type_warnings (C-GUARD-NO-BOOLEAN-CHECK) ----
@@ -5231,5 +5314,61 @@ mod tests {
         assert_ne!(expected, actual);
         assert!(expected.contains("entity") && expected.starts_with('['), "{expected}");
         assert!(actual.contains("address") && actual.starts_with('['), "{actual}");
+    }
+
+    #[test]
+    fn a_null_operand_is_refused_by_the_one_null_rule_and_a_present_one_binds() {
+        let row = Row(vec![
+            ("name", OirType::String),
+            ("nick", OirType::optional(OirType::String)),
+        ]);
+        let found = check_oir_expr(&call("str/upper", vec![OirExpr::Null]), &row);
+        assert!(matches!(found.as_slice(), [d] if matches!(&d.mismatch, Mismatch::NullOperand { operand, .. } if operand == "null")), "{found:?}");
+        let found = check_oir_expr(&call("str/upper", vec![entity(&["nick"])]), &row);
+        assert!(matches!(found.as_slice(), [d] if matches!(d.mismatch, Mismatch::NullOperand { .. })), "one finding, not a second type error: {found:?}");
+        assert!(check_oir_expr(&call("str/upper", vec![entity(&["name"])]), &row).is_empty());
+        let default = call("default", vec![entity(&["nick"]), text("")]);
+        assert!(check_oir_expr(&call("str/upper", vec![default]), &row).is_empty(), "default answers the missing value");
+    }
+
+    #[test]
+    fn null_compares_only_with_an_optional_value() {
+        let row = Row(vec![
+            ("name", OirType::String),
+            ("nick", OirType::optional(OirType::String)),
+        ]);
+        for operator in ["=", "!="] {
+            let found = check_oir_expr(&call(operator, vec![entity(&["name"]), OirExpr::Null]), &row);
+            assert!(matches!(found.as_slice(), [d] if matches!(d.mismatch, Mismatch::Type { .. })), "{operator}: {found:?}");
+            assert!(check_oir_expr(&call(operator, vec![entity(&["nick"]), OirExpr::Null]), &row).is_empty(), "{operator}");
+        }
+    }
+
+    #[test]
+    fn a_non_boolean_operand_of_or_is_a_type_error_not_a_coalesce() {
+        let row = tags_row();
+        let found = check_oir_expr(&call("or", vec![entity(&["name"]), text("fallback")]), &row);
+        assert!(found.iter().any(|d| matches!(d.mismatch, Mismatch::Type { .. })), "{found:?}");
+        let control = call("or", vec![OirExpr::Bool { value: true }, OirExpr::Bool { value: false }]);
+        assert!(check_oir_expr(&control, &row).is_empty());
+    }
+
+    #[test]
+    fn a_value_of_unknown_type_is_undetermined_at_a_concrete_operand() {
+        let found = check_oir_expr(&call("str/upper", vec![entity(&["missing"])]), &tags_row());
+        assert!(matches!(found.as_slice(), [d] if matches!(d.mismatch, Mismatch::Undetermined { .. })), "{found:?}");
+        assert!(check_oir_expr(&call("str/upper", vec![entity(&["name"])]), &tags_row()).is_empty());
+    }
+
+    #[test]
+    fn a_lambda_with_more_parameters_than_its_position_supplies_is_refused() {
+        let lambda = |params: &[&str]| OirExpr::Lambda {
+            params: params.iter().map(|p| p.to_string()).collect(),
+            body: Box::new(num(1.0)),
+        };
+        let row = tags_row();
+        let found = check_oir_expr(&call("array/map", vec![entity(&["tags"]), lambda(&["a", "b", "c", "d"])]), &row);
+        assert!(found.iter().any(|d| matches!(d.mismatch, Mismatch::Type { .. })), "{found:?}");
+        assert!(check_oir_expr(&call("array/map", vec![entity(&["tags"]), lambda(&["a"])]), &row).is_empty());
     }
 }

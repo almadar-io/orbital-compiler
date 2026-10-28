@@ -242,12 +242,12 @@ fn report(
                     ErrorCode::OperatorArgUndetermined,
                     path,
                     format!(
-                        "`({function} …)` argument {position}, `{argument}`, has no determined type ({reason}), so the type variable it binds, and the type of the result, are unknown: {call}",
+                        "`({function} …)` argument {position}, `{argument}`, has no determined type ({reason}), so the operator's declared type cannot be checked against it, and the type variable it binds, with the type of the result, is unknown: {call}",
                         argument = found.argument
                     ),
                 )
                 .with_suggestion(
-                    "Give the value a real type: read it from a declared payload or entity shape, declare a named union alias for a list of differently-shaped items, or annotate the binding with the declared type (`(let ((rows : [Shape] [...])) ...)`). There is no untyped escape",
+                    "Narrow a loose value (json, an expression, a loose union, a value of unknown type) to the declared type with `(as value T)`: checked narrowing, null on a misfit, so follow it with `(default (as value T) fallback)` where null is possible. Otherwise give the value a real type: read it from a declared payload or entity shape, declare a named union alias for a list of differently-shaped items, or annotate the binding with the declared type (`(let ((rows : [Shape] [...])) ...)`). There is no untyped escape",
                 ),
             );
             continue;
@@ -272,9 +272,13 @@ fn report(
                 ValidationError::error(
                     ErrorCode::OperatorNullOperand,
                     path,
-                    format!(
-                        "`({operator} …)` argument {position}, `{operand}`, can be missing (an optional field with no default), and `{operator}` raises on a null operand: {call}"
-                    ),
+                    if operand == "null" {
+                        format!("`({operator} …)` argument {position} is the null literal, and `{operator}` raises on a null operand: {call}")
+                    } else {
+                        format!(
+                            "`({operator} …)` argument {position}, `{operand}`, can be missing (an optional value or field with no default), and `{operator}` raises on a null operand: {call}"
+                        )
+                    },
                 )
                 .with_suggestion(format!(
                     "Say what a missing value means: default it (`(default {operand} …)`), guard it, `(and (validate/required {operand}) ({operator} {operand} …))`, or put the call under an `if`/`when` on its presence, or give the field a default or make it required (`!`)"
@@ -298,6 +302,14 @@ fn report(
             continue;
         }
         let (message, suggestion) = match &found.mismatch {
+            Mismatch::Type { expected, actual } if matches!(function.as_str(), "and" | "or") => (
+                format!("`({function} …)` argument {position} is a {actual}, but `{function}` combines booleans only: {call}"),
+                "Make the operand a boolean (a comparison, `(validate/required x)`); `and`/`or` are not a coalesce, so use `(default x fallback)` to supply a value for a missing one".to_string(),
+            ),
+            Mismatch::Type { expected, actual } if expected.starts_with("an optional value") => (
+                format!("`({function} …)` argument {position} is a {actual}, which is never null, but {expected}: {call}"),
+                "Compare a value that can be null (`T?`), or drop the null comparison: a value of a present type needs no presence check".to_string(),
+            ),
             Mismatch::Type { expected, actual } => (
                 format!("`({function} …)` argument {position} is a {actual}, but the operator declares {expected}: {call}"),
                 "Pass a value of the declared type: convert it first (e.g. `time/parse`, `json/parse`, `str/concat`), or use the operator that takes this type".to_string(),
@@ -485,7 +497,12 @@ mod tests {
     fn controls_a_determined_value_and_null_are_not_undetermined() {
         assert!(undetermined(r#"["=", "@entity.count", 3]"#, field("count", "number")).is_empty());
         assert!(undetermined(r#"["=", "@entity.count", null]"#, field("count", "number")).is_empty());
-        assert!(undetermined(r#"["str/upper", "@entity.nope"]"#, HashMap::new()).is_empty(), "a concrete position binds no variable");
+        assert_eq!(
+            undetermined(r#"["str/upper", "@entity.nope"]"#, HashMap::new()).len(),
+            1,
+            "a value of unknown type is undetermined at a concrete position too"
+        );
+        assert!(undetermined(r#"["str/upper", "@entity.name"]"#, field("name", "string")).is_empty(), "control: a determined value");
     }
 
     #[test]
@@ -709,9 +726,9 @@ mod tests {
             )
         };
         assert_eq!(run(r#"["str/upper", "@payload.row.title"]"#), (0, 0));
-        assert_eq!(run(r#"["str/upper", ["object/get", "@payload.row", "title"]]"#), (0, 0));
+        assert_eq!(run(r#"["str/upper", ["object/get", "@payload.row", "title"]]"#), (1, 0), "a bare relation is the row's id, so a keyed read of it has no determined type");
         assert_eq!(run(r#"["array/len", "@payload.row.tags"]"#), (0, 0));
-        assert_eq!(run(r#"["array/map", "@payload.rows", ["fn", "r", ["str/upper", ["object/get", "@r", "title"]]]]"#), (0, 0));
+        assert_eq!(run(r#"["array/map", "@payload.rows", ["fn", "r", ["str/upper", ["object/get", "@r", "title"]]]]"#), (1, 0), "likewise for the ids of a list of relations");
         assert_eq!(run(r#"["+", "@payload.row.title", 1]"#), (0, 1), "control: title is a string");
         assert_eq!(run(r#"["==", "@payload.ghost.title", "x"]"#), (1, 0), "control: a row of no declared entity");
     }
@@ -1234,7 +1251,7 @@ mod tests {
                 r#"["+", ["math/mod", 7, "@entity.p"], 1]"#,
                 r#"["+", ["math/randomInt", 1, "@entity.p"], 1]"#,
             ] {
-                assert_eq!(null_findings(json, entity(false, false)), 1, "{json}");
+                assert_eq!(null_findings(json, entity(false, false)), 2, "{json}: the divisor raises on null, and the result is missing when the call fails");
             }
         }
 
@@ -1242,7 +1259,8 @@ mod tests {
         fn control_a_required_defaulted_guarded_or_tolerant_operand_is_fine() {
             assert_eq!(null_findings(r#"["/", 1, "@entity.p"]"#, entity(true, false)), 0, "required");
             assert_eq!(null_findings(r#"["/", 1, "@entity.p"]"#, entity(false, true)), 0, "defaulted");
-            assert_eq!(null_findings(r#"["/", "@entity.p", 2]"#, entity(false, false)), 0, "the numerator reads null as 0");
+            assert_eq!(null_findings(r#"["/", "@entity.p", 2]"#, entity(false, false)), 1, "a missing numerator raises on null");
+            assert_eq!(null_findings(r#"["/", "@entity.p", 2]"#, entity(true, false)), 0, "control: a required numerator");
             assert_eq!(
                 null_findings(r#"["and", ["validate/required", "@entity.p"], ["/", 1, "@entity.p"]]"#, entity(false, false)),
                 0,
@@ -1253,7 +1271,8 @@ mod tests {
                 0,
                 "a null comparison narrows the operand"
             );
-            assert_eq!(null_findings(r#"["+", 1, "@entity.p"]"#, entity(false, false)), 0, "an operator that reads null as a default");
+            assert_eq!(null_findings(r#"["+", 1, "@entity.p"]"#, entity(false, false)), 1, "an operand that is missing raises on null");
+            assert_eq!(null_findings(r#"["+", 1, "@entity.p"]"#, entity(true, false)), 0, "control: a required operand");
         }
 
         #[test]
