@@ -343,13 +343,15 @@ pub(super) fn rewrite_trait_embed_tokens(
     td: &mut TraitDefinition,
     trait_subs: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
-    for transition in td.state_machine.transitions.iter_mut() {
-        if let Some(effects) = transition.effects.as_mut() {
-            for effect in effects.iter_mut() {
-                rewrite_trait_embed_in_sexpr(effect, trait_subs);
+    td.state_machine.edit(|machine| {
+        for transition in machine.transitions.iter_mut() {
+            if let Some(effects) = transition.effects.as_mut() {
+                for effect in effects.iter_mut() {
+                    rewrite_trait_embed_in_sexpr(effect, trait_subs);
+                }
             }
         }
-    }
+    });
     if let Some(ticks) = td.ticks.as_mut() {
         for tick in ticks.iter_mut() {
             for effect in tick.effects.iter_mut() {

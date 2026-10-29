@@ -749,7 +749,7 @@ mod render_ui_pattern_contract_reference_tests {
                     effects: Some(vec![render_effect]),
                     ensures: None,
                 }],
-            },
+            }.into(),
             ticks: None,
             config: None,
             data_entities: None,

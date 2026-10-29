@@ -393,9 +393,9 @@ fn resolve_config_field(field: &str, ctx: &BindingContext) -> BindingType {
 fn field_type_to_binding(ft: &FieldType) -> BindingType {
     match ft {
         FieldType::String => BindingType::String,
-        FieldType::Number | FieldType::Int | FieldType::Instant => BindingType::Number,
+        FieldType::Number | FieldType::Int => BindingType::Number,
         FieldType::Boolean => BindingType::Boolean,
-        FieldType::Date | FieldType::Datetime | FieldType::Timestamp => BindingType::Datetime,
+        FieldType::Date | FieldType::Datetime | FieldType::Timestamp | FieldType::Instant => BindingType::Datetime,
         // Semantic domains bind as strings — a render slot treats them as text.
         FieldType::Email
         | FieldType::Url
@@ -460,14 +460,14 @@ fn field_definition_to_binding(
 fn config_field_to_binding(cf: &ConfigField) -> BindingType {
     match cf.field_type.as_str() {
         "string" => BindingType::String,
-        "number" | "instant" => BindingType::Number,
+        "number" => BindingType::Number,
         "boolean" => BindingType::Boolean,
         "array" | "[object]" | "[string]" | "[number]" => BindingType::Array,
         // A named-element array (`[FieldSpec]`) is still an array; its element
         // kind is read separately from the knob's `items`.
         t if t.len() > 2 && t.starts_with('[') && t.ends_with(']') => BindingType::Array,
         "object" => BindingType::Object,
-        "datetime" | "date" | "timestamp" => BindingType::Datetime,
+        "datetime" | "date" | "timestamp" | "instant" => BindingType::Datetime,
         // Literal-union types like `"underline" | "default" | "pills"`
         // resolve to string (every member is a string literal). Cheap
         // heuristic: if the type contains a `"`, assume string-union.
@@ -482,11 +482,11 @@ fn config_field_to_binding(cf: &ConfigField) -> BindingType {
 fn field_type_str_to_binding(s: &str) -> BindingType {
     match s {
         "string" | "string!" => BindingType::String,
-        "number" | "number!" | "instant" | "instant!" => BindingType::Number,
+        "number" | "number!" => BindingType::Number,
         "boolean" | "boolean!" => BindingType::Boolean,
         "array" | "[object]" | "[string]" | "[number]" => BindingType::Array,
         "object" | "object!" => BindingType::Object,
-        "datetime" | "date" | "timestamp" => BindingType::Datetime,
+        "datetime" | "date" | "timestamp" | "instant" | "instant!" => BindingType::Datetime,
         "null" => BindingType::Null,
         s if s.len() > 1 && s.starts_with('$') => BindingType::Var,
         // Typed entity references (e.g. `Article`, `Article!`) — recorded
@@ -653,7 +653,7 @@ mod tests {
                 states: vec![],
                 events: None,
                 transitions: vec![],
-            },
+            }.into(),
             ticks: None,
             config: None,
             data_entities: None,
@@ -978,6 +978,26 @@ mod tests {
             SExpression::Number(10.0),
         ].into());
         assert_eq!(resolve_binding_type(&expr, &ctx), BindingType::Number);
+    }
+
+    fn config_field_of(field_type: &str) -> ConfigField {
+        serde_json::from_value(serde_json::json!({ "type": field_type })).expect("config field deserializes")
+    }
+
+    #[test]
+    fn every_point_in_time_binds_as_text_and_a_duration_stays_a_number() {
+        for ft in [FieldType::Date, FieldType::Datetime, FieldType::Timestamp, FieldType::Instant] {
+            assert_eq!(field_type_to_binding(&ft), BindingType::Datetime, "{ft:?}");
+        }
+        for tag in ["date", "datetime", "timestamp", "instant", "instant!"] {
+            assert_eq!(field_type_str_to_binding(tag), BindingType::Datetime, "{tag}");
+        }
+        for tag in ["date", "datetime", "timestamp", "instant"] {
+            let cf = config_field_of(tag);
+            assert_eq!(config_field_to_binding(&cf), BindingType::Datetime, "{tag}");
+        }
+        assert_eq!(field_type_to_binding(&FieldType::Number), BindingType::Number, "control");
+        assert_eq!(field_type_str_to_binding("number"), BindingType::Number, "control");
     }
 
     #[test]

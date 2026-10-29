@@ -9,6 +9,110 @@
 //! the canonical reference. This Rust port must produce byte-identical output
 //! for the same input. Algorithmic drift between Rust and TS is a blocker.
 
+
+use orbital_core_base::value::{Value, ValueMap};
+
+/// What a `json!` field or element may be: a core value built straight from it, no JSON tree between.
+pub(crate) trait ToValue {
+    fn to_value(self) -> Value;
+}
+
+impl ToValue for Value {
+    fn to_value(self) -> Value {
+        self
+    }
+}
+impl ToValue for &Value {
+    fn to_value(self) -> Value {
+        self.clone()
+    }
+}
+impl ToValue for &str {
+    fn to_value(self) -> Value {
+        Value::string(self.to_string())
+    }
+}
+impl ToValue for String {
+    fn to_value(self) -> Value {
+        Value::string(self)
+    }
+}
+impl ToValue for &String {
+    fn to_value(self) -> Value {
+        Value::string(self.clone())
+    }
+}
+impl ToValue for bool {
+    fn to_value(self) -> Value {
+        Value::Bool(self)
+    }
+}
+impl ToValue for f64 {
+    fn to_value(self) -> Value {
+        Value::Number(self)
+    }
+}
+impl ToValue for i32 {
+    fn to_value(self) -> Value {
+        Value::Number(self as f64)
+    }
+}
+impl ToValue for usize {
+    fn to_value(self) -> Value {
+        Value::Number(self as f64)
+    }
+}
+impl<T: ToValue> ToValue for Option<T> {
+    fn to_value(self) -> Value {
+        self.map_or(Value::Null, ToValue::to_value)
+    }
+}
+impl<T: ToValue> ToValue for Vec<T> {
+    fn to_value(self) -> Value {
+        Value::array(self.into_iter().map(ToValue::to_value).collect::<Vec<_>>())
+    }
+}
+impl<T: ToValue + Clone> ToValue for &Vec<T> {
+    fn to_value(self) -> Value {
+        Value::array(self.iter().cloned().map(ToValue::to_value).collect::<Vec<_>>())
+    }
+}
+impl<T: ToValue + Clone> ToValue for &[T] {
+    fn to_value(self) -> Value {
+        Value::array(self.iter().cloned().map(ToValue::to_value).collect::<Vec<_>>())
+    }
+}
+impl<T: ToValue, const N: usize> ToValue for [T; N] {
+    fn to_value(self) -> Value {
+        Value::array(self.into_iter().map(ToValue::to_value).collect::<Vec<_>>())
+    }
+}
+impl ToValue for ValueMap {
+    fn to_value(self) -> Value {
+        Value::object(self)
+    }
+}
+
+/// A core value from a JSON-shaped literal; fields and elements are expressions of a [`ToValue`] type.
+macro_rules! json {
+    ({}) => { $crate::composition::object_value(Vec::new()) };
+    ({ $($k:literal : $v:expr),+ $(,)? }) => {
+        $crate::composition::object_value(vec![$(($k, $crate::composition::ToValue::to_value(($v).clone()))),+])
+    };
+    ([ $($v:expr),* $(,)? ]) => {
+        $crate::composition::ToValue::to_value(vec![$($crate::composition::ToValue::to_value(($v).clone())),*] as Vec<$crate::composition::Value>)
+    };
+    ($v:expr) => { $crate::composition::ToValue::to_value(($v).clone()) };
+}
+
+pub(crate) fn object_value(fields: Vec<(&str, Value)>) -> Value {
+    let mut map = ValueMap::default();
+    for (key, value) in fields {
+        map.insert(key.to_string(), value);
+    }
+    Value::object(map)
+}
+
 pub mod compose_app;
 pub mod compose_behaviors;
 pub mod event_wiring;

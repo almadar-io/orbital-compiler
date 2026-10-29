@@ -103,15 +103,21 @@ pub fn already_resolved(schema: &OrbitalSchema, source_path: Option<&Path>) -> C
     let Some(mark) = &schema.resolved else {
         return Ok(false);
     };
+    check_resolved_mark(mark, source_path.map_or_else(|| schema.name.clone(), |p| p.display().to_string()))?;
+    Ok(true)
+}
+
+/// A resolved program's stamp judged against the type contract this orb reads; `path` names the program in the error.
+pub fn check_resolved_mark(mark: &orbital_core_base::schema::ResolvedMark, path: String) -> CompileResult<()> {
     if mark.type_contract_version != orbital_core_base::schema::TYPE_CONTRACT_VERSION {
         return Err(CompilerError::ResolvedContract {
-            path: source_path.map_or_else(|| schema.name.clone(), |p| p.display().to_string()),
+            path,
             orb: mark.orb.clone(),
             resolved: mark.type_contract_version,
             current: orbital_core_base::schema::TYPE_CONTRACT_VERSION,
         });
     }
-    Ok(true)
+    Ok(())
 }
 
 /// Compilation result

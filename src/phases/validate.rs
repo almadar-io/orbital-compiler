@@ -861,7 +861,7 @@ mod tests {
                 states,
                 events: None,
                 transitions,
-            },
+            }.into(),
             source_declaration: None,
             source_behavior: None,
             source_entity_definition: None,

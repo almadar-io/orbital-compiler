@@ -223,18 +223,28 @@ fn uniquify_orbital(
                     parent: td.id.clone(),
                 });
         }
-        for ev in td.state_machine.events.iter_mut().flatten() {
-            swap_id(&mut ev.id, &subs);
+        td.state_machine.edit(|machine| {
+            for ev in machine.events.iter_mut().flatten() {
+                swap_id(&mut ev.id, &subs);
+            }
+            for t in machine.transitions.iter_mut() {
+                swap_id(&mut t.event_id, &subs);
+            }
+        });
+        if let Some(emits) = td.emits.as_mut() {
+            emits.edit(|emits| {
+                for e in emits.iter_mut() {
+                    swap_id(&mut e.event_id, &subs);
+                }
+            });
         }
-        for t in td.state_machine.transitions.iter_mut() {
-            swap_id(&mut t.event_id, &subs);
-        }
-        for e in td.emits.iter_mut().flatten() {
-            swap_id(&mut e.event_id, &subs);
-        }
-        for l in td.listens.iter_mut().flatten() {
-            swap_id(&mut l.event_id, &subs);
-            swap_id(&mut l.triggers_id, &subs);
+        if let Some(listens) = td.listens.as_mut() {
+            listens.edit(|listens| {
+                for l in listens.iter_mut() {
+                    swap_id(&mut l.event_id, &subs);
+                    swap_id(&mut l.triggers_id, &subs);
+                }
+            });
         }
         if let Some(config) = td.config.as_mut() {
             for cf in config.values_mut() {
@@ -269,14 +279,18 @@ fn uniquify_orbital(
     for_each_trait_ref_mut(orbital, &mut |tr| match tr {
         TraitReference::Inline(td) => {
             let td = Arc::make_mut(td);
-            for l in td.listens.iter_mut().flatten() {
-                reresolve(&mut l.event_id, Some(&l.event), &colliding, &key_to_id);
-                reresolve(
-                    &mut l.triggers_id,
-                    l.triggers.as_deref(),
-                    &colliding,
-                    &key_to_id,
-                );
+            if let Some(listens) = td.listens.as_mut() {
+                listens.edit(|listens| {
+                    for l in listens.iter_mut() {
+                        reresolve(&mut l.event_id, Some(&l.event), &colliding, &key_to_id);
+                        reresolve(
+                            &mut l.triggers_id,
+                            l.triggers.as_deref(),
+                            &colliding,
+                            &key_to_id,
+                        );
+                    }
+                });
             }
             reresolve_config(td.config.as_mut(), &colliding, &key_to_id);
         }

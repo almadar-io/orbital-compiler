@@ -741,7 +741,7 @@ pub(crate) fn resolve_orbital_reference(
             _ => None,
         })
         .collect();
-    let aux_entities: Vec<EntityDefinition> = upstream
+    let mut aux_entities: Vec<EntityDefinition> = upstream
         .auxiliary_entities
         .iter()
         .flatten()
@@ -750,6 +750,42 @@ pub(crate) fn resolve_orbital_reference(
             _ => None,
         })
         .collect();
+    // An auxiliary travels with the traits that read it: one a removed trait read and no surviving
+    // trait, page or entity reads leaves with them.
+    if !removed_names.is_empty() {
+        let aux_names: HashSet<String> = aux_entities.iter().map(|e| e.name.clone()).collect();
+        let read_by = |traits: &mut dyn Iterator<Item = &TraitDefinition>| -> HashSet<String> {
+            traits
+                .flat_map(|td| entity_names_read_by_trait(td, &aux_names))
+                .collect()
+        };
+        let removed_reads = read_by(&mut upstream.traits.iter().filter_map(|tr| match tr {
+            TraitReference::Inline(td) if removed_names.contains(&td.name) => Some(&**td),
+            _ => None,
+        }));
+        let mut surviving = read_by(&mut kept.iter());
+        let mut relation_sites: Vec<(String, String)> = Vec::new();
+        collect_relation_targets_referenced(&upstream_entity.fields, "", &aux_names, &mut relation_sites);
+        for page in upstream.pages.iter().flatten() {
+            if let PageRef::Inline(pd) = page {
+                if let Some(pe) = pd.primary_entity.as_ref() {
+                    record_referenced("", pe, &aux_names, &mut relation_sites);
+                }
+            }
+        }
+        surviving.extend(relation_sites.drain(..).map(|(_, name)| name));
+        loop {
+            let before = surviving.len();
+            for e in aux_entities.iter().filter(|e| surviving.contains(&e.name)) {
+                collect_relation_targets_referenced(&e.fields, "", &aux_names, &mut relation_sites);
+            }
+            surviving.extend(relation_sites.drain(..).map(|(_, name)| name));
+            if surviving.len() == before {
+                break;
+            }
+        }
+        aux_entities.retain(|e| surviving.contains(&e.name) || !removed_reads.contains(&e.name));
+    }
     let mut subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
     for td in &kept {
         subs.insert(td.name.clone(), format!("{}{}", import_prefix(&local_name, obj), td.name));
@@ -757,9 +793,26 @@ pub(crate) fn resolve_orbital_reference(
     subs.insert(upstream_entity.name.clone(), primary_final.clone());
     let mut entity_renames: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
     entity_renames.insert(upstream_entity.name.clone(), primary_final.clone());
+    // An in-closure auxiliary leaves the prefix when `entities {}` names it (it becomes the named
+    // consumer entity) or when it is an `[identity]` roster (it is `@user`, never forked per import).
+    let in_closure_targets: orbital_core_base::collections::IndexMap<String, String> = aux_entities
+        .iter()
+        .filter_map(|e| {
+            let target = match obj.entities.as_ref().and_then(|m| m.get(&e.name)) {
+                Some(target) => target.clone(),
+                None if e.identity => e.name.clone(),
+                None => return None,
+            };
+            Some((e.name.clone(), target))
+        })
+        .collect();
     for e in &aux_entities {
-        subs.insert(e.name.clone(), format!("{}{}", import_prefix(&local_name, obj), e.name));
-        entity_renames.insert(e.name.clone(), format!("{}{}", import_prefix(&local_name, obj), e.name));
+        let final_name = in_closure_targets
+            .get(&e.name)
+            .cloned()
+            .unwrap_or_else(|| format!("{}{}", import_prefix(&local_name, obj), e.name));
+        subs.insert(e.name.clone(), final_name.clone());
+        entity_renames.insert(e.name.clone(), final_name);
     }
     let field_subs: orbital_core_base::collections::IndexMap<String, String> = obj.fields.clone().unwrap_or_default();
 
@@ -870,12 +923,19 @@ pub(crate) fn resolve_orbital_reference(
         let final_name = subs.get(&e.name).cloned().expect(
             "every aux entity has a subs entry (built from the same `aux_entities` list above)",
         );
-        let final_id = derive_materialized_id(
-            e.id.as_deref(),
-            upstream.id.as_deref(),
-            &e.name,
-            import_prefix(&local_name, obj),
-            orbital_core_base::identity::IdKind::Entity);
+        let retargeted = in_closure_targets.contains_key(&e.name);
+        if retargeted && consumer_entity_ids.contains_key(&final_name) {
+            continue;
+        }
+        let final_id = match (retargeted, e.id.as_ref()) {
+            (true, Some(own)) => own.clone(),
+            _ => derive_materialized_id(
+                e.id.as_deref(),
+                upstream.id.as_deref(),
+                &e.name,
+                import_prefix(&local_name, obj),
+                orbital_core_base::identity::IdKind::Entity),
+        };
         entity_ids.insert(final_name.clone(), final_id.clone());
         let mut ed = e.clone();
         ed.name = final_name;
@@ -971,60 +1031,8 @@ pub(crate) fn resolve_orbital_reference(
     }
     for td in &kept {
         let site = format!("trait.{}", td.name);
-        if let Some(src) = &td.source_entity_definition {
-            record_referenced(&site, &src.name, &upstream_universe, &mut referenced);
-            collect_relation_targets_referenced(
-                &src.fields,
-                &site,
-                &upstream_universe,
-                &mut referenced,
-            );
-        }
-        if let Some(le) = &td.linked_entity {
-            record_referenced(&site, le, &upstream_universe, &mut referenced);
-        }
-        let mut slots: HashSet<String> = HashSet::new();
-        for t in &td.state_machine.transitions {
-            if let Some(g) = t.guard.as_ref() {
-                collect_entity_slots(g, &upstream_universe, &mut slots);
-            }
-            if let Some(effs) = t.effects.as_ref() {
-                for e in effs {
-                    collect_entity_slots(e, &upstream_universe, &mut slots);
-                }
-            }
-        }
-        if let Some(ticks) = td.ticks.as_ref() {
-            for tick in ticks {
-                if let Some(g) = tick.guard.as_ref() {
-                    collect_entity_slots(g, &upstream_universe, &mut slots);
-                }
-                for e in &tick.effects {
-                    collect_entity_slots(e, &upstream_universe, &mut slots);
-                }
-            }
-        }
-        if let Some(listens) = td.listens.as_ref() {
-            for l in listens {
-                if let Some(g) = l.guard.as_ref() {
-                    collect_entity_slots(g, &upstream_universe, &mut slots);
-                }
-                if let Some(pm) = l.payload_mapping.as_ref() {
-                    for v in pm.values() {
-                        collect_entity_slots(v, &upstream_universe, &mut slots);
-                    }
-                }
-            }
-        }
-        if let Some(cfg) = td.config.as_ref() {
-            for f in cfg.values() {
-                if let Some(d) = f.default.as_ref() {
-                    collect_entity_slots(d, &upstream_universe, &mut slots);
-                }
-            }
-        }
-        for name in &slots {
-            record_referenced(&site, name, &upstream_universe, &mut referenced);
+        for name in entity_names_read_by_trait(td, &upstream_universe) {
+            record_referenced(&site, &name, &upstream_universe, &mut referenced);
         }
     }
     if let Some(pages) = &upstream.pages {
@@ -1121,13 +1129,20 @@ pub(crate) fn resolve_orbital_reference(
         .filter(|n| !closure.contains(n) && !upstream_universe.contains(n.as_str()))
         .collect();
     let mut expected_entity_map: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
-    if let Some(entities_map) = obj.entities.as_ref() {
-        for (up_name, target) in entities_map {
+    let mut entities_to_map: orbital_core_base::collections::IndexMap<String, String> =
+        obj.entities.clone().unwrap_or_default();
+    for (name, target) in &in_closure_targets {
+        entities_to_map.entry(name.clone()).or_insert_with(|| target.clone());
+    }
+    {
+        for (up_name, target) in &entities_to_map {
             if expected_entities.contains(up_name) {
                 expected_entity_map.insert(up_name.clone(), target.clone());
                 continue;
             }
-            if !upstream_universe.contains(up_name.as_str())
+            let in_closure_aux = in_closure_targets.contains_key(up_name);
+            if !in_closure_aux
+                && !upstream_universe.contains(up_name.as_str())
                 && !expected_identities.contains(up_name.as_str())
             {
                 entity_unknown_key.push(up_name.clone());
@@ -1146,6 +1161,7 @@ pub(crate) fn resolve_orbital_reference(
                     subs.insert(up_name.clone(), target.clone());
                     true
                 }
+                None if in_closure_aux && target == up_name => false,
                 None => {
                     entity_target_unknown.push((up_name.clone(), target.clone()));
                     false
@@ -1154,7 +1170,10 @@ pub(crate) fn resolve_orbital_reference(
             // The retarget shares the consumer's entity, so it must carry the
             // fields this import's traits use: queue the upstream definition's
             // fields onto the target (missing names only, the owner's win).
-            if let (true, Some(def)) = (mapped, upstream_universe_defs.get(up_name)) {
+            let def = upstream_universe_defs
+                .get(up_name)
+                .or_else(|| aux_entities.iter().find(|e| &e.name == up_name));
+            if let (true, Some(def)) = (mapped, def) {
                 let mut imported = def.clone();
                 if let Some(pool) = upstream_universe_fields.get(up_name) {
                     imported.fields = pool.clone();
@@ -1886,7 +1905,38 @@ pub(crate) fn resolve_orbital_reference(
     // upstream trait name; the source is another imported trait (follows the
     // prefix) or a host sibling (keeps its name). The trigger is written in
     // the post-`events {}` vocabulary the author sees.
+    let body_trait_names: HashSet<String> = orbital
+        .traits
+        .iter()
+        .filter_map(|t| match t {
+            TraitReference::Inline(td) => Some(td.name.clone()),
+            TraitReference::Reference { name, .. } => name.clone(),
+        })
+        .collect();
     for entry in obj.listens.iter().flatten() {
+        if let Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) =
+            entry.listen.source.as_ref()
+        {
+            let imported = subs
+                .get(trait_name.as_str())
+                .is_some_and(|n| kept.iter().any(|td| &td.name == n));
+            if !imported && !body_trait_names.contains(trait_name) {
+                let mut candidates: Vec<&str> = kept
+                    .iter()
+                    .filter_map(|td| {
+                        subs.iter()
+                            .find(|(_, to)| *to == &td.name)
+                            .map(|(from, _)| from.as_str())
+                    })
+                    .collect();
+                candidates.sort_unstable();
+                return Err(InlineError::OrbitalRefListenSourceUnknown {
+                    from_trait: trait_name.clone(),
+                    candidates: candidates.join(", "),
+                    path: diag_path.clone(),
+                });
+            }
+        }
         let final_name = subs
             .get(&entry.trait_name)
             .filter(|n| kept.iter().any(|td| &td.name == *n))
@@ -1906,7 +1956,7 @@ pub(crate) fn resolve_orbital_reference(
             }
         }
         if let Some(td) = kept.iter_mut().find(|td| &td.name == final_name) {
-            td.listens.get_or_insert_with(Vec::new).push(listen);
+            td.listens.get_or_insert_with(Default::default).push(listen);
         }
     }
 
@@ -1935,21 +1985,38 @@ pub(crate) fn resolve_orbital_reference(
         }
     }
     for sibling in siblings.iter_mut() {
-        let listens = match sibling {
-            TraitReference::Inline(td) => Arc::make_mut(td).listens.as_mut(),
-            TraitReference::Reference { listens, .. } => listens.as_mut(),
+        let renamed = |listen: &orbital_core_base::schema::ListenDefinition| match &listen.source {
+            Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) => subs
+                .get(trait_name.as_str())
+                .filter(|to| imported.contains(to.as_str()))
+                .cloned(),
+            _ => None,
         };
-        for listen in listens.into_iter().flatten() {
-            if let Some(orbital_core_base::schema::ListenSource::Trait {
-                trait_name,
-                trait_id,
-            }) = listen.source.as_mut()
-            {
-                if let Some(to) = subs.get(trait_name.as_str()) {
-                    if imported.contains(to.as_str()) {
-                        *trait_name = to.clone();
+        let rewrite = |listens: &mut [orbital_core_base::schema::ListenDefinition]| {
+            for listen in listens.iter_mut() {
+                if let Some(to) = renamed(listen) {
+                    if let Some(orbital_core_base::schema::ListenSource::Trait {
+                        trait_name,
+                        trait_id,
+                    }) = listen.source.as_mut()
+                    {
+                        *trait_name = to;
                         *trait_id = None;
                     }
+                }
+            }
+        };
+        match sibling {
+            TraitReference::Inline(td) => {
+                if td.listens.iter().flat_map(|l| l.iter()).any(|l| renamed(l).is_some()) {
+                    if let Some(listens) = Arc::make_mut(td).listens.as_mut() {
+                        rewrite(listens);
+                    }
+                }
+            }
+            TraitReference::Reference { listens, .. } => {
+                if let Some(listens) = listens.as_mut() {
+                    rewrite(listens);
                 }
             }
         }
@@ -2371,19 +2438,21 @@ fn rename_entities_in_trait(
         }
     }
     let no_events: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
-    for p in td.propositions_mut() {
-        rewrite_identifiers(p, entity_subs, &no_events);
-    }
-    for t in td.state_machine.transitions.iter_mut() {
-        if let Some(guard) = t.guard.as_mut() {
-            rewrite_identifiers(guard, entity_subs, &no_events);
+    td.state_machine.edit(|machine| {
+        for p in machine.propositions_mut() {
+            rewrite_identifiers(p, entity_subs, &no_events);
         }
-        if let Some(effects) = t.effects.as_mut() {
-            for e in effects.iter_mut() {
-                rewrite_identifiers(e, entity_subs, &no_events);
+        for t in machine.transitions.iter_mut() {
+            if let Some(guard) = t.guard.as_mut() {
+                rewrite_identifiers(guard, entity_subs, &no_events);
+            }
+            if let Some(effects) = t.effects.as_mut() {
+                for e in effects.iter_mut() {
+                    rewrite_identifiers(e, entity_subs, &no_events);
+                }
             }
         }
-    }
+    });
     if let Some(ticks) = td.ticks.as_mut() {
         for tick in ticks.iter_mut() {
             if let Some(guard) = tick.guard.as_mut() {
@@ -2693,6 +2762,57 @@ fn rename_relation_targets_in_fields(
     }
 }
 
+/// Every name of `candidates` a trait reads: its linked entity, the entity its
+/// source definition carries (with that definition's relation targets), and each
+/// entity slot of its guards, effects, ticks, listens and config defaults.
+/// Sorted, so callers see one order.
+fn entity_names_read_by_trait(td: &TraitDefinition, candidates: &HashSet<String>) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    let mut sink: Vec<(String, String)> = Vec::new();
+    if let Some(src) = &td.source_entity_definition {
+        record_referenced("", &src.name, candidates, &mut sink);
+        collect_relation_targets_referenced(&src.fields, "", candidates, &mut sink);
+    }
+    if let Some(le) = &td.linked_entity {
+        record_referenced("", le, candidates, &mut sink);
+    }
+    names.extend(sink.into_iter().map(|(_, name)| name));
+    let mut slots: HashSet<String> = HashSet::new();
+    for t in &td.state_machine.transitions {
+        if let Some(g) = t.guard.as_ref() {
+            collect_entity_slots(g, candidates, &mut slots);
+        }
+        for e in t.effects.iter().flatten() {
+            collect_entity_slots(e, candidates, &mut slots);
+        }
+    }
+    for tick in td.ticks.iter().flatten() {
+        if let Some(g) = tick.guard.as_ref() {
+            collect_entity_slots(g, candidates, &mut slots);
+        }
+        for e in &tick.effects {
+            collect_entity_slots(e, candidates, &mut slots);
+        }
+    }
+    for l in td.listens.iter().flatten() {
+        if let Some(g) = l.guard.as_ref() {
+            collect_entity_slots(g, candidates, &mut slots);
+        }
+        for v in l.payload_mapping.iter().flat_map(|pm| pm.values()) {
+            collect_entity_slots(v, candidates, &mut slots);
+        }
+    }
+    for f in td.config.iter().flat_map(|cfg| cfg.values()) {
+        if let Some(d) = f.default.as_ref() {
+            collect_entity_slots(d, candidates, &mut slots);
+        }
+    }
+    names.extend(slots);
+    names.sort();
+    names.dedup();
+    names
+}
+
 /// Stage B `entities {}`: record `(site, name)` when `name` is a member of
 /// `upstream_universe` — the out-of-orbital candidate set — deduping
 /// identical pairs. One tiny shared guard so every `referenced`-collection
@@ -2829,18 +2949,22 @@ fn rewrite_listen_sources(
         )
     };
     if let Some(listens) = td.listens.as_mut() {
-        for listen in listens.iter_mut() {
-            if let Some(source) = listen.source.as_mut() {
-                rewrite(source);
+        listens.edit(|listens| {
+            for listen in listens.iter_mut() {
+                if let Some(source) = listen.source.as_mut() {
+                    rewrite(source);
+                }
             }
-        }
+        });
     }
     // A `listens`-addressed event value in config is the same address.
-    super::rewrite::map_config_event_addresses(td, &mut |event, source| {
+    let mut move_address = |event: &str, source: &ListenSource| {
         let mut moved = source.clone();
         rewrite(&mut moved);
-        Some((event.to_string(), moved))
-    });
+        (moved != *source).then(|| (event.to_string(), moved))
+    };
+    super::rewrite::map_config_event_addresses(td, &mut move_address);
+    super::rewrite::map_effect_event_addresses(td, &mut move_address);
 }
 
 /// The one rewrite of a `listens` address (a listen source, or the source part
@@ -3110,13 +3234,15 @@ fn rewrite_trait_navigate_targets(td: &mut TraitDefinition, path_map: &orbital_c
     if path_map.is_empty() {
         return;
     }
-    for t in td.state_machine.transitions.iter_mut() {
-        if let Some(effects) = t.effects.as_mut() {
-            for e in effects.iter_mut() {
-                rewrite_navigate_targets(e, path_map);
+    td.state_machine.edit(|machine| {
+        for t in machine.transitions.iter_mut() {
+            if let Some(effects) = t.effects.as_mut() {
+                for e in effects.iter_mut() {
+                    rewrite_navigate_targets(e, path_map);
+                }
             }
         }
-    }
+    });
     if let Some(ticks) = td.ticks.as_mut() {
         for tick in ticks.iter_mut() {
             for e in tick.effects.iter_mut() {
@@ -5925,8 +6051,24 @@ mod tests {
     }
 
     fn resolve_with(obj: &OrbitalRefObject) -> Result<Orbital, InlineError> {
+        resolve_with_siblings(obj, &[])
+    }
+
+    fn resolve_with_siblings(obj: &OrbitalRefObject, siblings: &[&str]) -> Result<Orbital, InlineError> {
         let ctx = ctx_with_upstream(None);
         let mut orbital = consumer_orbital("Local");
+        orbital.traits = siblings
+            .iter()
+            .map(|name| {
+                serde_json::from_value(json!({
+                    "name": name,
+                    "linkedEntity": "Up",
+                    "category": "interaction",
+                    "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+                }))
+                .expect("sibling fixture")
+            })
+            .collect();
         let mut diagnostics = Vec::new();
         resolve_orbital_reference(
             &mut orbital,
@@ -5952,9 +6094,9 @@ mod tests {
             json!([{ "trait": "B", "event": "GO", "source": { "kind": "trait", "trait": "Host" }, "triggers": "PING" }]),
             None,
         );
-        let orbital = resolve_with(&obj).expect("resolves");
+        let orbital = resolve_with_siblings(&obj, &["Host"]).expect("resolves");
         let b = kept_trait(&orbital, "LocalB");
-        let routed = b.listens.as_deref().unwrap_or(&[]).iter().any(|l| {
+        let routed = b.listens.as_deref().map(Vec::as_slice).unwrap_or(&[]).iter().any(|l| {
             l.event == "GO"
                 && l.triggers.as_deref() == Some("PING")
                 && matches!(&l.source, Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) if trait_name == "Host")
@@ -5970,10 +6112,104 @@ mod tests {
         );
         let orbital = resolve_with(&obj).expect("resolves");
         let b = kept_trait(&orbital, "LocalB");
-        assert!(b.listens.as_deref().unwrap_or(&[]).iter().any(|l| matches!(
+        assert!(b.listens.as_deref().map(Vec::as_slice).unwrap_or(&[]).iter().any(|l| matches!(
             &l.source,
             Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) if trait_name == "LocalA"
         )), "{:?}", b.listens);
+    }
+
+    fn host_embedding(name: &str, embeds: &str) -> TraitReference {
+        serde_json::from_value(json!({
+            "name": name,
+            "linkedEntity": "Up",
+            "category": "interaction",
+            "stateMachine": {
+                "states": [ { "name": "idle", "isInitial": true } ],
+                "events": [ { "key": "GO" } ],
+                "transitions": [ { "from": "idle", "to": "idle", "event": "GO",
+                    "effects": [ ["render-ui", "main", { "type": "stack", "children": [ format!("@trait.{embeds}") ] }] ] } ]
+            }
+        }))
+        .expect("embedding sibling fixture")
+    }
+
+    fn embedded_tokens(orbital: &Orbital, host: &str) -> String {
+        serde_json::to_string(kept_trait(orbital, host)).expect("serialises")
+    }
+
+    #[test]
+    fn import_body_sibling_embedding_an_upstream_trait_name_lands_on_the_materialized_trait() {
+        let obj = ref_with_listens(json!([]), None);
+        let ctx = ctx_with_upstream(None);
+        let mut orbital = consumer_orbital("Local");
+        orbital.traits = vec![host_embedding("Host", "B")];
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &orbital_core_base::collections::IndexMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
+            &HashMap::new(),
+            None,
+            &mut diagnostics,
+            None,
+            &mut Vec::new(),
+        )
+        .expect("resolves");
+        let blob = embedded_tokens(&orbital, "Host");
+        assert!(blob.contains("@trait.LocalB"), "{blob}");
+        assert!(!blob.contains("@trait.B\""), "{blob}");
+    }
+
+    #[test]
+    fn control_import_body_sibling_embedding_its_own_sibling_keeps_the_name() {
+        let obj = ref_with_listens(json!([]), None);
+        let ctx = ctx_with_upstream(None);
+        let mut orbital = consumer_orbital("Local");
+        orbital.traits = vec![host_embedding("Host", "Mine"), host_embedding("Mine", "Mine")];
+        let mut diagnostics = Vec::new();
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &orbital_core_base::collections::IndexMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
+            &HashMap::new(),
+            None,
+            &mut diagnostics,
+            None,
+            &mut Vec::new(),
+        )
+        .expect("resolves");
+        assert!(embedded_tokens(&orbital, "Host").contains("@trait.Mine"));
+    }
+
+    #[test]
+    fn import_listens_source_naming_no_trait_is_an_error_that_names_the_candidates() {
+        for source in ["Typo", "C"] {
+            let omit = (source == "C").then(|| vec!["C".to_string()]);
+            let obj = ref_with_listens(
+                json!([{ "trait": "B", "event": "GO", "source": { "kind": "trait", "trait": source }, "triggers": "PING" }]),
+                omit,
+            );
+            match resolve_with_siblings(&obj, &["Host"]) {
+                Err(e @ InlineError::OrbitalRefListenSourceUnknown { .. }) => {
+                    assert_eq!(e.structured_code(), "ORB_O_LISTEN_SOURCE_UNKNOWN");
+                    assert!(e.to_string().contains("A, B"), "{e}");
+                }
+                other => panic!("{source}: expected OrbitalRefListenSourceUnknown, got {:?}", other.map(|_| ())),
+            }
+        }
+    }
+
+    #[test]
+    fn control_import_listens_from_an_orbital_kind_source_is_not_checked_here() {
+        let obj = ref_with_listens(
+            json!([{ "trait": "B", "event": "GO", "source": { "kind": "orbital", "orbital": "Elsewhere", "trait": "Anything" }, "triggers": "PING" }]),
+            None,
+        );
+        resolve_with(&obj).expect("another orbital's trait is the validator's to resolve");
     }
 
     #[test]
@@ -5983,7 +6219,7 @@ mod tests {
                 json!([{ "trait": target, "event": "GO", "source": { "kind": "trait", "trait": "Host" }, "triggers": "PING" }]),
                 omit,
             );
-            match resolve_with(&obj) {
+            match resolve_with_siblings(&obj, &["Host"]) {
                 Err(e @ InlineError::OrbitalRefListenTargetUnknown { .. }) => {
                     assert_eq!(e.structured_code(), "ORB_O_LISTEN_TARGET_UNKNOWN")
                 }

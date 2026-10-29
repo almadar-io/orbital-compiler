@@ -214,6 +214,18 @@ pub enum InlineError {
         path: String,
     },
 
+    #[error(
+        "Orbital import `listens` at {path} routes from '{from_trait}', which is neither a trait of the imported set (after omit/only) nor a trait authored in the import body; the imported traits are: {candidates}"
+    )]
+    OrbitalRefListenSourceUnknown {
+        /// The trait name the route names as its source.
+        from_trait: String,
+        /// The imported set's trait names, sorted, so the author sees what the name could mean.
+        candidates: String,
+        /// Source-tagged path to the importing orbital.
+        path: String,
+    },
+
     #[error("Duplicate import alias '{alias}' at {path} — each `uses` alias names one import")]
     DuplicateUseAlias {
         /// The alias declared more than once in one orbital's `uses`.
@@ -302,6 +314,7 @@ impl InlineError {
             InlineError::AmbiguousTypeName { path, .. } => path,
             InlineError::DuplicateUseAlias { path, .. } => path,
             InlineError::OrbitalRefListenTargetUnknown { path, .. } => path,
+            InlineError::OrbitalRefListenSourceUnknown { path, .. } => path,
             InlineError::LazyEagerRef { path, .. } => path,
             InlineError::PageAccessWeakened { path, .. } => path,
             InlineError::PageProtocolMismatch { path, .. } => path,
@@ -325,6 +338,7 @@ impl InlineError {
             InlineError::AmbiguousTypeName { .. } => "ORB_T_AMBIGUOUS_TYPE_NAME",
             InlineError::DuplicateUseAlias { .. } => "ORB_O_DUPLICATE_USE_ALIAS",
             InlineError::OrbitalRefListenTargetUnknown { .. } => "ORB_O_LISTEN_TARGET_UNKNOWN",
+            InlineError::OrbitalRefListenSourceUnknown { .. } => "ORB_O_LISTEN_SOURCE_UNKNOWN",
             InlineError::LazyEagerRef { .. } => "ORB_LAZY_EAGER_REF",
             InlineError::LazyNoPages { .. } => "ORB_LAZY_NO_PAGES",
             InlineError::LazyNotSplit { .. } => "ORB_LAZY_NOT_SPLIT",
@@ -1091,17 +1105,19 @@ fn uniquify_cross_orbital_pulled_siblings(
                     // A sibling-listening parent in the same orbital points its
                     // `listens` source at the old sibling name; track the rename.
                     if let Some(listens) = td.listens.as_mut() {
-                        for listen in listens.iter_mut() {
-                            if let Some(orbital_core_base::schema::ListenSource::Trait {
-                                trait_name,
-                                ..
-                            }) = listen.source.as_mut()
-                            {
-                                if trait_name == old_name {
-                                    *trait_name = new_name.clone();
+                        listens.edit(|listens| {
+                            for listen in listens.iter_mut() {
+                                if let Some(orbital_core_base::schema::ListenSource::Trait {
+                                    trait_name,
+                                    ..
+                                }) = listen.source.as_mut()
+                                {
+                                    if trait_name == old_name {
+                                        *trait_name = new_name.clone();
+                                    }
                                 }
                             }
-                        }
+                        });
                     }
                 }
             }
@@ -1174,18 +1190,22 @@ fn uniquify_cross_orbital_pulled_siblings(
         for tr in orbital.traits.iter_mut() {
             let TraitReference::Inline(td) = tr else { continue };
             let td = Arc::make_mut(td);
-            for listen in td.listens.iter_mut().flatten() {
-                if let Some(orbital_core_base::schema::ListenSource::Orbital { orbital: source, trait_name, .. }) =
-                    listen.source.as_mut()
-                {
-                    if let Some(to) = qualified_renames
-                        .iter()
-                        .find(|(name, _)| name == source)
-                        .and_then(|(_, renames)| renames.get(trait_name.as_str()))
-                    {
-                        *trait_name = to.clone();
+            if let Some(listens) = td.listens.as_mut() {
+                listens.edit(|listens| {
+                    for listen in listens.iter_mut() {
+                        if let Some(orbital_core_base::schema::ListenSource::Orbital { orbital: source, trait_name, .. }) =
+                            listen.source.as_mut()
+                        {
+                            if let Some(to) = qualified_renames
+                                .iter()
+                                .find(|(name, _)| name == source)
+                                .and_then(|(_, renames)| renames.get(trait_name.as_str()))
+                            {
+                                *trait_name = to.clone();
+                            }
+                        }
                     }
-                }
+                });
             }
         }
     }
@@ -1567,11 +1587,13 @@ fn address_imported_traits(orbitals: &mut [Orbital], imported: &ImportedTraitNam
             };
             let td = Arc::make_mut(td);
             if let Some(listens) = td.listens.as_mut() {
-                for listen in listens.iter_mut() {
-                    if let Some(source) = listen.source.as_mut() {
-                        resolve(source);
+                listens.edit(|listens| {
+                    for listen in listens.iter_mut() {
+                        if let Some(source) = listen.source.as_mut() {
+                            resolve(source);
+                        }
                     }
-                }
+                });
             }
             rewrite::map_config_event_addresses(td, &mut |event, source| {
                 let mut moved = source.clone();
@@ -2959,21 +2981,25 @@ fn reconcile_event_id_renames(schema: &mut OrbitalSchema) {
                 return;
             };
             let owner = (orbital_name.clone(), td.name.clone());
-            for l in Arc::make_mut(td).listens.iter_mut().flatten() {
-                for (slot, name) in [
-                    (&mut l.event_id, Some(l.event.as_str())),
-                    (&mut l.triggers_id, l.triggers.as_deref()),
-                ] {
-                    let (Some(id), Some(name)) = (slot.as_ref(), name) else {
-                        continue;
-                    };
-                    let mut hits = derived.iter().filter(|(site, _)| {
-                        site.owner != owner && site.old_id == *id && site.new_key == name
-                    });
-                    if let (Some((_, new_id)), None) = (hits.next(), hits.next()) {
-                        *slot = Some(new_id.clone());
+            if let Some(listens) = Arc::make_mut(td).listens.as_mut() {
+                listens.edit(|listens| {
+                    for l in listens.iter_mut() {
+                        for (slot, name) in [
+                            (&mut l.event_id, Some(l.event.as_str())),
+                            (&mut l.triggers_id, l.triggers.as_deref()),
+                        ] {
+                            let (Some(id), Some(name)) = (slot.as_ref(), name) else {
+                                continue;
+                            };
+                            let mut hits = derived.iter().filter(|(site, _)| {
+                                site.owner != owner && site.old_id == *id && site.new_key == name
+                            });
+                            if let (Some((_, new_id)), None) = (hits.next(), hits.next()) {
+                                *slot = Some(new_id.clone());
+                            }
+                        }
                     }
-                }
+                });
             }
         });
     }
@@ -3031,18 +3057,28 @@ fn swap_instance_event_ids(td: &mut TraitDefinition, subs: &HashMap<&str, &str>)
             *slot = Some((*to).to_string());
         }
     };
-    for ev in td.state_machine.events.iter_mut().flatten() {
-        swap(&mut ev.id);
+    td.state_machine.edit(|machine| {
+        for ev in machine.events.iter_mut().flatten() {
+            swap(&mut ev.id);
+        }
+        for t in machine.transitions.iter_mut() {
+            swap(&mut t.event_id);
+        }
+    });
+    if let Some(emits) = td.emits.as_mut() {
+        emits.edit(|emits| {
+            for e in emits.iter_mut() {
+                swap(&mut e.event_id);
+            }
+        });
     }
-    for t in td.state_machine.transitions.iter_mut() {
-        swap(&mut t.event_id);
-    }
-    for e in td.emits.iter_mut().flatten() {
-        swap(&mut e.event_id);
-    }
-    for l in td.listens.iter_mut().flatten() {
-        swap(&mut l.event_id);
-        swap(&mut l.triggers_id);
+    if let Some(listens) = td.listens.as_mut() {
+        listens.edit(|listens| {
+            for l in listens.iter_mut() {
+                swap(&mut l.event_id);
+                swap(&mut l.triggers_id);
+            }
+        });
     }
     for cf in td.config.iter_mut().flat_map(|c| c.values_mut()) {
         swap(&mut cf.ref_id);
@@ -4040,7 +4076,7 @@ mod tests {
                 states: vec![],
                 events: None,
                 transitions: vec![],
-            },
+            }.into(),
             ticks: None,
             config: None,
             data_entities: None,
@@ -5634,7 +5670,7 @@ mod tests {
                         ensures: None,
                     },
                 ],
-            },
+            }.into(),
             ticks: None,
             config: None,
             data_entities: None,
@@ -5880,7 +5916,7 @@ mod tests {
                     ].into())]),
                     ensures: None,
                 }],
-            },
+            }.into(),
             ticks: None,
             config: None,
             data_entities: None,
@@ -6170,7 +6206,7 @@ mod tests {
                         ensures: None,
                     },
                 ],
-            },
+            }.into(),
             ticks: None,
             config: None,
             data_entities: None,

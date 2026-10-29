@@ -322,25 +322,28 @@ pub(crate) fn apply_overrides_to_trait(
 
     // 4. Walk SExpressions in transitions and ticks ONCE with both maps.
     if !entity_subs.is_empty() || !event_subs.is_empty() || !field_subs.is_empty() {
-        for p in trait_def.propositions_mut() {
-            rewrite_identifiers(p, &entity_subs, &event_subs);
-            rewrite_entity_field_paths(p, &field_subs);
-        }
-        for transition in trait_def.state_machine.transitions.iter_mut() {
-            if let Some(guard) = transition.guard.as_mut() {
-                rewrite_identifiers(guard, &entity_subs, &event_subs);
-                rewrite_entity_field_paths(guard, &field_subs);
+        let bound_entity = trait_def.linked_entity.as_deref();
+        trait_def.state_machine.edit(|machine| {
+            for p in machine.propositions_mut() {
+                rewrite_identifiers(p, &entity_subs, &event_subs);
+                rewrite_entity_field_paths(p, &field_subs);
             }
-            if let Some(effects) = transition.effects.as_mut() {
-                for effect in effects.iter_mut() {
-                    rewrite_identifiers(effect, &entity_subs, &event_subs);
-                    rewrite_entity_field_paths(effect, &field_subs);
-                    if let Some(bound) = trait_def.linked_entity.as_deref() {
-                        rewrite_persist_data_keys(effect, &field_subs, bound);
+            for transition in machine.transitions.iter_mut() {
+                if let Some(guard) = transition.guard.as_mut() {
+                    rewrite_identifiers(guard, &entity_subs, &event_subs);
+                    rewrite_entity_field_paths(guard, &field_subs);
+                }
+                if let Some(effects) = transition.effects.as_mut() {
+                    for effect in effects.iter_mut() {
+                        rewrite_identifiers(effect, &entity_subs, &event_subs);
+                        rewrite_entity_field_paths(effect, &field_subs);
+                        if let Some(bound) = bound_entity {
+                            rewrite_persist_data_keys(effect, &field_subs, bound);
+                        }
                     }
                 }
             }
-        }
+        });
         if let Some(ticks) = trait_def.ticks.as_mut() {
             for tick in ticks.iter_mut() {
                 if let Some(guard) = tick.guard.as_mut() {
@@ -683,16 +686,22 @@ fn apply_payload_type_conditionals(trait_def: &mut TraitDefinition) {
             }
         }
     };
-    for emit in trait_def.emits.iter_mut().flatten() {
-        if let Some(fields) = emit.payload_schema.as_mut() {
-            resolve_fields(fields);
-        }
+    if let Some(emits) = trait_def.emits.as_mut() {
+        emits.edit(|emits| {
+            for emit in emits.iter_mut() {
+                if let Some(fields) = emit.payload_schema.as_mut() {
+                    resolve_fields(fields);
+                }
+            }
+        });
     }
-    for ev in trait_def.state_machine.events.iter_mut().flatten() {
-        if let Some(fields) = ev.payload_schema.as_mut() {
-            resolve_fields(fields);
+    trait_def.state_machine.edit(|machine| {
+        for ev in machine.events.iter_mut().flatten() {
+            if let Some(fields) = ev.payload_schema.as_mut() {
+                resolve_fields(fields);
+            }
         }
-    }
+    });
 }
 
 /// True for an array-shaped payload type (`[T]` or the literal `array`). The
@@ -728,16 +737,22 @@ fn finalize_payload_type_conditionals(trait_def: &mut TraitDefinition) -> bool {
             }
         }
     };
-    for emit in trait_def.emits.iter_mut().flatten() {
-        if let Some(fields) = emit.payload_schema.as_mut() {
-            sweep(fields);
-        }
+    if let Some(emits) = trait_def.emits.as_mut() {
+        emits.edit(|emits| {
+            for emit in emits.iter_mut() {
+                if let Some(fields) = emit.payload_schema.as_mut() {
+                    sweep(fields);
+                }
+            }
+        });
     }
-    for ev in trait_def.state_machine.events.iter_mut().flatten() {
-        if let Some(fields) = ev.payload_schema.as_mut() {
-            sweep(fields);
+    trait_def.state_machine.edit(|machine| {
+        for ev in machine.events.iter_mut().flatten() {
+            if let Some(fields) = ev.payload_schema.as_mut() {
+                sweep(fields);
+            }
         }
-    }
+    });
     value_narrowed_to_scalar
 }
 
@@ -973,7 +988,7 @@ pub(crate) fn apply_post_subst_overrides_to_trait(
     if let Some(new_listens) = listens {
         let mut new_listens = new_listens.clone();
         stamp_call_site_triggers(&mut new_listens, trait_def);
-        trait_def.listens = Some(new_listens);
+        trait_def.listens = Some(new_listens.into());
     }
     if let Some(scope) = emits_scope {
         if let Some(emits) = trait_def.emits.as_mut() {
@@ -1548,7 +1563,7 @@ pub(crate) fn sibling_trait_refs_of(
                     let TraitReference::Inline(candidate) = candidate else {
                         continue;
                     };
-                    let listens = candidate.listens.as_deref().unwrap_or_default();
+                    let listens = candidate.listens.as_deref().map(Vec::as_slice).unwrap_or_default();
                     let depends = listens.iter().any(|listen| {
                         if !config_events.contains(&listen.event) {
                             return false;
@@ -1729,7 +1744,7 @@ pub(crate) fn inline_traits(
         .iter()
         .flat_map(|entry| {
             let listens = match entry {
-                TraitReference::Inline(def) => def.listens.as_deref().unwrap_or_default(),
+                TraitReference::Inline(def) => def.listens.as_deref().map(Vec::as_slice).unwrap_or_default(),
                 TraitReference::Reference { listens, .. } => listens.as_deref().unwrap_or_default(),
             };
             listens.iter().filter_map(|listen| match &listen.source {
@@ -2142,25 +2157,27 @@ pub(crate) fn inline_traits(
                                     // step 4 + `rewrite_entity_ref_ids`.
                                     if let Some(subs) = alias_entity_renames.get(&alias) {
                                         if !subs.is_empty() {
-                                            for t in trait_def.state_machine.transitions.iter_mut()
-                                            {
-                                                if let Some(guard) = t.guard.as_mut() {
-                                                    rewrite_identifiers(
-                                                        guard,
-                                                        subs,
-                                                        &orbital_core_base::collections::IndexMap::new(),
-                                                    );
-                                                }
-                                                if let Some(effects) = t.effects.as_mut() {
-                                                    for effect in effects.iter_mut() {
+                                            trait_def.state_machine.edit(|machine| {
+                                                for t in machine.transitions.iter_mut()
+                                                {
+                                                    if let Some(guard) = t.guard.as_mut() {
                                                         rewrite_identifiers(
-                                                            effect,
+                                                            guard,
                                                             subs,
                                                             &orbital_core_base::collections::IndexMap::new(),
                                                         );
                                                     }
+                                                    if let Some(effects) = t.effects.as_mut() {
+                                                        for effect in effects.iter_mut() {
+                                                            rewrite_identifiers(
+                                                                effect,
+                                                                subs,
+                                                                &orbital_core_base::collections::IndexMap::new(),
+                                                            );
+                                                        }
+                                                    }
                                                 }
-                                            }
+                                            });
                                             if let Some(ticks) = trait_def.ticks.as_mut() {
                                                 for tick in ticks.iter_mut() {
                                                     if let Some(guard) = tick.guard.as_mut() {
@@ -2261,10 +2278,24 @@ pub(crate) fn inline_traits(
                                     // source trait, entity) resolves to it
                                     // instead of materialising a duplicate
                                     // companion — the local name is free.
-                                    explicit_ref_instances.insert(
-                                        (alias.clone(), name.clone(), linked_entity.clone()),
-                                        trait_def.name.clone(),
-                                    );
+                                    // An instance that stays on the entity its source already
+                                    // binds is one instance however a pull spells that entity:
+                                    // unwritten, or written out.
+                                    let stays_on_source_entity = linked_entity.is_none()
+                                        || linked_entity.as_ref() == source_linked_entity.as_ref();
+                                    let mut instance_keys =
+                                        vec![(alias.clone(), name.clone(), linked_entity.clone())];
+                                    if stays_on_source_entity {
+                                        instance_keys.push((alias.clone(), name.clone(), None));
+                                        instance_keys.push((
+                                            alias.clone(),
+                                            name.clone(),
+                                            source_linked_entity.clone(),
+                                        ));
+                                    }
+                                    for key in instance_keys {
+                                        explicit_ref_instances.insert(key, trait_def.name.clone());
+                                    }
                                     // Record this resolved ref so the sibling-pull
                                     // pass below can instantiate any same-alias
                                     // `@trait.X` siblings its body references,
@@ -2712,63 +2743,65 @@ pub(crate) fn inline_traits(
                 },
             );
             if let Some(listens) = trait_def.listens.as_mut() {
-                // Rewrite listen SOURCES through the consumer's rename map
-                // BEFORE the retain: a sub-trait pulled alongside a renamed
-                // host still names the host's ORIGINAL trait as its source
-                // (`DataGrid1 listens { Host.EVENT -> X }` with the consumer
-                // binding the host as `TransactionHost`). Without the rewrite
-                // the retain below sees a non-local name and silently drops
-                // the route — and renaming the host is the universal case.
-                for listen in listens.iter_mut() {
-                    if let Some(orbital_core_base::schema::ListenSource::Trait {
-                        trait_name, ..
-                    }) = listen.source.as_mut()
-                    {
-                        if let Some(renamed) = own_subs
-                            .and_then(|subs| subs.get(trait_name.as_str()))
-                            .or_else(|| rename_map.get(trait_name.as_str()))
-                        {
-                            *trait_name = renamed.clone();
-                        }
-                    }
-                    // The listen's EVENT follows the source trait's call-site
-                    // event renames too — a sibling listening for the host's
-                    // `BrowseItemLoaded` must listen for `CoursesLoaded` once
-                    // the host's emit was renamed, or the route (and the
-                    // emitter index) dangles on the pre-rename name.
-                    let source_name = match listen.source.as_ref() {
-                        Some(orbital_core_base::schema::ListenSource::Trait {
+                listens.edit(|listens| {
+                    // Rewrite listen SOURCES through the consumer's rename map
+                    // BEFORE the retain: a sub-trait pulled alongside a renamed
+                    // host still names the host's ORIGINAL trait as its source
+                    // (`DataGrid1 listens { Host.EVENT -> X }` with the consumer
+                    // binding the host as `TransactionHost`). Without the rewrite
+                    // the retain below sees a non-local name and silently drops
+                    // the route — and renaming the host is the universal case.
+                    for listen in listens.iter_mut() {
+                        if let Some(orbital_core_base::schema::ListenSource::Trait {
                             trait_name, ..
-                        }) => Some(trait_name.clone()),
-                        _ => None,
-                    };
-                    if let Some(source_name) = source_name {
-                        if let Some(subs) = event_renames_by_trait.get(source_name.as_str()) {
-                            if let Some(new_event) = subs.get(&listen.event) {
-                                listen.event = new_event.clone();
+                        }) = listen.source.as_mut()
+                        {
+                            if let Some(renamed) = own_subs
+                                .and_then(|subs| subs.get(trait_name.as_str()))
+                                .or_else(|| rename_map.get(trait_name.as_str()))
+                            {
+                                *trait_name = renamed.clone();
+                            }
+                        }
+                        // The listen's EVENT follows the source trait's call-site
+                        // event renames too — a sibling listening for the host's
+                        // `BrowseItemLoaded` must listen for `CoursesLoaded` once
+                        // the host's emit was renamed, or the route (and the
+                        // emitter index) dangles on the pre-rename name.
+                        let source_name = match listen.source.as_ref() {
+                            Some(orbital_core_base::schema::ListenSource::Trait {
+                                trait_name, ..
+                            }) => Some(trait_name.clone()),
+                            _ => None,
+                        };
+                        if let Some(source_name) = source_name {
+                            if let Some(subs) = event_renames_by_trait.get(source_name.as_str()) {
+                                if let Some(new_event) = subs.get(&listen.event) {
+                                    listen.event = new_event.clone();
+                                }
                             }
                         }
                     }
-                }
-                listens.retain(|listen| match &listen.source {
-                    Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) => {
-                        local_trait_names.contains(trait_name)
+                    listens.retain(|listen| match &listen.source {
+                        Some(orbital_core_base::schema::ListenSource::Trait { trait_name, .. }) => {
+                            local_trait_names.contains(trait_name)
+                        }
+                        _ => true,
+                    });
+                    for listen in listens.iter_mut() {
+                        if let Some(orbital_core_base::schema::ListenSource::Trait {
+                            trait_name,
+                            trait_id,
+                        }) = listen.source.as_mut()
+                        {
+                            if let Some(decl_id) = local_inline_trait_ids.get(trait_name.as_str()) {
+                                if trait_id != decl_id {
+                                    *trait_id = decl_id.clone();
+                                }
+                            }
+                        }
                     }
-                    _ => true,
                 });
-                for listen in listens.iter_mut() {
-                    if let Some(orbital_core_base::schema::ListenSource::Trait {
-                        trait_name,
-                        trait_id,
-                    }) = listen.source.as_mut()
-                    {
-                        if let Some(decl_id) = local_inline_trait_ids.get(trait_name.as_str()) {
-                            if trait_id != decl_id {
-                                *trait_id = decl_id.clone();
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -2979,7 +3012,7 @@ mod entity_id_reader_tests {
                     ].into())]),
                     ensures: None,
                 }],
-            },
+            }.into(),
             ticks: None,
             config: None,
             data_entities: None,
@@ -3158,7 +3191,7 @@ mod entity_id_reader_tests {
                     ].into())]),
                     ensures: None,
                 }],
-            },
+            }.into(),
             ticks: None,
             config: None,
             data_entities: None,

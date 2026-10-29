@@ -86,7 +86,6 @@ const EFFECT_POSITION_EXTRA: &[&str] = &[
     "memory/recall",
     "memory/list",
     // Substrate: trace (value-position, valid in effects)
-    "trace/log",
     "trace/emit",
 ];
 

@@ -182,3 +182,77 @@ fn renamed_explicit_companion_suppresses_pull_per_entity() {
         );
     }
 }
+
+fn same_entity_consumer(transport_rebind: &str, sim_rebind: &str) -> String {
+    format!(
+        r#"{{
+  "name": "test-trials-same-entity",
+  "version": "1.0.0",
+  "orbitals": [
+    {{
+      "name": "LabOrbital",
+      "uses": [ {{ "from": "./atom.orb", "as": "Trials" }} ],
+      "entity": {{
+        "name": "TrialsScene",
+        "persistence": "runtime",
+        "fields": [
+          {{ "name": "id", "type": "string", "required": true }},
+          {{ "name": "running", "type": "boolean" }}
+        ]
+      }},
+      "traits": [
+        {{ "ref": "Trials.traits.TrialsTransport"{transport_rebind}, "name": "MyTransport" }},
+        {{ "ref": "Trials.traits.TrialsSim"{sim_rebind}, "name": "MySim" }}
+      ],
+      "pages": [
+        {{ "name": "LabPage", "path": "/lab", "linkedEntity": "TrialsScene", "traits": [ {{ "ref": "MyTransport" }}, {{ "ref": "MySim" }} ] }}
+      ]
+    }}
+  ]
+}}"#
+    )
+}
+
+fn inline_same_entity(transport_rebind: &str, sim_rebind: &str) -> Vec<(String, Vec<String>)> {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("atom.orb"), ATOM).expect("write atom");
+    let consumer_path = dir.path().join("consumer.orb");
+    std::fs::write(&consumer_path, same_entity_consumer(transport_rebind, sim_rebind))
+        .expect("write consumer");
+    let mut schema = parse_file(&consumer_path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path)).expect("inline succeeds");
+    schema.orbitals[0]
+        .traits
+        .iter()
+        .filter_map(|t| match t {
+            TraitReference::Inline(td) => Some((td.name.clone(), embed_tokens(td))),
+            _ => None,
+        })
+        .collect()
+}
+
+const REBIND_NATIVE: &str = r#", "linkedEntity": "TrialsScene""#;
+
+#[test]
+fn a_rebind_to_the_entity_the_source_already_binds_is_the_same_instance_as_no_rebind() {
+    let traits = inline_same_entity(REBIND_NATIVE, "");
+    let names: Vec<&str> = traits.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(traits.len(), 2, "one instance per source trait, got {names:?}");
+    let sim = traits.iter().find(|(n, _)| n == "MySim").expect("MySim");
+    assert_eq!(sim.1, vec!["MyTransport".to_string()]);
+}
+
+#[test]
+fn a_no_rebind_explicit_instance_satisfies_a_pull_made_with_the_native_rebind() {
+    let traits = inline_same_entity("", REBIND_NATIVE);
+    let names: Vec<&str> = traits.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(traits.len(), 2, "one instance per source trait, got {names:?}");
+    let sim = traits.iter().find(|(n, _)| n == "MySim").expect("MySim");
+    assert_eq!(sim.1, vec!["MyTransport".to_string()]);
+}
+
+#[test]
+fn control_neither_rebound_still_one_instance_per_source_trait() {
+    let traits = inline_same_entity("", "");
+    assert_eq!(traits.len(), 2, "{traits:?}");
+}

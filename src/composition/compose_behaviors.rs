@@ -12,7 +12,7 @@
 //! strongly-typed `Orbital` schema is intentionally bypassed here.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map as JsonMap, Value};
+use orbital_core_base::value::{Value, ValueMap as JsonMap};
 use thiserror::Error;
 
 use super::event_wiring::EventWiringEntry;
@@ -141,31 +141,31 @@ fn build_page(
     is_initial: bool,
     primary_entity: Option<String>,
 ) -> Value {
-    let mut map = JsonMap::new();
-    map.insert("name".to_string(), Value::String(name));
-    map.insert("path".to_string(), Value::String(path));
+    let mut map = JsonMap::default();
+    map.insert("name".to_string(), Value::string(name));
+    map.insert("path".to_string(), Value::string(path));
     map.insert("isInitial".to_string(), Value::Bool(is_initial));
     if let Some(s) = primary_entity {
-        map.insert("primaryEntity".to_string(), Value::String(s));
+        map.insert("primaryEntity".to_string(), Value::string(s));
     }
-    Value::Object(map)
+    Value::object(map)
 }
 
 /// Build the special dashboard page. TS literal:
 /// `{ name: 'DashboardPage', path: '/', viewType: 'dashboard', isInitial: true }`.
 fn build_dashboard_page() -> Value {
-    let mut map = JsonMap::new();
+    let mut map = JsonMap::default();
     map.insert(
         "name".to_string(),
-        Value::String("DashboardPage".to_string()),
+        Value::string("DashboardPage".to_string()),
     );
-    map.insert("path".to_string(), Value::String("/".to_string()));
+    map.insert("path".to_string(), Value::string("/".to_string()));
     map.insert(
         "viewType".to_string(),
-        Value::String("dashboard".to_string()),
+        Value::string("dashboard".to_string()),
     );
     map.insert("isInitial".to_string(), Value::Bool(true));
-    Value::Object(map)
+    Value::object(map)
 }
 
 /// Generate pages for each orbital based on the layout strategy.
@@ -255,17 +255,21 @@ pub fn compose_behaviors(
     } = input;
 
     // Schema-shaped inputs contribute their orbitals, ledger and schemaVersion.
-    let raw_orbitals = super::compose_app::as_definitions(&raw_inputs);
     let ledger = super::compose_app::merge_ledgers(&raw_inputs);
     let schema_version = raw_inputs
         .iter()
         .filter(|i| i.get("orbitals").is_some_and(Value::is_array))
-        .filter_map(|i| i.get("schemaVersion").filter(|v| v.is_number()))
+        .filter_map(|i| i.get("schemaVersion").filter(|v| matches!(v, Value::Number(_))))
         .fold(None, |max: Option<&Value>, v| match max {
-            Some(m) if m.as_f64() >= v.as_f64() => Some(m),
+            Some(m) if m.as_number() >= v.as_number() => Some(m),
             _ => Some(v),
         })
         .cloned();
+    let raw_orbitals = if raw_inputs.iter().any(|i| i.get("orbitals").is_some_and(Value::is_array)) {
+        super::compose_app::as_definitions(&raw_inputs)
+    } else {
+        raw_inputs
+    };
 
     // Step 1: Apply event wiring.
     //
@@ -287,7 +291,7 @@ pub fn compose_behaviors(
     // Step 2: Determine layout strategy.
     let strategy: LayoutStrategy = match strategy_input.as_deref() {
         None | Some("auto") => super::layout_strategy::detect_layout_strategy_from_values(
-            &wired_orbitals,
+            &wired_orbitals[..],
             event_wiring.as_deref(),
         ),
         Some(other) => parse_layout_strategy_string(other)?,
@@ -324,8 +328,8 @@ pub fn compose_behaviors(
         };
 
         let pages_value = match page {
-            Some(p) => Value::Array(vec![p.clone()]),
-            None => Value::Array(Vec::new()),
+            Some(p) => Value::array(vec![p.clone()]),
+            None => Value::array(Vec::new()),
         };
 
         // Match TS spread semantics: if the original object had a `pages`
@@ -338,17 +342,17 @@ pub fn compose_behaviors(
 
     // Step 5: Build the schema as a JSON object literal in the same field
     // order the TS code uses: `{ name, version, orbitals }`.
-    let mut schema_map = JsonMap::new();
-    schema_map.insert("name".to_string(), Value::String(app_name));
-    schema_map.insert("version".to_string(), Value::String("1.0.0".to_string()));
-    schema_map.insert("orbitals".to_string(), Value::Array(wired_orbitals));
+    let mut schema_map = JsonMap::default();
+    schema_map.insert("name".to_string(), Value::string(app_name));
+    schema_map.insert("version".to_string(), Value::string("1.0.0".to_string()));
+    schema_map.insert("orbitals".to_string(), Value::array(wired_orbitals));
     if let Some(version) = schema_version {
         schema_map.insert("schemaVersion".to_string(), version);
     }
     if let Some(ledger) = ledger {
         schema_map.insert("ledger".to_string(), ledger);
     }
-    let schema = Value::Object(schema_map);
+    let schema = Value::object(schema_map);
 
     let page_count = pages.len();
     let connection_count = event_wiring.as_ref().map(|w| w.len()).unwrap_or(0);
@@ -416,10 +420,10 @@ fn apply_event_wiring_value(orbitals: &mut [Value], wiring: &[EventWiringEntry])
 
 /// Ensure a JSON object has an array field. If absent or non-array, replaces
 /// with an empty array. Mirrors `if (!sourceTrait.emits) sourceTrait.emits = []`.
-fn ensure_array_field(obj: &mut JsonMap<String, Value>, key: &str) {
+fn ensure_array_field(obj: &mut JsonMap, key: &str) {
     let needs = !matches!(obj.get(key), Some(v) if v.is_array());
     if needs {
-        obj.insert(key.to_string(), Value::Array(Vec::new()));
+        obj.insert(key.to_string(), Value::array(Vec::new()));
     }
 }
 
@@ -429,7 +433,7 @@ fn ensure_array_field(obj: &mut JsonMap<String, Value>, key: &str) {
 fn find_inline_trait_mut<'a>(
     orbitals: &'a mut [Value],
     name: &str,
-) -> Option<&'a mut JsonMap<String, Value>> {
+) -> Option<&'a mut JsonMap> {
     for orbital in orbitals.iter_mut() {
         let traits = match orbital
             .as_object_mut()

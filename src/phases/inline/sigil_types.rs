@@ -69,7 +69,7 @@ pub(crate) fn build_payload_index(schema: &OrbitalSchema) -> HashMap<String, Vec
             let TraitReference::Inline(td) = trait_ref else {
                 continue;
             };
-            for emit in td.emits.as_deref().unwrap_or(&[]) {
+            for emit in td.emits.as_deref().map(Vec::as_slice).unwrap_or(&[]) {
                 if let Some(fields) = &emit.payload_schema {
                     if !fields.is_empty() {
                         idx.entry(emit.event.clone())
@@ -253,18 +253,22 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
                 continue;
             };
             let row: Vec<PayloadField> = fields.iter().map(payload_field_of).collect();
-            for emit in td.emits.iter_mut().flatten() {
-                if let Some(schema_fields) = emit.payload_schema.as_mut() {
-                    substitute_entity_sentinel(schema_fields, &row, &bound);
-                }
+            if let Some(emits) = td.emits.as_mut() {
+                emits.edit(|emits| {
+                    for emit in emits.iter_mut() {
+                        if let Some(schema_fields) = emit.payload_schema.as_mut() {
+                            substitute_entity_sentinel(schema_fields, &row, &bound);
+                        }
+                    }
+                });
             }
-            if let Some(events) = td.state_machine.events.as_mut() {
-                for ev in events.iter_mut() {
+            td.state_machine.edit(|machine| {
+                for ev in machine.events.iter_mut().flatten() {
                     if let Some(schema_fields) = ev.payload_schema.as_mut() {
                         substitute_entity_sentinel(schema_fields, &row, &bound);
                     }
                 }
-            }
+            });
         }
     }
 
@@ -285,18 +289,22 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
                     name,
                 ))
             };
-            for emit in td.emits.iter_mut().flatten() {
-                if let Some(schema_fields) = emit.payload_schema.as_mut() {
-                    substitute_named_entity_sentinels(schema_fields, resolve);
-                }
+            if let Some(emits) = td.emits.as_mut() {
+                emits.edit(|emits| {
+                    for emit in emits.iter_mut() {
+                        if let Some(schema_fields) = emit.payload_schema.as_mut() {
+                            substitute_named_entity_sentinels(schema_fields, resolve);
+                        }
+                    }
+                });
             }
-            if let Some(events) = td.state_machine.events.as_mut() {
-                for ev in events.iter_mut() {
+            td.state_machine.edit(|machine| {
+                for ev in machine.events.iter_mut().flatten() {
                     if let Some(schema_fields) = ev.payload_schema.as_mut() {
                         substitute_named_entity_sentinels(schema_fields, resolve);
                     }
                 }
-            }
+            });
         }
     }
 

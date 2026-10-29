@@ -142,8 +142,8 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
                 effects: Some(vec![emit]),
                 ensures: None,
             }],
-        },
-        emits: Some(vec![declared]),
+        }.into(),
+        emits: Some(vec![declared].into()),
         listens: None,
         ticks: None,
         config: None,
@@ -366,6 +366,18 @@ fn declared_shape_emit_mismatches(
     declared: serde_json::Value,
     aliases: serde_json::Value,
 ) -> bool {
+    declared_shape_emit_mismatches_with(source, declared, aliases, true)
+}
+
+fn declared_shape_emit_mismatches_with(
+    mut source: serde_json::Value,
+    declared: serde_json::Value,
+    aliases: serde_json::Value,
+    required: bool,
+) -> bool {
+    if required {
+        source["required"] = serde_json::json!(true);
+    }
     let value = serde_json::from_value(serde_json::json!([
         "object/get", "@entity.out", "value"
     ])).unwrap();
@@ -378,7 +390,7 @@ fn declared_shape_emit_mismatches(
     schema.orbitals[0].types = Some(serde_json::from_value(aliases).unwrap());
     let EntityRef::Inline(entity) = &mut schema.orbitals[0].entity else { unreachable!() };
     entity.fields.push(serde_json::from_value(serde_json::json!({
-        "name": "out", "type": "object", "properties": {"value": source}
+        "name": "out", "type": "object", "required": required, "properties": {"value": source}
     })).unwrap());
     validate_comprehensive_without_services(&schema).errors.iter().any(|e|
         matches!(e.code, ErrorCode::EmitPayloadFieldTypeMismatch)
@@ -438,4 +450,18 @@ fn declared_record_emit_checks_fields_and_required_members() {
             "name": "value", "type": "NoteRecord", "required": true
         }), aliases.clone()), expected_mismatch, "source: {source}");
     }
+}
+
+#[test]
+fn control_an_optional_source_field_is_a_mismatch_against_a_required_declared_shape() {
+    let source = || serde_json::json!({"type": "object", "properties": {
+        "title": {"type": "string", "required": true}, "count": {"type": "number", "required": true}
+    }});
+    let declared = || serde_json::json!({"name": "value", "type": "NoteRecord", "required": true});
+    let aliases = || serde_json::json!({"NoteRecord": [
+        {"name": "title", "type": "string", "required": true},
+        {"name": "count", "type": "number", "required": true}
+    ]});
+    assert!(!declared_shape_emit_mismatches_with(source(), declared(), aliases(), true));
+    assert!(declared_shape_emit_mismatches_with(source(), declared(), aliases(), false));
 }

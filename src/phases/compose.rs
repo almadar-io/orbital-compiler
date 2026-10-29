@@ -72,7 +72,9 @@ fn compose_orbital(orbital: &mut Orbital) -> Result<(), ComposeError> {
 }
 
 fn compose_trait(trait_def: &mut TraitDefinition) -> Result<(), ComposeError> {
-    compose_state_machine(&mut trait_def.state_machine)?;
+    let mut composed = Ok(());
+    trait_def.state_machine.edit(|sm| composed = compose_state_machine(sm));
+    composed?;
     if let Some(ticks) = trait_def.ticks.as_mut() {
         for tick in ticks.iter_mut() {
             compose_tick(tick)?;
@@ -167,7 +169,7 @@ fn resolve_compose(args: &[SExpression]) -> Result<SExpression, ComposeError> {
     let json = sexpr_to_json(arg);
     let input: ComposeBehaviorsInput = serde_json::from_value(json)?;
     let result = compose_behaviors(input)?;
-    Ok(json_to_sexpr(&result.schema))
+    Ok(json_to_sexpr(&orbital_core_base::json_value::value_to_json(&result.schema)))
 }
 
 fn resolve_wire(args: &[SExpression]) -> Result<SExpression, ComposeError> {
@@ -178,7 +180,7 @@ fn resolve_wire(args: &[SExpression]) -> Result<SExpression, ComposeError> {
         .get(1)
         .ok_or_else(|| ComposeError::MissingArgument("behavior/wire wiring".to_string()))?;
 
-    let orbitals: Vec<serde_json::Value> = serde_json::from_value(sexpr_to_json(orbitals_arg))?;
+    let orbitals: Vec<orbital_core_base::value::Value> = serde_json::from_value(sexpr_to_json(orbitals_arg))?;
     let wiring: Vec<EventWiringEntry> = serde_json::from_value(sexpr_to_json(wiring_arg))?;
 
     // Drive the typed `apply_event_wiring` indirectly: route through
@@ -197,7 +199,7 @@ fn resolve_wire(args: &[SExpression]) -> Result<SExpression, ComposeError> {
     let wired = result
         .schema
         .get("orbitals")
-        .cloned()
+        .map(orbital_core_base::json_value::value_to_json)
         .unwrap_or(serde_json::Value::Array(Vec::new()));
     Ok(json_to_sexpr(&wired))
 }
@@ -206,7 +208,7 @@ fn resolve_detect_layout(args: &[SExpression]) -> Result<SExpression, ComposeErr
     let orbitals_arg = args.first().ok_or_else(|| {
         ComposeError::MissingArgument("behavior/detect-layout orbitals".to_string())
     })?;
-    let orbitals: Vec<serde_json::Value> = serde_json::from_value(sexpr_to_json(orbitals_arg))?;
+    let orbitals: Vec<orbital_core_base::value::Value> = serde_json::from_value(sexpr_to_json(orbitals_arg))?;
     let wiring: Option<Vec<EventWiringEntry>> = match args.get(1) {
         Some(w) => {
             let json = sexpr_to_json(w);
@@ -269,7 +271,7 @@ mod tests {
         let parsed: ComposeBehaviorsInput =
             serde_json::from_value(input).expect("valid compose input");
         let result = compose_behaviors(parsed).expect("compose succeeded");
-        result.schema
+        orbital_core_base::json_value::value_to_json(&result.schema)
     }
 
     #[test]

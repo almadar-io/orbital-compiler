@@ -140,7 +140,7 @@ fn values(schema: &OrbitalSchema) -> (String, String) {
 fn listen_trait(schema: &OrbitalSchema) -> String {
     match note_log(schema)
         .listens
-        .as_deref()
+        .as_deref().map(Vec::as_slice)
         .unwrap_or(&[])
         .first()
         .and_then(|l| l.source.clone())

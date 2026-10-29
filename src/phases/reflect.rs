@@ -73,11 +73,18 @@ fn fold_schema(
                 continue;
             };
             let td = Arc::make_mut(td);
-            for transition in &mut td.state_machine.transitions {
-                for effect in transition.effects.iter_mut().flatten() {
-                    fold(effect, from, described)?;
-                }
-            }
+            let mut folded: CompileResult<()> = Ok(());
+            td.state_machine.edit(|machine| {
+                folded = (|| {
+                    for transition in &mut machine.transitions {
+                        for effect in transition.effects.iter_mut().flatten() {
+                            fold(effect, from, described)?;
+                        }
+                    }
+                    Ok(())
+                })();
+            });
+            folded?;
             for tick in td.ticks.iter_mut().flatten() {
                 for effect in &mut tick.effects {
                     fold(effect, from, described)?;

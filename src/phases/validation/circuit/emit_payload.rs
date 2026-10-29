@@ -52,7 +52,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             // "operator produces X but event declares no payload" warnings.
             let emit_schemas: HashMap<&str, &[PayloadField]> = trait_def
                 .emits
-                .as_deref()
+                .as_deref().map(Vec::as_slice)
                 .unwrap_or(&[])
                 .iter()
                 .map(|e| (e.event.as_str(), e.payload_schema.as_deref().unwrap_or(&[])))
@@ -146,7 +146,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             // a false positive on a deliberate documentation pattern.
             let external_emits: std::collections::HashSet<&str> = trait_def
                 .emits
-                .as_deref()
+                .as_deref().map(Vec::as_slice)
                 .unwrap_or(&[])
                 .iter()
                 .filter(|e| matches!(e.scope, Some(EventScope::External)))
@@ -696,11 +696,6 @@ fn produced_type_accepts(produced: &str, declared: &str) -> bool {
         // The element type lives only on the declared side.
         "array" => declared.starts_with('[') || declared == "array",
         "money" => matches!(declared, "number" | "money"),
-        "instant" => matches!(declared, "number" | "instant"),
-        "date" | "datetime" | "timestamp" => matches!(
-            declared,
-            "string" | "number" | "date" | "datetime" | "timestamp"
-        ),
         // Semantic string domains.
         "email" | "url" | "phone" | "uuid" | "image" | "file" => {
             matches!(declared, "string" | "object") || declared == produced
@@ -880,6 +875,21 @@ fn primitive_types_compatible(declared: &str, actual: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_produced_point_in_time_is_only_ever_iso_text_of_its_own_shape() {
+        for produced in ["datetime", "instant", "timestamp"] {
+            assert!(produced_type_accepts(produced, produced), "{produced} fits itself");
+            assert!(!produced_type_accepts(produced, "number"), "{produced} is not a number");
+            assert!(!produced_type_accepts(produced, "date"), "{produced} is not a date");
+        }
+        assert!(produced_type_accepts("date", "date"));
+        assert!(!produced_type_accepts("date", "number"), "a date is not a number");
+        assert!(!produced_type_accepts("date", "datetime"), "date and datetime never mix");
+        assert!(!produced_type_accepts("date", "instant"), "date and instant never mix");
+        assert!(produced_type_accepts("money", "number"), "control: money is numeric at rest");
+        assert!(!produced_type_accepts("money", "date"), "control");
+    }
 
     /// True when the payload-invariant check flagged `event`. Scans both
     /// buckets even though the check is a hard error (lands in `errors`)

@@ -417,7 +417,7 @@ mod tests {
                     effects: Some(effects),
                     ensures: None,
                 }],
-            },
+            }.into(),
             ticks: None,
             config: None,
             data_entities: None,

@@ -53,7 +53,7 @@ fn make_trait_with_transition(
                 effects: Some(effects),
                 ensures: None,
             }],
-        },
+        }.into(),
         emits: None,
         listens: None,
         ticks: None,

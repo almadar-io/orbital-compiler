@@ -75,7 +75,7 @@ pub fn unhandled_controls(schema: &OrbitalSchema) -> Vec<UnhandledControl> {
         .iter()
         .flat_map(|o| {
             let trait_listens = o.traits.iter().filter_map(|t| match t {
-                TraitReference::Inline(td) => td.listens.as_ref(),
+                TraitReference::Inline(td) => td.listens.as_deref(),
                 _ => None,
             });
             o.listens.iter().chain(trait_listens).flatten()

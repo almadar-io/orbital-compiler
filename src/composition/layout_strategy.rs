@@ -8,7 +8,7 @@
 use super::event_wiring::EventWiringEntry;
 use orbital_core_base::schema::Orbital;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use orbital_core_base::value::Value;
 use std::collections::{HashMap, HashSet};
 
 // ============================================================================

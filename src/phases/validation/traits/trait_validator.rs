@@ -176,7 +176,7 @@ mod tests {
             linked_entity: None,
             emits: None,
             listens: None,
-            state_machine: create_valid_state_machine(),
+            state_machine: create_valid_state_machine().into(),
             ticks: None,
             config: None,
             data_entities: None,

@@ -211,3 +211,146 @@ fn edge_address_on_an_orbital_that_is_not_imported_is_untouched() {
         "Elsewhere.ThingPersistor.DO_SAVE"
     );
 }
+
+const GEN_ATOM: &str = r#"{
+  "name": "genatom",
+  "version": "1.0.0",
+  "orbitals": [{
+    "name": "AtomOrb",
+    "entity": {
+      "name": "GenState", "persistence": "runtime",
+      "fields": [ { "name": "id", "type": "string", "required": true } ]
+    },
+    "traits": [{
+      "name": "Gen",
+      "linkedEntity": "GenState",
+      "category": "interaction",
+      "config": {
+        "chooseEvent": { "type": "EventAddress", "default": "AtomOrb.Gen.CHOOSE" }
+      },
+      "emits": [
+        { "event": "CONVERSE", "payloadSchema": [
+          { "name": "label", "type": "string" },
+          { "name": "tools", "type": "[object]", "properties": [
+            { "name": "event", "type": "EventAddress", "required": true },
+            { "name": "note", "type": "string" }
+          ] }
+        ] }
+      ],
+      "stateMachine": {
+        "states": [ { "name": "idle", "isInitial": true } ],
+        "events": [ { "key": "INIT" }, { "key": "ASK" }, { "key": "CHOOSE", "input": true }, { "key": "CONVERSE" } ],
+        "transitions": [
+          { "from": "idle", "to": "idle", "event": "INIT" },
+          { "from": "idle", "to": "idle", "event": "CHOOSE" },
+          { "from": "idle", "to": "idle", "event": "CONVERSE" },
+          { "from": "idle", "to": "idle", "event": "ASK",
+            "effects": [ ["emit", "CONVERSE", { "label": "AtomOrb.Gen.CHOOSE", "tools": [
+              { "event": "AtomOrb.Gen.CHOOSE", "note": "AtomOrb.Gen.CHOOSE" },
+              { "event": "Elsewhere.Gen.CHOOSE" }
+            ] }] ] }
+        ]
+      }
+    }],
+    "pages": [ { "name": "GenPage", "path": "/gen", "traits": [ { "ref": "Gen" } ] } ]
+  }]
+}"#;
+
+fn inline_gen_atom() -> OrbitalSchema {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("genatom.orb"), GEN_ATOM).expect("write atom");
+    let consumer = r#"{
+      "name": "consumer", "version": "1.0.0",
+      "orbitals": [{
+        "name": "Local",
+        "uses": [ { "from": "./genatom.orb", "as": "Up" } ],
+        "entity": "Up.orbitals.AtomOrb.entity",
+        "traits": [],
+        "reference": { "ref": "Up.orbitals.AtomOrb" }
+      }]
+    }"#;
+    let path = dir.path().join("consumer.orb");
+    std::fs::write(&path, consumer).expect("write consumer");
+    let mut schema = parse_file(&path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&path)).expect("inline succeeds");
+    schema
+}
+
+fn gen_trait(schema: &OrbitalSchema) -> &orbital_core_base::schema::TraitDefinition {
+    schema
+        .orbitals
+        .iter()
+        .flat_map(|o| o.traits.iter())
+        .find_map(|t| match t {
+            TraitReference::Inline(td) if td.name == "LocalGen" => Some(td),
+            _ => None,
+        })
+        .expect("the renamed trait is inlined")
+}
+
+fn string_at(value: Option<&SExpression>) -> String {
+    match value {
+        Some(SExpression::String(s)) => s.clone().into_inner(),
+        other => panic!("expected a string, got {other:?}"),
+    }
+}
+
+fn emitted_payload(schema: &OrbitalSchema) -> impl std::ops::Deref<Target = orbital_core_base::schema::SObject> {
+    let td = gen_trait(schema);
+    let ask = td
+        .state_machine
+        .transitions
+        .iter()
+        .find(|t| t.event == "ASK")
+        .expect("ASK transition");
+    let SExpression::Array(items) = &ask.effects.as_ref().expect("ASK effects")[0] else {
+        panic!("effect is a list")
+    };
+    let SExpression::Object(payload) = &items[2] else {
+        panic!("emit payload: {:?}", items[2])
+    };
+    payload.clone()
+}
+
+#[test]
+fn import_repoints_an_own_address_in_an_event_address_config_default() {
+    let schema = inline_gen_atom();
+    let default = gen_trait(&schema)
+        .config
+        .as_ref()
+        .and_then(|c| c.get("chooseEvent"))
+        .and_then(|f| f.default.as_ref())
+        .map(|d| string_at(Some(d)));
+    assert_eq!(default.as_deref(), Some("Local.LocalGen.CHOOSE"));
+}
+
+#[test]
+fn import_repoints_an_own_address_in_an_emitted_event_address_member() {
+    let schema = inline_gen_atom();
+    let payload = emitted_payload(&schema);
+    let SExpression::Array(tools) = payload.get("tools").expect("tools") else {
+        panic!("tools list")
+    };
+    let SExpression::Object(first) = &tools[0] else {
+        panic!("tool entry")
+    };
+    assert_eq!(string_at(first.get("event")), "Local.LocalGen.CHOOSE");
+}
+
+#[test]
+fn control_a_string_typed_member_and_a_foreign_address_stay_as_written() {
+    let schema = inline_gen_atom();
+    let payload = emitted_payload(&schema);
+    assert_eq!(string_at(payload.get("label")), "AtomOrb.Gen.CHOOSE");
+    let SExpression::Array(tools) = payload.get("tools").expect("tools") else {
+        panic!("tools list")
+    };
+    let SExpression::Object(first) = &tools[0] else {
+        panic!("tool entry")
+    };
+    assert_eq!(string_at(first.get("note")), "AtomOrb.Gen.CHOOSE");
+    let SExpression::Object(second) = &tools[1] else {
+        panic!("tool entry")
+    };
+    assert_eq!(string_at(second.get("event")), "Elsewhere.Gen.CHOOSE");
+}

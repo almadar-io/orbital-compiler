@@ -422,9 +422,12 @@ fn with_os_key(
     fields: Option<Vec<PayloadField>>,
 ) -> Option<Vec<PayloadField>> {
     let mut fields = fields?;
-    if orbital_core_base::os::OsOp::from_name(op_name).is_some() && call_has_key(op_name, args) {
-        fields.push(scalar_field("key", "string"));
-        fields.sort_by(|a, b| a.name.cmp(&b.name));
+    if orbital_core_base::os::OsOp::from_name(op_name).is_some() {
+        fields.retain(|field| field.name != "key");
+        if call_has_key(op_name, args) {
+            fields.push(scalar_field("key", "string"));
+            fields.sort_by(|a, b| a.name.cmp(&b.name));
+        }
     }
     Some(fields)
 }

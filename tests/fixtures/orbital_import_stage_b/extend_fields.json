@@ -19,7 +19,7 @@
         ],
         "id": "ent_55YVZ7R8DA46N29X3378K4WJCG",
         "identity": true,
-        "name": "LocalThingOwner",
+        "name": "ThingOwner",
         "persistence": "persistent"
       }
     ],

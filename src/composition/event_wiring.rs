@@ -94,7 +94,7 @@ pub fn apply_event_wiring(
         // Wire the source: add emit
         if let Some(source_trait) = find_inline_trait_mut(orbitals, &entry.from) {
             if source_trait.emits.is_none() {
-                source_trait.emits = Some(Vec::new());
+                source_trait.emits = Some(Vec::new().into());
             }
             let emits = source_trait.emits.as_mut().expect("just initialized");
             if !has_emit(emits, &entry.event) {
@@ -118,7 +118,7 @@ pub fn apply_event_wiring(
         // Wire the target: add listen
         if let Some(target_trait) = find_inline_trait_mut(orbitals, &entry.to) {
             if target_trait.listens.is_none() {
-                target_trait.listens = Some(Vec::new());
+                target_trait.listens = Some(Vec::new().into());
             }
             let listens = target_trait.listens.as_mut().expect("just initialized");
             if !has_listen(listens, &entry.event, &entry.triggers) {

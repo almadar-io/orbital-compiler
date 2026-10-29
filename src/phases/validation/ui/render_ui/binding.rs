@@ -267,21 +267,7 @@ fn walk_pattern_props(
         // `entity` resolves to "object" — the prop's declared types
         // accept that via the existing skip-on-object rule.
 
-        let compatible = expected_types.iter().any(|t| {
-            *t == resolved_str
-                || *t == "node"   // any rendered value is a ReactNode
-                || *t == "string" && resolved_str == "trait"  // @trait.X used as label fallback
-                || (*t == "icon" && resolved_str == "string")
-                // An asset is a string brand (a URL), as in the literal check.
-                || (*t == "asset" && resolved_str == "string")
-                // Date props: both render boundaries coerce a serialized
-                // string / epoch number into a real `Date` (runtime
-                // `UISlotRenderer`, compiled `pattern/registry.rs`), so a
-                // datetime field or a timestamp-returning operator
-                // satisfies them.
-                || (matches!(*t, "date" | "datetime" | "timestamp")
-                    && matches!(resolved_str, "string" | "number"))
-        });
+        let compatible = expected_types.iter().any(|t| prop_type_accepts(t, resolved_str));
         if !compatible {
             diagnostics.push(
                 ValidationError::error(
@@ -665,7 +651,7 @@ fn check_event_binding_payload(
 
 /// Lenient primitive compatibility for event-payload comparisons. Same
 /// vocabulary as the L1.3/L2 emit_payload checks: `any` matches; date /
-/// datetime / timestamp accept string|number; entity / relation accept
+/// datetime / instant / timestamp accept ISO text (string); entity / relation accept
 /// object|string; named entity types accept object.
 /// The `.lolo` type a registry payload member names directly, and whether `declared`
 /// matches it: `event` for an `EventKey` member (`kind: "event"`; a declared plain
@@ -732,14 +718,24 @@ fn primitive_event_compat(declared: &str, actual: &str) -> bool {
         // `json` and `object` are the same wire shape (Gate C separately
         // deprecates declaring them; compat must not double-punish).
         "json" | "object" => a == "object" || a == "json",
-        "date" | "datetime" | "timestamp" => a == "string" || a == "number",
-        "number" => a == "instant",
+        "date" | "datetime" | "instant" | "timestamp" => a == "string",
         "entity" | "relation" => a == "object" || a == "string",
         s if s.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) => {
             a == "object" || a == "string"
         }
         _ => false,
     }
+}
+
+/// Whether a prop typed `expected` in the registry takes a binding that resolved to `resolved_str`.
+fn prop_type_accepts(expected: &str, resolved_str: &str) -> bool {
+    expected == resolved_str
+        || expected == "node"
+        || expected == "string" && resolved_str == "trait"
+        || (expected == "icon" && resolved_str == "string")
+        || (expected == "asset" && resolved_str == "string")
+        || (matches!(expected, "date" | "datetime" | "timestamp")
+            && resolved_str == "string")
 }
 
 /// Recurse into prop values that may carry nested render-ui patterns
@@ -1414,6 +1410,29 @@ mod sexpr_payload_compat_tests {
     //! A callback arg the registry types `sexpr` (a quoted program, e.g.
     //! `flow-canvas.onSchemaChange(schema)`) is the `.lolo` `SExpr` type.
     use super::primitive_event_compat;
+
+    use super::prop_type_accepts;
+
+    #[test]
+    fn a_date_prop_takes_iso_text_and_never_a_number() {
+        for prop in ["date", "datetime", "timestamp"] {
+            assert!(prop_type_accepts(prop, "string"), "{prop} takes ISO text");
+            assert!(!prop_type_accepts(prop, "number"), "{prop} refuses a number");
+            assert!(!prop_type_accepts(prop, "boolean"), "{prop} refuses a boolean");
+        }
+        assert!(prop_type_accepts("number", "number"), "control: a number prop takes a number");
+    }
+
+    #[test]
+    fn a_point_in_time_never_stands_for_a_number() {
+        for point in ["date", "datetime", "instant", "timestamp"] {
+            assert!(!primitive_event_compat("number", point), "number refuses {point}");
+            assert!(primitive_event_compat(point, "string"), "{point} takes ISO text");
+            assert!(!primitive_event_compat(point, "number"), "{point} refuses a number");
+        }
+        assert!(primitive_event_compat("number", "number"), "control");
+        assert!(!primitive_event_compat("string", "number"), "control");
+    }
 
     #[test]
     fn declared_sexpr_accepts_registry_sexpr() {

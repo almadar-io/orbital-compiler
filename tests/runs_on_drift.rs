@@ -113,19 +113,9 @@ fn os_arity_drift(registry: &HashMap<String, EmbeddedOperator>) -> Vec<String> {
     out
 }
 
-/// Drift that predates this check (G-CROSS-319); a fix removes its line, a new drift fails.
-const KNOWN_OS_ARITY_DRIFT: &[&str] = &[
-    "os/read-file: registry arity 1..Some(2), orbital-core 1..3",
-    "os/watch-files: registry arity 1..Some(2), orbital-core 1..3",
-    "os/exists: registry arity 1..Some(3), orbital-core 1..2",
-    "os/spawn: registry arity 3..Some(4), orbital-core 2..4",
-    "os/watch-process: registry arity 2..Some(3), orbital-core 1..3",
-    "os/volume-mute: registry arity 1..Some(2), orbital-core 0..2",
-];
-
 #[test]
 fn the_os_operator_arity_agrees_with_the_registry() {
-    assert_eq!(os_arity_drift(operators()), KNOWN_OS_ARITY_DRIFT);
+    assert_eq!(os_arity_drift(operators()), Vec::<String>::new());
 }
 
 #[test]
@@ -133,7 +123,7 @@ fn an_os_arity_change_is_reported() {
     let mut registry = operators().clone();
     registry.get_mut("os/mmio-write").unwrap().min_arity = 3;
     registry.remove("os/irq-ack");
-    let mut expected: Vec<String> = KNOWN_OS_ARITY_DRIFT.iter().map(|line| line.to_string()).collect();
+    let mut expected = Vec::new();
     expected.push("os/mmio-write: registry arity 3..Some(5), orbital-core 4..5".to_string());
     expected.push("os/irq-ack: in orbital-core's OsOp table but not in the registry".to_string());
     assert_eq!(os_arity_drift(&registry), expected);

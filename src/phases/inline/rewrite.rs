@@ -131,6 +131,103 @@ fn is_event_typed(ft: &orbital_core_base::schema::FieldType) -> bool {
     )
 }
 
+fn is_event_type_name(name: &str) -> bool {
+    name == "event" || name == "EventAddress"
+}
+
+/// Apply `f` to every `listens`-addressed event value (`Trait.EVENT`,
+/// `Orbital.Trait.EVENT`) a trait's effects emit at an event-typed position of
+/// the emitted event's declared payload schema. Type-directed: a string that
+/// merely spells an address at a `string` position is left alone.
+pub(crate) fn map_effect_event_addresses(td: &mut TraitDefinition, f: &mut AddressMap<'_>) {
+    use orbital_core_base::schema::{join_event_address, split_event_address};
+    let Some(emits) = td.emits.as_ref() else {
+        return;
+    };
+    let schemas: HashMap<String, Vec<PayloadField>> = emits
+        .iter()
+        .filter_map(|e| Some((e.event.clone(), e.payload_schema.clone()?)))
+        .collect();
+    if schemas.is_empty() {
+        return;
+    }
+    let mut on_value = |current: &str| -> Option<String> {
+        let (event, Some(source)) = split_event_address(current) else {
+            return None;
+        };
+        if matches!(source, ListenSource::Any) {
+            return None;
+        }
+        let (event, source) = f(&event, &source)?;
+        Some(join_event_address(&event, Some(&source)))
+    };
+    for transition in td.state_machine.transitions.iter_mut() {
+        for effect in transition.effects.iter_mut().flatten() {
+            map_emitted_addresses(effect, &schemas, &mut on_value);
+        }
+    }
+    for tick in td.ticks.iter_mut().flatten() {
+        for effect in tick.effects.iter_mut() {
+            map_emitted_addresses(effect, &schemas, &mut on_value);
+        }
+    }
+}
+
+fn map_emitted_addresses(
+    expr: &mut SExpression,
+    schemas: &HashMap<String, Vec<PayloadField>>,
+    on_value: &mut dyn FnMut(&str) -> Option<String>,
+) {
+    let SExpression::Array(items) = expr else {
+        return;
+    };
+    if let (Some(SExpression::String(head)), Some(SExpression::String(event))) =
+        (items.first(), items.get(1))
+    {
+        if head.as_str() == "emit" {
+            if let (Some(fields), Some(payload)) = (schemas.get(event.as_str()), items.get_mut(2)) {
+                map_payload_addresses(payload, fields, on_value);
+            }
+        }
+    }
+    for item in items.iter_mut() {
+        map_emitted_addresses(item, schemas, on_value);
+    }
+}
+
+fn map_payload_addresses(
+    value: &mut SExpression,
+    fields: &[PayloadField],
+    on_value: &mut dyn FnMut(&str) -> Option<String>,
+) {
+    match value {
+        SExpression::Array(entries) => {
+            for entry in entries.iter_mut() {
+                map_payload_addresses(entry, fields, on_value);
+            }
+        }
+        SExpression::Object(map) => {
+            for field in fields {
+                let Some(member) = map.get_mut(field.name.as_str()) else {
+                    continue;
+                };
+                if is_event_type_name(&field.field_type) {
+                    if let SExpression::String(current) = member {
+                        if !current.is_empty() && !current.starts_with('@') {
+                            if let Some(to) = on_value(current.as_str()) {
+                                *current = to.into();
+                            }
+                        }
+                    }
+                } else if let Some(nested) = field.properties.as_deref() {
+                    map_payload_addresses(member, nested, on_value);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Maps a split event address to its replacement event and source, or `None` to keep it.
 pub(crate) type AddressMap<'a> =
     dyn FnMut(&str, &ListenSource) -> Option<(String, ListenSource)> + 'a;
@@ -182,7 +279,7 @@ pub(crate) fn map_fields_event_values(
     on_value: &mut dyn FnMut(&str) -> Option<String>,
 ) {
     for field in cfg.values_mut() {
-        if field.field_type == "event" {
+        if is_event_type_name(&field.field_type) {
             if let Some(SExpression::String(current)) = field.default.as_mut() {
                 if !current.starts_with('@') {
                     if let Some(to) = on_value(current) {
@@ -1701,19 +1798,21 @@ pub(crate) fn coerce_trait_knob_conditions(
             walk(item, trait_knobs, effective_config);
         }
     }
-    for p in trait_def.propositions_mut() {
-        walk(p, trait_knobs, effective_config);
-    }
-    for transition in trait_def.state_machine.transitions.iter_mut() {
-        if let Some(guard) = transition.guard.as_mut() {
-            walk(guard, trait_knobs, effective_config);
+    trait_def.state_machine.edit(|machine| {
+        for p in machine.propositions_mut() {
+            walk(p, trait_knobs, effective_config);
         }
-        if let Some(effects) = transition.effects.as_mut() {
-            for effect in effects.iter_mut() {
-                walk(effect, trait_knobs, effective_config);
+        for transition in machine.transitions.iter_mut() {
+            if let Some(guard) = transition.guard.as_mut() {
+                walk(guard, trait_knobs, effective_config);
+            }
+            if let Some(effects) = transition.effects.as_mut() {
+                for effect in effects.iter_mut() {
+                    walk(effect, trait_knobs, effective_config);
+                }
             }
         }
-    }
+    });
     if let Some(ticks) = trait_def.ticks.as_mut() {
         for tick in ticks.iter_mut() {
             if let Some(guard) = tick.guard.as_mut() {
@@ -1860,19 +1959,21 @@ fn rewrite_trait_expressions(
     trait_def: &mut TraitDefinition,
     rewrite: &mut impl FnMut(&mut SExpression),
 ) {
-    for p in trait_def.propositions_mut() {
-        rewrite(p);
-    }
-    for transition in trait_def.state_machine.transitions.iter_mut() {
-        if let Some(guard) = transition.guard.as_mut() {
-            rewrite(guard);
+    trait_def.state_machine.edit(|machine| {
+        for p in machine.propositions_mut() {
+            rewrite(p);
         }
-        if let Some(effects) = transition.effects.as_mut() {
-            for effect in effects.iter_mut() {
-                rewrite(effect);
+        for transition in machine.transitions.iter_mut() {
+            if let Some(guard) = transition.guard.as_mut() {
+                rewrite(guard);
+            }
+            if let Some(effects) = transition.effects.as_mut() {
+                for effect in effects.iter_mut() {
+                    rewrite(effect);
+                }
             }
         }
-    }
+    });
     if let Some(ticks) = trait_def.ticks.as_mut() {
         for tick in ticks.iter_mut() {
             if let Some(guard) = tick.guard.as_mut() {
@@ -1883,10 +1984,14 @@ fn rewrite_trait_expressions(
             }
         }
     }
-    for listen in trait_def.listens.iter_mut().flatten() {
-        if let Some(guard) = listen.guard.as_mut() {
-            rewrite(guard);
-        }
+    if let Some(listens) = trait_def.listens.as_mut() {
+        listens.edit(|listens| {
+            for listen in listens.iter_mut() {
+                if let Some(guard) = listen.guard.as_mut() {
+                    rewrite(guard);
+                }
+            }
+        });
     }
 }
 
@@ -1910,13 +2015,14 @@ pub(crate) fn rewrite_config_bindings(
     {
         return;
     }
-    rewrite_config_bindings_inner(expr, config_subs, declared);
+    rewrite_config_bindings_inner(expr, config_subs, declared, &mut Vec::new());
 }
 
 fn rewrite_config_bindings_inner(
     expr: &mut SExpression,
     config_subs: &orbital_core_base::schema::SObject,
     declared: &orbital_core_base::schema::SObject,
+    in_progress: &mut Vec<String>,
 ) {
     if config_subs.is_empty() {
         return;
@@ -1946,29 +2052,23 @@ fn rewrite_config_bindings_inner(
                     Some(idx) => (&rest[..idx], Some(&rest[idx + 1..])),
                     None => (rest, None),
                 };
-                if let Some(value) = config_subs.get(param) {
+                if let Some(value) = config_subs
+                    .get(param)
+                    .filter(|_| !in_progress.iter().any(|active| active == param))
+                {
                     match trailing {
                         None => {
-                            // Bare `@config.<param>` — replace the whole
-                            // node with the substituted value, then recurse
-                            // into the substituted tree so any nested
-                            // `@config.X` bindings inside the value (e.g.
-                            // a `render-ui` default tree referencing
-                            // `@config.cols`) are themselves resolved in
-                            // this same pass.
-                            let original = s.clone();
+                            // Bare `@config.<param>` — replace the whole node with the
+                            // value and resolve the knobs the value reads. A knob already
+                            // being substituted is not read again: its value's own
+                            // `@config.<param>` belongs to the embedder's rung, so the walk
+                            // ends at one substitution per knob (a self-read, or a cycle
+                            // through other knobs, never recurses).
+                            let param = param.to_string();
                             *expr = value.clone();
-                            // Self-reference guard: a config default whose
-                            // value is the identical `@config.<param>`
-                            // binding (e.g. `startX: @config.startX`)
-                            // would recurse forever. Config defaults must
-                            // be concrete; stop and leave the binding so
-                            // the validator can flag it instead of crashing.
-                            let still_same =
-                                matches!(expr, SExpression::String(ns) if *ns == *original);
-                            if !still_same {
-                                rewrite_config_bindings_inner(expr, config_subs, declared);
-                            }
+                            in_progress.push(param);
+                            rewrite_config_bindings_inner(expr, config_subs, declared, in_progress);
+                            in_progress.pop();
                         }
                         Some(path) => {
                             // `@config.<param>.<path>` — if the value is an
@@ -1977,8 +2077,11 @@ fn rewrite_config_bindings_inner(
                             // validator can flag the shape mismatch.
                             if let SExpression::Object(_) = value {
                                 if let Some(leaf) = resolve_object_path(value, path) {
-                                    *expr = leaf.clone();
-                                    rewrite_config_bindings_inner(expr, config_subs, declared);
+                                    let leaf = leaf.clone();
+                                    in_progress.push(param.to_string());
+                                    *expr = leaf;
+                                    rewrite_config_bindings_inner(expr, config_subs, declared, in_progress);
+                                    in_progress.pop();
                                 }
                             }
                         }
@@ -2018,12 +2121,12 @@ fn rewrite_config_bindings_inner(
                                 }
                                 for part in parts.iter_mut().skip(1) {
                                     if !is_empty_list_knob(part, config_subs) {
-                                        rewrite_config_bindings_inner(part, config_subs, declared);
+                                        rewrite_config_bindings_inner(part, config_subs, declared, in_progress);
                                     }
                                 }
                                 continue;
                             }
-                            rewrite_config_bindings_inner(pair, config_subs, declared);
+                            rewrite_config_bindings_inner(pair, config_subs, declared, in_progress);
                         }
                         continue;
                     }
@@ -2034,12 +2137,12 @@ fn rewrite_config_bindings_inner(
                 {
                     continue;
                 }
-                rewrite_config_bindings_inner(item, config_subs, declared);
+                rewrite_config_bindings_inner(item, config_subs, declared, in_progress);
             }
         }
         SExpression::Object(map) => {
             for (_k, v) in map.iter_mut() {
-                rewrite_config_bindings_inner(v, config_subs, declared);
+                rewrite_config_bindings_inner(v, config_subs, declared, in_progress);
             }
         }
     }
@@ -2309,19 +2412,21 @@ pub(crate) fn rewrite_payload_entity_refs(
         }
     }
     if let Some(emits) = trait_def.emits.as_mut() {
-        for emit in emits.iter_mut() {
-            if let Some(schema) = emit.payload_schema.as_mut() {
-                rewrite_fields(schema, entity_subs);
-            }
-            if let Some(name) = emit.payload_entity.as_ref() {
-                if let Some(renamed) = entity_subs.get(name) {
-                    emit.payload_entity = Some(renamed.clone());
+        emits.edit(|emits| {
+            for emit in emits.iter_mut() {
+                if let Some(schema) = emit.payload_schema.as_mut() {
+                    rewrite_fields(schema, entity_subs);
+                }
+                if let Some(name) = emit.payload_entity.as_ref() {
+                    if let Some(renamed) = entity_subs.get(name) {
+                        emit.payload_entity = Some(renamed.clone());
+                    }
                 }
             }
-        }
+        });
     }
-    if let Some(events) = trait_def.state_machine.events.as_mut() {
-        for ev in events.iter_mut() {
+    trait_def.state_machine.edit(|machine| {
+        for ev in machine.events.iter_mut().flatten() {
             if let Some(schema) = ev.payload_schema.as_mut() {
                 rewrite_fields(schema, entity_subs);
             }
@@ -2331,7 +2436,7 @@ pub(crate) fn rewrite_payload_entity_refs(
                 }
             }
         }
-    }
+    });
     rewrite_trait_expressions(trait_def, &mut |expr| {
         rewrite_recorded_shapes(expr, &mut |shape| {
             let old = shape.clone();
@@ -2669,55 +2774,59 @@ pub(crate) fn resolve_type_param_sentinels(
         }
     }
     if let Some(emits) = trait_def.emits.as_mut() {
-        for emit in emits.iter_mut() {
-            if resolve_payload_entity_schema(
-                &mut emit.payload_entity,
-                &mut emit.payload_schema,
-                entities_by_name,
-                entity_def,
-                &subs,
-                &declared_names,
-                type_args.as_ref(),
-            ) {
-                changed = true;
-                continue;
-            }
-            if let Some(schema) = emit.payload_schema.as_mut() {
-                changed |= resolve_sentinel_fields(
-                    schema,
+        emits.edit(|emits| {
+            for emit in emits.iter_mut() {
+                if resolve_payload_entity_schema(
+                    &mut emit.payload_entity,
+                    &mut emit.payload_schema,
+                    entities_by_name,
                     entity_def,
                     &subs,
                     &declared_names,
-                    entities_by_name,
-                );
+                    type_args.as_ref(),
+                ) {
+                    changed = true;
+                    continue;
+                }
+                if let Some(schema) = emit.payload_schema.as_mut() {
+                    changed |= resolve_sentinel_fields(
+                        schema,
+                        entity_def,
+                        &subs,
+                        &declared_names,
+                        entities_by_name,
+                    );
+                }
             }
-        }
+        });
     }
-    if let Some(events) = trait_def.state_machine.events.as_mut() {
-        for ev in events.iter_mut() {
-            if resolve_payload_entity_schema(
-                &mut ev.payload_entity,
-                &mut ev.payload_schema,
-                entities_by_name,
-                entity_def,
-                &subs,
-                &declared_names,
-                type_args.as_ref(),
-            ) {
-                changed = true;
-                continue;
-            }
-            if let Some(schema) = ev.payload_schema.as_mut() {
-                changed |= resolve_sentinel_fields(
-                    schema,
+    trait_def.state_machine.edit(|machine| {
+        if let Some(events) = machine.events.as_mut() {
+            for ev in events.iter_mut() {
+                if resolve_payload_entity_schema(
+                    &mut ev.payload_entity,
+                    &mut ev.payload_schema,
+                    entities_by_name,
                     entity_def,
                     &subs,
                     &declared_names,
-                    entities_by_name,
-                );
+                    type_args.as_ref(),
+                ) {
+                    changed = true;
+                    continue;
+                }
+                if let Some(schema) = ev.payload_schema.as_mut() {
+                    changed |= resolve_sentinel_fields(
+                        schema,
+                        entity_def,
+                        &subs,
+                        &declared_names,
+                        entities_by_name,
+                    );
+                }
             }
         }
-    }
+    });
     changed
 }
 
@@ -3359,43 +3468,49 @@ pub(crate) fn rewrite_trait_event_fields(
         }
     }
 
-    if let Some(events) = trait_def.state_machine.events.as_mut() {
-        for ev in events.iter_mut() {
-            if let Some(to) = scope.to_for(ev.id.as_ref()) {
-                ev.key = to.clone();
+    trait_def.state_machine.edit(|machine| {
+        if let Some(events) = machine.events.as_mut() {
+            for ev in events.iter_mut() {
+                if let Some(to) = scope.to_for(ev.id.as_ref()) {
+                    ev.key = to.clone();
+                }
             }
         }
-    }
-    for transition in trait_def.state_machine.transitions.iter_mut() {
-        if let Some(to) = scope.to_for(transition.event_id.as_ref()) {
-            transition.event = to.clone();
+        for transition in machine.transitions.iter_mut() {
+            if let Some(to) = scope.to_for(transition.event_id.as_ref()) {
+                transition.event = to.clone();
+            }
         }
-    }
+    });
     if let Some(emits) = trait_def.emits.as_mut() {
-        for emit in emits.iter_mut() {
-            if let Some(to) = scope.to_for(emit.event_id.as_ref()) {
-                emit.event = to.clone();
+        emits.edit(|emits| {
+            for emit in emits.iter_mut() {
+                if let Some(to) = scope.to_for(emit.event_id.as_ref()) {
+                    emit.event = to.clone();
+                }
             }
-        }
+        });
     }
     if let Some(listens) = trait_def.listens.as_mut() {
-        for listen in listens.iter_mut() {
-            let event_in_scope = match listen.source.as_ref() {
-                Some(ListenSource::Trait { trait_name, .. })
-                | Some(ListenSource::Orbital { trait_name, .. }) => {
-                    sourced_in_scope.is_some_and(|names| names.contains(trait_name.as_str()))
+        listens.edit(|listens| {
+            for listen in listens.iter_mut() {
+                let event_in_scope = match listen.source.as_ref() {
+                    Some(ListenSource::Trait { trait_name, .. })
+                    | Some(ListenSource::Orbital { trait_name, .. }) => {
+                        sourced_in_scope.is_some_and(|names| names.contains(trait_name.as_str()))
+                    }
+                    Some(ListenSource::Any) | None => true,
+                };
+                if event_in_scope {
+                    if let Some(to) = scope.to_for(listen.event_id.as_ref()) {
+                        listen.event = to.clone();
+                    }
                 }
-                Some(ListenSource::Any) | None => true,
-            };
-            if event_in_scope {
-                if let Some(to) = scope.to_for(listen.event_id.as_ref()) {
-                    listen.event = to.clone();
+                if let Some(to) = scope.to_for(listen.triggers_id.as_ref()) {
+                    listen.triggers = Some(to.clone());
                 }
             }
-            if let Some(to) = scope.to_for(listen.triggers_id.as_ref()) {
-                listen.triggers = Some(to.clone());
-            }
-        }
+        });
     }
     Ok(())
 }
@@ -3405,6 +3520,48 @@ pub(crate) fn trait_ref_name(tr: &TraitReference) -> Option<&str> {
     match tr {
         TraitReference::Inline(td) => Some(&td.name),
         other => other.trait_name(),
+    }
+}
+
+#[cfg(test)]
+mod config_self_read_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn expr(v: serde_json::Value) -> SExpression {
+        serde_json::from_value(v).expect("expression fixture")
+    }
+
+    fn subs(items: serde_json::Value) -> orbital_core_base::schema::SObject {
+        serde_json::from_value(items).expect("subs fixture")
+    }
+
+    #[test]
+    fn a_knob_value_reading_its_own_name_is_substituted_once_and_the_inner_read_stays() {
+        let mut body = expr(json!(["str/join", "@config.items", ","]));
+        let inner = json!(["array/map", "@config.items", ["fn", "x", "@x"]]);
+        let cfg = subs(json!({ "items": inner }));
+        rewrite_config_bindings(&mut body, &cfg, &orbital_core_base::schema::SObject::new());
+        assert_eq!(
+            body,
+            expr(json!(["str/join", ["array/map", "@config.items", ["fn", "x", "@x"]], ","]))
+        );
+    }
+
+    #[test]
+    fn a_two_knob_cycle_stops_at_the_knob_being_substituted() {
+        let mut body = expr(json!(["+", "@config.a", 1]));
+        let cfg = subs(json!({ "a": ["+", "@config.b", 1], "b": ["+", "@config.a", 1] }));
+        rewrite_config_bindings(&mut body, &cfg, &orbital_core_base::schema::SObject::new());
+        assert_eq!(body, expr(json!(["+", ["+", ["+", "@config.a", 1], 1], 1])));
+    }
+
+    #[test]
+    fn control_a_knob_value_reading_another_knob_resolves_through_it() {
+        let mut body = expr(json!(["str/concat", "@config.a", "!"]));
+        let cfg = subs(json!({ "a": ["str/concat", "@config.b", "?"], "b": "x" }));
+        rewrite_config_bindings(&mut body, &cfg, &orbital_core_base::schema::SObject::new());
+        assert_eq!(body, expr(json!(["str/concat", ["str/concat", "x", "?"], "!"])));
     }
 }
 
@@ -5614,5 +5771,92 @@ mod unchanged_rewrite_tests {
         subs.insert("title".into(), SExpression::string("Hello"));
         rewrite_config_bindings(&mut rewritten, &subs, &orbital_core_base::schema::SObject::new());
         assert_eq!(rewritten, expr(json!(["render-ui", "main", {"type": "typography", "content": "Hello"}])));
+    }
+
+    fn shared_trait() -> TraitDefinition {
+        serde_json::from_value(json!({
+            "name": "T",
+            "linkedEntity": "Task",
+            "emits": [ { "event": "DONE", "payloadSchema": [ { "name": "row", "type": "Task" } ] } ],
+            "listens": [ { "event": "GO", "triggers": "GO" } ],
+            "stateMachine": {
+                "states": [ { "name": "idle", "isInitial": true } ],
+                "events": [ { "key": "GO", "payloadSchema": [ { "name": "row", "type": "Task" } ] } ],
+                "transitions": [ {
+                    "from": "idle", "to": "idle", "event": "GO",
+                    "effects": [ ["render-ui", "main", {"type": "typography", "content": "@config.title"}] ]
+                } ]
+            }
+        }))
+        .expect("trait fixture deserializes")
+    }
+
+    fn shares_all(a: &TraitDefinition, b: &TraitDefinition) -> bool {
+        orbital_core_base::value::Shared::ptr_eq(&a.state_machine, &b.state_machine)
+            && orbital_core_base::value::Shared::ptr_eq(a.emits.as_ref().expect("emits"), b.emits.as_ref().expect("emits"))
+            && orbital_core_base::value::Shared::ptr_eq(
+                a.listens.as_ref().expect("listens"),
+                b.listens.as_ref().expect("listens"),
+            )
+    }
+
+    #[test]
+    fn a_trait_whose_rewrites_find_nothing_keeps_sharing_its_machine_emits_and_listens() {
+        let source = shared_trait();
+        let mut copy = source.clone();
+        assert!(shares_all(&source, &copy), "a clone shares before any rewrite");
+        rewrite_payload_entity_refs(&mut copy, &map(&[("Other", "Renamed")]));
+        let mut subs = orbital_core_base::schema::SObject::new();
+        subs.insert("unrelated".into(), SExpression::string("x"));
+        rewrite_trait_config_bindings(&mut copy, &subs, &orbital_core_base::schema::SObject::new());
+        assert!(shares_all(&source, &copy), "rewrites that match nothing must not copy the trait body");
+    }
+
+    #[test]
+    fn control_a_rewrite_that_matches_copies_only_the_part_it_changed() {
+        let source = shared_trait();
+        let mut copy = source.clone();
+        let mut subs = orbital_core_base::schema::SObject::new();
+        subs.insert("title".into(), SExpression::string("Hello"));
+        rewrite_trait_config_bindings(&mut copy, &subs, &orbital_core_base::schema::SObject::new());
+        assert!(!orbital_core_base::value::Shared::ptr_eq(&source.state_machine, &copy.state_machine));
+        assert!(orbital_core_base::value::Shared::ptr_eq(
+            source.emits.as_ref().expect("emits"),
+            copy.emits.as_ref().expect("emits")
+        ));
+        assert_eq!(
+            serde_json::to_string(&source.state_machine).expect("source").contains("@config.title"),
+            true,
+            "the source keeps its own body"
+        );
+        assert!(serde_json::to_string(&copy.state_machine).expect("copy").contains("Hello"));
+    }
+
+    #[test]
+    fn payload_entity_renames_copy_the_emits_and_events_they_touch_and_leave_the_source() {
+        let source = shared_trait();
+        let mut copy = source.clone();
+        rewrite_payload_entity_refs(&mut copy, &map(&[("Task", "Job")]));
+        let payload_types = |td: &TraitDefinition| {
+            let emit = td.emits.as_ref().expect("emits")[0].payload_schema.as_ref().expect("schema")[0].field_type.clone();
+            let event = td.state_machine.events.as_ref().expect("events")[0].payload_schema.as_ref().expect("schema")[0]
+                .field_type
+                .clone();
+            (emit, event)
+        };
+        assert_eq!(payload_types(&source), ("Task".to_string(), "Task".to_string()));
+        assert_eq!(payload_types(&copy), ("Job".to_string(), "Job".to_string()));
+    }
+
+    #[test]
+    fn edge_an_empty_substitution_map_and_a_trait_without_emits_or_listens_share_without_panicking() {
+        let mut source = shared_trait();
+        source.emits = None;
+        source.listens = None;
+        let mut copy = source.clone();
+        rewrite_payload_entity_refs(&mut copy, &map(&[]));
+        rewrite_payload_entity_refs(&mut copy, &map(&[("Task", "Job")]));
+        assert!(copy.emits.is_none() && copy.listens.is_none());
+        assert!(!orbital_core_base::value::Shared::ptr_eq(&source.state_machine, &copy.state_machine));
     }
 }

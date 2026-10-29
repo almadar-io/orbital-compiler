@@ -356,44 +356,88 @@ fn shape_from_json(value: &serde_json::Value) -> Option<SkeletonNode> {
     Some(SkeletonNode::Shape { shape })
 }
 
+/// A serialized resolved schema the predictions can be written into: the JSON tree `orb resolve` prints, or the
+/// core value the lint input is built as.
+pub trait AwaitRenderTree: Sized {
+    fn child_mut(&mut self, key: &str) -> Option<&mut Self>;
+    fn name(&self) -> Option<&str>;
+    fn elements_mut(&mut self) -> Option<&mut [Self]>;
+    fn insert_await_render(&mut self, renders: &[AwaitRender]);
+}
+
+impl AwaitRenderTree for serde_json::Value {
+    fn child_mut(&mut self, key: &str) -> Option<&mut Self> {
+        self.get_mut(key)
+    }
+    fn name(&self) -> Option<&str> {
+        self.get("name").and_then(|n| n.as_str())
+    }
+    fn elements_mut(&mut self) -> Option<&mut [Self]> {
+        self.as_array_mut().map(Vec::as_mut_slice)
+    }
+    fn insert_await_render(&mut self, renders: &[AwaitRender]) {
+        if let (Some(obj), Ok(v)) = (self.as_object_mut(), serde_json::to_value(renders)) {
+            obj.insert("awaitRender".to_string(), v);
+        }
+    }
+}
+
+impl AwaitRenderTree for orbital_core_base::value::Value {
+    fn child_mut(&mut self, key: &str) -> Option<&mut Self> {
+        match self {
+            Self::Object(fields) => fields.get_mut(key),
+            _ => None,
+        }
+    }
+    fn name(&self) -> Option<&str> {
+        match self {
+            Self::Object(fields) => fields.get("name").and_then(Self::as_str),
+            _ => None,
+        }
+    }
+    fn elements_mut(&mut self) -> Option<&mut [Self]> {
+        match self {
+            Self::Array(items) => Some(items.as_mut_slice()),
+            _ => None,
+        }
+    }
+    fn insert_await_render(&mut self, renders: &[AwaitRender]) {
+        if let (Self::Object(fields), Ok(v)) = (self, orbital_core_base::value_serialize::to_canonical_value(renders)) {
+            fields.insert("awaitRender".to_string(), v);
+            fields.sort_keys();
+        }
+    }
+}
+
 /// Write the predictions into a serialized resolved schema (`orbital resolve`
 /// output, which the runtime path reads): each matching transition object gains
 /// `awaitRender`. In-memory only — the registry `.orb` never carries it.
-pub fn attach_await_renders(schema: &OrbitalSchema, value: &mut serde_json::Value) {
+pub fn attach_await_renders<T: AwaitRenderTree>(schema: &OrbitalSchema, value: &mut T) {
     let predictions = predict_await_renders(schema);
     if predictions.is_empty() {
         return;
     }
-    let Some(orbitals) = value.get_mut("orbitals").and_then(|o| o.as_array_mut()) else {
+    let Some(orbitals) = value.child_mut("orbitals").and_then(T::elements_mut) else {
         return;
     };
     for orbital in orbitals {
-        let Some(traits) = orbital.get_mut("traits").and_then(|t| t.as_array_mut()) else {
+        let Some(traits) = orbital.child_mut("traits").and_then(T::elements_mut) else {
             continue;
         };
         for trait_value in traits {
-            let Some(name) = trait_value
-                .get("name")
-                .and_then(|n| n.as_str())
-                .map(str::to_string)
-            else {
+            let Some(name) = trait_value.name().map(str::to_string) else {
                 continue;
             };
             let Some(transitions) = trait_value
-                .get_mut("stateMachine")
-                .and_then(|sm| sm.get_mut("transitions"))
-                .and_then(|t| t.as_array_mut())
+                .child_mut("stateMachine")
+                .and_then(|sm| sm.child_mut("transitions"))
+                .and_then(T::elements_mut)
             else {
                 continue;
             };
             for (idx, transition) in transitions.iter_mut().enumerate() {
-                if let (Some(renders), Some(obj)) = (
-                    predictions.get(&(name.clone(), idx)),
-                    transition.as_object_mut(),
-                ) {
-                    if let Ok(v) = serde_json::to_value(renders) {
-                        obj.insert("awaitRender".to_string(), v);
-                    }
+                if let Some(renders) = predictions.get(&(name.clone(), idx)) {
+                    transition.insert_await_render(renders);
                 }
             }
         }
@@ -434,6 +478,30 @@ mod tests {
                 fields: None,
             },
         }
+    }
+
+    #[test]
+    fn a_core_value_gains_the_same_await_render_a_json_tree_does() {
+        let s = schema(serde_json::json!([trait_def(
+            "Browse",
+            serde_json::json!([
+                { "from": "idle", "to": "loading", "event": "INIT", "effects": [["fetch", "Item", { "emit": { "success": "LOADED" } }]] },
+                { "from": "loading", "to": "ready", "event": "LOADED", "effects": [["render-ui", "main", { "type": "data-grid", "skeleton": "grid" }]] }
+            ]),
+            serde_json::json!([])
+        )]));
+        let mut tree = serde_json::to_value(&s).unwrap();
+        attach_await_renders(&s, &mut tree);
+        let mut value = orbital_core_base::value_serialize::to_value(&s).unwrap();
+        attach_await_renders(&s, &mut value);
+        let from_tree: orbital_core_base::value::Value = serde_json::from_value(tree.clone()).unwrap();
+        let path = "orbitals.0.traits.0.stateMachine.transitions.0.awaitRender";
+        assert_eq!(value.get_path(path), from_tree.get_path(path));
+        assert!(value.get_path(path).is_some(), "{tree}");
+        assert!(
+            value.get_path("orbitals.0.traits.0.stateMachine.transitions.1.awaitRender").is_none(),
+            "control: an arm that waits on nothing gains none"
+        );
     }
 
     #[test]

@@ -55,7 +55,7 @@ pub(crate) fn splice_lambda_trait_refs(
         if let TraitReference::Inline(td) = tr {
             templates.insert(
                 td.name.clone(),
-                render_only_template(td).map(|t| (t, td.emits.clone().unwrap_or_default())),
+                render_only_template(td).map(|t| (t, td.emits.as_deref().cloned().unwrap_or_default())),
             );
             if let Some(id) = td.id.as_deref() {
                 id_to_name.insert(id.to_string(), td.name.clone());
@@ -81,24 +81,31 @@ pub(crate) fn splice_lambda_trait_refs(
         // Seed with the host itself so a self-reference never self-splices.
         let mut visiting: Vec<String> = vec![td.name.clone()];
         let mut merged: Vec<(String, EmitDefinition)> = Vec::new();
-        for transition in td.state_machine.transitions.iter_mut() {
-            if let Some(effects) = transition.effects.as_mut() {
-                for effect in effects.iter_mut() {
-                    splice_expr(
-                        effect,
-                        false,
-                        &templates,
-                        &embed_ids_by_name,
-                        &id_to_name,
-                        host_embed.as_ref(),
-                        &path,
-                        &mut visiting,
-                        &mut merged,
-                        &mut spliced,
-                    )?;
+        let mut outcome: Result<(), InlineError> = Ok(());
+        td.state_machine.edit(|machine| {
+            outcome = (|| {
+                for transition in machine.transitions.iter_mut() {
+                    if let Some(effects) = transition.effects.as_mut() {
+                        for effect in effects.iter_mut() {
+                            splice_expr(
+                                effect,
+                                false,
+                                &templates,
+                                &embed_ids_by_name,
+                                &id_to_name,
+                                host_embed.as_ref(),
+                                &path,
+                                &mut visiting,
+                                &mut merged,
+                                &mut spliced,
+                            )?;
+                        }
+                    }
                 }
-            }
-        }
+                Ok(())
+            })();
+        });
+        outcome?;
         if let Some(ticks) = td.ticks.as_mut() {
             for tick in ticks.iter_mut() {
                 for effect in tick.effects.iter_mut() {
@@ -473,7 +480,7 @@ mod tests {
                     effects: Some(vec![arr(vec![s("render-ui"), s("main"), pattern])]),
                     ensures: None,
                 }],
-            },
+            }.into(),
             ticks: None,
             config: None,
             data_entities: None,
@@ -604,7 +611,7 @@ mod tests {
     #[test]
     fn eligibility_accepts_render_only_with_emits() {
         let mut w = render_only_trait("W", obj(vec![("type", s("badge"))]));
-        w.emits = Some(vec![emit("ACTION", "id")]);
+        w.emits = Some(vec![emit("ACTION", "id")].into());
         assert!(
             render_only_template(&w).is_some(),
             "emits must not disqualify"
@@ -642,7 +649,7 @@ mod tests {
             source: None,
             event_id: None,
             triggers_id: None,
-        }]);
+        }].into());
         assert!(
             render_only_template(&listening).is_none(),
             "listens must disqualify"
@@ -673,7 +680,7 @@ mod tests {
             "InlineW1",
             obj(vec![("type", s("badge")), ("label", s("@party.title"))]),
         );
-        wrapper.emits = Some(vec![emit("ACTION", "id")]);
+        wrapper.emits = Some(vec![emit("ACTION", "id")].into());
         let host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.InlineW1")]));
         let mut orbital = make_orbital(vec![host, wrapper]);
 
@@ -830,9 +837,9 @@ mod tests {
     #[test]
     fn emit_merge_conflict_is_rejected() {
         let mut wrapper = render_only_trait("InlineW1", obj(vec![("type", s("badge"))]));
-        wrapper.emits = Some(vec![emit("ACTION", "id")]);
+        wrapper.emits = Some(vec![emit("ACTION", "id")].into());
         let mut host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.InlineW1")]));
-        host.emits = Some(vec![emit("ACTION", "differentField")]);
+        host.emits = Some(vec![emit("ACTION", "differentField")].into());
         let mut orbital = make_orbital(vec![host, wrapper]);
 
         let err = splice_lambda_trait_refs(&mut orbital, "orbitals[0]").unwrap_err();

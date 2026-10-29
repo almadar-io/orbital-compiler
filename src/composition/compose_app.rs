@@ -8,7 +8,7 @@
 //! so field order and optional-field presence are the program's own; golden cases recorded from the original
 //! live in `tests/fixtures/compose-app/`.
 
-use serde_json::{json, Map, Value};
+use orbital_core_base::value::{Value, ValueMap as Map};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use super::compose_behaviors::{compose_behaviors, ComposeBehaviorsInput};
@@ -71,6 +71,38 @@ pub(crate) fn as_definitions(files: &[Value]) -> Vec<Value> {
             }
         })
         .collect()
+}
+
+/// [`as_definitions`] of one file, borrowed: no orbital is copied.
+fn definition_refs(file: &Value) -> Vec<&Value> {
+    if is_schema(file) {
+        arr_of(file, "orbitals").iter().collect()
+    } else {
+        vec![file]
+    }
+}
+
+/// [`as_definitions`] that moves a schema file's orbitals out, leaving `{ name }` stubs in their place.
+fn take_definitions(files: &mut [Value]) -> Vec<Value> {
+    let mut out = Vec::new();
+    for file in files.iter_mut() {
+        if !is_schema(file) {
+            out.push(file.clone());
+            continue;
+        }
+        if let Value::Array(items) = file["orbitals"].take() {
+            let stubs = items
+                .iter()
+                .map(|o| match o.get("name") {
+                    Some(name) => json!({ "name": name }),
+                    None => json!({}),
+                })
+                .collect();
+            file["orbitals"] = Value::Array(stubs);
+            out.extend(items);
+        }
+    }
+    out
 }
 
 /// `isEntityReferenceAny`: a string reference or an entity call (an object carrying `extends`).
@@ -240,13 +272,13 @@ fn rewrite_inline_trait_name(node: &mut Value, old: &str, new: &str) {
         Value::Object(o) => {
             for key in ["name", "ref", "trait"] {
                 if o.get(key).and_then(Value::as_str) == Some(old) {
-                    o.insert(key.to_string(), Value::String(new.to_string()));
+                    o.insert(key.to_string(), Value::string(new.to_string()));
                 }
             }
             if let Some(Value::Array(traits)) = o.get_mut("traits") {
                 for t in traits.iter_mut() {
                     if t.as_str() == Some(old) {
-                        *t = Value::String(new.to_string());
+                        *t = Value::string(new.to_string());
                     }
                 }
             }
@@ -264,7 +296,7 @@ fn rewrite_own_route(node: &mut Value, old: &str, new: &str) {
             if items.first().and_then(Value::as_str) == Some("navigate")
                 && items.get(1).and_then(Value::as_str) == Some(old)
             {
-                items[1] = Value::String(new.to_string());
+                items[1] = Value::string(new.to_string());
             }
             items
                 .iter_mut()
@@ -272,7 +304,7 @@ fn rewrite_own_route(node: &mut Value, old: &str, new: &str) {
         }
         Value::Object(o) => {
             if o.get("path").and_then(Value::as_str) == Some(old) {
-                o.insert("path".to_string(), Value::String(new.to_string()));
+                o.insert("path".to_string(), Value::string(new.to_string()));
             }
             o.iter_mut()
                 .filter(|(k, _)| k.as_str() != "address")
@@ -282,10 +314,17 @@ fn rewrite_own_route(node: &mut Value, old: &str, new: &str) {
     }
 }
 
+fn merged_shape(existing: Option<&Value>, incoming: Option<&Value>) -> Result<Option<Value>, String> {
+    let json = |v: &Value| orbital_core_base::json_value::value_to_json(v);
+    orbital_core_base::expects::merge_expectation_shape(existing.map(json).as_ref(), incoming.map(json).as_ref())?
+        .map(|shape| serde_json::from_value(shape).map_err(|e| e.to_string()))
+        .transpose()
+}
+
 /// `rewriteTraitRefsInTree`: every `@trait.<from>` token (with its `.`/`[` tail kept) renamed.
 fn rewrite_trait_refs_in_tree(node: &Value, renames: &HashMap<String, String>) -> Value {
     match node {
-        Value::String(s) => Value::String(rewrite_trait_ref_token(s, renames)),
+        Value::String(s) => Value::string(rewrite_trait_ref_token(s, renames)),
         Value::Array(items) => Value::Array(
             items
                 .iter()
@@ -387,7 +426,7 @@ pub fn dedupe_composed_surface(orbitals: &mut [Value]) -> Value {
                     &format!("{}{}", strip_orbital_suffix(&orbital_name), page_name),
                     &reserved_page_names,
                 );
-                p["name"] = Value::String(next.clone());
+                p["name"] = Value::string(next.clone());
                 seen_page_names.insert(next.clone());
                 reserved_page_names.insert(next.clone());
                 page_names
@@ -431,7 +470,7 @@ pub fn dedupe_composed_surface(orbitals: &mut [Value]) -> Value {
             reserved_traits.insert(next.clone());
             let mut rename = json!({ "orbitalName": orbital_name, "from": trait_name, "to": next });
             if let Some(id) = trait_id {
-                rename["id"] = Value::String(id);
+                rename["id"] = Value::string(id);
             }
             traits.push(rename);
             mutated = true;
@@ -566,7 +605,7 @@ fn collect_owner_compared_fields(node: &Value, out: &mut BTreeSet<String>) {
     }
 }
 
-fn persist_payload(a: &[Value]) -> Option<&Map<String, Value>> {
+fn persist_payload(a: &[Value]) -> Option<&Map> {
     let payload = a.get(3)?.as_object()?;
     let is_options_bag = a.len() == 4 && payload.contains_key("emit");
     (!is_options_bag).then_some(payload)
@@ -657,7 +696,7 @@ fn with_unioned_vocabulary(field: &Value, missing: &[String]) -> Value {
         .is_some_and(|v| !v.is_empty())
     {
         if let Some(Value::Array(values)) = out.get_mut("values") {
-            values.extend(missing.iter().map(|m| Value::String(m.clone())));
+            values.extend(missing.iter().map(|m| Value::string(m.clone())));
         }
         return out;
     }
@@ -815,7 +854,7 @@ fn union_demoted_role_vocabularies(
             })
             .collect();
         let mut entity = winner_entity.clone();
-        entity["fields"] = Value::Array(fields);
+        entity["fields"] = Value::array(fields);
         orbitals[winner_index]["entity"] = entity;
     }
     Ok(unions)
@@ -852,10 +891,7 @@ fn rewrite_demoted_identity_expects(
                 continue;
             }
             let name = name.unwrap_or("").to_string();
-            viewer_shape = orbital_core_base::expects::merge_expectation_shape(
-                viewer_shape.as_ref(),
-                e.get("shape"),
-            )?;
+            viewer_shape = merged_shape(viewer_shape.as_ref(), e.get("shape"))?;
             mutated = true;
             rewrites.push(json!({ "orbitalName": def_name, "entityName": name }));
             let Some(shape) = e.get("shape").and_then(Value::as_array) else {
@@ -864,7 +900,7 @@ fn rewrite_demoted_identity_expects(
             };
             let mut persisted = BTreeSet::new();
             collect_persisted_fields(
-                def.get("traits").unwrap_or(&Value::Array(vec![])),
+                def.get("traits").unwrap_or(&Value::array(vec![])),
                 &name,
                 &mut persisted,
             );
@@ -902,10 +938,7 @@ fn rewrite_demoted_identity_expects(
                     && (str_of(e, "name") == Some(winner_name) || e.get("name").is_none())
             });
             let prior = viewer_index.and_then(|i| next[i].get("shape").cloned());
-            let shape = orbital_core_base::expects::merge_expectation_shape(
-                prior.as_ref(),
-                viewer_shape.as_ref(),
-            )?;
+            let shape = merged_shape(prior.as_ref(), viewer_shape.as_ref())?;
             let mut requirement = json!({ "kind": "identity", "name": winner_name });
             if let Some(shape) = shape {
                 requirement["shape"] = shape;
@@ -914,7 +947,7 @@ fn rewrite_demoted_identity_expects(
                 Some(i) => next[i] = requirement,
                 None => next.push(requirement),
             }
-            def["expects"] = Value::Array(next);
+            def["expects"] = Value::array(next);
         }
     }
     Ok(rewrites)
@@ -946,7 +979,7 @@ fn retarget_owner_relation_fields(
             }
             applied.push((name.to_string(), target.to_string(), winner_name.clone()));
             let mut relation = f["relation"].clone();
-            relation["entity"] = Value::String(winner_name.clone());
+            relation["entity"] = Value::string(winner_name.clone());
             if relation.get("entityId").is_some() {
                 match winner.get("id") {
                     Some(id) => relation["entityId"] = id.clone(),
@@ -964,7 +997,7 @@ fn retarget_owner_relation_fields(
         return None;
     }
     let mut out = entity.clone();
-    out["fields"] = Value::Array(fields);
+    out["fields"] = Value::array(fields);
     Some((out, applied))
 }
 
@@ -999,7 +1032,7 @@ fn retarget_demoted_owner_relations(
         }
         let mut stamped = BTreeMap::new();
         collect_owner_stamped_fields(
-            def.get("traits").unwrap_or(&Value::Array(vec![])),
+            def.get("traits").unwrap_or(&Value::array(vec![])),
             &mut stamped,
         );
         for (name, fields) in stamped {
@@ -1052,7 +1085,7 @@ fn retarget_demoted_owner_relations(
 /// composed surface, with the FIX-K vocabulary union, FIX-L expects rewrite and FIX-N owner-relation retarget.
 /// Mutates `orbitals`; returns `{ demotions, roleUnions, expectsRewrites, relationsRetargeted }`.
 pub fn dedupe_composed_identity(orbitals: &mut [Value]) -> Result<Value, String> {
-    let empty = |demotions: Vec<Value>| json!({ "demotions": demotions, "roleUnions": [], "expectsRewrites": [], "relationsRetargeted": [] });
+    let empty = |demotions: Vec<Value>| json!({ "demotions": demotions, "roleUnions": Vec::<Value>::new(), "expectsRewrites": Vec::<Value>::new(), "relationsRetargeted": Vec::<Value>::new() });
     let mut demotions = Vec::new();
     let mut demoted_entities: Vec<(String, Vec<Value>)> = Vec::new();
     let mut winner_index: Option<usize> = None;
@@ -1213,7 +1246,7 @@ fn narrow_nav_items_to_owned_pages(orbitals: &mut [Value], owned: &BTreeSet<Stri
                     }
                 }
                 if !dropped.is_empty() {
-                    entry["default"] = Value::Array(kept);
+                    entry["default"] = Value::array(kept);
                     drops.push(json!({ "orbitalName": orbital_name, "traitName": trait_name, "droppedHrefs": dropped }));
                 }
             }
@@ -1300,7 +1333,7 @@ fn narrow_config_nav_items(config: &Value, owned: &BTreeSet<String>) -> (Value, 
         if dropped.is_empty() {
             continue;
         }
-        next[knob]["default"] = Value::Array(kept);
+        next[knob.as_str()]["default"] = Value::array(kept);
         drops.push(json!({ "knob": knob, "droppedHrefs": dropped }));
     }
     (next, drops)
@@ -1361,7 +1394,7 @@ fn link_landing_pages(
     let (knob, field) = nav_knobs[0];
     let list = field["default"].as_array().cloned().unwrap_or_default();
     let mut linked = HashSet::new();
-    collect_linked_paths(&Value::Array(orbitals.to_vec()), &mut linked);
+    collect_linked_paths(&Value::array(orbitals.to_vec()), &mut linked);
     collect_linked_paths(config, &mut linked);
 
     let mut owner_index: HashMap<String, usize> = HashMap::new();
@@ -1444,7 +1477,7 @@ fn link_landing_pages(
         return (config.clone(), added);
     }
     let mut out = config.clone();
-    out[knob.as_str()]["default"] = Value::Array(next);
+    out[knob.as_str()]["default"] = Value::array(next);
     (out, added)
 }
 
@@ -1498,8 +1531,8 @@ fn under_root(link: &str, root: &str) -> bool {
 }
 
 fn page_paths(file: &Value) -> Vec<String> {
-    as_definitions(std::slice::from_ref(file))
-        .iter()
+    definition_refs(file)
+        .into_iter()
         .flat_map(|o| {
             arr_of(o, "pages")
                 .iter()
@@ -1527,17 +1560,17 @@ fn move_routes(node: &Value, roots: &BTreeSet<String>, base: &str, in_pages: boo
                 .collect();
             if a.first().and_then(Value::as_str) == Some("navigate") {
                 if let Some(t) = a.get(1).and_then(Value::as_str).filter(|t| hit(t)) {
-                    out[1] = Value::String(mv(t));
+                    out[1] = Value::string(mv(t));
                 }
             }
-            Value::Array(out)
+            Value::array(out)
         }
         Value::Object(o) => Value::Object(
             o.iter()
                 .map(|(k, v)| {
                     let moved = match v.as_str() {
                         Some(s) if (k == "href" || (in_pages && k == "path")) && hit(s) => {
-                            Value::String(mv(s))
+                            Value::string(mv(s))
                         }
                         _ => move_routes(v, roots, base, k == "pages"),
                     };
@@ -1550,8 +1583,8 @@ fn move_routes(node: &Value, roots: &BTreeSet<String>, base: &str, in_pages: boo
 }
 
 fn declared_entities(file: &Value) -> Vec<Value> {
-    as_definitions(std::slice::from_ref(file))
-        .iter()
+    definition_refs(file)
+        .into_iter()
         .flat_map(inline_entities_of)
         .collect()
 }
@@ -1559,7 +1592,7 @@ fn declared_entities(file: &Value) -> Vec<Value> {
 fn rename_collection(file: &Value, from: &str, to: &str) -> Value {
     let swap = |e: &mut Value| {
         if str_of(e, "collection") == Some(from) {
-            e["collection"] = Value::String(to.to_string());
+            e["collection"] = Value::string(to.to_string());
         }
     };
     let each = |o: &Value| -> Value {
@@ -1607,14 +1640,14 @@ fn rename_token(value: &str, from: &str, to: &str) -> String {
 
 fn rename_entity_walk(node: &Value, from: &str, to: &str) -> Value {
     match node {
-        Value::String(s) => Value::String(rename_token(s, from, to)),
+        Value::String(s) => Value::string(rename_token(s, from, to)),
         Value::Array(a) => {
             let mut out: Vec<Value> = a.iter().map(|x| rename_entity_walk(x, from, to)).collect();
             let op = a.first().and_then(Value::as_str);
             if matches!(op, Some("fetch" | "spawn"))
                 && a.get(1).and_then(Value::as_str) == Some(from)
             {
-                out[1] = Value::String(to.to_string());
+                out[1] = Value::string(to.to_string());
             }
             if op == Some("persist")
                 && matches!(
@@ -1623,12 +1656,12 @@ fn rename_entity_walk(node: &Value, from: &str, to: &str) -> Value {
                 )
                 && a.get(2).and_then(Value::as_str) == Some(from)
             {
-                out[2] = Value::String(to.to_string());
+                out[2] = Value::string(to.to_string());
             }
-            Value::Array(out)
+            Value::array(out)
         }
         Value::Object(o) => {
-            let mut out = Map::new();
+            let mut out = Map::default();
             for (k, v) in o {
                 if k == "entityRefIds" && v.is_object() {
                     out.insert(
@@ -1650,13 +1683,13 @@ fn rename_entity_walk(node: &Value, from: &str, to: &str) -> Value {
                 }
                 if let Some(s) = v.as_str() {
                     if ENTITY_VALUED_KEYS.contains(&k.as_str()) && s == from {
-                        out.insert(k.clone(), Value::String(to.to_string()));
+                        out.insert(k.clone(), Value::string(to.to_string()));
                         continue;
                     }
                     if k == "type" && (s == from || s == format!("[{from}]")) {
                         out.insert(
                             k.clone(),
-                            Value::String(if s == from {
+                            Value::string(if s == from {
                                 to.to_string()
                             } else {
                                 format!("[{to}]")
@@ -1669,14 +1702,14 @@ fn rename_entity_walk(node: &Value, from: &str, to: &str) -> Value {
             }
             let named_from = o.get("name").and_then(Value::as_str) == Some(from);
             if named_from && o.get("fields").is_some_and(Value::is_array) {
-                out.insert("name".to_string(), Value::String(to.to_string()));
+                out.insert("name".to_string(), Value::string(to.to_string()));
             }
             if matches!(
                 o.get("kind").and_then(Value::as_str),
                 Some("persist" | "fetch")
             ) && o.get("resource").and_then(Value::as_str) == Some(from)
             {
-                out.insert("resource".to_string(), Value::String(to.to_string()));
+                out.insert("resource".to_string(), Value::string(to.to_string()));
             }
             if named_from
                 && matches!(
@@ -1684,14 +1717,14 @@ fn rename_entity_walk(node: &Value, from: &str, to: &str) -> Value {
                     Some("entity" | "identity")
                 )
             {
-                out.insert("name".to_string(), Value::String(to.to_string()));
+                out.insert("name".to_string(), Value::string(to.to_string()));
             }
             if o.get("type").and_then(Value::as_str) == Some("entity")
                 && o.get("default").and_then(Value::as_str) == Some(from)
             {
-                out.insert("default".to_string(), Value::String(to.to_string()));
+                out.insert("default".to_string(), Value::string(to.to_string()));
             }
-            Value::Object(out)
+            Value::object(out)
         }
         other => other.clone(),
     }
@@ -1710,7 +1743,7 @@ fn rename_atom_entity_slots(t: &Value, atom: Option<Value>, from: &str, to: &str
     }
     let mut next = t.clone();
     if t.get("linkedEntity").is_none() && str_of(&atom, "linkedEntity") == Some(from) {
-        next["linkedEntity"] = Value::String(to.to_string());
+        next["linkedEntity"] = Value::string(to.to_string());
     }
     if let Some(config) = t.get("config").filter(|c| c.is_object()) {
         let mut renamed = config.clone();
@@ -1724,7 +1757,7 @@ fn rename_atom_entity_slots(t: &Value, atom: Option<Value>, from: &str, to: &str
                 if let Some(field) = renamed.get_mut(knob).filter(|f| {
                     f.is_object() && f.get("default").and_then(Value::as_str) == Some(from)
                 }) {
-                    field["default"] = Value::String(to.to_string());
+                    field["default"] = Value::string(to.to_string());
                 }
             }
         }
@@ -1743,7 +1776,7 @@ fn rename_atom_entity_slots(t: &Value, atom: Option<Value>, from: &str, to: &str
                     (
                         p.clone(),
                         if entity_params.contains(p.as_str()) && v.as_str() == Some(from) {
-                            Value::String(to.to_string())
+                            Value::string(to.to_string())
                         } else {
                             v.clone()
                         },
@@ -1817,10 +1850,10 @@ fn ledger_rename(ledger: &Value, id: &str, to: &str, at: &str) -> Value {
     }
     let mut updated = entry.clone();
     let from = entry.get("curName").cloned().unwrap_or(Value::Null);
-    updated["curName"] = Value::String(to.to_string());
+    updated["curName"] = Value::string(to.to_string());
     let mut renames = arr_of(entry, "renames").to_vec();
     renames.push(json!({ "from": from, "to": to, "at": at }));
-    updated["renames"] = Value::Array(renames);
+    updated["renames"] = Value::array(renames);
     let mut out = ledger.clone();
     out["entries"][id] = updated;
     out
@@ -1919,20 +1952,20 @@ struct Namespaced {
 }
 
 fn namespace_organisms(
-    files: &[Value],
+    files: Vec<Value>,
     organism_of: &dyn Fn(&str) -> Option<String>,
     atom_trait_of: &dyn Fn(&Value, &str) -> Option<Value>,
     now: &str,
 ) -> Namespaced {
     let organism_of_file = |file: &Value| -> Option<String> {
-        as_definitions(std::slice::from_ref(file))
+        definition_refs(file)
             .first()
             .and_then(|o| str_of(o, "name"))
             .and_then(organism_of)
     };
-    let mut out: Vec<Value> = files.to_vec();
+    let mut out: Vec<Value> = files;
     let mut order: Vec<String> = Vec::new();
-    for file in files {
+    for file in &out {
         if let Some(o) = organism_of_file(file) {
             if !order.contains(&o) {
                 order.push(o);
@@ -1948,19 +1981,18 @@ fn namespace_organisms(
     let mut implicit_owner: HashMap<String, String> = HashMap::new();
     let mut implicit_key: HashMap<String, String> = HashMap::new();
     for organism in &order {
-        let own: Vec<Value> = files
+        let own: Vec<&Value> = out
             .iter()
             .filter(|f| organism_of_file(f).as_ref() == Some(organism))
-            .cloned()
             .collect();
         let declared: HashSet<String> = own
             .iter()
-            .flat_map(declared_entities)
+            .flat_map(|f| declared_entities(f))
             .filter_map(|e| str_of(&e, "name").map(str::to_string))
             .collect();
         let mut conflicts: Vec<(String, Vec<Value>)> = Vec::new();
-        for orbital in as_definitions(&own) {
-            for t in arr_of(&orbital, "traits") {
+        for orbital in own.iter().flat_map(|f| definition_refs(f)) {
+            for t in arr_of(orbital, "traits") {
                 let Some(r) = t
                     .as_object()
                     .and_then(|o| o.get("ref"))
@@ -1971,7 +2003,7 @@ fn namespace_organisms(
                 if t.get("linkedEntity").is_some() {
                     continue;
                 }
-                let Some(implicit) = atom_trait_of(&orbital, r)
+                let Some(implicit) = atom_trait_of(orbital, r)
                     .and_then(|a| str_of(&a, "linkedEntity").map(str::to_string))
                 else {
                     continue;
@@ -1980,7 +2012,7 @@ fn namespace_organisms(
                     continue;
                 }
                 let alias = r.split('.').next().unwrap_or("");
-                let behavior = arr_of(&orbital, "uses")
+                let behavior = arr_of(orbital, "uses")
                     .iter()
                     .find(|u| str_of(u, "as") == Some(alias))
                     .and_then(|u| str_of(u, "from"))
@@ -2012,7 +2044,7 @@ fn namespace_organisms(
                     Some(owner)
                         if owner != organism && implicit_key.get(&implicit) != Some(&key) =>
                     {
-                        let blocker = json!({ "orbitalName": str_of(&orbital, "name"), "traitName": str_of(t, "name").unwrap_or(r), "traitRef": r });
+                        let blocker = json!({ "orbitalName": str_of(orbital, "name"), "traitName": str_of(t, "name").unwrap_or(r), "traitRef": r });
                         match conflicts.iter_mut().find(|(e, _)| *e == implicit) {
                             Some((_, bs)) => bs.push(blocker),
                             None => conflicts.push((implicit.clone(), vec![blocker])),
@@ -2167,16 +2199,16 @@ fn rename_nav_hrefs(config: &Value, from: &str, to: &str) -> Value {
         if !items.iter().any(|i| nav_item_href(i) == Some(from)) {
             continue;
         }
-        next[knob]["default"] = Value::Array(
+        next[knob.as_str()]["default"] = Value::array(
             items
                 .into_iter()
                 .map(|mut i| {
                     if nav_item_href(&i) == Some(from) && i.is_object() {
-                        i["href"] = Value::String(to.to_string());
+                        i["href"] = Value::string(to.to_string());
                     }
                     i
                 })
-                .collect(),
+                .collect::<Vec<Value>>(),
         );
     }
     next
@@ -2190,7 +2222,7 @@ fn rename_listen_sources(node: &Value, orbital: &str, from: &str, to: &str) -> V
                 .collect(),
         ),
         Value::Object(o) => {
-            let mut out: Map<String, Value> = o
+            let mut out: Map = o
                 .iter()
                 .map(|(k, v)| (k.clone(), rename_listen_sources(v, orbital, from, to)))
                 .collect();
@@ -2198,9 +2230,9 @@ fn rename_listen_sources(node: &Value, orbital: &str, from: &str, to: &str) -> V
                 && o.get("orbital").and_then(Value::as_str) == Some(orbital)
                 && o.get("trait").and_then(Value::as_str) == Some(from)
             {
-                out.insert("trait".to_string(), Value::String(to.to_string()));
+                out.insert("trait".to_string(), Value::string(to.to_string()));
             }
-            Value::Object(out)
+            Value::object(out)
         }
         other => other.clone(),
     }
@@ -2213,9 +2245,9 @@ fn rename_route_links(node: &Value, from: &str, to: &str) -> Value {
             if a.first().and_then(Value::as_str) == Some("navigate")
                 && a.get(1).and_then(Value::as_str) == Some(from)
             {
-                out[1] = Value::String(to.to_string());
+                out[1] = Value::string(to.to_string());
             }
-            Value::Array(out)
+            Value::array(out)
         }
         Value::Object(o) => Value::Object(
             o.iter()
@@ -2223,7 +2255,7 @@ fn rename_route_links(node: &Value, from: &str, to: &str) -> Value {
                     (
                         k.clone(),
                         if k == "href" && v.as_str() == Some(from) {
-                            Value::String(to.to_string())
+                            Value::string(to.to_string())
                         } else {
                             rename_route_links(v, from, to)
                         },
@@ -2271,7 +2303,7 @@ fn config_forward_knob(token: &str) -> Option<&str> {
 fn config_forward_tokens(entry: &Value) -> Vec<String> {
     fn walk(v: &Value, out: &mut Vec<String>) {
         match v {
-            Value::String(s) if s.starts_with(CONFIG_FORWARD_PREFIX) => out.push(s.clone()),
+            Value::String(s) if s.starts_with(CONFIG_FORWARD_PREFIX) => out.push(s.to_string()),
             Value::Array(a) => a.iter().for_each(|x| walk(x, out)),
             Value::Object(o) => o.values().for_each(|x| walk(x, out)),
             _ => {}
@@ -2332,12 +2364,12 @@ fn collect_orbital_forwarded_config_keys(orbital: &Value) -> HashSet<String> {
 }
 
 fn union_organism_configs(sources: &[Value]) -> Option<Value> {
-    let mut merged: Option<Map<String, Value>> = None;
+    let mut merged: Option<Map> = None;
     for s in sources {
         let Some(config) = s.get("config").and_then(Value::as_object) else {
             continue;
         };
-        let m = merged.get_or_insert_with(Map::new);
+        let m = merged.get_or_insert_with(Map::default);
         for (key, field) in config {
             let Some(held) = m.get(key).cloned() else {
                 m.insert(key.clone(), field.clone());
@@ -2360,18 +2392,28 @@ fn union_organism_configs(sources: &[Value]) -> Option<Value> {
                 .collect();
             if !added.is_empty() {
                 let mut next = held.clone();
-                next["default"] = Value::Array(held_list.into_iter().chain(added).collect());
+                next["default"] = Value::array(held_list.into_iter().chain(added).collect::<Vec<Value>>());
                 m.insert(key.clone(), next);
             }
         }
     }
-    merged.map(Value::Object)
+    merged.map(Value::object)
 }
 
 /// The app's surface from its per-orbital files, in the files' order (roster order decides every collision).
 /// No pages or layout are generated; the files are not mutated.
 pub fn compose_orbital_surface(
     files_in: &[Value],
+    lookups: &ComposeLookups,
+    now: &str,
+) -> Result<Value, String> {
+    compose_orbital_surface_owned(files_in.to_vec(), lookups, now)
+}
+
+/// [`compose_orbital_surface`] for files the caller hands over: their orbitals move into the surface, and the files
+/// keep only the orbitals' names for the steps that read nothing else.
+pub fn compose_orbital_surface_owned(
+    files_in: Vec<Value>,
     lookups: &ComposeLookups,
     now: &str,
 ) -> Result<Value, String> {
@@ -2384,13 +2426,13 @@ pub fn compose_orbital_surface(
             now,
         ),
         None => Namespaced {
-            files: files_in.to_vec(),
+            files: files_in,
             renames: Vec::new(),
             unrenamable: Vec::new(),
         },
     };
-    let files = namespaced.files;
-    let mut orbitals = as_definitions(&files);
+    let mut files = namespaced.files;
+    let mut orbitals = take_definitions(&mut files);
     let surface_renames = dedupe_composed_surface(&mut orbitals);
     for r in arr_of(&surface_renames, "traits") {
         let (o, from, to) = (
@@ -2437,8 +2479,8 @@ pub fn compose_orbital_surface(
                 .iter()
                 .filter_map(|o| str_of(o, "name").map(str::to_string))
                 .collect();
-            let organisms: HashSet<Option<String>> = as_definitions(std::slice::from_ref(file))
-                .iter()
+            let organisms: HashSet<Option<String>> = definition_refs(file)
+                .into_iter()
                 .map(|o| {
                     lookups
                         .organism_of
@@ -2497,7 +2539,7 @@ pub fn compose_orbital_surface(
             continue;
         };
         let forwarded = collect_orbital_forwarded_config_keys(orbital);
-        let lifted: Map<String, Value> = config
+        let lifted: Map = config
             .iter()
             .filter(|(k, f)| {
                 str_of(f, "type") == Some("[NavItem]") && forwarded.contains(k.as_str())
@@ -2509,9 +2551,9 @@ pub fn compose_orbital_surface(
         }
         hoisted.insert(
             str_of(orbital, "name").unwrap_or("").to_string(),
-            Value::Object(lifted.clone()),
+            Value::object(lifted.clone()),
         );
-        let kept: Map<String, Value> = config
+        let kept: Map = config
             .into_iter()
             .filter(|(k, _)| !lifted.contains_key(k))
             .collect();
@@ -2519,7 +2561,7 @@ pub fn compose_orbital_surface(
         if kept.is_empty() {
             o.shift_remove("config");
         } else {
-            o.insert("config".to_string(), Value::Object(kept));
+            o.insert("config".to_string(), Value::object(kept));
         }
     }
     let mut config_sources: Vec<Value> = Vec::new();
@@ -2527,8 +2569,8 @@ pub fn compose_orbital_surface(
         if is_schema(f) {
             config_sources.push(f.clone());
         }
-        for o in as_definitions(std::slice::from_ref(f)) {
-            if let Some(c) = str_of(&o, "name").and_then(|n| hoisted.get(n)) {
+        for o in definition_refs(f) {
+            if let Some(c) = str_of(o, "name").and_then(|n| hoisted.get(n)) {
                 config_sources.push(json!({ "config": c }));
             }
         }
@@ -2571,8 +2613,8 @@ pub fn compose_orbital_surface(
         landing_nav_added = added;
     }
 
-    let mut out = Map::new();
-    out.insert("orbitals".to_string(), Value::Array(orbitals));
+    let mut out = Map::default();
+    out.insert("orbitals".to_string(), Value::array(orbitals));
     if let Some(c) = config {
         out.insert("config".to_string(), c);
     }
@@ -2583,25 +2625,25 @@ pub fn compose_orbital_surface(
     out.insert("identity".to_string(), identity);
     out.insert(
         "navItemsNarrowed".to_string(),
-        Value::Array(nav_items_narrowed),
+        Value::array(nav_items_narrowed),
     );
     out.insert(
         "configNavItemsNarrowed".to_string(),
-        Value::Array(config_nav_narrowed),
+        Value::array(config_nav_narrowed),
     );
     out.insert(
         "landingNavAdded".to_string(),
-        Value::Array(landing_nav_added),
+        Value::array(landing_nav_added),
     );
     out.insert(
         "organismRenames".to_string(),
-        Value::Array(namespaced.renames),
+        Value::array(namespaced.renames),
     );
     out.insert(
         "unrenamableCollisions".to_string(),
-        Value::Array(namespaced.unrenamable),
+        Value::array(namespaced.unrenamable),
     );
-    Ok(Value::Object(out))
+    Ok(Value::object(out))
 }
 
 /// The union of two os grant sets: lists deduplicated in first-seen order, an fs glob or net target named by both
@@ -2628,14 +2670,14 @@ pub fn union_os_grants(a: Option<&Value>, b: Option<&Value>) -> Value {
                             merged.push(x.clone());
                         }
                     }
-                    seen[items] = Value::Array(merged);
+                    seen[items] = Value::array(merged);
                 }
                 None => out.push(g.clone()),
             }
         }
         out
     };
-    let mut anchored_out = Map::new();
+    let mut anchored_out = Map::default();
     let anchored_fs = keyed_in(&anchored, "fs", &["anchor", "glob"], "modes");
     let anchored_net = keyed_in(&anchored, "net", &["host", "port"], "kinds");
     let mut anchored_exec: Vec<Value> = Vec::new();
@@ -2646,63 +2688,60 @@ pub fn union_os_grants(a: Option<&Value>, b: Option<&Value>) -> Value {
     }
     for (key, items) in [("fs", anchored_fs), ("exec", anchored_exec), ("net", anchored_net)] {
         if !items.is_empty() {
-            anchored_out.insert(key.to_string(), Value::Array(items));
+            anchored_out.insert(key.to_string(), Value::array(items));
         }
     }
-    let mut out = Map::new();
+    let mut out = Map::default();
     let sets: Vec<&Value> = a.into_iter().chain(b).collect();
     let fs = keyed_in(&sets, "fs", &["glob"], "modes");
     let net = keyed_in(&sets, "net", &["target"], "kinds");
     let dev = keyed_in(&sets, "dev", &["target"], "kinds");
     if !fs.is_empty() {
-        out.insert("fs".to_string(), Value::Array(fs));
+        out.insert("fs".to_string(), Value::array(fs));
     }
     if !net.is_empty() {
-        out.insert("net".to_string(), Value::Array(net));
+        out.insert("net".to_string(), Value::array(net));
     }
     if !dev.is_empty() {
-        out.insert("dev".to_string(), Value::Array(dev));
+        out.insert("dev".to_string(), Value::array(dev));
     }
     for key in ["exec", "env", "stdio", "sys", "desktop"] {
         let l = list(key);
         if !l.is_empty() {
-            out.insert(key.to_string(), Value::Array(l));
+            out.insert(key.to_string(), Value::array(l));
         }
     }
     if !anchored_out.is_empty() {
-        out.insert("anchored".to_string(), Value::Object(anchored_out));
+        out.insert("anchored".to_string(), Value::object(anchored_out));
     }
-    Value::Object(out)
+    Value::object(out)
 }
 
 fn with_upstream_os_grants(
-    files: &[Value],
+    files: Vec<Value>,
     imported: Option<&dyn Fn(&Value) -> Option<Value>>,
 ) -> Vec<Value> {
-    let granted = |o: &Value| -> Value {
+    let grant = |o: &mut Value| {
         if o.get("reference").is_none() {
-            return o.clone();
+            return;
         }
         let Some(upstream) = imported.and_then(|f| f(o)) else {
-            return o.clone();
+            return;
         };
         let Some(up) = upstream.get("osGrants") else {
-            return o.clone();
+            return;
         };
-        let mut out = o.clone();
-        out["osGrants"] = union_os_grants(o.get("osGrants"), Some(up));
-        out
+        let merged = union_os_grants(o.get("osGrants"), Some(up));
+        o["osGrants"] = merged;
     };
     files
-        .iter()
-        .map(|f| {
-            if is_schema(f) {
-                let mut out = f.clone();
-                out["orbitals"] = Value::Array(arr_of(f, "orbitals").iter().map(granted).collect());
-                out
-            } else {
-                granted(f)
+        .into_iter()
+        .map(|mut f| {
+            match f.get_mut("orbitals").and_then(Value::as_array_mut) {
+                Some(orbitals) => orbitals.iter_mut().for_each(grant),
+                None => grant(&mut f),
             }
+            f
         })
         .collect()
 }
@@ -2741,9 +2780,27 @@ pub fn compose_app_from_files(
     options: &ComposeAppOptions,
     lookups: &ComposeLookups,
 ) -> Result<Value, String> {
+    compose_app_from_owned_files(inputs.to_vec(), options, lookups)
+}
+
+/// [`compose_app_from_files`] for files the caller hands over: they are completed in place, not copied.
+pub fn compose_app_from_owned_files(
+    inputs: Vec<Value>,
+    options: &ComposeAppOptions,
+    lookups: &ComposeLookups,
+) -> Result<Value, String> {
     let files = with_upstream_os_grants(inputs, lookups.imported_orbital_of);
-    let surface = compose_orbital_surface(&files, lookups, &options.now)?;
-    let orbitals = arr_of(&surface, "orbitals").to_vec();
+    let (inbound, egress) = declared_reach(&files, lookups.imported_program_of);
+    let file_grants: Vec<Value> = files
+        .iter()
+        .filter(|f| is_schema(f))
+        .filter_map(|f| f.get("osGrants").cloned())
+        .collect();
+    let mut surface = compose_orbital_surface_owned(files, lookups, &options.now)?;
+    let orbitals = match surface["orbitals"].take() {
+        Value::Array(items) => items.into_inner(),
+        _ => Vec::new(),
+    };
     let composed = compose_behaviors(ComposeBehaviorsInput {
         app_name: options.app_name.clone(),
         orbitals,
@@ -2759,30 +2816,27 @@ pub fn compose_app_from_files(
     if let Some(c) = surface.get("config") {
         schema["config"] = c.clone();
     }
-    let (inbound, egress) = declared_reach(&files, lookups.imported_program_of);
     if !inbound.is_empty() {
-        schema["inbound"] = Value::Array(inbound);
+        schema["inbound"] = Value::array(inbound);
     }
     if !egress.is_empty() {
-        schema["egress"] = Value::Array(egress);
+        schema["egress"] = Value::array(egress);
     }
-    let program_grants = files
+    let program_grants = file_grants
         .iter()
-        .filter(|f| is_schema(f))
-        .filter_map(|f| f.get("osGrants"))
         .fold(schema.get("osGrants").cloned(), |acc: Option<Value>, g| Some(union_os_grants(acc.as_ref(), Some(g))));
     if let Some(grants) = program_grants {
         schema["osGrants"] = grants;
     }
-    let mut out = Map::new();
+    let mut out = Map::default();
     out.insert("schema".to_string(), schema);
     out.insert(
         "layout".to_string(),
-        serde_json::to_value(&composed.layout).map_err(|e| e.to_string())?,
+        serde_json::from_value(serde_json::to_value(&composed.layout).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?,
     );
     out.insert(
         "wiring".to_string(),
-        serde_json::to_value(&composed.wiring).map_err(|e| e.to_string())?,
+        serde_json::from_value(serde_json::to_value(&composed.wiring).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?,
     );
     for key in [
         "surfaceRenames",
@@ -2797,7 +2851,7 @@ pub fn compose_app_from_files(
             out.insert(key.to_string(), v.clone());
         }
     }
-    Ok(Value::Object(out))
+    Ok(Value::object(out))
 }
 
 /// The behavior a specifier names: its last segment (`std/behaviors/std-x` → `std-x`).
@@ -2832,7 +2886,7 @@ const APP_HEADER_KEYS: [&str; 13] = [
 ];
 
 pub fn compose_programs(
-    programs: &[Value],
+    programs: Vec<Value>,
     app_name: &str,
     layout: Option<&str>,
     theme: Option<&str>,
@@ -2841,8 +2895,8 @@ pub fn compose_programs(
     load_source: &dyn Fn(&str) -> Result<Value, String>,
 ) -> Result<Value, String> {
     let programs: Vec<Value> = programs
-        .iter()
-        .map(orbital_core_base::schema::behavior_value::program_with_orbital_imports)
+        .into_iter()
+        .map(orbital_core_base::schema::behavior_value::into_program_with_orbital_imports)
         .collect::<Result<_, _>>()?;
     let mut loaded: HashMap<String, Value> = HashMap::new();
     for program in &programs {
@@ -2859,16 +2913,25 @@ pub fn compose_programs(
         }
     }
     let load = |name: &str| loaded.get(name);
-    let mut by_name: HashMap<String, Value> = HashMap::new();
+    let mut import_of: HashMap<String, Option<(String, String)>> = HashMap::new();
     for program in &programs {
         for orbital in arr_of(program, "orbitals") {
             if let Some(n) = str_of(orbital, "name") {
-                by_name.insert(n.to_string(), orbital.clone());
+                import_of.insert(n.to_string(), import_source(orbital));
             }
         }
     }
+    let header_values: Vec<(&str, Value)> = APP_HEADER_KEYS
+        .into_iter()
+        .filter_map(|key| {
+            programs
+                .iter()
+                .find_map(|p| p.get(key).filter(|v| !v.is_null()))
+                .map(|value| (key, value.clone()))
+        })
+        .collect();
     let catalog_orbital_of = |name: &str| -> Option<(String, String)> {
-        let (from, orbital) = import_source(by_name.get(name)?)?;
+        let (from, orbital) = import_of.get(name)?.clone()?;
         Some((behavior_name(&from).to_string(), orbital))
     };
     let organism_of = |name: &str| catalog_orbital_of(name).map(|(organism, _)| organism);
@@ -2919,16 +2982,14 @@ pub fn compose_programs(
         event_wiring: None,
         now: now.to_string(),
     };
-    let mut schema = compose_app_from_files(&programs, &options, &lookups)?["schema"].take();
-    for key in APP_HEADER_KEYS {
+    let mut schema = compose_app_from_owned_files(programs, &options, &lookups)?["schema"].take();
+    for (key, value) in header_values {
         if schema.get(key).is_none() {
-            if let Some(value) = programs.iter().find_map(|p| p.get(key).filter(|v| !v.is_null())) {
-                schema[key] = value.clone();
-            }
+            schema[key] = value;
         }
     }
     if let Some(theme) = theme {
-        schema["theme"] = Value::String(theme.to_string());
+        schema["theme"] = Value::string(theme.to_string());
     }
     if let Some(overrides) = overrides {
         apply_compose_overrides(&mut schema, overrides)?;
@@ -2994,6 +3055,7 @@ pub fn apply_compose_overrides(schema: &mut Value, overrides: &Value) -> Result<
             Value::String(_) => "string",
             Value::Array(_) => "array",
             Value::Object(_) => "object",
+            Value::Lambda { .. } => "lambda",
         };
         if let Some(current) = field.get("default").filter(|d| !d.is_null()) {
             if kind(current) != kind(value) {
@@ -3020,7 +3082,8 @@ pub fn apply_compose_overrides(schema: &mut Value, overrides: &Value) -> Result<
 /// not at the first ask of a booted server.
 fn refuse_ungranted_os_calls(schema: &Value) -> Result<(), String> {
     let parsed: orbital_core_base::schema::OrbitalSchema =
-        serde_json::from_value(schema.clone()).map_err(|e| format!("the composed program does not parse: {e}"))?;
+        serde_json::from_str(&orbital_core_base::json_value::value_json_string(schema, false))
+            .map_err(|e| format!("the composed program does not parse: {e}"))?;
     let result = crate::phases::validation::effect::validate_os_grants(&parsed);
     let refused: Vec<String> = result
         .errors
@@ -3036,6 +3099,12 @@ fn refuse_ungranted_os_calls(schema: &Value) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    macro_rules! jv {
+        ($($t:tt)*) => {
+            serde_json::from_value::<Value>(serde_json::json!($($t)*)).expect("literal")
+        };
+    }
+
     use super::*;
     use std::path::PathBuf;
 
@@ -3101,20 +3170,20 @@ mod tests {
         let organism_of = |n: &str| {
             organism
                 .as_ref()
-                .map(|r| r.answer(&json!(n)))
+                .map(|r| r.answer(&jv!(n)))
                 .and_then(some)
                 .and_then(|v| v.as_str().map(str::to_string))
         };
         let order_of = |n: &str| {
             order
                 .as_ref()
-                .map(|r| r.answer(&json!(n)))
+                .map(|r| r.answer(&jv!(n)))
                 .and_then(some)
-                .and_then(|v| v.as_f64())
+                .and_then(|v| v.as_number())
         };
         let atom_of = |o: &Value, r: &str| {
             atom.as_ref()
-                .map(|rec| rec.answer(&json!([o, r])))
+                .map(|rec| rec.answer(&jv!([o, r])))
                 .and_then(some)
         };
         let imported_of = |o: &Value| imported.as_ref().map(|r| r.answer(o)).and_then(some);
@@ -3156,7 +3225,7 @@ mod tests {
                     layout_strategy: str_of(&opts, "layoutStrategy").map(str::to_string),
                     event_wiring: opts
                         .get("eventWiring")
-                        .map(|w| serde_json::from_value(w.clone()).expect("wiring")),
+                        .map(|w| serde_json::from_value(orbital_core_base::json_value::value_to_json(w)).expect("wiring")),
                     now: now.to_string(),
                 };
                 Ok((compose_app_from_files(&files, &options, &lookups)?, files))
@@ -3179,8 +3248,8 @@ mod tests {
                             golden["result"],
                             result
                         ));
-                    } else if golden["argsAfter"].get(0).is_some_and(Value::is_array)
-                        && Value::Array(after) != golden["argsAfter"][0]
+                    } else if golden["argsAfter"][0].is_array()
+                        && Value::array(after) != golden["argsAfter"][0]
                     {
                         failures.push(format!("{name}: the orbitals after differ"));
                     }
@@ -3199,30 +3268,30 @@ mod tests {
     }
 
     fn orbital_with_pages(name: &str, pages: Value) -> Value {
-        json!({ "name": name, "entity": { "name": "E" }, "traits": [], "pages": pages })
+        jv!({ "name": name, "entity": { "name": "E" }, "traits": [], "pages": pages })
     }
 
     #[test]
     fn dedupe_does_not_rename_an_http_path_equal_to_a_route_path() {
         let mut orbitals = vec![
-            orbital_with_pages("WebOrbital", json!([{ "name": "Home", "path": "/", "traits": [] }])),
+            orbital_with_pages("WebOrbital", jv!([{ "name": "Home", "path": "/", "traits": [] }])),
             orbital_with_pages(
                 "ApiOrbital",
-                json!([{ "name": "Api", "path": "", "protocol": "http",
+                jv!([{ "name": "Api", "path": "", "protocol": "http",
                     "address": { "host": "0.0.0.0", "port": 80, "path": "/" }, "traits": [] }]),
             ),
         ];
         let renames = dedupe_composed_surface(&mut orbitals);
-        assert_eq!(renames["routes"], json!([]), "{renames}");
-        assert_eq!(orbitals[1]["pages"][0]["address"]["path"], "/");
-        assert_eq!(orbitals[1]["pages"][0]["path"], "");
+        assert_eq!(renames["routes"], jv!([]), "{renames}");
+        assert_eq!(orbitals[1]["pages"][0]["address"]["path"], Value::from("/"));
+        assert_eq!(orbitals[1]["pages"][0]["path"], Value::from(""));
     }
 
     #[test]
     fn control_dedupe_still_renames_a_second_route_with_the_same_path() {
         let mut orbitals = vec![
-            orbital_with_pages("WebOrbital", json!([{ "name": "Home", "path": "/", "traits": [] }])),
-            orbital_with_pages("DocsOrbital", json!([{ "name": "Docs", "path": "/", "traits": [] }])),
+            orbital_with_pages("WebOrbital", jv!([{ "name": "Home", "path": "/", "traits": [] }])),
+            orbital_with_pages("DocsOrbital", jv!([{ "name": "Docs", "path": "/", "traits": [] }])),
         ];
         let renames = dedupe_composed_surface(&mut orbitals);
         assert_eq!(renames["routes"].as_array().map(Vec::len), Some(1), "{renames}");
@@ -3231,8 +3300,8 @@ mod tests {
     #[test]
     fn dedupe_renaming_a_route_leaves_an_http_address_path_alone() {
         let mut orbitals = vec![
-            orbital_with_pages("WebOrbital", json!([{ "name": "Home", "path": "/", "traits": [] }])),
-            json!({ "name": "DocsOrbital", "entity": { "name": "E" }, "traits": [],
+            orbital_with_pages("WebOrbital", jv!([{ "name": "Home", "path": "/", "traits": [] }])),
+            jv!({ "name": "DocsOrbital", "entity": { "name": "E" }, "traits": [],
                 "pages": [
                     { "name": "Docs", "path": "/", "traits": [] },
                     { "name": "Api", "path": "", "protocol": "http",
@@ -3240,8 +3309,8 @@ mod tests {
                 ] }),
         ];
         dedupe_composed_surface(&mut orbitals);
-        assert_ne!(orbitals[1]["pages"][0]["path"], "/");
-        assert_eq!(orbitals[1]["pages"][1]["address"]["path"], "/");
+        assert_ne!(orbitals[1]["pages"][0]["path"], Value::from("/"));
+        assert_eq!(orbitals[1]["pages"][1]["address"]["path"], Value::from("/"));
     }
 
     #[test]
@@ -3258,34 +3327,34 @@ mod tests {
 
     #[test]
     fn os_grants_union_merges_modes_on_a_shared_glob_and_control_nothing_is_no_grant() {
-        let a = json!({ "fs": [{ "glob": "~/.a/**", "modes": ["read"] }], "env": ["A", "B"] });
-        let b = json!({ "fs": [{ "glob": "~/.a/**", "modes": ["write", "read"] }, { "glob": "./x", "modes": ["meta"] }], "env": ["B", "C"] });
+        let a = jv!({ "fs": [{ "glob": "~/.a/**", "modes": ["read"] }], "env": ["A", "B"] });
+        let b = jv!({ "fs": [{ "glob": "~/.a/**", "modes": ["write", "read"] }, { "glob": "./x", "modes": ["meta"] }], "env": ["B", "C"] });
         assert_eq!(
             union_os_grants(Some(&a), Some(&b)),
-            json!({ "fs": [{ "glob": "~/.a/**", "modes": ["read", "write"] }, { "glob": "./x", "modes": ["meta"] }], "env": ["A", "B", "C"] })
+            jv!({ "fs": [{ "glob": "~/.a/**", "modes": ["read", "write"] }, { "glob": "./x", "modes": ["meta"] }], "env": ["A", "B", "C"] })
         );
-        assert_eq!(union_os_grants(None, None), json!({}));
+        assert_eq!(union_os_grants(None, None), jv!({}));
     }
 
     #[test]
     fn os_grants_union_carries_anchored_entries_and_merges_modes_on_the_same_anchor_and_glob() {
-        let a = json!({ "anchored": { "fs": [{ "anchor": "cwd", "glob": "docs/**", "modes": ["read"] }], "exec": [{ "anchor": "exe-dir", "path": "bun" }] } });
-        let b = json!({ "exec": ["bun"], "anchored": {
+        let a = jv!({ "anchored": { "fs": [{ "anchor": "cwd", "glob": "docs/**", "modes": ["read"] }], "exec": [{ "anchor": "exe-dir", "path": "bun" }] } });
+        let b = jv!({ "exec": ["bun"], "anchored": {
             "fs": [{ "anchor": "cwd", "glob": "docs/**", "modes": ["write"] }, { "anchor": "exe-dir", "glob": "docs/**", "modes": ["read"] }],
             "exec": [{ "anchor": "exe-dir", "path": "bun" }],
             "net": [{ "host": { "anchor": { "env": "HOST" } }, "port": { "anchor": { "env": "PORT" } }, "kinds": ["listen"] }] } });
         assert_eq!(
             union_os_grants(Some(&a), Some(&b)),
-            json!({ "exec": ["bun"], "anchored": {
+            jv!({ "exec": ["bun"], "anchored": {
                 "fs": [{ "anchor": "cwd", "glob": "docs/**", "modes": ["read", "write"] }, { "anchor": "exe-dir", "glob": "docs/**", "modes": ["read"] }],
                 "exec": [{ "anchor": "exe-dir", "path": "bun" }],
                 "net": [{ "host": { "anchor": { "env": "HOST" } }, "port": { "anchor": { "env": "PORT" } }, "kinds": ["listen"] }] } })
         );
-        assert!(union_os_grants(Some(&json!({ "exec": ["git"] })), None).get("anchored").is_none(), "control: no anchored key without anchored entries");
+        assert!(union_os_grants(Some(&jv!({ "exec": ["git"] })), None).get("anchored").is_none(), "control: no anchored key without anchored entries");
     }
 
     fn composable(name: &str, orbital: &str, grants: Option<Value>, effect: Option<Value>, config: Option<Value>) -> Value {
-        let mut t = json!({
+        let mut t = jv!({
             "name": format!("{orbital}Trait"), "linkedEntity": format!("{orbital}Row"),
             "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [{ "key": "GO", "name": "GO" }],
                 "transitions": [{ "from": "idle", "to": "idle", "event": "GO", "effects": effect.into_iter().collect::<Vec<_>>() }] }
@@ -3293,7 +3362,7 @@ mod tests {
         if let Some(c) = config {
             t["config"] = c;
         }
-        let mut p = json!({
+        let mut p = jv!({
             "name": name, "version": "1.0.0",
             "orbitals": [{ "name": orbital, "entity": { "name": format!("{orbital}Row"), "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
                 "traits": [t], "pages": [{ "name": format!("{orbital}Page"), "path": format!("/{}", orbital.to_lowercase()), "traits": [{ "ref": format!("{orbital}Trait") }] }] }]
@@ -3305,35 +3374,35 @@ mod tests {
     }
 
     fn compose(programs: &[Value], overrides: Option<&Value>) -> Result<Value, String> {
-        compose_programs(programs, "served", None, None, overrides, "2026-10-21T00:00:00.000Z", &|from: &str| Err(format!("no source {from}")))
+        compose_programs(programs.to_vec(), "served", None, None, overrides, "2026-10-21T00:00:00.000Z", &|from: &str| Err(format!("no source {from}")))
     }
 
     fn getenv(name: &str) -> Value {
-        json!(["os/getenv", name, { "emit": { "success": "GO", "failure": "GO" } }])
+        jv!(["os/getenv", name, { "emit": { "success": "GO", "failure": "GO" } }])
     }
 
     #[test]
     fn composing_keeps_each_programs_top_level_grants() {
-        let server = composable("server", "Http", Some(json!({ "env": ["NODE_ENV"] })), Some(getenv("NODE_ENV")), None);
+        let server = composable("server", "Http", Some(jv!({ "env": ["NODE_ENV"] })), Some(getenv("NODE_ENV")), None);
         let app = composable("app", "Notes", None, None, None);
         let composed = compose(&[app, server], None).unwrap();
-        assert_eq!(composed["osGrants"]["env"], json!(["NODE_ENV"]), "the server's env grant survives: {}", composed["osGrants"]);
+        assert_eq!(composed["osGrants"]["env"], jv!(["NODE_ENV"]), "the server's env grant survives: {}", composed["osGrants"]);
     }
 
     #[test]
     fn composing_keeps_the_app_header_its_first_declaring_program_states() {
         let mut app = composable("app", "Notes", None, None, None);
-        app["locales"] = json!(["en", "ar"]);
-        app["publicDir"] = json!("public");
-        app["description"] = json!("Notes.");
+        app["locales"] = jv!(["en", "ar"]);
+        app["publicDir"] = jv!("public");
+        app["description"] = jv!("Notes.");
         let mut server = composable("server", "Http", None, None, None);
-        server["locales"] = json!(["sl"]);
+        server["locales"] = jv!(["sl"]);
         let composed = compose(&[app, server], None).unwrap();
-        assert_eq!(composed["locales"], json!(["en", "ar"]), "the app's locales, not the later program's: {}", composed["locales"]);
-        assert_eq!(composed["publicDir"], json!("public"));
-        assert_eq!(composed["description"], json!("Notes."));
-        let later = compose(&[composable("app", "Notes", None, None, None), { let mut s = composable("server", "Http", None, None, None); s["locales"] = json!(["sl"]); s }], None).unwrap();
-        assert_eq!(later["locales"], json!(["sl"]), "edge: the first program that declares it");
+        assert_eq!(composed["locales"], jv!(["en", "ar"]), "the app's locales, not the later program's: {}", composed["locales"]);
+        assert_eq!(composed["publicDir"], jv!("public"));
+        assert_eq!(composed["description"], jv!("Notes."));
+        let later = compose(&[composable("app", "Notes", None, None, None), { let mut s = composable("server", "Http", None, None, None); s["locales"] = jv!(["sl"]); s }], None).unwrap();
+        assert_eq!(later["locales"], jv!(["sl"]), "edge: the first program that declares it");
     }
 
     #[test]
@@ -3355,24 +3424,24 @@ mod tests {
     }
 
     fn knobbed() -> Value {
-        composable("server", "Http", None, None, Some(json!({ "port": { "type": "number", "default": 3000 } })))
+        composable("server", "Http", None, None, Some(jv!({ "port": { "type": "number", "default": 3000 } })))
     }
 
     #[test]
     fn an_override_reaches_the_knob_and_its_grant() {
-        let overrides = json!({ "HttpTrait.port": 4100, "grants": { "net": [{ "target": "127.0.0.1:4100", "kinds": ["listen"] }] } });
+        let overrides = jv!({ "HttpTrait.port": 4100, "grants": { "net": [{ "target": "127.0.0.1:4100", "kinds": ["listen"] }] } });
         let composed = compose(&[knobbed()], Some(&overrides)).unwrap();
         let t = &composed["orbitals"][0]["traits"][0];
-        assert_eq!(t["config"]["port"]["default"], json!(4100), "{t}");
-        assert_eq!(composed["osGrants"]["net"], json!([{ "target": "127.0.0.1:4100", "kinds": ["listen"] }]));
+        assert_eq!(t["config"]["port"]["default"], jv!(4100), "{t}");
+        assert_eq!(composed["osGrants"]["net"], jv!([{ "target": "127.0.0.1:4100", "kinds": ["listen"] }]));
         let plain = compose(&[knobbed()], None).unwrap();
-        assert_eq!(plain["orbitals"][0]["traits"][0]["config"]["port"]["default"], json!(3000), "control: no overrides keeps the default");
+        assert_eq!(plain["orbitals"][0]["traits"][0]["config"]["port"]["default"], jv!(3000), "control: no overrides keeps the default");
         assert!(plain.get("osGrants").is_none(), "control: and widens no grant");
     }
 
     #[test]
     fn an_override_can_name_an_orbitals_own_knob() {
-        let program = || json!({ "orbitals": [{
+        let program = || jv!({ "orbitals": [{
             "name": "Api",
             "config": { "port": { "type": "number", "default": 3000 } },
             "traits": [{ "name": "ApiHttp1", "config": {
@@ -3381,28 +3450,28 @@ mod tests {
             } }]
         }] });
         let mut schema = program();
-        apply_compose_overrides(&mut schema, &json!({ "Api.port": 4100, "ApiHttp1.backlog": 32 })).unwrap();
-        assert_eq!(schema["orbitals"][0]["config"]["port"]["default"], json!(4100), "{schema}");
-        assert_eq!(schema["orbitals"][0]["traits"][0]["config"]["backlog"]["default"], json!(32), "control: a trait knob still lands on the trait");
-        assert_eq!(schema["orbitals"][0]["traits"][0]["config"]["port"]["default"], json!(4100), "the trait knob forwarded from the orbital knob follows it");
-        let mut same = json!({ "orbitals": [{ "name": "Api", "config": { "port": { "type": "number", "default": 1 } },
+        apply_compose_overrides(&mut schema, &jv!({ "Api.port": 4100, "ApiHttp1.backlog": 32 })).unwrap();
+        assert_eq!(schema["orbitals"][0]["config"]["port"]["default"], jv!(4100), "{schema}");
+        assert_eq!(schema["orbitals"][0]["traits"][0]["config"]["backlog"]["default"], jv!(32), "control: a trait knob still lands on the trait");
+        assert_eq!(schema["orbitals"][0]["traits"][0]["config"]["port"]["default"], jv!(4100), "the trait knob forwarded from the orbital knob follows it");
+        let mut same = jv!({ "orbitals": [{ "name": "Api", "config": { "port": { "type": "number", "default": 1 } },
             "traits": [{ "name": "Api", "config": { "port": { "type": "number", "default": 2 } } }] }] });
-        let error = apply_compose_overrides(&mut same, &json!({ "Api.port": 9 })).unwrap_err();
+        let error = apply_compose_overrides(&mut same, &jv!({ "Api.port": 9 })).unwrap_err();
         assert!(error.contains("ambiguous"), "an orbital and a trait of one name are refused: {error}");
-        let error = apply_compose_overrides(&mut program(), &json!({ "Api.host": "x" })).unwrap_err();
+        let error = apply_compose_overrides(&mut program(), &jv!({ "Api.host": "x" })).unwrap_err();
         assert!(error.contains("names no knob host"), "{error}");
-        let error = apply_compose_overrides(&mut program(), &json!({ "ApiHttp1.port": 4100 })).unwrap_err();
+        let error = apply_compose_overrides(&mut program(), &jv!({ "ApiHttp1.port": 4100 })).unwrap_err();
         assert!(error.contains("override \"Api.port\" instead"), "a forwarded trait knob is set through its orbital knob: {error}");
     }
 
     #[test]
     fn an_override_naming_an_unknown_knob_or_trait_or_kind_is_refused() {
         for (overrides, expect) in [
-            (json!({ "HttpTrait.prot": 1 }), "names no knob prot"),
-            (json!({ "Nope.port": 1 }), "names no trait or orbital Nope"),
-            (json!({ "HttpTrait.port": "4100" }), "is a string, the knob holds a number"),
-            (json!({ "port": 1 }), "is not <Trait>.<knob>"),
-            (json!({ "grants": ["127.0.0.1:1"] }), "osGrants object"),
+            (jv!({ "HttpTrait.prot": 1 }), "names no knob prot"),
+            (jv!({ "Nope.port": 1 }), "names no trait or orbital Nope"),
+            (jv!({ "HttpTrait.port": "4100" }), "is a string, the knob holds a number"),
+            (jv!({ "port": 1 }), "is not <Trait>.<knob>"),
+            (jv!({ "grants": ["127.0.0.1:1"] }), "osGrants object"),
         ] {
             let error = compose(&[knobbed()], Some(&overrides)).unwrap_err();
             assert!(error.contains(expect), "{overrides}: {error}");

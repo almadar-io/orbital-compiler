@@ -551,7 +551,7 @@ mod tests {
                 }],
                 events: None,
                 transitions: vec![],
-            },
+            }.into(),
             ticks: None,
             config: None,
             data_entities: None,
@@ -664,7 +664,7 @@ mod tests {
             scope: None,
             payload_schema: None,
             payload_entity: None,
-        }]);
+        }].into());
         let edit = trait_rendering_control("ArticleEdit", "EDIT");
 
         let schema = minimal_schema(vec![
@@ -703,7 +703,7 @@ mod tests {
             scope: None,
             payload_schema: None,
             payload_entity: None,
-        }]);
+        }].into());
         let edit = trait_rendering_control("ArticleEdit", "EDIT");
 
         let schema = minimal_schema(vec![

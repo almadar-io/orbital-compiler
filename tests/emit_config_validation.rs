@@ -120,11 +120,12 @@ fn schema_with_effects(
                 effects: Some(effects),
                 ensures: None,
             }],
-        },
+        }
+        .into(),
         emits: if declared_emits.is_empty() {
             None
         } else {
-            Some(declared_emits)
+            Some(declared_emits.into())
         },
         listens: None,
         ticks: None,

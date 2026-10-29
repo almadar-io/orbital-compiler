@@ -467,8 +467,8 @@ fn relation_targets_are_renamed_on_the_primary_entity() {
         .expect("ownerId field carried");
     assert_eq!(
         owner_id.relation.as_ref().map(|r| r.entity.as_str()),
-        Some("FirstImportThingOwner"),
-        "relation to the identity aux must be renamed"
+        Some("ThingOwner"),
+        "relation to the identity aux keeps the identity's own name (it is `@user`, never forked per import)"
     );
     let parent_id = entity
         .fields
@@ -482,10 +482,8 @@ fn relation_targets_are_renamed_on_the_primary_entity() {
     );
 }
 
-/// Gap (A), auxiliary-entity side: `ThingOwner` itself must be renamed and
-/// marked `identity` still — the rename must not touch that flag, only the
-/// name (proven separately) and any relation targets it carries (it has
-/// none here, but the aux loop runs the same helper unconditionally).
+/// Gap (A), auxiliary-entity side (G-ORB-133): the identity aux `ThingOwner`
+/// keeps its name and its `identity` flag through the import.
 #[test]
 fn identity_aux_entity_survives_materialization_as_identity() {
     let schema = inline_consumer();
@@ -496,10 +494,10 @@ fn identity_aux_entity_survives_materialization_as_identity() {
     let owner = aux
         .iter()
         .find_map(|e| match e {
-            EntityRef::Inline(d) if d.name == "FirstImportThingOwner" => Some(d),
+            EntityRef::Inline(d) if d.name == "ThingOwner" => Some(d),
             _ => None,
         })
-        .expect("FirstImportThingOwner aux entity carried");
+        .expect("ThingOwner aux entity carried");
     assert!(
         owner.identity,
         "identity flag must survive the rename untouched"
