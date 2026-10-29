@@ -2269,6 +2269,9 @@ pub(crate) fn inline_traits(
                                     // canvas reads them to bucket cards by
                                     // alias and populate mock rows for
                                     // imported entities.
+                                    if let Some(local) = ctx.local_types_for_trait_orbital(&alias, &name, ref_id.as_deref()) {
+                                        local.trait_definition(&mut trait_def);
+                                    }
                                     trait_def.source_behavior = Some(provenance);
                                     trait_def.source_entity_definition = source_entity_def.map(Arc::new);
                                     // Collision check happens AFTER

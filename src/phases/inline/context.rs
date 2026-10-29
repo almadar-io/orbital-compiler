@@ -113,6 +113,8 @@ pub(crate) struct AliasEntry {
     /// Shared: one inlined import serves every orbital that uses it.
     pub(crate) orbitals: std::rc::Rc<Vec<Orbital>>,
     pub(crate) source_label: String,
+    /// The name the imported behavior declares for itself: the scope its local type names are written in.
+    pub(crate) behavior_name: String,
     pub(crate) source_path: Option<std::path::PathBuf>,
 }
 
@@ -184,6 +186,7 @@ impl InlineContext {
             alias.to_string(),
             AliasEntry {
                 orbitals: std::rc::Rc::new(vec![orbital.clone()]),
+                behavior_name: label.clone(),
                 source_label: label,
                 source_path: None,
             },
@@ -204,10 +207,30 @@ impl InlineContext {
             alias.to_string(),
             AliasEntry {
                 orbitals: orbitals.into(),
+                behavior_name: source_label.clone(),
                 source_label,
                 source_path: None,
             },
         );
+    }
+
+    pub(crate) fn set_behavior_name(&mut self, alias: &str, behavior_name: String) {
+        if let Some(entry) = self.aliases.get_mut(alias) {
+            entry.behavior_name = behavior_name;
+        }
+    }
+
+    /// The types the behavior behind a trait reference declares itself, qualified by that behavior (R13).
+    pub(crate) fn local_types_for_trait_orbital(
+        &self,
+        alias: &str,
+        trait_name: &str,
+        trait_ref_id: Option<&str>,
+    ) -> Option<super::qualify::LocalTypes> {
+        let entry = self.aliases.get(alias)?;
+        let types = self.get_types_for_trait_orbital(alias, trait_name, trait_ref_id);
+        let local = super::qualify::LocalTypes::declared_by(&entry.behavior_name, &types);
+        (!local.is_empty()).then_some(local)
     }
 
     pub(crate) fn get_entry(&self, alias: &str) -> Result<&AliasEntry, InlineError> {

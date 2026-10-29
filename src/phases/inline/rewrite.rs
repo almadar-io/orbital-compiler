@@ -1960,7 +1960,7 @@ pub(crate) fn rewrite_trait_config_bindings(
     });
 }
 
-fn rewrite_trait_expressions(
+pub(super) fn rewrite_trait_expressions(
     trait_def: &mut TraitDefinition,
     rewrite: &mut impl FnMut(&mut SExpression),
 ) {

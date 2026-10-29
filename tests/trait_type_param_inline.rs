@@ -616,37 +616,32 @@ fn no_default_and_no_arg_still_leaves_the_sentinel_standalone() {
 // file, never the consumer's).
 // ---------------------------------------------------------------------------
 
-/// 11. (a) A composer imports `LookupRun` and supplies `:: v SourceAlias`,
-/// where `SourceAlias` is declared ONLY in the atom's own file — the
-/// composer's own `types` map is empty. Must resolve via the lexical merge,
-/// not leave the sentinel (the std-inventory shape, minimal).
+/// 11. (a) A composer supplies `:: v SourceAlias` where `SourceAlias` is declared ONLY by the imported behavior:
+/// that is a type import, and no type is imported (owner ruling, R13).
 #[test]
-fn imported_trait_struct_alias_arg_resolves_lexically_from_source_file() {
-    let schema = materialize_import_scope_result(
+fn imported_trait_struct_alias_arg_naming_another_behaviors_type_is_refused() {
+    let err = materialize_import_scope_result(
         r#"[{"name": "v", "kind": "Type"}]"#,
         r#",
       "types": { "SourceAlias": [ { "name": "id", "type": "string", "required": true } ] }"#,
         r#", "typeArgs": {"v": "SourceAlias"}"#,
         "",
     )
-    .expect("lexical struct-alias arg must resolve");
-    let trait_def = lookup_run_trait(&schema);
-    let field = candidate_field(trait_def);
-    assert_eq!(field.field_type, "object");
-    let props = field
-        .properties
-        .as_ref()
-        .expect("source-file alias substitution must carry its flattened fields");
-    let prop_names: Vec<&str> = props.iter().map(|p| p.name.as_str()).collect();
-    assert_eq!(prop_names, vec!["id"]);
+    .expect_err("a call-site alias declared by another behavior is a type import");
+    assert!(
+        matches!(&err, orbital_compiler::phases::inline::InlineError::TypeImportRefused { name, owner, .. }
+            if name == "SourceAlias" && !owner.contains("::")),
+        "{err:?}"
+    );
+    assert_eq!(err.structured_code(), "ORB_T_TYPE_IMPORT_REFUSED");
+    assert!(err.to_string().contains("declared by behavior"), "{err}");
 }
 
-/// 11. (b) The composer ALSO declares its own local alias of the SAME NAME
-/// (`SourceAlias`) but with a DIFFERENT shape — a blocking
-/// `ConflictingTypeAlias` error, never silently resolved either way.
+/// 11. (b) Control: the composer declares its OWN `SourceAlias` (another shape than the behavior's): its own type is
+/// accepted and used, with no collision with the behavior's same-named one.
 #[test]
-fn imported_trait_struct_alias_name_collision_with_different_shape_is_an_error() {
-    let err = materialize_import_scope_result(
+fn control_a_call_site_alias_the_composer_declares_itself_is_accepted_beside_the_behaviors_same_name() {
+    let schema = materialize_import_scope_result(
         r#"[{"name": "v", "kind": "Type"}]"#,
         r#",
       "types": { "SourceAlias": [ { "name": "id", "type": "string", "required": true } ] }"#,
@@ -654,16 +649,10 @@ fn imported_trait_struct_alias_name_collision_with_different_shape_is_an_error()
         r#",
       "types": { "SourceAlias": [ { "name": "label", "type": "string", "required": true } ] }"#,
     )
-    .expect_err("a same-name different-shape collision must be a blocking error");
-    assert!(
-        matches!(
-            &err,
-            orbital_compiler::phases::inline::InlineError::ConflictingTypeAlias { name, .. }
-                if name == "SourceAlias"
-        ),
-        "expected ConflictingTypeAlias(\"SourceAlias\"), got {err:?}"
-    );
-    assert_eq!(err.structured_code(), "ORB_T_CONFLICTING_TYPE_ALIAS");
+    .expect("the composer's own type is its own");
+    let field = candidate_field(lookup_run_trait(&schema));
+    let props: Vec<&str> = field.properties.as_ref().expect("props").iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(props, vec!["label"]);
 }
 
 /// Regression: an IDENTICAL shape under the same name merges fine (harmless

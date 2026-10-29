@@ -23,6 +23,7 @@ mod host_entity;
 mod identity_normalize;
 mod orbital;
 mod page;
+mod qualify;
 pub(crate) mod rewrite;
 mod service;
 pub(crate) mod sigil_types;
@@ -187,6 +188,19 @@ pub enum InlineError {
     },
 
     #[error(
+        "Type '{name}' at {path} is declared by behavior {owner}, not by this program. A behavior declares its own \
+         types and none is imported: declare '{name}' here, or share the shape through a std entity."
+    )]
+    TypeImportRefused {
+        /// The type name as the declaring behavior wrote it.
+        name: String,
+        /// The behavior that declares it.
+        owner: String,
+        /// Source-tagged path to the consuming orbital.
+        path: String,
+    },
+
+    #[error(
         "Type name '{name}' is declared by {first} and by {second} with DIFFERENT shapes ({difference}); \
          a named type is one program-wide name, so one of the two would silently stand in for \
          the other. Rename one of the two declarations."
@@ -317,6 +331,7 @@ impl InlineError {
             InlineError::EmitMergeConflict { path, .. } => path,
             InlineError::ConflictingTypeAlias { path, .. } => path,
             InlineError::AmbiguousTypeName { path, .. } => path,
+            InlineError::TypeImportRefused { path, .. } => path,
             InlineError::DuplicateUseAlias { path, .. } => path,
             InlineError::OrbitalRefListenTargetUnknown { path, .. } => path,
             InlineError::OrbitalRefListenSourceUnknown { path, .. } => path,
@@ -341,6 +356,7 @@ impl InlineError {
             InlineError::EmitMergeConflict { .. } => "ORB_T_EMIT_MERGE_CONFLICT",
             InlineError::ConflictingTypeAlias { .. } => "ORB_T_CONFLICTING_TYPE_ALIAS",
             InlineError::AmbiguousTypeName { .. } => "ORB_T_AMBIGUOUS_TYPE_NAME",
+            InlineError::TypeImportRefused { .. } => "ORB_T_TYPE_IMPORT_REFUSED",
             InlineError::DuplicateUseAlias { .. } => "ORB_O_DUPLICATE_USE_ALIAS",
             InlineError::OrbitalRefListenTargetUnknown { .. } => "ORB_O_LISTEN_TARGET_UNKNOWN",
             InlineError::OrbitalRefListenSourceUnknown { .. } => "ORB_O_LISTEN_SOURCE_UNKNOWN",
@@ -2003,6 +2019,7 @@ fn inline_orbital(
         // That is what the author wrote, so it is the actionable label when
         // a trait/page lookup fails.
         ctx.add_alias_multi(&use_decl.alias, inlined_orbitals, use_decl.from.clone());
+        ctx.set_behavior_name(&use_decl.alias, loader.load(&use_decl.from, source_path, chain)?.schema.name.clone());
         ctx.aliases
             .get_mut(&use_decl.alias)
             .expect("registered alias")
@@ -2328,7 +2345,13 @@ fn inline_orbital(
                 if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
                     // The trait body reads the aliases its own file declares (a `json/parse x Name` shape).
                     let declaring_file = ctx.aliases.get(&alias).and_then(|entry| entry.source_path.clone());
-                    for (type_name, fields) in ctx.get_types_for_trait_orbital(&alias, &name, ref_id.as_deref()) {
+                    let source_types = ctx.get_types_for_trait_orbital(&alias, &name, ref_id.as_deref());
+                    let local_types = ctx.local_types_for_trait_orbital(&alias, &name, ref_id.as_deref());
+                    let source_types = match &local_types {
+                        Some(local) => local.types(&source_types),
+                        None => source_types,
+                    };
+                    for (type_name, fields) in source_types {
                         if let Some(file) = &declaring_file {
                             loader.record_type_origin(&orbital.name, &type_name, file.clone());
                         }
@@ -2349,7 +2372,10 @@ fn inline_orbital(
                         });
 
                     let mut union_reference =
-                        |entity: EntityDefinition, mut referenced: HashSet<String>| {
+                        |mut entity: EntityDefinition, mut referenced: HashSet<String>| {
+                            if let Some(local) = &local_types {
+                                local.entity(&mut entity);
+                            }
                             if let Some(renames) = field_renames {
                                 for old_name in renames.keys() {
                                     referenced.remove(old_name);
@@ -2612,10 +2638,15 @@ fn inline_orbital(
                     // left unset, from the source's own still-unconsumed
                     // `type_args`.
                     let mut effective_args = type_args.clone().unwrap_or_default();
+                    let call_site_values: HashSet<String> = effective_args.values().cloned().collect();
+                    let source_scope = ctx.local_types_for_trait_orbital(&alias, &name, ref_id.as_deref());
                     if let Some(source_def) = source_def {
                         if let Some(inherited) = &source_def.type_args {
                             for (k, v) in inherited {
-                                effective_args.entry(k.clone()).or_insert_with(|| v.clone());
+                                effective_args.entry(k.clone()).or_insert_with(|| match &source_scope {
+                                    Some(local) => local.rename_text(v),
+                                    None => v.clone(),
+                                });
                             }
                         }
                     }
@@ -2635,10 +2666,28 @@ fn inline_orbital(
                         effective_args.values().cloned().collect();
                     if let Some(source_def) = source_def {
                         if let Some(params) = &source_def.type_params {
-                            candidates.extend(params.iter().filter_map(|p| p.default.clone()));
+                            candidates.extend(params.iter().filter_map(|p| p.default.clone()).map(|d| match &source_scope {
+                                Some(local) => local.rename_text(&d),
+                                None => d,
+                            }));
                         }
                     }
+                    let qualified_source = source_scope.as_ref().map(|local| local.types(&source_types));
                     for candidate in candidates {
+                        if let Some(shape) = qualified_source.as_ref().and_then(|q| q.get(&candidate)) {
+                            merged_types.entry(candidate).or_insert_with(|| shape.clone());
+                            continue;
+                        }
+                        if merged_types.contains_key(&candidate) {
+                            continue;
+                        }
+                        if call_site_values.contains(&candidate) && source_types.contains_key(&candidate) {
+                            return Err(InlineError::TypeImportRefused {
+                                owner: ctx.get_entry(&alias).map(|e| e.behavior_name.clone()).unwrap_or_else(|_| alias.clone()),
+                                name: candidate,
+                                path: orbital_path,
+                            });
+                        }
                         let Some(shape) = source_types.get(&candidate) else {
                             continue;
                         };
@@ -9969,5 +10018,110 @@ mod event_rename_reid_tests {
         let a_id = event_id(inline(&s, 0, 0));
         let listen = &inline(&s, 0, 1).listens.as_ref().unwrap()[0];
         assert_eq!(listen.event_id.as_deref(), Some(a_id.as_str()));
+    }
+}
+
+#[cfg(test)]
+mod qualified_local_type_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn atom(name: &str, badge: serde_json::Value) -> serde_json::Value {
+        json!({"name": name, "orbitals": [{"name": format!("{name}Orbital"),
+            "types": {"Badge": badge},
+            "entity": {"name": format!("{name}Row"), "persistence": "runtime", "fields": [
+                {"name": "id", "type": "string", "required": true}, {"name": "v", "type": "string"}]},
+            "traits": [{"name": format!("{name}Reader"), "linkedEntity": format!("{name}Row"), "stateMachine": {
+                "states": [{"name": "idle", "isInitial": true}],
+                "events": [{"key": "READ", "payloadSchema": [{"name": "badge", "type": "Badge"}]}],
+                "transitions": [{"from": "idle", "to": "idle", "event": "READ",
+                    "effects": [["set", "@entity.v", ["object/get", ["json/parse", "@payload.x", "Badge"], "id"]]]}]}}],
+            "pages": []}]})
+    }
+
+    fn badge(members: &[(&str, &str)]) -> serde_json::Value {
+        members.iter().map(|(n, t)| json!({"name": n, "type": t})).collect()
+    }
+
+    fn consume(dir: &std::path::Path, atoms: &[(&str, serde_json::Value)], own_types: serde_json::Value) -> Result<OrbitalSchema, InlineError> {
+        let mut uses = Vec::new();
+        let mut traits = Vec::new();
+        for (name, body) in atoms {
+            std::fs::write(dir.join(format!("{name}.orb")), body.to_string()).expect("atom");
+            uses.push(json!({"from": format!("./{name}.orb"), "as": name}));
+            traits.push(json!({"ref": format!("{name}.traits.{name}Reader"), "linkedEntity": "Host"}));
+        }
+        let mut schema: OrbitalSchema = serde_json::from_value(json!({"name": "Consumer", "orbitals": [{
+            "name": "HostOrbital", "uses": uses, "types": own_types,
+            "entity": {"name": "Host", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}, {"name": "v", "type": "string"}]},
+            "traits": traits, "pages": []}]}))
+        .expect("consumer");
+        let config = InlineConfig {
+            loader_config: LoaderConfig { base_path: dir.to_path_buf(), ..Default::default() },
+            skip_inline: false,
+            session: None,
+        };
+        inline_schema(&mut schema, &config, None).map(|_| schema)
+    }
+
+    fn shape_arg(schema: &OrbitalSchema, trait_name: &str) -> String {
+        let text = serde_json::to_string(&schema.orbitals[0].traits.iter().find_map(|t| match t {
+            TraitReference::Inline(td) if td.name.ends_with(trait_name) => Some(td.as_ref().clone()),
+            _ => None,
+        }).expect("trait")).expect("json");
+        let at = text.find("json/parse").expect("parse");
+        text[at..].split('"').nth(4).expect("shape").to_string()
+    }
+
+    #[test]
+    fn two_composed_behaviors_may_each_declare_one_type_name_with_different_shapes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let schema = consume(
+            dir.path(),
+            &[("AtomA", atom("AtomA", badge(&[("id", "string"), ("on", "boolean")]))), ("AtomB", atom("AtomB", badge(&[("id", "string"), ("score", "number")])))],
+            json!(null),
+        )
+        .expect("two same-named local types must compose");
+        let types = schema.orbitals[0].types.as_ref().expect("types");
+        let members = |name: &str| types.get(name).unwrap_or_else(|| panic!("{name} in {:?}", types.keys())).iter().map(|f| f.name.clone()).collect::<Vec<_>>();
+        assert_eq!(members("AtomA::Badge"), ["id", "on"]);
+        assert_eq!(members("AtomB::Badge"), ["id", "score"]);
+        assert!(!types.contains_key("Badge"), "{:?}", types.keys());
+        assert_eq!(shape_arg(&schema, "AtomAReader"), "AtomA::Badge");
+        assert_eq!(shape_arg(&schema, "AtomBReader"), "AtomB::Badge");
+    }
+
+    #[test]
+    fn a_payload_field_naming_a_local_type_reads_the_qualified_one() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let schema = consume(dir.path(), &[("AtomA", atom("AtomA", badge(&[("id", "string")])))], json!(null)).expect("inlines");
+        let text = serde_json::to_string(&schema.orbitals[0].traits).expect("json");
+        assert!(text.contains(r#""type":"AtomA::Badge""#), "{text}");
+        assert!(!text.contains(r#""type":"Badge""#), "{text}");
+    }
+
+    #[test]
+    fn a_let_binding_declared_type_naming_a_local_type_reads_the_qualified_one() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut body = atom("AtomA", badge(&[("id", "string")]));
+        body["orbitals"][0]["traits"][0]["stateMachine"]["transitions"][0]["effects"] =
+            json!([["let", [["w", ["array/nth", "@payload.xs", 0], "Badge"]], ["set", "@entity.v", "x"]]]);
+        let schema = consume(dir.path(), &[("AtomA", body)], json!(null)).expect("inlines");
+        let text = serde_json::to_string(&schema.orbitals[0].traits).expect("json");
+        assert!(text.contains(r#"["w",["array/nth","@payload.xs",0.0],"AtomA::Badge"]"#), "{text}");
+    }
+
+    #[test]
+    fn control_the_composing_program_keeps_its_own_type_names_unqualified() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let schema = consume(
+            dir.path(),
+            &[("AtomA", atom("AtomA", badge(&[("id", "string"), ("on", "boolean")])))],
+            json!({"Badge": badge(&[("code", "string")])}),
+        )
+        .expect("a program type beside a composed behavior's same-named one");
+        let types = schema.orbitals[0].types.as_ref().expect("types");
+        assert!(types.contains_key("Badge") && types.contains_key("AtomA::Badge"), "{:?}", types.keys());
+        assert_eq!(types["Badge"].len(), 1);
     }
 }
