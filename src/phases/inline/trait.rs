@@ -480,6 +480,16 @@ pub(crate) fn apply_overrides_to_trait(
                 }
             }
         }
+        if let Some(declared) = trait_def.config.as_ref() {
+            for k in cfg.keys() {
+                if declared.get(k).is_some_and(|field| field.field_type == "unknown") {
+                    return Err(InlineError::UnstampedConfigKnob {
+                        trait_name: trait_def.name.clone(),
+                        knob: k.clone(),
+                    });
+                }
+            }
+        }
         // A reference's config block can DECLARE a brand-new knob rather
         // than override one of the wrapped trait's (e.g. an alias trait
         // adding its own `steps : [StepSpec] = [...]`). Those entries have
@@ -3595,7 +3605,6 @@ mod forwarded_sibling_config_tests {
         serde_json::from_value(serde_json::json!({
             "name": name,
             "linkedEntity": "Item",
-            "category": "interaction",
             "config": config,
             "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
         }))
@@ -3888,7 +3897,6 @@ mod unbound_trait_knob_override_tests {
         serde_json::from_value(serde_json::json!({
             "name": name,
             "linkedEntity": "Item",
-            "category": "interaction",
             "config": config,
             "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
         }))
@@ -3899,7 +3907,6 @@ mod unbound_trait_knob_override_tests {
         let mut td: TraitDefinition = serde_json::from_value(serde_json::json!({
             "name": "Minter",
             "linkedEntity": "Cursor",
-            "category": "interaction",
             "config": { "e": { "type": "entity", "default": "AtomRecord" } },
             "stateMachine": {
                 "states": [ { "name": "idle", "isInitial": true } ],
@@ -4122,6 +4129,16 @@ mod unbound_trait_knob_override_tests {
         let err = apply_wiring("string", "number").expect_err("number does not fit string");
         assert_eq!(err.structured_code(), "ORB_T_CONFIG_SHAPE_MISMATCH");
         assert!(err.to_string().contains("mode"), "{err}");
+    }
+
+    #[test]
+    fn a_literal_call_site_value_takes_the_callee_knob_type_and_no_unknown_survives_inlining() {
+        let td = apply_wiring("string", "unknown").expect("a literal override folds");
+        let knob = &td.config.as_ref().expect("config")["mode"];
+        assert_eq!(knob.field_type, "string", "the callee's declared type is the one kept");
+        assert!(td.config.as_ref().expect("config").values().all(|f| f.field_type != "unknown"));
+        let err = apply_wiring("unknown", "unknown").expect_err("control: a callee knob that declares no type is refused");
+        assert!(err.to_string().contains("mode") && err.to_string().contains("unknown"), "{err}");
     }
 
     #[test]

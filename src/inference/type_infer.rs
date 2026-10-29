@@ -1354,7 +1354,7 @@ impl<'c> Inferer<'c> {
         }
     }
 
-    /// `=` and `!=` against the null literal: only an optional value (or one that holds anything, json) can be null.
+    /// `=` and `!=` against the null literal: only an optional value (or one that holds anything, `SExpr`) can be null.
     fn null_comparison(&self, name: &str, args: &[&OirExpr], arg_types: &[Option<OirType>]) {
         let [left, right] = args else { return };
         let other = match (matches!(left, OirExpr::Null), matches!(right, OirExpr::Null)) {
@@ -1364,7 +1364,7 @@ impl<'c> Inferer<'c> {
         };
         let Some(Some(ty)) = arg_types.get(other) else { return };
         let ty = self.unfold(ty.clone());
-        let can_be_null = |ty: &OirType| matches!(ty, OirType::Optional { .. } | OirType::Json | OirType::SExpr);
+        let can_be_null = |ty: &OirType| matches!(ty, OirType::Optional { .. } | OirType::SExpr) || ty.is_erased();
         let holds_null = match &ty {
             OirType::Union { variants } => variants.iter().any(|v| can_be_null(&v.field_type)),
             other => can_be_null(other),
@@ -4587,7 +4587,7 @@ mod tests {
 
     #[test]
     fn a_scalar_type_test_narrows_a_type_variable_to_that_scalar() {
-        let row = Row(vec![("t", OirType::Var { name: "e".to_string() })]);
+        let row = Row(vec![("t", OirType::Var { name: "e".into() })]);
         let guarded = lowered(serde_json::json!(["if", ["validate/string", "@entity.t"], ["str/concat", "@entity.t", "!"], "none"]));
         assert!(check_oir_expr(&guarded, &row).is_empty(), "{:?}", check_oir_expr(&guarded, &row));
         let unguarded = lowered(serde_json::json!(["str/concat", "@entity.t", "!"]));

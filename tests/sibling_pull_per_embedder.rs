@@ -31,7 +31,6 @@ const ATOM: &str = r#"{
         {
           "name": "ItemBrowse",
           "linkedEntity": "Item",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "OPEN" }, { "key": "ItemsLoaded" } ],
@@ -53,7 +52,6 @@ const ATOM: &str = r#"{
         {
           "name": "RowView",
           "linkedEntity": "Item",
-          "category": "interaction",
           "listens": [
             { "event": "ItemsLoaded", "triggers": "REFRESH", "source": { "kind": "trait", "trait": "ItemBrowse" } }
           ],
@@ -74,7 +72,7 @@ const ATOM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "SrcPage", "path": "/src", "linkedEntity": "Item", "traits": [ { "ref": "ItemBrowse" } ] }
+        { "name": "SrcPage", "path": "/src", "traits": [ { "ref": "ItemBrowse" } ] }
       ]
     }
   ]
@@ -105,7 +103,7 @@ const TWO_REBIND_CONSUMER: &str = r#"{
         { "ref": "Browse.traits.ItemBrowse", "linkedEntity": "Message", "name": "MessageThread" }
       ],
       "pages": [
-        { "name": "AppPage", "path": "/app", "linkedEntity": "Message", "traits": [ { "ref": "ChannelRail" }, { "ref": "MessageThread" } ] }
+        { "name": "AppPage", "path": "/app", "traits": [ { "ref": "ChannelRail" }, { "ref": "MessageThread" } ] }
       ]
     }
   ]

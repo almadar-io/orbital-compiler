@@ -28,7 +28,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "ItemView",
           "linkedEntity": "Item",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],
@@ -43,7 +42,7 @@ const UPSTREAM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "ItemPage", "path": "/items", "linkedEntity": "Item", "traits": [ { "ref": "ItemView" } ] }
+        { "name": "ItemPage", "path": "/items", "traits": [ { "ref": "ItemView" } ] }
       ]
     },
     {
@@ -57,7 +56,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "ItemEditor",
           "linkedEntity": "Item",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],
@@ -69,7 +67,7 @@ const UPSTREAM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "VisitPage", "path": "/visit", "linkedEntity": "Item", "traits": [ { "ref": "ItemEditor" } ] }
+        { "name": "VisitPage", "path": "/visit", "traits": [ { "ref": "ItemEditor" } ] }
       ]
     }
   ]
@@ -112,7 +110,6 @@ const ATOM: &str = r#"{
       "name": "NoteEditor",
       "entityRebindable": true,
       "linkedEntity": "Note",
-      "category": "interaction",
       "stateMachine": {
         "states": [ { "name": "idle", "isInitial": true } ],
         "events": [ { "key": "INIT" } ],
@@ -142,7 +139,6 @@ const REBINDING: &str = r#"{
       "traits": [{
         "name": "TaskView",
         "linkedEntity": "Task",
-        "category": "interaction",
         "stateMachine": {
           "states": [ { "name": "idle", "isInitial": true } ],
           "events": [ { "key": "INIT" } ],
@@ -152,7 +148,7 @@ const REBINDING: &str = r#"{
           ]
         }
       }],
-      "pages": [ { "name": "TaskPage", "path": "/tasks", "linkedEntity": "Task", "traits": [ { "ref": "TaskView" } ] } ]
+      "pages": [ { "name": "TaskPage", "path": "/tasks", "traits": [ { "ref": "TaskView" } ] } ]
     },
     {
       "name": "NotesView",
@@ -163,7 +159,7 @@ const REBINDING: &str = r#"{
         "fields": [ { "name": "id", "type": "string", "required": true } ]
       },
       "traits": [ { "ref": "Atom.traits.NoteEditor", "name": "TaskNotes", "linkedEntity": "Task" } ],
-      "pages": [ { "name": "NotesPage", "path": "/notes", "linkedEntity": "Task", "traits": [ { "ref": "TaskNotes" } ] } ]
+      "pages": [ { "name": "NotesPage", "path": "/notes", "traits": [ { "ref": "TaskNotes" } ] } ]
     },
     {
       "name": "BadgeView",
@@ -175,7 +171,6 @@ const REBINDING: &str = r#"{
       "traits": [{
         "name": "TaskBadge",
         "linkedEntity": "Task",
-        "category": "interaction",
         "stateMachine": {
           "states": [ { "name": "idle", "isInitial": true } ],
           "events": [ { "key": "INIT" } ],
@@ -185,7 +180,7 @@ const REBINDING: &str = r#"{
           ]
         }
       }],
-      "pages": [ { "name": "BadgePage", "path": "/badge", "linkedEntity": "Task", "traits": [ { "ref": "TaskBadge" } ] } ]
+      "pages": [ { "name": "BadgePage", "path": "/badge", "traits": [ { "ref": "TaskBadge" } ] } ]
     }
   ]
 }"#;
@@ -229,7 +224,7 @@ fn shadowed() -> String {
         "fields": [ { "name": "id", "type": "string", "required": true }, { "name": "title", "type": "string" } ]
       } ],
       "traits": [ {
-        "name": "TaskPeek", "linkedEntity": "Task", "category": "interaction",
+        "name": "TaskPeek", "linkedEntity": "Task", 
         "stateMachine": {
           "states": [ { "name": "idle", "isInitial": true } ],
           "events": [ { "key": "INIT" } ],
@@ -237,7 +232,7 @@ fn shadowed() -> String {
             "effects": [ ["render-ui", "main", { "type": "typography", "content": "@entity.title" }] ] } ]
         }
       } ],
-      "pages": [ { "name": "ShadowPage", "path": "/shadow", "linkedEntity": "Task", "traits": [ { "ref": "TaskPeek" } ] } ]
+      "pages": [ { "name": "ShadowPage", "path": "/shadow", "traits": [ { "ref": "TaskPeek" } ] } ]
     });
     v["orbitals"]
         .as_array_mut()

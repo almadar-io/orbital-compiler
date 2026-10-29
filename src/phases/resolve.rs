@@ -35,6 +35,15 @@ pub enum ResolveError {
     #[error("Failed to resolve S-expression: {0}")]
     InvalidSExpr(String),
 
+    #[error("Relation field '{field}' declares `@display {display}`, but entity '{target}' has no field '{display}'")]
+    RelationDisplayUnknown {
+        field: String,
+        target: String,
+        display: String,
+    },
+    #[error("Failed to resolve type: {0}")]
+    NoShape(#[from] orbital_core_base::ir::types::ShapeError),
+
     #[error("Invalid tick interval '{0}': expected 'frame', a duration ('5ms'/'5s'/'1m'/'1h'), or a 5-field cron expression")]
     InvalidTickInterval(String),
 }
@@ -412,8 +421,10 @@ impl<'a> Resolver<'a> {
 
         if let Some(exports) = &self.schema.types {
             for (name, fields) in exports {
-                self.named_types.borrow_mut().entry(name.clone())
-                    .or_insert_with(|| orbital_core_base::ir::types::declared_alias_shape(fields));
+                if !self.named_types.borrow().contains_key(name) {
+                    let shape = orbital_core_base::ir::types::declared_alias_shape(fields)?;
+                    self.named_types.borrow_mut().insert(name.clone(), shape);
+                }
             }
         }
         module.named_types = self.named_types.take();
@@ -672,6 +683,40 @@ impl<'a> Resolver<'a> {
         Ok(oir_entity)
     }
 
+    fn check_relation_display(
+        &self,
+        field_name: &str,
+        relation: &orbital_core_base::schema::RelationDefinition,
+    ) -> Result<(), ResolveError> {
+        let Some(display) = &relation.display else {
+            return Ok(());
+        };
+        let target = self.schema.orbitals.iter().find_map(|orbital| {
+            std::iter::once(&orbital.entity)
+                .chain(orbital.auxiliary_entities.iter().flatten())
+                .filter_map(|entity| match entity {
+                    EntityRef::Inline(entity) => Some(entity),
+                    _ => None,
+                })
+                .find(|entity| entity.name == relation.entity)
+        });
+        match target {
+            Some(entity)
+                if !entity
+                    .fields
+                    .iter()
+                    .any(|f| f.name.as_deref() == Some(display.as_str())) =>
+            {
+                Err(ResolveError::RelationDisplayUnknown {
+                    field: field_name.to_string(),
+                    target: relation.entity.clone(),
+                    display: display.clone(),
+                })
+            }
+            _ => Ok(()),
+        }
+    }
+
     fn resolve_field(&self, field: &FieldDefinition) -> Result<OirField, ResolveError> {
         let field_type = self.resolve_field_shape(field)?;
         let field_name = field.name.clone().unwrap_or_default();
@@ -726,6 +771,7 @@ impl<'a> Resolver<'a> {
 
         // Add relation
         if let Some(relation) = &field.relation {
+            self.check_relation_display(&field_name, relation)?;
             oir_field.relation = Some(OirRelation {
                 target_entity: relation.entity.clone(),
                 target_entity_id: relation.entity_id.clone(),
@@ -741,6 +787,7 @@ impl<'a> Resolver<'a> {
                     })
                     .unwrap_or(OirCardinality::ManyToOne),
                 foreign_key: None,
+                display: relation.display.clone(),
             });
         }
 
@@ -820,12 +867,10 @@ impl<'a> Resolver<'a> {
             // is Object-with-`properties` or a Union back-reference needs
             // `&self` to fully expand.
             FieldType::Array => {
-                let inner = if let Some(items) = &field.items {
-                    self.resolve_field_shape(items)?
-                } else {
-                    OirType::Json
+                let Some(items) = &field.items else {
+                    return Err(orbital_core_base::ir::types::ShapeError::at(orbital_core_base::ir::types::ShapeGap::ArrayWithoutItems).into());
                 };
-                Ok(OirType::array(inner))
+                Ok(OirType::array(self.resolve_field_shape(items)?))
             }
             FieldType::Object => {
                 if field.properties.is_some() || field.additional_properties.is_some() {
@@ -839,7 +884,7 @@ impl<'a> Resolver<'a> {
                     }
                     struct_fields.sort_by(|a, b| a.name.cmp(&b.name));
                     // Named-type registration — see `register_named_type_children`'s doc.
-                    register_named_type_children(&struct_fields, &self.named_type_ctx());
+                    register_named_type_children(&struct_fields, &self.named_type_ctx())?;
                     Ok(OirType::Struct {
                         fields: struct_fields.into(),
                         additional: field.additional_properties.as_deref()
@@ -850,7 +895,7 @@ impl<'a> Resolver<'a> {
                     // A `Map K V` field nested inside a struct/alias lowers to
                     // `FieldType::Object` with the VALUE shape carried in `items`
                     // (no `properties`) — the same carrier the entity lowerer
-                    // uses for maps. Emit `Record<string, V>`, not `Json`.
+                    // uses for maps. Emit `Record<string, V>`.
                     // (Top-level config-field maps are handled string-side in
                     // `resolve_config_field_shape`; this covers maps reached via
                     // a struct property / array element / map value.)
@@ -859,16 +904,16 @@ impl<'a> Resolver<'a> {
                         self.resolve_field_shape(items)?,
                     ))
                 } else {
-                    Ok(OirType::Json)
+                    Err(orbital_core_base::ir::types::ShapeError::at(orbital_core_base::ir::types::ShapeGap::ObjectWithoutShape).into())
                 }
             }
             FieldType::Relation => match &field.relation {
-                Some(_) => Ok(orbital_core_base::ir::types::field_shape(field)),
+                Some(_) => Ok(orbital_core_base::ir::types::field_shape(field)?),
                 None => Err(ResolveError::InvalidType(
                     "Relation type requires relation definition".to_string(),
                 )),
             },
-            _ => Ok(orbital_core_base::ir::types::field_shape(field)),
+            _ => Ok(orbital_core_base::ir::types::field_shape(field)?),
         }
     }
 
@@ -886,29 +931,29 @@ impl<'a> Resolver<'a> {
     fn resolve_config_field_shape(
         &self,
         field: &orbital_core_base::schema::ConfigField,
-    ) -> OirType {
-        let shape = self.resolve_config_field_shape_inner(field);
-        if field.nullable == Some(true) {
+    ) -> Result<OirType, ResolveError> {
+        let shape = self.resolve_config_field_shape_inner(field)?;
+        Ok(if field.nullable == Some(true) {
             OirType::optional(shape)
         } else {
             shape
-        }
+        })
     }
 
     fn resolve_config_field_shape_inner(
         &self,
         field: &orbital_core_base::schema::ConfigField,
-    ) -> OirType {
+    ) -> Result<OirType, ResolveError> {
         // Tuple slot: `[T1, T2, …]` with each slot's shape riding `properties` by index.
         if orbital_core_base::type_compat::tuple_type_slots(&field.field_type).is_some() {
             let slots = orbital_core_base::schema::tuple_slots_of(field.properties.as_ref());
             if !slots.is_empty() {
-                return OirType::Tuple {
+                return Ok(OirType::Tuple {
                     items: slots
                         .into_iter()
-                        .map(|slot| self.resolve_field_shape(slot).unwrap_or(OirType::Json))
-                        .collect(),
-                };
+                        .map(|slot| self.resolve_field_shape(slot))
+                        .collect::<Result<_, _>>()?,
+                });
             }
             return self.type_string_to_oir(&field.field_type);
         }
@@ -928,40 +973,39 @@ impl<'a> Resolver<'a> {
             // inlined value shape (named structs inlined, arrays preserved) and
             // is authoritative for every value type EXCEPT the `SExpr` brand:
             // entity.rs lowers `SExpr` lossily to `FieldType::Object`, so the
-            // carrier would degrade it to `Json`. For a bare `SExpr` value, the
+            // carrier would degrade it. For a bare `SExpr` value, the
             // field-type string is authoritative — emit the real `SExpr` brand.
             let value_str = inner.splitn(2, ',').nth(1).map(str::trim).unwrap_or("");
             let value = if value_str.eq_ignore_ascii_case("SExpr") {
                 OirType::SExpr
             } else {
-                field
-                    .items
-                    .as_ref()
-                    .map(|it| self.resolve_field_shape(it).unwrap_or(OirType::Json))
-                    .unwrap_or(OirType::Json)
+                let Some(items) = field.items.as_ref() else {
+                    return Err(orbital_core_base::ir::types::ShapeError::at(orbital_core_base::ir::types::ShapeGap::ObjectWithoutShape).within("[]").into());
+                };
+                self.resolve_field_shape(items)?
             };
-            return OirType::map(OirType::String, value);
+            return Ok(OirType::map(OirType::String, value));
         }
         // A field reference: `record` is the record `R` and `items` the type of the field it names, not a list element.
         if field.field_type == "field" {
-            return OirType::FieldRef {
+            return Ok(OirType::FieldRef {
                 record: Box::new(orbital_core_base::ir::types::record_shape(
                     field.record.as_deref(),
                     field.properties.as_ref(),
-                )),
+                )?),
                 value: field
                     .items
                     .as_ref()
-                    .map(|it| Box::new(self.resolve_field_shape(it).unwrap_or(OirType::Json))),
-            };
+                    .map(|it| self.resolve_field_shape(it).map(Box::new))
+                    .transpose()?,
+            });
         }
         // Array slot with a typed element shape: `metrics : [MetricSpec]`
         // lowers to `field_type: "[MetricSpec]"` plus `items: FieldDefinition`
         // carrying MetricSpec's fields. Walk items via the existing
         // FieldDefinition-shaped resolver.
         if let Some(items) = &field.items {
-            let inner = self.resolve_field_shape(items).unwrap_or(OirType::Json);
-            return OirType::array(inner);
+            return Ok(OirType::array(self.resolve_field_shape(items)?));
         }
         // Object slot with inline / named struct: `prefs : { theme: string }`
         // lowers to `field_type: "object"` plus `properties: {...}`. Walk each
@@ -969,24 +1013,19 @@ impl<'a> Resolver<'a> {
         if field.properties.is_some() || field.additional_properties.is_some() {
             let mut struct_fields: Vec<OirField> = Vec::new();
             for (name, def) in field.properties.iter().flatten() {
-                let nested = match self.resolve_field(def) {
-                    Ok(mut f) => {
-                        if f.name.is_empty() {
-                            f.name = name.clone();
-                        }
-                        f
-                    }
-                    Err(_) => OirField::new(name, OirType::Json),
-                };
+                let mut nested = self.resolve_field(def)?;
+                if nested.name.is_empty() {
+                    nested.name = name.clone();
+                }
                 struct_fields.push(nested);
             }
             struct_fields.sort_by(|a, b| a.name.cmp(&b.name));
-            return OirType::Struct {
+            return Ok(OirType::Struct {
                 fields: struct_fields.into(),
                 additional: field.additional_properties.as_deref()
-                    .map(orbital_core_base::ir::types::field_shape)
-                    .map(Box::new),
-            };
+                    .map(|extra| orbital_core_base::ir::types::field_shape(extra).map(Box::new))
+                    .transpose()?,
+            });
         }
         // No structural carrier — primitives / closed-string enums.
         self.type_string_to_oir(&field.field_type)
@@ -995,30 +1034,30 @@ impl<'a> Resolver<'a> {
     /// Convert a string type name to OirType (for payload fields and
     /// declared config schema). Handles array form `T[]` by recursing on
     /// the inner base type, and `[T]` form (lolo array notation).
-    fn type_string_to_oir(&self, type_str: &str) -> OirType {
+    fn type_string_to_oir(&self, type_str: &str) -> Result<OirType, ResolveError> {
         let trimmed = type_str.trim();
         if let Some(slots) = orbital_core_base::type_compat::tuple_type_slots(trimmed) {
-            return OirType::Tuple {
+            return Ok(OirType::Tuple {
                 items: slots
                     .into_iter()
                     .map(|t| self.type_string_to_oir(t))
-                    .collect(),
-            };
+                    .collect::<Result<_, _>>()?,
+            });
         }
         if let Some(base) = trimmed.strip_suffix("[]") {
-            return OirType::array(self.type_string_to_oir(base));
+            return Ok(OirType::array(self.type_string_to_oir(base)?));
         }
         if let Some(stripped) = trimmed.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
-            return OirType::array(self.type_string_to_oir(stripped));
+            return Ok(OirType::array(self.type_string_to_oir(stripped)?));
         }
         // `Map<K,V>` config-knob type. Delegate to the free
         // `parse_payload_field_type`, which (unlike this method's `_ => String`
         // default) resolves a Named value type to `Reference` — so the value
         // emits as `Record<string, SimParam>`, not `Record<string, string>`.
         if trimmed.starts_with("Map<") {
-            return parse_payload_field_type(trimmed);
+            return Ok(parse_payload_field_type(trimmed)?);
         }
-        match trimmed {
+        Ok(match trimmed {
             "string" => OirType::String,
             // Keep the numeric/collection arms converged with
             // `parse_payload_field_type` — a `float` config knob emitted
@@ -1030,19 +1069,18 @@ impl<'a> Resolver<'a> {
             "date" => OirType::Date,
             "datetime" | "timestamp" => OirType::DateTime,
             "instant" => OirType::Instant,
-            "array" | "list" => OirType::array(OirType::Json),
-            "object" | "json" | "tensor" => OirType::Json,
+            "array" | "list" => return Err(orbital_core_base::ir::types::ShapeError::at(orbital_core_base::ir::types::ShapeGap::BareArrayText).into()),
+            "object" => OirType::Struct { fields: orbital_core_base::ir::types::no_fields(), additional: None },
+            "json" | "tensor" => return Err(orbital_core_base::ir::types::ShapeError::at(orbital_core_base::ir::types::ShapeGap::GenericText(trimmed.to_string())).into()),
             // Renderable content — keeps its tag so codegen emits the
             // canonical pattern-tree type (type-integrity campaign).
             "node" => OirType::Node,
             // Layer 3 — render-ui SExpr tree carried as a config knob value.
-            // Lowered to Json so codegen emits a JSON-shaped TS type
-            // (the variant author supplies any tree; runtime substitutes).
-            "render-ui" => OirType::Json,
+            "render-ui" => OirType::SExpr,
             // `SExpr` brand config knob — emits the recursive `SExpr` TS type.
             "SExpr" => OirType::SExpr,
             _ => OirType::String, // Default to string for unknown types
-        }
+        })
     }
 
     fn resolve_trait(&self, trait_def: &TraitDefinition) -> Result<OirTrait, ResolveError> {
@@ -1117,7 +1155,7 @@ impl<'a> Resolver<'a> {
                     let mut schema = orbital_core_base::ir::OirTypeMap::new();
                     let mut required = std::collections::BTreeSet::new();
                     for field in payload_fields {
-                        let oir_type = payload_field_to_oir_type(field, &self.named_type_ctx());
+                        let oir_type = payload_field_to_oir_type(field, &self.named_type_ctx())?;
                         schema.insert(field.name.clone(), oir_type);
                         if field.required.unwrap_or(false) {
                             required.insert(field.name.clone());
@@ -1254,7 +1292,7 @@ impl<'a> Resolver<'a> {
                     schema.insert(
                         key.clone(),
                         OirConfigFieldType {
-                            field_type: self.resolve_config_field_shape(field),
+                            field_type: self.resolve_config_field_shape(field)?,
                             values: field.values.clone(),
                         },
                     );
@@ -1293,7 +1331,7 @@ impl<'a> Resolver<'a> {
             for field in payload {
                 oir_emit.payload.push(OirPayloadField {
                     name: field.name.clone(),
-                    field_type: self.type_string_to_oir(&field.field_type),
+                    field_type: self.type_string_to_oir(&field.field_type)?,
                     required: field.required.unwrap_or(false),
                     description: field.description.clone(),
                 });
@@ -1416,6 +1454,7 @@ impl<'a> Resolver<'a> {
         oir_page.source_page = page.source_page.clone();
         oir_page.translation_of = page.translation_of.clone();
         oir_page.is_initial = page.is_initial == Some(true);
+        oir_page.is_not_found = page.is_not_found == Some(true);
         oir_page.title = page.title.clone();
         oir_page.description = page.description.clone();
 
@@ -1541,7 +1580,7 @@ impl<'a> Resolver<'a> {
 /// | `"int"`        | `OirType::Integer`                           |
 /// | `"[X]"`        | `OirType::Array { inner: parse_type(X) }`    |
 /// | `"X"` (other)  | `OirType::Reference { entity: X }`           |
-/// | `"object"`     | `OirType::Json` (fallback; authors should narrow) |
+/// | `"object"`     | an empty record                              |
 ///
 /// Recursive on arrays so `[[X]]` (unlikely in practice) still resolves.
 /// Resolve a `PayloadField` to an `OirType`. A field carrying a nested
@@ -1566,13 +1605,13 @@ struct NamedTypeCtx<'a> {
 pub(crate) fn config_field_oir_type(
     field: &orbital_core_base::schema::ConfigField,
     schema: &OrbitalSchema,
-) -> OirType {
+) -> Result<OirType, ResolveError> {
     Resolver::new(schema).resolve_config_field_shape(field)
 }
 
 /// The `OirType` of a config knob whose shape its own `items` / `properties` carriers spell out, read where no program
 /// is in hand (the inline pass): every named type in a carrier is already inlined.
-pub(crate) fn config_field_carried_type(field: &orbital_core_base::schema::ConfigField) -> OirType {
+pub(crate) fn config_field_carried_type(field: &orbital_core_base::schema::ConfigField) -> Result<OirType, ResolveError> {
     thread_local! {
         static NO_PROGRAM: OrbitalSchema =
             serde_json::from_value(serde_json::json!({ "name": "", "orbitals": [] })).expect("the empty program");
@@ -1584,7 +1623,7 @@ pub(crate) fn config_field_carried_type(field: &orbital_core_base::schema::Confi
 pub(crate) fn payload_field_oir_type(
     field: &orbital_core_base::schema::PayloadField,
     schema: &OrbitalSchema,
-) -> OirType {
+) -> Result<OirType, ResolveError> {
     let named_types = RefCell::new(BTreeMap::new());
     let in_progress = RefCell::new(HashSet::new());
     let entity_names = declared_entity_names(schema);
@@ -1599,23 +1638,14 @@ pub(crate) fn payload_field_oir_type(
 
 /// The struct a declared alias (`type X = { … }`) names, as an `OirType`, else the installed language's program type
 /// of that name (`Viewer`, `BehaviorRef`, …); `None` when neither declares it.
-pub(crate) fn declared_struct_type(schema: &OrbitalSchema, name: &str) -> Option<OirType> {
-    schema
-        .orbitals
-        .iter()
-        .find_map(|orbital| {
-            orbital.types.as_ref().and_then(|aliases| {
-                orbital_core_base::ir::types::DeclaredShape::of_alias(name, aliases)
-                    .map(|shape| shape.ty)
-            })
-        })
-        .or_else(|| {
-            schema.types.as_ref().and_then(|aliases| {
-                orbital_core_base::ir::types::DeclaredShape::of_alias(name, aliases)
-                    .map(|shape| shape.ty)
-            })
-        })
-        .or_else(|| orbital_core_base::language::program_types::program_type(name).cloned())
+pub(crate) fn declared_struct_type(schema: &OrbitalSchema, name: &str) -> Result<Option<OirType>, orbital_core_base::ir::types::ShapeError> {
+    use orbital_core_base::ir::types::DeclaredShape;
+    for aliases in schema.orbitals.iter().filter_map(|orbital| orbital.types.as_ref()).chain(schema.types.as_ref()) {
+        if let Some(shape) = DeclaredShape::of_alias(name, aliases)? {
+            return Ok(Some(shape.ty));
+        }
+    }
+    Ok(orbital_core_base::language::program_types::program_type(name).cloned())
 }
 
 /// Every entity name `resolve()` will push into `OirModule.entities`: each
@@ -1643,23 +1673,23 @@ fn declared_entity_names(schema: &OrbitalSchema) -> HashSet<String> {
 fn payload_field_to_oir_type(
     field: &orbital_core_base::schema::PayloadField,
     ctx: &NamedTypeCtx,
-) -> OirType {
+) -> Result<OirType, ResolveError> {
     let shape = orbital_core_base::ir::types::payload_field_shape_with_entity(
         field,
         &|entity| ctx.entity_names.contains(entity),
-    );
+    )?;
     if let OirType::Struct { fields, .. } = &shape {
-        register_named_type_children(fields, ctx);
+        register_named_type_children(fields, ctx)?;
     }
     let declared = orbital_core_base::ir::types::DeclaredShape::with_resolver(
         None,
         shape,
         |name| lookup_named_type_shape(name, ctx),
-    );
+    )?;
     for (name, shape) in declared.named {
         ctx.named_types.borrow_mut().entry(name).or_insert(shape);
     }
-    declared.ty
+    Ok(declared.ty)
 }
 
 /// The alias name a resolved `OirType` self-references, if it is (or wraps,
@@ -1689,7 +1719,7 @@ fn typeref_name(ty: &OirType) -> Option<&str> {
 /// and `payload_field_to_oir_type` (emit/listen payload fields) — one rule,
 /// both wire shapes. First registration for a name wins; a name is stable
 /// across the module once it's been looked up once.
-fn register_named_type_children(fields: &[OirField], ctx: &NamedTypeCtx) {
+fn register_named_type_children(fields: &[OirField], ctx: &NamedTypeCtx) -> Result<(), ResolveError> {
     for f in fields {
         let Some(name) = typeref_name(&f.field_type) else {
             continue;
@@ -1703,16 +1733,24 @@ fn register_named_type_children(fields: &[OirField], ctx: &NamedTypeCtx) {
             // registration; recursing again here would never terminate.
             continue;
         }
-        let shape = lookup_named_type_shape(name, ctx).unwrap_or_else(|| OirType::Struct {
-            additional: None,
-            fields: fields.to_vec().into(),
-        });
+        let shape = match lookup_named_type_shape(name, ctx) {
+            Ok(Some(shape)) => shape,
+            Ok(None) => OirType::Struct {
+                additional: None,
+                fields: fields.to_vec().into(),
+            },
+            Err(error) => {
+                ctx.in_progress.borrow_mut().remove(name);
+                return Err(error.into());
+            }
+        };
         ctx.named_types
             .borrow_mut()
             .entry(name.to_string())
             .or_insert(shape);
         ctx.in_progress.borrow_mut().remove(name);
     }
+    Ok(())
 }
 
 /// Look up a named struct alias's own shape by NAME in `schema.orbitals[].
@@ -1726,14 +1764,15 @@ fn register_named_type_children(fields: &[OirField], ctx: &NamedTypeCtx) {
 /// `TypeRef` OCCURRENCE site produces — the map is built by lowering from
 /// the alias's own BODY (not from a call site re-entering it), so the cycle
 /// guard triggers one level deeper. Structurally equivalent; not normalized.
-fn lookup_named_type_shape(name: &str, ctx: &NamedTypeCtx) -> Option<OirType> {
+fn lookup_named_type_shape(name: &str, ctx: &NamedTypeCtx) -> Result<Option<OirType>, orbital_core_base::ir::types::ShapeError> {
     ctx.schema.orbitals.iter().filter_map(|orbital| orbital.types.as_ref())
         .chain(ctx.schema.types.iter())
         .find_map(|types| types.get(name))
         .map(|members| orbital_core_base::ir::types::declared_alias_shape(members))
+        .transpose()
 }
 
-fn parse_payload_field_type(field_type: &str) -> OirType {
+fn parse_payload_field_type(field_type: &str) -> Result<OirType, orbital_core_base::ir::types::ShapeError> {
     orbital_core_base::ir::types::payload_type_shape(field_type)
 }
 
@@ -1758,7 +1797,7 @@ mod tests {
                 "additionalProperties": { "name": "", "type": "object", "entity": entity,
                     "properties": [{ "name": "id", "type": "string", "required": true }] }
             })).unwrap();
-            let OirType::Struct { fields, additional: Some(additional) } = payload_field_to_oir_type(&field, &ctx) else { panic!("envelope must retain its catchall") };
+            let OirType::Struct { fields, additional: Some(additional) } = payload_field_to_oir_type(&field, &ctx).unwrap() else { panic!("envelope must retain its catchall") };
             let OirType::Optional { inner } = &fields[0].field_type else { panic!("nullable nested list must retain nullability") };
             let OirType::Array { inner } = inner.as_ref() else { panic!("nested rows must remain a list") };
             if entity == "Note" {
@@ -1961,7 +2000,7 @@ mod tests {
             in_progress: &in_progress,
             entity_names: &entity_names,
         };
-        match payload_field_to_oir_type(&field, &ctx) {
+        match payload_field_to_oir_type(&field, &ctx).unwrap() {
             OirType::Union { variants } => {
                 assert_eq!(variants.len(), 3);
                 assert!(matches!(variants[0].field_type, OirType::String));
@@ -2049,7 +2088,7 @@ mod tests {
             entity_names: &entity_names,
         };
         assert!(matches!(
-            payload_field_to_oir_type(&field, &ctx),
+            payload_field_to_oir_type(&field, &ctx).unwrap(),
             OirType::Struct { .. }
         ));
     }
@@ -2103,7 +2142,7 @@ mod tests {
             in_progress: &in_progress,
             entity_names: &entity_names,
         };
-        match payload_field_to_oir_type(&field, &ctx) {
+        match payload_field_to_oir_type(&field, &ctx).unwrap() {
             OirType::Array { inner } => {
                 assert!(
                     matches!(inner.as_ref(), OirType::Row { entity } if entity == "Note"),
@@ -2159,7 +2198,7 @@ mod tests {
             in_progress: &in_progress,
             entity_names: &entity_names,
         };
-        match payload_field_to_oir_type(&field, &ctx) {
+        match payload_field_to_oir_type(&field, &ctx).unwrap() {
             OirType::Array { inner } => {
                 assert!(
                     matches!(inner.as_ref(), OirType::Struct { .. }),
@@ -2234,7 +2273,7 @@ mod tests {
             in_progress: &in_progress,
             entity_names: &entity_names,
         };
-        let resolved = payload_field_to_oir_type(&row, &ctx);
+        let resolved = payload_field_to_oir_type(&row, &ctx).unwrap();
         let OirType::Struct { fields, .. } = &resolved else {
             panic!("expected a struct, got {resolved:?}");
         };
@@ -2546,23 +2585,23 @@ mod tests {
         let n3 = OirType::Tuple {
             items: vec![OirType::Number, OirType::Number, OirType::Number],
         };
-        assert_eq!(parse_payload_field_type("[number, number, number]"), n3);
+        assert_eq!(parse_payload_field_type("[number, number, number]").unwrap(), n3);
         assert_eq!(
-            parse_payload_field_type("[number]"),
+            parse_payload_field_type("[number]").unwrap(),
             OirType::array(OirType::Number)
         );
         let schema: OrbitalSchema =
             serde_json::from_value(serde_json::json!({ "name": "T", "orbitals": [] })).unwrap();
         let resolver = Resolver::new(&schema);
-        assert_eq!(resolver.type_string_to_oir("[number, number, number]"), n3);
+        assert_eq!(resolver.type_string_to_oir("[number, number, number]").unwrap(), n3);
         assert_eq!(
-            resolver.type_string_to_oir("[string, number]"),
+            resolver.type_string_to_oir("[string, number]").unwrap(),
             OirType::Tuple {
                 items: vec![OirType::String, OirType::Number]
             }
         );
         assert_eq!(
-            resolver.type_string_to_oir("[number]"),
+            resolver.type_string_to_oir("[number]").unwrap(),
             OirType::array(OirType::Number)
         );
     }
@@ -2587,35 +2626,35 @@ mod tests {
             serde_json::json!({ "type": "[number, number, number]", "properties": slots }),
         )
         .unwrap();
-        assert_eq!(resolver.resolve_config_field_shape(&knob), n3);
+        assert_eq!(resolver.resolve_config_field_shape(&knob).unwrap(), n3);
     }
 
     #[test]
     fn a_row_of_the_entity_an_unset_knob_names_is_an_empty_record() {
         assert_eq!(
-            parse_payload_field_type("@entity(captureEntity)"),
+            parse_payload_field_type("@entity(captureEntity)").unwrap(),
             OirType::Struct { additional: None, fields: Default::default() }
         );
         assert_eq!(
-            parse_payload_field_type("$t"),
+            parse_payload_field_type("$t").unwrap(),
             OirType::Var { name: "t".into() }
         );
         assert_eq!(
-            parse_payload_field_type("[$t]"),
+            parse_payload_field_type("[$t]").unwrap(),
             OirType::array(OirType::Var { name: "t".into() })
         );
         assert_eq!(
-            parse_payload_field_type("$"),
+            parse_payload_field_type("$").unwrap(),
             OirType::Reference { entity: "$".into() },
             "control: no name"
         );
         assert_eq!(
-            parse_payload_field_type("[@entity(captureEntity)]"),
+            parse_payload_field_type("[@entity(captureEntity)]").unwrap(),
             OirType::array(OirType::Struct { additional: None, fields: Default::default() })
         );
         // control: a bare name stays a reference to the entity it names.
         assert_eq!(
-            parse_payload_field_type("Order"),
+            parse_payload_field_type("Order").unwrap(),
             OirType::Reference {
                 entity: "Order".to_string()
             }
@@ -2623,12 +2662,36 @@ mod tests {
     }
 
     #[test]
-    fn parse_payload_field_type_primitives() {
-        assert_eq!(parse_payload_field_type("string"), OirType::String);
-        assert_eq!(parse_payload_field_type("int"), OirType::Integer);
-        assert_eq!(parse_payload_field_type("boolean"), OirType::Boolean);
+    fn a_type_with_no_shape_fails_resolution_with_the_position() {
+        let schema = empty_schema();
+        let resolver = Resolver::new(&schema);
+        let field = |ty: &str| -> orbital_core_base::schema::ConfigField {
+            serde_json::from_value(serde_json::json!({ "type": ty })).unwrap()
+        };
+        for generic in ["array", "list", "json"] {
+            let error = resolver.resolve_config_field_shape(&field(generic)).unwrap_err();
+            assert!(matches!(error, ResolveError::NoShape(_)), "{generic}: {error}");
+        }
+        assert_eq!(resolver.resolve_config_field_shape(&field("[string]")).unwrap(), OirType::array(OirType::String), "control: a typed list resolves");
         assert_eq!(
-            parse_payload_field_type("object"),
+            resolver.resolve_config_field_shape(&field("object")).unwrap(),
+            OirType::Struct { fields: orbital_core_base::ir::types::no_fields(), additional: None },
+            "an `object` text is the same empty record a payload's is"
+        );
+        assert_eq!(resolver.resolve_config_field_shape(&field("render-ui")).unwrap(), OirType::SExpr, "render-ui is an expression tree");
+        let entity: FieldDefinition = serde_json::from_value(serde_json::json!({ "type": "object" })).unwrap();
+        assert!(matches!(resolver.resolve_field_shape(&entity), Err(ResolveError::NoShape(_))));
+        let array: FieldDefinition = serde_json::from_value(serde_json::json!({ "type": "array" })).unwrap();
+        assert!(matches!(resolver.resolve_field_shape(&array), Err(ResolveError::NoShape(_))));
+    }
+
+    #[test]
+    fn parse_payload_field_type_primitives() {
+        assert_eq!(parse_payload_field_type("string").unwrap(), OirType::String);
+        assert_eq!(parse_payload_field_type("int").unwrap(), OirType::Integer);
+        assert_eq!(parse_payload_field_type("boolean").unwrap(), OirType::Boolean);
+        assert_eq!(
+            parse_payload_field_type("object").unwrap(),
             OirType::Struct { additional: None, fields: Default::default() }
         );
     }
@@ -2637,18 +2700,18 @@ mod tests {
     fn parse_payload_field_type_semantic_scalars() {
         // @entity payload expansion feeds entity field-type strings verbatim —
         // every FieldType keyword must resolve, never fall through to Reference
-        assert_eq!(parse_payload_field_type("email"), OirType::Email);
-        assert_eq!(parse_payload_field_type("phone"), OirType::Phone);
-        assert_eq!(parse_payload_field_type("money"), OirType::Money);
-        assert_eq!(parse_payload_field_type("file"), OirType::File);
-        assert_eq!(parse_payload_field_type("timestamp"), OirType::DateTime);
-        assert_eq!(parse_payload_field_type("relation"), OirType::String);
-        assert_eq!(parse_payload_field_type("enum"), OirType::String);
+        assert_eq!(parse_payload_field_type("email").unwrap(), OirType::Email);
+        assert_eq!(parse_payload_field_type("phone").unwrap(), OirType::Phone);
+        assert_eq!(parse_payload_field_type("money").unwrap(), OirType::Money);
+        assert_eq!(parse_payload_field_type("file").unwrap(), OirType::File);
+        assert_eq!(parse_payload_field_type("timestamp").unwrap(), OirType::DateTime);
+        assert_eq!(parse_payload_field_type("relation").unwrap(), OirType::String);
+        assert_eq!(parse_payload_field_type("enum").unwrap(), OirType::String);
     }
 
     #[test]
     fn parse_payload_field_type_array_of_reference() {
-        let parsed = parse_payload_field_type("[CartItem]");
+        let parsed = parse_payload_field_type("[CartItem]").unwrap();
         match parsed {
             OirType::Array { inner } => match *inner {
                 OirType::Reference { entity } => assert_eq!(entity, "CartItem"),
@@ -2660,7 +2723,7 @@ mod tests {
 
     #[test]
     fn parse_payload_field_type_map() {
-        let parsed = parse_payload_field_type("Map<string,SimulationParameter>");
+        let parsed = parse_payload_field_type("Map<string,SimulationParameter>").unwrap();
         match parsed {
             OirType::Map { key, value } => {
                 assert_eq!(*key, OirType::String);
@@ -2676,7 +2739,7 @@ mod tests {
     #[test]
     fn parse_payload_field_type_map_nested_value() {
         // `Map string (Map string Foo)` — value is itself a map.
-        let parsed = parse_payload_field_type("Map<string,Map<string,Foo>>");
+        let parsed = parse_payload_field_type("Map<string,Map<string,Foo>>").unwrap();
         match parsed {
             OirType::Map { key, value } => {
                 assert_eq!(*key, OirType::String);
@@ -2694,7 +2757,7 @@ mod tests {
 
     #[test]
     fn parse_payload_field_type_bare_reference() {
-        match parse_payload_field_type("User") {
+        match parse_payload_field_type("User").unwrap() {
             OirType::Reference { entity } => assert_eq!(entity, "User"),
             other => panic!("expected Reference, got {:?}", other),
         }
@@ -2834,6 +2897,60 @@ mod tests {
         let collection = |name: &str| oir.entities.iter().find(|e| e.name == name).unwrap().collection.clone();
         assert_eq!(collection("InterviewSlot"), "InterviewSlot");
         assert_eq!(collection("Booking"), "bookings_v2");
+    }
+
+    fn relation_schema(display: serde_json::Value) -> OrbitalSchema {
+        serde_json::from_value(serde_json::json!({
+            "name": "app", "version": "1.0.0",
+            "orbitals": [
+                { "name": "O", "traits": [], "pages": [],
+                  "entity": { "name": "Item", "fields": [
+                    { "name": "id", "type": "string" },
+                    { "name": "owner", "type": "relation", "relation": { "entity": "Owner", "cardinality": "one", "display": display } }
+                ] } },
+                { "name": "P", "traits": [], "pages": [],
+                  "entity": { "name": "Owner", "fields": [{ "name": "id", "type": "string" }, { "name": "callsign", "type": "string" }] } }
+            ]
+        }))
+        .expect("fixture parses")
+    }
+
+    #[test]
+    fn a_relation_display_names_a_field_of_the_target_and_reaches_the_ir() {
+        let oir = resolve_to_oir(&relation_schema(serde_json::json!("callsign"))).expect("resolves");
+        let item = oir.entities.iter().find(|e| e.name == "Item").unwrap();
+        let relation = item.fields.iter().find(|f| f.name == "owner").unwrap().relation.clone().unwrap();
+        assert_eq!(relation.display.as_deref(), Some("callsign"));
+        let control = resolve_to_oir(&relation_schema(serde_json::Value::Null)).expect("an undeclared display resolves");
+        let item = control.entities.iter().find(|e| e.name == "Item").unwrap();
+        assert_eq!(item.fields.iter().find(|f| f.name == "owner").unwrap().relation.clone().unwrap().display, None);
+    }
+
+    #[test]
+    fn a_relation_display_naming_no_field_of_the_target_is_refused() {
+        let err = resolve_to_oir(&relation_schema(serde_json::json!("nickname"))).unwrap_err();
+        assert!(matches!(&err, ResolveError::RelationDisplayUnknown { target, display, .. } if target == "Owner" && display == "nickname"), "{err}");
+    }
+
+    #[test]
+    fn page_not_found_marker_is_stamped_on_the_resolved_page() {
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "app", "version": "1.0.0",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "E", "fields": [{ "name": "title", "type": "string" }] },
+                "traits": [],
+                "pages": [
+                    { "name": "First", "path": "/first", "traits": [] },
+                    { "name": "Gone", "path": "/gone", "isNotFound": true, "traits": [] }
+                ]
+            }]
+        }))
+        .expect("fixture parses");
+        let oir = resolve_to_oir(&schema).expect("resolves");
+        assert!(!oir.pages[0].is_not_found);
+        assert!(oir.pages[1].is_not_found);
+        assert_eq!(oir.not_found_page().map(|p| p.name.as_str()), Some("Gone"));
     }
 
     #[test]

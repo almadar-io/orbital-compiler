@@ -33,7 +33,6 @@ fn upstream(persistence: &str) -> String {
         {{
           "name": "NoteList",
           "linkedEntity": "Note",
-          "category": "interaction",
           "config": {{ "limit": {{ "type": "number", "default": 10 }} }},
           "stateMachine": {{
             "states": [ {{ "name": "idle", "isInitial": true }} ],
@@ -46,7 +45,6 @@ fn upstream(persistence: &str) -> String {
         {{
           "name": "NoteForm",
           "linkedEntity": "Note",
-          "category": "interaction",
           "config": {{ "limit": {{ "type": "number", "default": 5 }} }},
           "stateMachine": {{
             "states": [ {{ "name": "idle", "isInitial": true }} ],
@@ -402,7 +400,7 @@ const OBLIGATED_UPSTREAM: &str = r#"{
       { "kind": "page", "path": "/counter", "traits": ["Count"], "strict": true }
     ],
     "traits": [
-      { "name": "Count", "linkedEntity": "Counter", "category": "interaction",
+      { "name": "Count", "linkedEntity": "Counter", 
         "stateMachine": {
           "states": [{ "name": "idle", "isInitial": true }],
           "events": [{ "key": "BUMP" }],
@@ -410,7 +408,7 @@ const OBLIGATED_UPSTREAM: &str = r#"{
             "effects": [["set", "@entity.count", ["+", "@entity.count", 1]], ["emit", "BUMPED", {}]] }]
         },
         "emits": [{ "event": "BUMPED", "scope": "external" }] },
-      { "name": "Sibling", "linkedEntity": "Counter", "category": "interaction",
+      { "name": "Sibling", "linkedEntity": "Counter", 
         "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] } }
     ],
     "pages": [{ "name": "CounterPage", "path": "/counter", "traits": [{ "ref": "Count" }] }]

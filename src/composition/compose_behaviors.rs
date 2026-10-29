@@ -142,11 +142,11 @@ fn build_page(
     primary_entity: Option<String>,
 ) -> Value {
     let mut map = JsonMap::default();
-    map.insert("name".to_string(), Value::string(name));
-    map.insert("path".to_string(), Value::string(path));
-    map.insert("isInitial".to_string(), Value::Bool(is_initial));
+    map.insert("name".into(), Value::string(name));
+    map.insert("path".into(), Value::string(path));
+    map.insert("isInitial".into(), Value::Bool(is_initial));
     if let Some(s) = primary_entity {
-        map.insert("primaryEntity".to_string(), Value::string(s));
+        map.insert("primaryEntity".into(), Value::string(s));
     }
     Value::object(map)
 }
@@ -156,15 +156,15 @@ fn build_page(
 fn build_dashboard_page() -> Value {
     let mut map = JsonMap::default();
     map.insert(
-        "name".to_string(),
+        "name".into(),
         Value::string("DashboardPage".to_string()),
     );
-    map.insert("path".to_string(), Value::string("/".to_string()));
+    map.insert("path".into(), Value::string("/".to_string()));
     map.insert(
-        "viewType".to_string(),
+        "viewType".into(),
         Value::string("dashboard".to_string()),
     );
-    map.insert("isInitial".to_string(), Value::Bool(true));
+    map.insert("isInitial".into(), Value::Bool(true));
     Value::object(map)
 }
 
@@ -337,20 +337,20 @@ pub fn compose_behaviors(
         // If it did not, the new key is appended at the end. `serde_json::Map`
         // preserves insertion order, so an `insert` on a missing key appends
         // it which exactly matches the TS spread behaviour.
-        obj.insert("pages".to_string(), pages_value);
+        obj.insert("pages".into(), pages_value);
     }
 
     // Step 5: Build the schema as a JSON object literal in the same field
     // order the TS code uses: `{ name, version, orbitals }`.
     let mut schema_map = JsonMap::default();
-    schema_map.insert("name".to_string(), Value::string(app_name));
-    schema_map.insert("version".to_string(), Value::string("1.0.0".to_string()));
-    schema_map.insert("orbitals".to_string(), Value::array(wired_orbitals));
+    schema_map.insert("name".into(), Value::string(app_name));
+    schema_map.insert("version".into(), Value::string("1.0.0".to_string()));
+    schema_map.insert("orbitals".into(), Value::array(wired_orbitals));
     if let Some(version) = schema_version {
-        schema_map.insert("schemaVersion".to_string(), version);
+        schema_map.insert("schemaVersion".into(), version);
     }
     if let Some(ledger) = ledger {
-        schema_map.insert("ledger".to_string(), ledger);
+        schema_map.insert("ledger".into(), ledger);
     }
     let schema = Value::object(schema_map);
 
@@ -423,7 +423,7 @@ fn apply_event_wiring_value(orbitals: &mut [Value], wiring: &[EventWiringEntry])
 fn ensure_array_field(obj: &mut JsonMap, key: &str) {
     let needs = !matches!(obj.get(key), Some(v) if v.is_array());
     if needs {
-        obj.insert(key.to_string(), Value::array(Vec::new()));
+        obj.insert(key.to_string().into(), Value::array(Vec::new()));
     }
 }
 

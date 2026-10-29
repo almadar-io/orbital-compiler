@@ -22,7 +22,6 @@ const ORDERS_ATOM: &str = r#"{
           "name": "MyOrders",
           "linkedEntity": "OrderRecord",
           "linkedEntityId": "ent_ATOM",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],
@@ -49,7 +48,6 @@ const LIST_ATOM: &str = r#"{
           "name": "ItemList",
           "linkedEntity": "Item",
           "linkedEntityId": "ent_ITEM",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],

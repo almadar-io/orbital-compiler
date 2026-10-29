@@ -21,7 +21,6 @@ const THINGS: &str = r#"{
     "traits": [{
       "name": "ThingPersistor",
       "linkedEntity": "Thing",
-      "category": "lifecycle",
       "stateMachine": {
         "states": [ { "name": "idle", "isInitial": true } ],
         "events": [
@@ -57,7 +56,6 @@ const ASSISTANT: &str = r#"{
     "traits": [{
       "name": "AssistantLoop",
       "linkedEntity": "AssistantState",
-      "category": "interaction",
       "config": {
         "tools": {
           "type": "array",
@@ -224,7 +222,6 @@ const GEN_ATOM: &str = r#"{
     "traits": [{
       "name": "Gen",
       "linkedEntity": "GenState",
-      "category": "interaction",
       "config": {
         "chooseEvent": { "type": "EventAddress", "default": "AtomOrb.Gen.CHOOSE" }
       },

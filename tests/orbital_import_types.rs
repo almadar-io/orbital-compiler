@@ -14,7 +14,7 @@ fn upstream() -> &'static str {
     "name": "DocOrbital",
     "entity": { "name": "Doc", "persistence": "persistent", "collection": "docs", "fields": [{ "name": "id", "type": "string", "required": true }] },
     "traits": [{
-      "name": "DocView", "linkedEntity": "Doc", "category": "interaction",
+      "name": "DocView", "linkedEntity": "Doc", 
       "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [{ "key": "OPEN" }],
         "transitions": [{ "from": "idle", "to": "idle", "event": "OPEN", "effects": [["render-ui", "main", { "type": "typography", "content": "x" }]] }] }
     }],

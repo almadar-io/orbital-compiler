@@ -35,7 +35,6 @@ const ATOM_BUTTON: &str = r#"{
         {
           "name": "ButtonRender",
           "linkedEntity": "Src",
-          "category": "interaction",
           "config": {
             "action": { "type": "string", "default": "ACTION", "label": "Action" }
           },
@@ -62,7 +61,7 @@ const ATOM_BUTTON: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "SrcPage", "path": "/src", "linkedEntity": "Src", "traits": [ { "ref": "ButtonRender" } ] }
+        { "name": "SrcPage", "path": "/src", "traits": [ { "ref": "ButtonRender" } ] }
       ]
     }
   ]
@@ -93,7 +92,6 @@ const ATOM_INVOICE: &str = r#"{
         {
           "name": "InvoiceManage",
           "linkedEntity": "Invoice",
-          "category": "interaction",
           "emits": [ { "event": "CONFIRM_CLICKED", "scope": "internal" } ],
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -116,7 +114,7 @@ const ATOM_INVOICE: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "InvoicePage", "path": "/invoices", "linkedEntity": "Invoice", "traits": [ { "ref": "InvoiceManage" } ] }
+        { "name": "InvoicePage", "path": "/invoices", "traits": [ { "ref": "InvoiceManage" } ] }
       ]
     }
   ]
@@ -140,7 +138,7 @@ const CONSUMER: &str = r#"{
         { "ref": "Invoice.traits.InvoiceManage", "name": "LedgerManage" }
       ],
       "pages": [
-        { "name": "AppPage", "path": "/app", "linkedEntity": "Ledger", "traits": [ { "ref": "LedgerManage" } ] }
+        { "name": "AppPage", "path": "/app", "traits": [ { "ref": "LedgerManage" } ] }
       ]
     }
   ]
@@ -168,7 +166,7 @@ const CONSUMER_WITH_OVERRIDE: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "AppPage", "path": "/app", "linkedEntity": "Ledger", "traits": [ { "ref": "LedgerConfirm" } ] }
+        { "name": "AppPage", "path": "/app", "traits": [ { "ref": "LedgerConfirm" } ] }
       ]
     }
   ]

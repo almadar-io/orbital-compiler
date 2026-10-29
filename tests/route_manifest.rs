@@ -215,3 +215,15 @@ fn a_translation_group_holding_one_locale_twice_is_an_error() {
         "{err}"
     );
 }
+
+#[test]
+fn the_not_found_page_is_marked_in_its_route_and_only_there() {
+    let mut m = module();
+    m.pages[2].is_not_found = true;
+    let manifest = route_manifest(&m, &catalogs()).expect("manifest");
+    let routes = manifest["routes"].as_array().unwrap();
+    assert_eq!(routes[2]["notFound"], true);
+    assert!(!routes[0].as_object().unwrap().contains_key("notFound"), "control: other routes carry no mark");
+    let none = route_manifest(&module(), &catalogs()).expect("manifest");
+    assert!(none["routes"].as_array().unwrap().iter().all(|r| !r.as_object().unwrap().contains_key("notFound")));
+}

@@ -25,7 +25,6 @@ fn upstream(expects: &str) -> String {
         {{
           "name": "ProductRules",
           "linkedEntity": "Product",
-          "category": "interaction",
           "stateMachine": {{
             "states": [ {{ "name": "ready", "isInitial": true }} ],
             "events": [ {{ "key": "INIT" }} ],
@@ -333,7 +332,7 @@ const SPEC_CONSUMER: &str = r#"{
       "fields": [ { "name": "id", "type": "string", "required": true }, { "name": "total", "type": "number" } ]
     },
     "traits": [{
-      "name": "OrderView", "linkedEntity": "Order", "category": "interaction",
+      "name": "OrderView", "linkedEntity": "Order", 
       "stateMachine": {
         "states": [ { "name": "ready", "isInitial": true } ],
         "events": [ { "key": "INIT" } ],
@@ -389,7 +388,6 @@ const NODE_READER: &str = r#"{
     "traits": [{
       "name": "NodeReader",
       "linkedEntity": "Report",
-      "category": "interaction",
       "stateMachine": {
         "states": [ { "name": "idle", "isInitial": true } ],
         "events": [ { "key": "INIT" } ],

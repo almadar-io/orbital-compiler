@@ -45,7 +45,6 @@ fn category_slice(expects: Option<Value>) -> Value {
         },
         "traits": [{
             "name": "CategoryArticlesOverlay",
-            "scope": "instance",
             "linkedEntity": "Category",
             "stateMachine": {
                 "states": [{ "name": "browsing", "isInitial": true }],
@@ -63,7 +62,6 @@ fn category_slice(expects: Option<Value>) -> Value {
         "pages": [{
             "name": "CategoriesPage",
             "path": "/categories",
-            "linkedEntity": "Category",
             "traits": [{ "ref": "CategoryArticlesOverlay" }]
         }]
     });

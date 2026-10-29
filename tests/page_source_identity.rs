@@ -21,7 +21,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "SiteView",
           "linkedEntity": "Site",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],

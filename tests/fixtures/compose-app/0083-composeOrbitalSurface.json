@@ -26,7 +26,6 @@
         "traits": [
           {
             "name": "Nav",
-            "scope": "instance",
             "stateMachine": {
               "states": [
                 {
@@ -90,7 +89,6 @@
         "traits": [
           {
             "name": "Nav",
-            "scope": "instance",
             "stateMachine": {
               "states": [
                 {
@@ -181,7 +179,6 @@
         "traits": [
           {
             "name": "Nav",
-            "scope": "instance",
             "stateMachine": {
               "states": [
                 {
@@ -245,7 +242,6 @@
         "traits": [
           {
             "name": "Nav",
-            "scope": "instance",
             "stateMachine": {
               "states": [
                 {
@@ -403,7 +399,6 @@
         "traits": [
           {
             "name": "Nav",
-            "scope": "instance",
             "stateMachine": {
               "states": [
                 {
@@ -467,7 +462,6 @@
         "traits": [
           {
             "name": "BoardNav",
-            "scope": "instance",
             "stateMachine": {
               "states": [
                 {

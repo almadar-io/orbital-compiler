@@ -372,7 +372,7 @@ pub(crate) fn collect_per_event_payload_shapes(
     let shapes = |fields: &[orbital_core_base::schema::PayloadField]| -> HashMap<String, orbital_core_base::ir::OirType> {
         fields
             .iter()
-            .map(|f| (f.name.clone(), crate::phases::resolve::payload_field_oir_type(f, schema)))
+            .map(|f| (f.name.clone(), crate::phases::resolve::payload_field_oir_type(f, schema).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased())))
             .collect()
     };
     let mut map = HashMap::new();
@@ -487,7 +487,7 @@ fn hydrate_included_relations(
         .iter()
         .filter_map(|f| {
             let name = f.name.clone()?;
-            let shape = orbital_core_base::ir::types::field_shape(f);
+            let shape = orbital_core_base::ir::types::field_shape(f).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased());
             let shape = if included.contains(&name) { as_row(shape) } else { shape };
             Some(orbital_core_base::ir::OirField::new(name, shape))
         })
@@ -578,7 +578,7 @@ fn binding_types(
             .config
             .iter()
             .flatten()
-            .map(|(name, field)| (name.clone(), crate::phases::resolve::config_field_oir_type(field, schema)))
+            .map(|(name, field)| (name.clone(), crate::phases::resolve::config_field_oir_type(field, schema).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased())))
             .collect(),
     }
 }
@@ -634,7 +634,7 @@ pub(crate) fn collect_payload_shapes(
         for emit in emits {
             for field in emit.payload_schema.iter().flatten() {
                 map.entry(field.name.clone())
-                    .or_insert_with(|| crate::phases::resolve::payload_field_oir_type(field, schema));
+                    .or_insert_with(|| crate::phases::resolve::payload_field_oir_type(field, schema).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased()));
             }
         }
     }

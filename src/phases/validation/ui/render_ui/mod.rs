@@ -925,6 +925,7 @@ mod tests {
                             cardinality: None,
                             entity_id: None,
                             on_delete: None,
+                            display: None,
                         }),
                         items: None,
                         values: None,

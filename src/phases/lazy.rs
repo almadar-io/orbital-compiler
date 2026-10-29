@@ -8,7 +8,7 @@
 use super::inline::InlineConfig;
 use super::inline::InlineError;
 use super::{resolve_schema_with_inline, CompileResult, CompilerOptions};
-use orbital_core_base::schema::{LazyPage, Orbital, OrbitalSchema, PageRef};
+use orbital_core_base::schema::{LazyPage, LazyTrait, Orbital, OrbitalSchema, PageRef, TraitReference};
 use std::path::Path;
 
 /// One lazily-loaded behavior, split out of its importer.
@@ -20,6 +20,8 @@ pub struct LazyArtifact {
     pub orb_ref: String,
     /// The split schema, unresolved.
     pub schema: OrbitalSchema,
+    /// The eager orbital that preceded it in the importer.
+    pub after: Option<String>,
 }
 
 /// A resolved lazily-loaded behavior, ready to write at `orb_ref` (relative to
@@ -57,12 +59,18 @@ pub(crate) fn is_lazy_reference(orbital: &Orbital) -> bool {
 /// app-level theme, config, egress and ledger, and only the uses it can resolve: the
 /// eager ones plus its own alias, no longer lazy.
 pub fn split_lazy(schema: &mut OrbitalSchema) -> Vec<LazyArtifact> {
-    let (lazy, eager): (Vec<Orbital>, Vec<Orbital>) = std::mem::take(&mut schema.orbitals)
-        .into_iter()
-        .partition(is_lazy_reference);
+    let mut lazy: Vec<(Option<String>, Orbital)> = Vec::new();
+    let mut eager: Vec<Orbital> = Vec::new();
+    for orbital in std::mem::take(&mut schema.orbitals) {
+        if is_lazy_reference(&orbital) {
+            lazy.push((eager.last().map(|o| o.name.clone()), orbital));
+        } else {
+            eager.push(orbital);
+        }
+    }
     schema.orbitals = eager;
     lazy.into_iter()
-        .map(|mut orbital| {
+        .map(|(after, mut orbital)| {
             let own_alias = reference_alias(&orbital).unwrap_or_default().to_string();
             orbital.uses = orbital.uses.map(|uses| {
                 uses.into_iter()
@@ -76,6 +84,7 @@ pub fn split_lazy(schema: &mut OrbitalSchema) -> Vec<LazyArtifact> {
             let name = orbital.name.clone();
             let ledger = take_ledger_rows(&mut schema.ledger, orbital.id.as_deref());
             LazyArtifact {
+                after,
                 orb_ref: lazy_orb_ref(&name),
                 schema: OrbitalSchema {
                     type_contract_version: None,
@@ -137,6 +146,20 @@ pub fn record_lazy_pages(
     resolved: &OrbitalSchema,
 ) -> Result<(), InlineError> {
     let links = crate::phases::validation::page::reachability_targets(resolved);
+    let traits: Vec<LazyTrait> = resolved
+        .orbitals
+        .iter()
+        .flat_map(|o| o.traits.iter())
+        .filter_map(|t| match t {
+            TraitReference::Inline(def) => Some(LazyTrait {
+                name: def.name.clone(),
+                dispatch_mode: def.dispatch_mode(None, &orbital_core_base::runs_on::Residence::none()),
+                listens: def.listens.iter().flat_map(|l| l.iter()).cloned().collect(),
+                background_ticks: def.ticks.iter().flatten().any(|tick| tick.background),
+            }),
+            _ => None,
+        })
+        .collect();
     let pages: Vec<LazyPage> = resolved
         .orbitals
         .iter()
@@ -147,6 +170,15 @@ pub fn record_lazy_pages(
                 orbital: artifact.orbital.clone(),
                 orb_ref: artifact.orb_ref.clone(),
                 links: links.clone(),
+                protocol: def.protocol.clone(),
+                after: artifact.after.clone(),
+                places: def
+                    .traits
+                    .iter()
+                    .flatten()
+                    .filter_map(|t| t.trait_name().map(str::to_string))
+                    .collect(),
+                traits: traits.clone(),
             }),
             _ => None,
         })

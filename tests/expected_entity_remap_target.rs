@@ -28,7 +28,6 @@ const ATOM: &str = r#"{
       "traits": [{
         "name": "RecLog",
         "linkedEntity": "Rec",
-        "category": "interaction",
         "stateMachine": {
           "states": [ { "name": "idle", "isInitial": true } ],
           "events": [ { "key": "INIT" } ],

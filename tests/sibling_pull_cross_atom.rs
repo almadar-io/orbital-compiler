@@ -34,7 +34,6 @@ fn atom_with_button(atom_name: &str, main: &str, fire_event: &str) -> String {
         {{
           "name": "{main}",
           "linkedEntity": "Src",
-          "category": "interaction",
           "stateMachine": {{
             "states": [ {{ "name": "idle", "isInitial": true }} ],
             "events": [ {{ "key": "OPEN" }} ],
@@ -56,7 +55,6 @@ fn atom_with_button(atom_name: &str, main: &str, fire_event: &str) -> String {
         {{
           "name": "InlineButtonRender1",
           "linkedEntity": "Src",
-          "category": "interaction",
           "stateMachine": {{
             "states": [ {{ "name": "idle", "isInitial": true }} ],
             "events": [ {{ "key": "{fire_event}" }} ],
@@ -74,7 +72,7 @@ fn atom_with_button(atom_name: &str, main: &str, fire_event: &str) -> String {
         }}
       ],
       "pages": [
-        {{ "name": "SrcPage", "path": "/src", "linkedEntity": "Src", "traits": [ {{ "ref": "{main}" }} ] }}
+        {{ "name": "SrcPage", "path": "/src", "traits": [ {{ "ref": "{main}" }} ] }}
       ]
     }}
   ]
@@ -102,7 +100,7 @@ const CROSS_ATOM_CONSUMER: &str = r#"{
         { "ref": "Beta.traits.BetaMain", "linkedEntity": "Thing", "name": "ThingBeta" }
       ],
       "pages": [
-        { "name": "AppPage", "path": "/app", "linkedEntity": "Thing", "traits": [ { "ref": "ThingAlpha" }, { "ref": "ThingBeta" } ] }
+        { "name": "AppPage", "path": "/app", "traits": [ { "ref": "ThingAlpha" }, { "ref": "ThingBeta" } ] }
       ]
     }
   ]
@@ -209,7 +207,6 @@ fn atom_with_listening_sibling() -> String {
         {
           "name": "HostMain",
           "linkedEntity": "Src",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "OPEN" } ],
@@ -231,7 +228,6 @@ fn atom_with_listening_sibling() -> String {
         {
           "name": "GridView",
           "linkedEntity": "Src",
-          "category": "interaction",
           "listens": [
             { "event": "OPEN", "triggers": "REFRESH", "source": { "kind": "trait", "trait": "HostMain" } }
           ],
@@ -252,7 +248,7 @@ fn atom_with_listening_sibling() -> String {
         }
       ],
       "pages": [
-        { "name": "SrcPage", "path": "/src", "linkedEntity": "Src", "traits": [ { "ref": "HostMain" } ] }
+        { "name": "SrcPage", "path": "/src", "traits": [ { "ref": "HostMain" } ] }
       ]
     }
   ]
@@ -276,7 +272,7 @@ const RENAMED_HOST_CONSUMER: &str = r#"{
         { "ref": "Host.traits.HostMain", "linkedEntity": "Thing", "name": "ThingHost" }
       ],
       "pages": [
-        { "name": "AppPage", "path": "/app", "linkedEntity": "Thing", "traits": [ { "ref": "ThingHost" } ] }
+        { "name": "AppPage", "path": "/app", "traits": [ { "ref": "ThingHost" } ] }
       ]
     }
   ]
@@ -331,7 +327,6 @@ const CONSUMER_WITH_COINCIDENTAL_CHROME: &str = r#"{
         {
           "name": "InlineButtonRender1",
           "linkedEntity": "Thing",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "CONSUMER_FIRE" } ],
@@ -349,7 +344,7 @@ const CONSUMER_WITH_COINCIDENTAL_CHROME: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "AppPage", "path": "/app", "linkedEntity": "Thing", "traits": [ { "ref": "ThingAlpha" }, { "ref": "InlineButtonRender1" } ] }
+        { "name": "AppPage", "path": "/app", "traits": [ { "ref": "ThingAlpha" }, { "ref": "InlineButtonRender1" } ] }
       ]
     }
   ]
@@ -437,7 +432,6 @@ fn atom_with_host_listening_to_its_sibling() -> String {
         {
           "name": "Tour",
           "linkedEntity": "Src",
-          "category": "interaction",
           "listens": [
             { "event": "TICK", "triggers": "STEP", "source": { "kind": "trait", "trait": "Clock" } }
           ],
@@ -457,7 +451,6 @@ fn atom_with_host_listening_to_its_sibling() -> String {
         {
           "name": "Clock",
           "linkedEntity": "Src",
-          "category": "interaction",
           "emits": [ { "event": "TICK" } ],
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -474,7 +467,7 @@ fn atom_with_host_listening_to_its_sibling() -> String {
         }
       ],
       "pages": [
-        { "name": "SrcPage", "path": "/src", "linkedEntity": "Src", "traits": [ { "ref": "Tour" } ] }
+        { "name": "SrcPage", "path": "/src", "traits": [ { "ref": "Tour" } ] }
       ]
     }
   ]
@@ -503,7 +496,7 @@ fn host_listens_consumer(names: &[&str]) -> String {
       "uses": [ {{ "from": "./atom-host-listens.orb", "as": "Host" }} ],
       "entity": {{ "name": "Thing", "persistence": "runtime", "fields": [ {{ "name": "id", "type": "string", "required": true }} ] }},
       "traits": [ {} ],
-      "pages": [ {{ "name": "AppPage", "path": "/app", "linkedEntity": "Thing", "traits": [ {} ] }} ]
+      "pages": [ {{ "name": "AppPage", "path": "/app", "traits": [ {} ] }} ]
     }}
   ]
 }}"#,

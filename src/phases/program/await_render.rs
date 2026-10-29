@@ -403,7 +403,7 @@ impl AwaitRenderTree for orbital_core_base::value::Value {
     }
     fn insert_await_render(&mut self, renders: &[AwaitRender]) {
         if let (Self::Object(fields), Ok(v)) = (self, orbital_core_base::value_serialize::to_canonical_value(renders)) {
-            fields.insert("awaitRender".to_string(), v);
+            fields.insert("awaitRender".into(), v);
             fields.sort_keys();
         }
     }

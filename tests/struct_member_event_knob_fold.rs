@@ -32,7 +32,6 @@ const ATOM_DETAIL: &str = r#"{
         {
           "name": "RecordItemDetail",
           "linkedEntity": "Record",
-          "category": "interaction",
           "config": {
             "actions": {
               "type": "[RecordAction]",
@@ -89,7 +88,7 @@ const ATOM_DETAIL: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "RecordPage", "path": "/record", "linkedEntity": "Record", "traits": [ { "ref": "RecordItemDetail" } ] }
+        { "name": "RecordPage", "path": "/record", "traits": [ { "ref": "RecordItemDetail" } ] }
       ]
     }
   ]
@@ -117,7 +116,7 @@ fn consumer(config_block: &str) -> String {
         }}
       ],
       "pages": [
-        {{ "name": "ReportPage", "path": "/report", "linkedEntity": "Report", "traits": [ {{ "ref": "ReportViewer" }} ] }}
+        {{ "name": "ReportPage", "path": "/report", "traits": [ {{ "ref": "ReportViewer" }} ] }}
       ]
     }}
   ]

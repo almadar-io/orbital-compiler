@@ -20,7 +20,6 @@ const UPSTREAM: &str = r#"{
     "traits": [{
       "name": "ThingPersistor",
       "linkedEntity": "Thing",
-      "category": "lifecycle",
       "stateMachine": {
         "states": [ { "name": "idle", "isInitial": true } ],
         "events": [
@@ -66,7 +65,6 @@ fn consumer_with(listen_trait: &str, tool: &str, body_traits: &str) -> String {
       "traits": [{{
         "name": "NoteLog",
         "linkedEntity": "Note",
-        "category": "interaction",
         "config": {{
           "tool": {{ "type": "event", "default": "{tool}" }},
           "tools": {{
@@ -199,7 +197,6 @@ fn a_body_trait_named_like_an_upstream_trait_keeps_its_own_name() {
     let body = r#"{
         "name": "ThingPersistor",
         "linkedEntity": "Thing",
-        "category": "interaction",
         "stateMachine": {
           "states": [ { "name": "idle", "isInitial": true } ],
           "events": [ { "key": "INIT" } ],

@@ -78,7 +78,6 @@
       ],
       "traits": [
         {
-          "category": "interaction",
           "effectRow": [
             {
               "kind": "render-ui",
@@ -92,7 +91,6 @@
           "linkedEntity": "Sample",
           "linkedEntityId": "ent_01M3S618ARM4TRW5E72FBF5X9K",
           "name": "ShowcaseView",
-          "scope": "instance",
           "stateMachine": {
             "events": [
               {

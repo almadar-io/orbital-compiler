@@ -93,7 +93,7 @@ pub(crate) fn validate_set_value_type(
     };
     let entity_ty = &entity_meta.field_type;
 
-    let resolve = |name: &str| schema.and_then(|s| crate::phases::resolve::declared_struct_type(s, name));
+    let resolve = |name: &str| schema.and_then(|s| crate::phases::resolve::declared_struct_type(s, name).ok().flatten());
     if !orbital_core_base::type_compat::oir_type_satisfies_with_named(payload_shape, &entity_meta.shape, &resolve) {
         result.add_error(
             ValidationError::error(
@@ -244,7 +244,7 @@ pub(crate) fn validate_set_return_type(
     let Some(meta) = entity_field_types.get(entity_field) else {
         return result;
     };
-    if !matches!(&arr[2], SExpression::Array(_)) {
+    if !matches!(&arr[2], SExpression::Array(_) | SExpression::Object(_) | SExpression::Null) {
         return result;
     }
     let ctx = ExprReturnCtx {
@@ -253,6 +253,23 @@ pub(crate) fn validate_set_return_type(
         types,
         schema,
     };
+    if let Some(slot) = null_written_into_never_null_slot(&arr[2], &meta.shape, &ctx) {
+        result.add_error(
+            ValidationError::error(
+                ErrorCode::SetValueTypeMismatch,
+                path,
+                format!(
+                    "set @entity.{} writes a null where '{}' is declared; the declared type admits no null.",
+                    entity_field,
+                    orbital_core_base::signature::describe_type(&slot)
+                ),
+            )
+            .with_suggestion("Write a value of the declared type, or declare the field optional (`T?`)"),
+        );
+    }
+    if !matches!(&arr[2], SExpression::Array(_)) {
+        return result;
+    }
     if let Some(inferred) = expr_return_incompatible_in_ctx(&arr[2], &meta.shape, &ctx) {
         result.add_error(
             ValidationError::error(
@@ -290,6 +307,17 @@ pub(crate) fn validate_set_return_type(
     }
 
     result
+}
+
+/// The declared type of the never-null slot a literal `null` written inside `value` flows into, read top-down from
+/// `declared`; `None` when no such null is written.
+pub(crate) fn null_written_into_never_null_slot<C: crate::type_infer::TypeCtx>(
+    value: &SExpression,
+    declared: &orbital_core_base::ir::OirType,
+    ctx: &C,
+) -> Option<orbital_core_base::ir::OirType> {
+    let lowered = orbital_core_eval::lower::lower_sexpr(value).ok()?;
+    crate::type_infer::null_at_declared_slot(&lowered, declared, None, ctx)
 }
 
 /// G-ORB-457: `(set @entity.<relation> { … })` writes a record into a to-one relation field. The literal is checked
@@ -619,7 +647,7 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
         let source = declared.or_else(promised)?;
         let mut fields: Vec<OirField> = source
             .iter()
-            .filter_map(|f| Some(OirField::new(f.name.clone()?, orbital_core_base::ir::types::field_shape(f))))
+            .filter_map(|f| Some(OirField::new(f.name.clone()?, orbital_core_base::ir::types::field_shape(f).unwrap_or_else(|_| OirType::erased()))))
             .collect();
         for (system, ty) in [("id", OirType::String), ("createdAt", OirType::DateTime), ("updatedAt", OirType::DateTime)] {
             if !fields.iter().any(|f| f.name == system) {
@@ -630,7 +658,7 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
     }
 
     fn named_type(&self, name: &str) -> Option<orbital_core_base::ir::OirType> {
-        crate::phases::resolve::declared_struct_type(self.schema?, name)
+        crate::phases::resolve::declared_struct_type(self.schema?, name).ok().flatten()
     }
 
     fn declared_type(&self, name: &str) -> Option<bool> {
@@ -741,17 +769,17 @@ pub(crate) fn entity_field_type_map(entity: &EntityDefinition) -> HashMap<String
         .fields
         .iter()
         .filter_map(|f| {
-            f.name.clone().map(|name| {
-                (
-                    name,
-                    EntityFieldMeta {
-                        field_type: field_type_str(&f.field_type).to_string(),
-                        shape: orbital_core_base::ir::types::field_shape(f),
-                        required: f.required.unwrap_or(false),
-                        defaulted: f.default.is_some(),
-                    },
-                )
-            })
+            let name = f.name.clone()?;
+            let shape = orbital_core_base::ir::types::field_shape(f).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased());
+            Some((
+                name,
+                EntityFieldMeta {
+                    field_type: field_type_str(&f.field_type).to_string(),
+                    shape,
+                    required: f.required.unwrap_or(false),
+                    defaulted: f.default.is_some(),
+                },
+            ))
         })
         .collect()
 }

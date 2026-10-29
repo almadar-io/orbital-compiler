@@ -86,7 +86,6 @@
         "traits": [
           {
             "name": "TaskEditor",
-            "scope": "instance",
             "stateMachine": {
               "states": [
                 {
@@ -233,7 +232,6 @@
         "traits": [
           {
             "name": "TaskEditor",
-            "scope": "instance",
             "stateMachine": {
               "states": [
                 {

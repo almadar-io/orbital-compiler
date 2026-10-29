@@ -29,7 +29,6 @@ const BASE: &str = r#"{
       "entityRebindable": true,
       "entityContract": { "requires": ["payload"], "provides": ["viewState"] },
       "linkedEntity": "WidgetView",
-      "category": "interaction",
       "stateMachine": {
         "states": [ { "name": "idle", "isInitial": true } ],
         "events": [],
@@ -73,7 +72,6 @@ const MULTI_SOURCE: &str = r#"{
       "entityRebindable": true,
       "entityContract": { "requires": ["sideData"], "provides": ["sideState"] },
       "linkedEntity": "AtomSide",
-      "category": "interaction",
       "stateMachine": {
         "states": [ { "name": "idle", "isInitial": true } ],
         "events": [],

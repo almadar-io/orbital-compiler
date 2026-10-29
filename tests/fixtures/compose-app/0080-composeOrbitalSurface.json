@@ -8,8 +8,7 @@
         "entity": "Alarm.entity",
         "traits": [
           {
-            "name": "AlertPersistor",
-            "scope": "instance"
+            "name": "AlertPersistor"
           }
         ],
         "pages": [
@@ -25,8 +24,7 @@
         "entity": "DeviceAlert.entity",
         "traits": [
           {
-            "name": "AlertPersistor",
-            "scope": "instance"
+            "name": "AlertPersistor"
           }
         ],
         "pages": [
@@ -43,7 +41,6 @@
         "traits": [
           {
             "name": "IncidentPersistor",
-            "scope": "instance",
             "listens": [
               {
                 "event": "ALERT_CREATED",
@@ -83,8 +80,7 @@
         "entity": "Alarm.entity",
         "traits": [
           {
-            "name": "AlertPersistor",
-            "scope": "instance"
+            "name": "AlertPersistor"
           }
         ],
         "pages": [
@@ -100,8 +96,7 @@
         "entity": "DeviceAlert.entity",
         "traits": [
           {
-            "name": "AlertPersistor",
-            "scope": "instance"
+            "name": "AlertPersistor"
           }
         ],
         "pages": [
@@ -118,7 +113,6 @@
         "traits": [
           {
             "name": "IncidentPersistor",
-            "scope": "instance",
             "listens": [
               {
                 "event": "ALERT_CREATED",
@@ -159,8 +153,7 @@
         "entity": "Alarm.entity",
         "traits": [
           {
-            "name": "AlertPersistor",
-            "scope": "instance"
+            "name": "AlertPersistor"
           }
         ],
         "pages": [
@@ -176,8 +169,7 @@
         "entity": "DeviceAlert.entity",
         "traits": [
           {
-            "name": "DeviceAlertAlertPersistor",
-            "scope": "instance"
+            "name": "DeviceAlertAlertPersistor"
           }
         ],
         "pages": [
@@ -194,7 +186,6 @@
         "traits": [
           {
             "name": "IncidentPersistor",
-            "scope": "instance",
             "listens": [
               {
                 "event": "ALERT_CREATED",

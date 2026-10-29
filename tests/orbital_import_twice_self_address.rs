@@ -28,7 +28,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "Workflow",
           "linkedEntity": "Run",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" }, { "key": "PROPOSE", "input": true } ],
@@ -38,7 +37,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "Loop",
           "linkedEntity": "Run",
-          "category": "interaction",
           "config": { "tools": { "type": "[AgentTool]", "default": "@config.tools" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],

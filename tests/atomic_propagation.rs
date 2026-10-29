@@ -65,7 +65,6 @@ const ATOM_V1: &str = r#"{
         {
           "name": "TestAtomTrait",
           "linkedEntity": "TestRecord",
-          "category": "interaction",
           "stateMachine": {
             "states": [
               { "name": "idle", "isInitial": true }
@@ -114,7 +113,6 @@ const ATOM_V2: &str = r#"{
         {
           "name": "TestAtomTrait",
           "linkedEntity": "TestRecord",
-          "category": "interaction",
           "stateMachine": {
             "states": [
               { "name": "idle", "isInitial": true },
@@ -364,7 +362,6 @@ const RECURSIVE_ATOM_V1: &str = r#"{
         {
           "name": "AtomTrait",
           "linkedEntity": "AtomRecord",
-          "category": "interaction",
           "stateMachine": {
             "states": [{ "name": "idle", "isInitial": true }],
             "events": [{ "key": "INIT", "name": "Initialize" }],
@@ -403,7 +400,6 @@ const RECURSIVE_ATOM_V2: &str = r#"{
         {
           "name": "AtomTrait",
           "linkedEntity": "AtomRecord",
-          "category": "interaction",
           "stateMachine": {
             "states": [{ "name": "idle", "isInitial": true }],
             "events": [{ "key": "INIT", "name": "Initialize" }],
@@ -608,7 +604,6 @@ const ENTITY_PROP_ATOM: &str = r#"{
         {
           "name": "EntityPropAtomTrait",
           "linkedEntity": "AtomEntity",
-          "category": "interaction",
           "stateMachine": {
             "states": [{ "name": "idle", "isInitial": true }],
             "events": [{ "key": "INIT", "name": "Initialize" }],

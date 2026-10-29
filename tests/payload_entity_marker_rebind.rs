@@ -34,7 +34,6 @@ const CONFIRMATION_ATOM: &str = r#"{
         {
           "name": "ConfirmActionConfirmation",
           "linkedEntity": "ConfirmAction",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true }, { "name": "open" } ],
             "events": [

@@ -51,7 +51,6 @@
           },
           {
             "name": "InlineButtonRender9",
-            "scope": "instance",
             "stateMachine": {
               "states": [
                 {
@@ -145,7 +144,6 @@
           },
           {
             "name": "InlineButtonRender9",
-            "scope": "instance",
             "stateMachine": {
               "states": [
                 {

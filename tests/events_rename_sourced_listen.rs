@@ -31,7 +31,6 @@ const ATOM_MODQUEUE: &str = r#"{
         {
           "name": "CloseButton",
           "linkedEntity": "ModItem",
-          "category": "interaction",
           "emits": [ { "event": "CLOSE" } ],
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -54,7 +53,6 @@ const ATOM_MODQUEUE: &str = r#"{
         {
           "name": "ModQueueItemReview",
           "linkedEntity": "ModItem",
-          "category": "interaction",
           "emits": [ { "event": "CLOSE" } ],
           "listens": [
             { "event": "CLOSE", "triggers": "CLOSE", "source": { "kind": "trait", "trait": "CloseButton" } }
@@ -80,7 +78,7 @@ const ATOM_MODQUEUE: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "ModPage", "path": "/mod", "linkedEntity": "ModItem", "traits": [ { "ref": "ModQueueItemReview" } ] }
+        { "name": "ModPage", "path": "/mod", "traits": [ { "ref": "ModQueueItemReview" } ] }
       ]
     }
   ]
@@ -109,7 +107,7 @@ const CONSUMER: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "DashPage", "path": "/dash", "linkedEntity": "DashboardItem", "traits": [ { "ref": "DashboardModeration" } ] }
+        { "name": "DashPage", "path": "/dash", "traits": [ { "ref": "DashboardModeration" } ] }
       ]
     }
   ]

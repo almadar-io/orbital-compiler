@@ -54,7 +54,6 @@ const HOME: &str = r#"{
         {
           "name": "BrowseList",
           "linkedEntity": "HomeItem",
-          "category": "interaction",
           "config": {
             "columns": { "type": "unknown", "default": "@config.browseColumns" },
             "subtitle": { "type": "string", "default": "@config.appName" }
@@ -285,7 +284,6 @@ const CHROME: &str = r#"{
     "traits": [{
       "name": "AppLayout",
       "linkedEntity": "ChromeView",
-      "category": "interaction",
       "config": { "currentPath": { "type": "unknown", "default": ["str/concat", "@config.pathPrefix", "@config.pagePath"] } },
       "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
     }]
@@ -305,7 +303,6 @@ const MID: &str = r#"{
       {
         "name": "Reader",
         "linkedEntity": "CourseItem",
-        "category": "interaction",
         "config": { "prefix": { "type": "string", "default": "@config.pathPrefix" } },
         "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
       }

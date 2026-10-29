@@ -45,7 +45,7 @@ fn validate_with(effects: Value, saved: Value, failed: Value) -> ValidationResul
             "entity": row(),
             "auxiliaryEntities": [draft()],
             "traits": [{
-                "name": "Batcher", "linkedEntity": "Row", "category": "interaction",
+                "name": "Batcher", "linkedEntity": "Row", 
                 "emits": [
                     { "event": "SAVED", "payloadSchema": saved },
                     { "event": "FAILED", "payloadSchema": failed }
@@ -280,7 +280,7 @@ fn validate_rows(fields: Value, types: Value, effects: Value) -> ValidationResul
             "auxiliaryEntities": [hero()],
             "types": types,
             "traits": [{
-                "name": "Writer", "linkedEntity": "Row", "category": "interaction",
+                "name": "Writer", "linkedEntity": "Row", 
                 "emits": [{ "event": "DONE" }],
                 "stateMachine": {
                     "states": [{ "name": "idle", "isInitial": true }],

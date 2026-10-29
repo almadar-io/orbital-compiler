@@ -25,7 +25,6 @@ const ATOM: &str = r#"{
         {
           "name": "CheckinScan",
           "linkedEntity": "Checkin",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "VERIFY" } ],
@@ -50,7 +49,6 @@ const ATOM: &str = r#"{
         {
           "name": "CheckinStepper",
           "linkedEntity": "Checkin",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "ADVANCE" } ],
@@ -69,7 +67,7 @@ const ATOM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "CheckinPage", "path": "/checkin", "linkedEntity": "Checkin", "traits": [ { "ref": "CheckinScan" }, { "ref": "CheckinStepper" } ] }
+        { "name": "CheckinPage", "path": "/checkin", "traits": [ { "ref": "CheckinScan" }, { "ref": "CheckinStepper" } ] }
       ]
     }
   ]
@@ -91,7 +89,7 @@ const CONSUMER: &str = r#"{
         { "ref": "Checkin.traits.CheckinScan", "linkedEntity": "Technician", "name": "TechnicianFieldCheckin" }
       ],
       "pages": [
-        { "name": "TechPage", "path": "/tech", "linkedEntity": "Technician", "traits": [ { "ref": "TechnicianFieldCheckin" } ] }
+        { "name": "TechPage", "path": "/tech", "traits": [ { "ref": "TechnicianFieldCheckin" } ] }
       ]
     },
     {
@@ -106,7 +104,7 @@ const CONSUMER: &str = r#"{
         { "ref": "Checkin.traits.CheckinScan", "linkedEntity": "Job", "name": "JobArrivalCheckin" }
       ],
       "pages": [
-        { "name": "JobPage", "path": "/job", "linkedEntity": "Job", "traits": [ { "ref": "JobArrivalCheckin" } ] }
+        { "name": "JobPage", "path": "/job", "traits": [ { "ref": "JobArrivalCheckin" } ] }
       ]
     }
   ]

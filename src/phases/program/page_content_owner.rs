@@ -323,7 +323,6 @@ mod tests {
         trait_def(json!({
             "name": name,
             "linkedEntity": "Item",
-            "scope": "instance",
             "stateMachine": {
                 "states": [{ "name": "browsing", "isInitial": true }],
                 "transitions": [
@@ -338,7 +337,6 @@ mod tests {
     fn chrome_trait(name: &str, config: Option<serde_json::Value>) -> TraitDefinition {
         let mut obj = json!({
             "name": name,
-            "scope": "instance",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
                 "transitions": [
@@ -428,7 +426,6 @@ mod tests {
     fn unbound_trait_knob_guarded_content_body_is_not_a_writer() {
         let headless = trait_def(json!({
             "name": "AssetDriveLink",
-            "scope": "instance",
             "config": { "uiTrait": { "type": "trait", "default": serde_json::Value::Null } },
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
@@ -457,7 +454,6 @@ mod tests {
     fn already_coerced_bool_false_condition_is_not_a_writer() {
         let headless = trait_def(json!({
             "name": "AssetDriveLink",
-            "scope": "instance",
             "config": { "uiTrait": { "type": "trait", "default": serde_json::Value::Null } },
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
@@ -482,7 +478,6 @@ mod tests {
     fn already_coerced_bool_true_condition_is_a_writer() {
         let bound = trait_def(json!({
             "name": "AssetDriveLink",
-            "scope": "instance",
             "config": { "uiTrait": { "type": "trait", "default": "@trait.DefaultForm" } },
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
@@ -505,7 +500,6 @@ mod tests {
     fn bound_trait_knob_guarded_content_body_is_a_writer() {
         let bound = trait_def(json!({
             "name": "AssetDriveLink",
-            "scope": "instance",
             "config": { "uiTrait": { "type": "trait", "default": "@trait.DefaultForm" } },
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],

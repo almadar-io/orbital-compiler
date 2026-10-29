@@ -53,7 +53,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "WidgetList",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "config": { "limit": { "type": "number", "default": "@config.pageSize" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -69,7 +68,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "WidgetDetail",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "GO" } ],
@@ -79,7 +77,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "WidgetExtra",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "PING" } ],
@@ -88,9 +85,9 @@ const UPSTREAM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "WidgetListPage", "path": "/widgets", "linkedEntity": "Widget", "traits": [ { "ref": "WidgetList" } ] },
-        { "name": "WidgetDetailPage", "path": "/widgets/:id", "linkedEntity": "Widget", "traits": [ { "ref": "WidgetDetail" } ] },
-        { "name": "WidgetExtraPage", "path": "/widgets/extra", "linkedEntity": "Widget", "traits": [ { "ref": "WidgetExtra" } ] }
+        { "name": "WidgetListPage", "path": "/widgets", "traits": [ { "ref": "WidgetList" } ] },
+        { "name": "WidgetDetailPage", "path": "/widgets/:id", "traits": [ { "ref": "WidgetDetail" } ] },
+        { "name": "WidgetExtraPage", "path": "/widgets/extra", "traits": [ { "ref": "WidgetExtra" } ] }
       ]
     }
   ]
@@ -251,7 +248,6 @@ const APP_FORWARD_UPSTREAM: &str = r#"{
         {
           "name": "ShellHeader",
           "linkedEntity": "ShellItem",
-          "category": "interaction",
           "config": { "title": { "type": "string", "default": "@config.appName" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -260,7 +256,7 @@ const APP_FORWARD_UPSTREAM: &str = r#"{
           }
         }
       ],
-      "pages": [ { "name": "ShellPage", "path": "/shell", "linkedEntity": "ShellItem", "traits": [ { "ref": "ShellHeader" } ] } ]
+      "pages": [ { "name": "ShellPage", "path": "/shell", "traits": [ { "ref": "ShellHeader" } ] } ]
     }
   ]
 }"#;
@@ -406,7 +402,6 @@ const ORDER_FREE_UPSTREAM: &str = r#"{
         {
           "name": "AItemFetcher",
           "linkedEntity": "AItem",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "LOAD" } ],
@@ -553,7 +548,6 @@ fn schema_with(
                     {
                         "name": "WidgetView",
                         "linkedEntity": "Widget",
-                        "category": "interaction",
                         "stateMachine": {
                             "states": [ { "name": "idle", "isInitial": true } ],
                             "events": [ { "key": "OPEN" } ],
@@ -562,7 +556,7 @@ fn schema_with(
                     }
                 ],
                 "pages": [
-                    { "name": "WidgetPage", "path": "/widgets", "linkedEntity": "Widget", "traits": [ { "ref": "WidgetView" } ] }
+                    { "name": "WidgetPage", "path": "/widgets", "traits": [ { "ref": "WidgetView" } ] }
                 ]
             }
         ]
@@ -644,7 +638,6 @@ const UPSTREAM_STAGE_B: &str = r#"{
         {
           "name": "WidgetView",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "OPEN" } ],
@@ -654,7 +647,6 @@ const UPSTREAM_STAGE_B: &str = r#"{
         {
           "name": "OtherFetcher",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "LOAD" } ],

@@ -15,7 +15,6 @@ const SCHEMA: &str = r#"{
         {
           "name": "Nav",
           "linkedEntity": "Shell",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],

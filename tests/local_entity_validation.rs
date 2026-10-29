@@ -46,7 +46,7 @@ fn ledger() -> Value {
 
 fn browse(linked: &str, local: bool, effects: Value) -> Value {
     json!({
-        "name": "Browse", "linkedEntity": linked, "category": "interaction", "dispatch": local.then_some("client"),
+        "name": "Browse", "linkedEntity": linked, "dispatch": local.then_some("client"),
         "stateMachine": {
             "states": [{ "name": "idle", "isInitial": true }],
             "events": [{ "key": "INIT" }],

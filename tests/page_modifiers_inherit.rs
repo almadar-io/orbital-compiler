@@ -25,7 +25,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "AccountView",
           "linkedEntity": "Account",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],

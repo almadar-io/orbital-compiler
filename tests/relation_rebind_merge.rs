@@ -32,7 +32,6 @@ const ATOM: &str = r#"{
         {
           "name": "RelAtomTrait",
           "linkedEntity": "ThreadLike",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "LOAD" } ],

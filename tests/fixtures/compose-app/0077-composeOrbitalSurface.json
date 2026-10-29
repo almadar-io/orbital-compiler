@@ -406,7 +406,6 @@
           ],
           "result": {
             "name": "Fixed.traits.Board",
-            "scope": "instance",
             "entityRebindable": false
           }
         }

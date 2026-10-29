@@ -65,7 +65,6 @@ const THING_UPSTREAM: &str = r#"{
         {
           "name": "ThingMain",
           "linkedEntity": "Thing",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "OPEN" } ],
@@ -76,7 +75,7 @@ const THING_UPSTREAM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "ThingPage", "path": "/things", "linkedEntity": "Thing", "traits": [ { "ref": "ThingMain" } ] }
+        { "name": "ThingPage", "path": "/things", "traits": [ { "ref": "ThingMain" } ] }
       ]
     }
   ]
@@ -104,7 +103,6 @@ const WIDGET_UPSTREAM: &str = r#"{
         {
           "name": "WidgetMain",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "config": {
             "zetaLook": { "type": "string", "default": "@trait.ZetaView" },
             "alphaLook": { "type": "string", "default": "@trait.AlphaGrid" },
@@ -121,7 +119,6 @@ const WIDGET_UPSTREAM: &str = r#"{
         {
           "name": "ZetaView",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "VIEW" } ],
@@ -133,7 +130,6 @@ const WIDGET_UPSTREAM: &str = r#"{
         {
           "name": "AlphaGrid",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "VIEW" } ],
@@ -145,7 +141,6 @@ const WIDGET_UPSTREAM: &str = r#"{
         {
           "name": "MidTable",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "VIEW" } ],
@@ -156,7 +151,7 @@ const WIDGET_UPSTREAM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "WidgetPage", "path": "/widget", "linkedEntity": "Widget", "traits": [ { "ref": "WidgetMain" }, { "ref": "ZetaView" }, { "ref": "AlphaGrid" }, { "ref": "MidTable" } ] }
+        { "name": "WidgetPage", "path": "/widget", "traits": [ { "ref": "WidgetMain" }, { "ref": "ZetaView" }, { "ref": "AlphaGrid" }, { "ref": "MidTable" } ] }
       ]
     }
   ]
@@ -203,7 +198,7 @@ const CONSUMER: &str = r#"{
         { "ref": "Widget.traits.WidgetMain", "linkedEntity": "Gadget", "name": "GadgetPanel" }
       ],
       "pages": [
-        { "name": "PanelPage", "path": "/panel", "linkedEntity": "Gadget", "traits": [ { "ref": "GadgetPanel" } ] }
+        { "name": "PanelPage", "path": "/panel", "traits": [ { "ref": "GadgetPanel" } ] }
       ]
     }
   ]

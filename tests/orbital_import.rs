@@ -68,7 +68,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "ThingList",
           "linkedEntity": "Thing",
-          "category": "interaction",
           "config": {
             "limit": { "type": "number", "default": "@config.pageSize" },
             "navItems": { "type": "array", "default": [ { "href": "/things", "label": "Things" } ] }
@@ -93,7 +92,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "ThingDetail",
           "linkedEntity": "Thing",
-          "category": "interaction",
           "sourceBehavior": { "behavior": "std-thing-atom", "alias": "PageAtom", "originalName": "ThingDetail" },
           "sourceEntityDefinition": {
             "name": "Thing",
@@ -119,8 +117,8 @@ const UPSTREAM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "ThingListPage", "path": "/things", "linkedEntity": "Thing", "traits": [ { "ref": "ThingList" } ] },
-        { "name": "ThingDetailPage", "path": "/things/:id", "linkedEntity": "Thing", "traits": [ { "ref": "ThingDetail" } ] }
+        { "name": "ThingListPage", "path": "/things", "traits": [ { "ref": "ThingList" } ] },
+        { "name": "ThingDetailPage", "path": "/things/:id", "traits": [ { "ref": "ThingDetail" } ] }
       ]
     }
   ]
@@ -759,7 +757,6 @@ const CONFIG_FORWARD_UPSTREAM: &str = r#"{
         {
           "name": "Embedder",
           "linkedEntity": "MLWidget",
-          "category": "interaction",
           "config": { "itemClickEvent": { "type": "string", "default": "VIEW" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -777,7 +774,6 @@ const CONFIG_FORWARD_UPSTREAM: &str = r#"{
         {
           "name": "Sibling",
           "linkedEntity": "MLWidget",
-          "category": "interaction",
           "config": { "itemClickEvent": { "type": "string", "default": "@config.itemClickEvent" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -891,7 +887,6 @@ const STAGE_B_UPSTREAM: &str = r#"{
         {
           "name": "MainView",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "config": {
             "navItemsViaForward": { "type": "array", "default": "@config.navItemsForward" }
           },
@@ -952,7 +947,6 @@ const STAGE_B_CONSUMER: &str = r#"{
         {
           "name": "LocalSidebar",
           "linkedEntity": "LocalMainWidget",
-          "category": "interaction",
           "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
         }
       ],
@@ -1150,7 +1144,6 @@ const G4_ATOM: &str = r#"{
           "name": "ItemLog",
           "id": "trt_G4ATOMITEMLOGID00000000",
           "linkedEntity": "Item",
-          "category": "interaction",
           "emits": [
             {
               "event": "ItemUpdated",
@@ -1315,7 +1308,6 @@ const G1_UPSTREAM: &str = r#"{
           "name": "AlphaCreate",
           "id": "trt_G1ALPHACREATEID000000000",
           "linkedEntity": "AlphaThing",
-          "category": "interaction",
           "emits": [ { "event": "CREATED" } ],
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -1337,7 +1329,6 @@ const G1_UPSTREAM: &str = r#"{
           "name": "BetaListener",
           "id": "trt_G1BETALISTENERID00000000",
           "linkedEntity": "BetaThing",
-          "category": "interaction",
           "listens": [
             {
               "event": "SEEN",
@@ -1495,7 +1486,6 @@ const G2_UPSTREAM: &str = r#"{
           "name": "WidgetSync",
           "id": "trt_G2WIDGETSYNCID0000000000",
           "linkedEntity": "Widget",
-          "category": "integration",
           "config": {
             "targetEntity": { "type": "entity", "default": "Widget" }
           },
@@ -1607,7 +1597,6 @@ const G3_UPSTREAM: &str = r#"{
           "name": "DealBoard",
           "id": "trt_G3DEALBOARDID00000000000",
           "linkedEntity": "Deal",
-          "category": "interaction",
           "config": {
             "formFields": { "type": "[string]", "default": ["title", "amount"] },
             "searchField": { "type": "string", "default": "title" },
@@ -1785,7 +1774,6 @@ const G5_UPSTREAM: &str = r#"{
           "name": "Inbox",
           "id": "trt_G5INBOXID0000000000000",
           "linkedEntity": "Document",
-          "category": "interaction",
           "emits": [ { "event": "APPROVE", "eventId": "evt_G5INBOXEVT0000000002", "scope": "internal" } ],
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -1796,7 +1784,6 @@ const G5_UPSTREAM: &str = r#"{
           "name": "Decision",
           "id": "trt_G5DECISIONID000000000",
           "linkedEntity": "Document",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "APPROVE", "id": "evt_G5APPROVEEVT0000000001" } ],
@@ -1990,7 +1977,6 @@ const G3_HOIST_UPSTREAM: &str = r#"{
           "name": "TimeEntryPanel",
           "id": "trt_G3HOISTPANELID00000000",
           "linkedEntity": "TimeEntry",
-          "category": "interaction",
           "config": {
             "columns": {
               "type": "[ColumnSpec]",
@@ -2013,7 +1999,6 @@ const G3_HOIST_UPSTREAM: &str = r#"{
           "name": "InlineTableViewRender",
           "id": "trt_G3HOISTRENDERID0000000",
           "linkedEntity": "TimeEntry",
-          "category": "interaction",
           "config": {
             "columns": { "type": "unknown", "default": "@config.columns" }
           },
@@ -2152,7 +2137,7 @@ fn inline_desks(orbitals: &[(&str, &str)], watcher: bool) -> OrbitalSchema {
         ));
     }
     if watcher {
-        consumers.push(r#"{ "name": "WatchOrbital", "entity": { "name": "Watch", "persistence": "runtime", "fields": [ { "name": "id", "type": "string", "required": true } ] }, "traits": [ { "name": "Watcher", "linkedEntity": "Watch", "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "events": [ { "key": "INIT" }, { "key": "SEEN" } ], "transitions": [ { "from": "idle", "to": "idle", "event": "INIT", "effects": [ ["render-ui", "main", { "type": "typography", "content": "watch" }] ] }, { "from": "idle", "to": "idle", "event": "SEEN", "effects": [] } ] }, "listens": [ { "event": "SPIN", "triggers": "SEEN", "source": { "kind": "orbital", "orbital": "PostOrbital", "trait": "LoadingSpinner" } } ] } ], "pages": [ { "name": "WatchPage", "path": "/watch", "traits": [ { "ref": "Watcher" } ] } ] }"#.to_string());
+        consumers.push(r#"{ "name": "WatchOrbital", "entity": { "name": "Watch", "persistence": "runtime", "fields": [ { "name": "id", "type": "string", "required": true } ] }, "traits": [ { "name": "Watcher", "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "events": [ { "key": "INIT" }, { "key": "SEEN" } ], "transitions": [ { "from": "idle", "to": "idle", "event": "INIT", "effects": [ ["render-ui", "main", { "type": "typography", "content": "watch" }] ] }, { "from": "idle", "to": "idle", "event": "SEEN", "effects": [] } ] }, "listens": [ { "event": "SPIN", "triggers": "SEEN", "source": { "kind": "orbital", "orbital": "PostOrbital", "trait": "LoadingSpinner" } } ] } ], "pages": [ { "name": "WatchPage", "path": "/watch", "traits": [ { "ref": "Watcher" } ] } ] }"#.to_string());
     }
     let consumer = format!(r#"{{ "name": "test-desks", "version": "1.0.0", "orbitals": [ {} ] }}"#, consumers.join(", "));
     let consumer_path = dir.path().join("consumer.orb");

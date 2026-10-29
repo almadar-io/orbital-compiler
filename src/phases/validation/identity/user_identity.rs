@@ -275,7 +275,7 @@ pub(crate) fn identity_type(
             .iter()
             .filter_map(|f| {
                 let name = f.name.clone()?;
-                let shape = orbital_core_base::ir::types::field_shape(f);
+                let shape = orbital_core_base::ir::types::field_shape(f).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased());
                 let guaranteed = viewer_guarantees(&name) || f.required == Some(true);
                 let shape = if guaranteed || shape.is_optional() {
                     shape

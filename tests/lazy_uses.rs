@@ -6,7 +6,8 @@ use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::lazy::split_lazy_and_resolve;
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::{CompilerError, CompilerOptions};
-use orbital_core_base::schema::{LazyPage, OrbitalSchema, PageRef};
+use orbital_core_base::dispatch_mode::DispatchMode;
+use orbital_core_base::schema::{LazyPage, LazyTrait, OrbitalSchema, PageRef};
 use std::path::PathBuf;
 
 const POST: &str = r#"{
@@ -20,7 +21,6 @@ const POST: &str = r#"{
         {
           "name": "PostView",
           "linkedEntity": "PostState",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [],
@@ -45,7 +45,6 @@ fn home(uses: &str, trait_refs: &str) -> String {
         {{
           "name": "HomeView",
           "linkedEntity": "HomeState",
-          "category": "interaction",
           "stateMachine": {{
             "states": [ {{ "name": "idle", "isInitial": true }} ],
             "events": [],
@@ -80,9 +79,13 @@ struct Site {
 }
 
 fn site(orbitals: &[String], with_post: bool) -> Site {
+    site_with(orbitals, with_post.then_some(POST))
+}
+
+fn site_with(orbitals: &[String], post: Option<&str>) -> Site {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    if with_post {
-        std::fs::write(dir.path().join("post.orb"), POST).expect("write post");
+    if let Some(post) = post {
+        std::fs::write(dir.path().join("post.orb"), post).expect("write post");
     }
     let path = dir.path().join("site.orb");
     let body = format!(
@@ -132,7 +135,16 @@ fn a_lazy_reference_is_split_out_and_its_pages_stay_on_the_importer() {
             path: "/blog/why".into(),
             orbital: "BlogWhy".into(),
             orb_ref: "lazy/BlogWhy.orb".into(),
-            links: Vec::new()
+            links: Vec::new(),
+            protocol: None,
+            after: Some("Home".into()),
+            places: vec!["BlogWhyPostView".into()],
+            traits: vec![LazyTrait {
+                name: "BlogWhyPostView".into(),
+                dispatch_mode: DispatchMode::PersistedAwaited,
+                listens: Vec::new(),
+                background_ticks: false
+            }],
         }])
     );
     assert_eq!(lazy.len(), 1);
@@ -427,4 +439,46 @@ fn control_a_program_without_locales_records_no_message_sources() {
     let mut schema = parse_file(&s.path).unwrap();
     inline_schema(&mut schema, &InlineConfig::default(), Some(&s.path)).expect("inline");
     assert!(schema.metadata.and_then(|m| m.message_sources).is_none());
+}
+
+#[test]
+fn the_importer_records_what_the_kernel_stub_needs_of_a_lazy_orbital() {
+    let post = POST.replace(
+        r#""linkedEntity": "PostState","#,
+        r#""linkedEntity": "PostState", "listens": [ { "event": "PING", "triggers": "PONG" } ], "ticks": [ { "name": "beat", "interval": 1000, "runsInBackground": true, "effects": [] } ],"#,
+    );
+    let s = site_with(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], Some(&post));
+    let (schema, _) = split(&s).expect("split");
+    let page = &schema.lazy_pages.as_ref().expect("lazy pages")[0];
+    let recorded = &page.traits[0];
+    assert_eq!(recorded.name, "BlogWhyPostView");
+    assert_eq!(recorded.listens.len(), 1);
+    assert_eq!(recorded.listens[0].event, "PING");
+    assert_eq!(recorded.listens[0].triggers.as_deref(), Some("PONG"));
+    assert!(recorded.background_ticks);
+    assert!(page.protocol.is_none(), "a route page records no protocol");
+
+    let plain = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
+    let (schema, _) = split(&plain).expect("split");
+    let control = &schema.lazy_pages.as_ref().expect("lazy pages")[0].traits[0];
+    assert!(control.listens.is_empty() && !control.background_ticks, "control: a trait that listens to nothing and never ticks records neither");
+}
+
+#[test]
+fn the_importer_records_a_lazy_traits_declared_dispatch_mode_and_where_the_orbital_sat() {
+    let client = POST.replace(r#""category": "interaction","#, r#""category": "interaction", "dispatch": "client","#);
+    let s = site_with(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], Some(&client));
+    let (schema, _) = split(&s).expect("split");
+    let page = &schema.lazy_pages.as_ref().expect("lazy pages")[0];
+    assert_eq!(page.traits[0].dispatch_mode, DispatchMode::HybridClientOnly);
+    assert_eq!(page.after.as_deref(), Some("Home"), "the lazy orbital followed Home");
+    assert_eq!(page.places, ["BlogWhyPostView"]);
+
+    let plain = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
+    let (schema, _) = split(&plain).expect("split");
+    assert_eq!(schema.lazy_pages.as_ref().unwrap()[0].traits[0].dispatch_mode, DispatchMode::PersistedAwaited, "control: an undeclared trait awaits the server");
+
+    let first = site(&[blog(LAZY_USE, REMAP), home(LAZY_USE, "")], true);
+    let (schema, _) = split(&first).expect("split");
+    assert_eq!(schema.lazy_pages.as_ref().unwrap()[0].after, None, "control: a lazy orbital that came first follows nothing");
 }

@@ -77,19 +77,32 @@ pub(crate) fn check_row_literal(
             continue;
         }
         let whole_number = matches!((&field.field_type, value), (FieldType::Int, SExpression::Number(n)) if n.fract() == 0.0);
+        let Ok(declared) = field_shape(field) else {
+            continue;
+        };
+        if let Some(slot) = super::set::null_written_into_never_null_slot(value, &declared, site.ctx) {
+            result.add_error(ValidationError::error(
+                ErrorCode::RowLiteralFieldTypeMismatch,
+                path,
+                format!(
+                    "{what}: '{}.{key}' builds a null where {} is declared; the declared type admits no null",
+                    entity.name,
+                    orbital_core_base::signature::describe_type(&slot)
+                ),
+            ));
+            continue;
+        }
         if matches!(value, SExpression::Null) || whole_number {
             continue;
         }
-        if let Some(inferred) =
-            expr_return_incompatible_in_ctx(value, &field_shape(field), site.ctx)
-        {
+        if let Some(inferred) = expr_return_incompatible_in_ctx(value, &declared, site.ctx) {
             result.add_error(ValidationError::error(
                 ErrorCode::RowLiteralFieldTypeMismatch,
                 path,
                 format!(
                     "{what}: '{}.{key}' declares {}, the value is {}",
                     entity.name,
-                    orbital_core_base::signature::describe_type(&field_shape(field)),
+                    orbital_core_base::signature::describe_type(&declared),
                     orbital_core_base::signature::describe_type(&inferred)
                 ),
             ));

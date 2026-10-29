@@ -160,7 +160,6 @@ fn expects_entity_licenses_relation_persist_and_linked_entity_targets() {
             "traits": [{
                 "name": "ProductList",
                 "linkedEntity": "Customer",
-                "category": "interaction",
                 "stateMachine": {
                     "states": [{ "name": "idle", "isInitial": true }],
                     "events": [{ "key": "SAVE", "name": "Save" }],
@@ -212,7 +211,6 @@ fn an_expects_licensed_linked_entity_defers_the_entity_sentinel() {
                 "traits": [{
                     "name": "HealthList",
                     "linkedEntity": "HealthScoreSearch",
-                    "category": "interaction",
                     "emits": [{
                         "event": "VIEW",
                         "payloadSchema": [{ "name": "row", "type": "@entity" }]
@@ -276,7 +274,6 @@ fn a_named_expects_identity_licenses_relation_targets() {
             },
             "traits": [{
                 "name": "ArticleList",
-                "category": "interaction",
                 "stateMachine": {
                     "states": [{ "name": "idle", "isInitial": true }],
                     "events": [{ "key": "SAVE", "name": "Save" }],
@@ -768,7 +765,6 @@ fn without_expects_an_unknown_user_field_keeps_todays_verdict() {
             "traits": [{
                 "name": "Shell",
                 "linkedEntity": "Product",
-                "category": "interaction",
                 "stateMachine": { "events": [], "states": [], "transitions": [{
                     "from": "idle", "event": "GO", "to": "idle",
                     "guard": ["=", "@user.avatar", "x"]
@@ -799,7 +795,6 @@ fn slice_with_user_team_read(imported: bool) -> Value {
     let mut trait_def = json!({
         "name": "ProductBrowseList",
         "linkedEntity": "Product",
-        "category": "interaction",
         "stateMachine": {
             "events": [],
             "states": [],
@@ -888,7 +883,6 @@ fn orbital_reading(user_field: &str, declared: Value) -> Value {
                             "fields": [{ "name": "id", "type": "string", "required": true }] },
                 "traits": [{
                     "name": "DocView", "linkedEntity": "Doc",
-                    "category": "interaction",
                     "stateMachine": { "events": [], "states": [], "transitions": [{
                         "from": "idle", "event": "OPEN", "to": "idle",
                         "guard": ["=", user_field, "admin"]

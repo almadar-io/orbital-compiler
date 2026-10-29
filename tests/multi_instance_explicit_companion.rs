@@ -27,7 +27,6 @@ const ATOM: &str = r#"{
         {
           "name": "TrialsTransport",
           "linkedEntity": "TrialsScene",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "STEP" } ],
@@ -48,7 +47,6 @@ const ATOM: &str = r#"{
         {
           "name": "TrialsSim",
           "linkedEntity": "TrialsScene",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "LEARN_STEP" } ],
@@ -70,7 +68,7 @@ const ATOM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "TrialsPage", "path": "/trials", "linkedEntity": "TrialsScene", "traits": [ { "ref": "TrialsTransport" }, { "ref": "TrialsSim" } ] }
+        { "name": "TrialsPage", "path": "/trials", "traits": [ { "ref": "TrialsTransport" }, { "ref": "TrialsSim" } ] }
       ]
     }
   ]
@@ -91,7 +89,7 @@ const CONSUMER: &str = r#"{
           { "name": "running", "type": "boolean" }
         ]
       },
-      "entities": [
+      "auxiliaryEntities": [
         {
           "name": "CoinsScene",
           "persistence": "runtime",
@@ -108,7 +106,7 @@ const CONSUMER: &str = r#"{
         { "ref": "Trials.traits.TrialsSim", "linkedEntity": "CoinsScene", "name": "CoinsSim" }
       ],
       "pages": [
-        { "name": "LabPage", "path": "/lab", "linkedEntity": "DiceScene", "traits": [ { "ref": "DiceTransport" }, { "ref": "DiceSim" }, { "ref": "CoinsTransport" }, { "ref": "CoinsSim" } ] }
+        { "name": "LabPage", "path": "/lab", "traits": [ { "ref": "DiceTransport" }, { "ref": "DiceSim" }, { "ref": "CoinsTransport" }, { "ref": "CoinsSim" } ] }
       ]
     }
   ]
@@ -205,7 +203,7 @@ fn same_entity_consumer(transport_rebind: &str, sim_rebind: &str) -> String {
         {{ "ref": "Trials.traits.TrialsSim"{sim_rebind}, "name": "MySim" }}
       ],
       "pages": [
-        {{ "name": "LabPage", "path": "/lab", "linkedEntity": "TrialsScene", "traits": [ {{ "ref": "MyTransport" }}, {{ "ref": "MySim" }} ] }}
+        {{ "name": "LabPage", "path": "/lab", "traits": [ {{ "ref": "MyTransport" }}, {{ "ref": "MySim" }} ] }}
       ]
     }}
   ]

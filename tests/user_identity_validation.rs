@@ -49,7 +49,6 @@ fn without_a_declared_identity_entity_an_unknown_field_is_still_an_error() {
     let trait_def = json!({
         "name": "Shell",
         "linkedEntity": "Person",
-        "category": "interaction",
         "stateMachine": {
             "events": [],
             "states": [],
@@ -66,7 +65,6 @@ fn without_a_declared_identity_entity_an_unknown_field_is_still_an_error() {
     let ok_trait = json!({
         "name": "Shell",
         "linkedEntity": "Person",
-        "category": "interaction",
         "stateMachine": {
             "events": [],
             "states": [],
@@ -90,7 +88,7 @@ fn without_a_declared_identity_entity_an_unknown_field_is_still_an_error() {
 #[test]
 fn reading_an_undeclared_identity_field_is_an_error() {
     let trait_def = json!({
-        "name": "Shell", "linkedEntity": "Person", "category": "interaction",
+        "name": "Shell", "linkedEntity": "Person", 
         "stateMachine": { "events": [], "states": [], "transitions": [{
             "from": "idle", "event": "GO", "to": "idle",
             "guard": ["=", "@user.clearance", "write"]
@@ -122,7 +120,6 @@ fn gated_layout(allowed: Value, nav: Value, compare_to: &str) -> Value {
     json!({
         "name": "Layout",
         "linkedEntity": "Person",
-        "category": "interaction",
         "config": {
             "allowedRoles": { "type": "unknown", "default": allowed },
             "viewerRole": { "type": "unknown", "default": compare_to },

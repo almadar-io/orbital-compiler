@@ -302,7 +302,7 @@ pub(crate) fn resolve_schema_with_inline(
     );
 
     // The declared type of every `json/parse` / `as` shape naming a program alias, and the knob types that name aliases.
-    validation::effect::record_declared_shapes(&mut schema);
+    validation::effect::record_declared_shapes(&mut schema).map_err(ResolveError::from)?;
 
     schema.resolved = Some(orbital_core_base::schema::ResolvedMark {
         orb: env!("CARGO_PKG_VERSION").to_string(),
@@ -499,7 +499,7 @@ mod tests {
                 "entity": { "name": "Row", "persistence": "runtime",
                     "fields": [{ "name": "id", "type": "string", "required": true }] },
                 "traits": [{
-                    "name": "Watcher", "linkedEntity": "Row", "category": "interaction",
+                    "name": "Watcher", "linkedEntity": "Row", 
                     "stateMachine": {
                         "states": [{ "name": "idle", "isInitial": true }],
                         "events": [{ "key": "INIT" }, { "key": "SEEN", "input": true }],

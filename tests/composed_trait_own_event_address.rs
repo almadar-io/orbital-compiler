@@ -22,7 +22,6 @@ fn atom(default_address: &str) -> String {
     "traits": [{{
       "name": "PageWatch",
       "linkedEntity": "Watched",
-      "category": "lifecycle",
       "config": {{ "itemEvent": {{ "type": "event", "default": "{default_address}" }} }},
       "stateMachine": {{
         "states": [ {{ "name": "idle", "isInitial": true }} ],

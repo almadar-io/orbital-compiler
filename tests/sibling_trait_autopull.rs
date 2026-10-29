@@ -27,7 +27,6 @@ const ATOM: &str = r#"{
         {
           "name": "WidgetMain",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "OPEN" } ],
@@ -49,7 +48,6 @@ const ATOM: &str = r#"{
         {
           "name": "WidgetView",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "VIEW" } ],
@@ -70,7 +68,7 @@ const ATOM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "WidgetPage", "path": "/widget", "linkedEntity": "Widget", "traits": [ { "ref": "WidgetMain" }, { "ref": "WidgetView" } ] }
+        { "name": "WidgetPage", "path": "/widget", "traits": [ { "ref": "WidgetMain" }, { "ref": "WidgetView" } ] }
       ]
     }
   ]
@@ -92,7 +90,7 @@ const CONSUMER: &str = r#"{
         { "ref": "Widget.traits.WidgetMain", "linkedEntity": "Gadget", "name": "GadgetPanel" }
       ],
       "pages": [
-        { "name": "PanelPage", "path": "/panel", "linkedEntity": "Gadget", "traits": [ { "ref": "GadgetPanel" } ] }
+        { "name": "PanelPage", "path": "/panel", "traits": [ { "ref": "GadgetPanel" } ] }
       ]
     }
   ]

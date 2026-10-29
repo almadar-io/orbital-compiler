@@ -19,7 +19,6 @@ const ATOM: &str = r#"{
       "traits": [
         {
           "name": "StatsRender",
-          "category": "interaction",
           "config": { "metrics": { "type": "unknown", "default": [] }, "title": { "type": "string", "default": "Stats" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -122,7 +121,6 @@ const KNOB_ATOM: &str = r#"{
       "traits": [
         {
           "name": "Ranker",
-          "category": "interaction",
           "linkedEntity": "Item",
           "config": { "rank": { "type": "number", "default": "@config.mix" } },
           "stateMachine": {

@@ -734,7 +734,7 @@ mod tests {
                     "anchor": { "name": "anchor", "type": "string", "required": true },
                     "path": { "name": "path", "type": "string", "required": true } } }
             } }
-        })).expect("knob"));
+        })).expect("knob")).unwrap();
         let typed = serde_json::json!(["array/len", ["let", [["knob_commands", mixed, serde_json::to_string(&ty).unwrap()]], "@knob_commands"]]).to_string();
         assert!(undetermined(&typed, HashMap::new()).is_empty(), "{:?}", undetermined(&typed, HashMap::new()));
         let inline = serde_json::json!(["array/len", mixed]).to_string();

@@ -588,7 +588,7 @@ fn config_types(
         .map(|(name, field)| {
             (
                 name.clone(),
-                crate::phases::resolve::config_field_oir_type(field, schema),
+                crate::phases::resolve::config_field_oir_type(field, schema).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased()),
             )
         })
         .collect();

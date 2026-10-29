@@ -331,6 +331,9 @@ pub fn route_manifest(
         if let Some(l) = locale {
             obj.insert("dir".into(), orbital_core_base::messages::locale_direction(l).into());
         }
+        if page.is_not_found {
+            obj.insert("notFound".into(), true.into());
+        }
         if let Some(access) = page.access {
             obj.insert(
                 "access".into(),

@@ -17,7 +17,6 @@ const ATOM: &str = r#"{
       {
         "name": "HostMain",
         "linkedEntity": "Src",
-        "category": "interaction",
         "stateMachine": {
           "states": [ { "name": "idle", "isInitial": true } ],
           "events": [ { "key": "OPEN" } ],
@@ -29,7 +28,6 @@ const ATOM: &str = r#"{
       {
         "name": "GridView",
         "linkedEntity": "Src",
-        "category": "interaction",
         "config": {
           "target": { "type": "event", "default": "HostMain.OPEN" },
           "tools": { "type": "array", "default": [ { "event": "HostMain.OPEN" } ],
@@ -43,7 +41,7 @@ const ATOM: &str = r#"{
         }
       }
     ],
-    "pages": [ { "name": "SrcPage", "path": "/src", "linkedEntity": "Src", "traits": [ { "ref": "HostMain" } ] } ]
+    "pages": [ { "name": "SrcPage", "path": "/src", "traits": [ { "ref": "HostMain" } ] } ]
   }]
 }"#;
 
@@ -58,7 +56,7 @@ fn consumer(events: &str) -> String {
     "entity": {{ "name": "Thing", "persistence": "persistent",
                 "fields": [ {{ "name": "id", "type": "string", "required": true }} ] }},
     "traits": [ {{ "ref": "Host.traits.HostMain", "linkedEntity": "Thing", "name": "ThingHost"{events} }} ],
-    "pages": [ {{ "name": "AppPage", "path": "/app", "linkedEntity": "Thing", "traits": [ {{ "ref": "ThingHost" }} ] }} ]
+    "pages": [ {{ "name": "AppPage", "path": "/app", "traits": [ {{ "ref": "ThingHost" }} ] }} ]
   }}]
 }}"#
     )

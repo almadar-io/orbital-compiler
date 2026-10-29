@@ -32,7 +32,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "ItemView",
           "linkedEntity": "Item",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" }, { "key": "ACT" }, { "key": "Done" } ],
@@ -49,7 +48,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "ItemViewChild",
           "linkedEntity": "Item",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],
@@ -62,7 +60,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "ItemRules",
           "linkedEntity": "Item",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "ready", "isInitial": true } ],
             "events": [ { "key": "ACT" } ],
@@ -76,7 +73,7 @@ const UPSTREAM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "ItemPage", "path": "/items", "linkedEntity": "Item", "traits": [ { "ref": "ItemView" }, { "ref": "ItemViewChild" }, { "ref": "ItemRules" } ] }
+        { "name": "ItemPage", "path": "/items", "traits": [ { "ref": "ItemView" }, { "ref": "ItemViewChild" }, { "ref": "ItemRules" } ] }
       ]
     }
   ]
@@ -96,7 +93,6 @@ fn consumer(omit: &str) -> String {
         {{
           "name": "MemberView",
           "linkedEntity": "Item",
-          "category": "interaction",
           "stateMachine": {{
             "states": [ {{ "name": "idle", "isInitial": true }} ],
             "events": [ {{ "key": "INIT" }}, {{ "key": "TAP" }}, {{ "key": "Done" }} ],
@@ -115,7 +111,6 @@ fn consumer(omit: &str) -> String {
         {{
           "name": "Shell",
           "linkedEntity": "Item",
-          "category": "interaction",
           "stateMachine": {{
             "states": [ {{ "name": "idle", "isInitial": true }} ],
             "events": [ {{ "key": "INIT" }} ],

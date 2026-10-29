@@ -24,7 +24,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "ChannelList",
           "linkedEntity": "Channel",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "OPEN" } ],
@@ -35,8 +34,8 @@ const UPSTREAM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "ChannelsPage", "path": "/channels", "linkedEntity": "Channel", "traits": [ { "ref": "ChannelList" } ] },
-        { "name": "ChannelPage", "path": "/channels/:id", "linkedEntity": "Channel", "traits": [ { "ref": "ChannelList" } ] }
+        { "name": "ChannelsPage", "path": "/channels", "traits": [ { "ref": "ChannelList" } ] },
+        { "name": "ChannelPage", "path": "/channels/:id", "traits": [ { "ref": "ChannelList" } ] }
       ]
     },
     {
@@ -50,7 +49,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "RoomView",
           "linkedEntity": "Room",
-          "category": "interaction",
           "config": {
             "navItems": { "type": "array", "default": [ { "href": "/channels", "label": "Channels" } ] }
           },
@@ -66,7 +64,7 @@ const UPSTREAM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "RoomPage", "path": "/room", "linkedEntity": "Room", "traits": [ { "ref": "RoomView" } ] }
+        { "name": "RoomPage", "path": "/room", "traits": [ { "ref": "RoomView" } ] }
       ]
     }
   ]

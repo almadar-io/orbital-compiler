@@ -15,7 +15,7 @@ fn program(effects: Value) -> OrbitalSchema {
                 "fields": [{ "name": "id", "type": "string", "required": true }]
             },
             "traits": [{
-                "name": "Drawer", "linkedEntity": "Row", "category": "interaction",
+                "name": "Drawer", "linkedEntity": "Row", 
                 "config": { "tok": { "type": "secret", "default": "TOK" } },
                 "emits": [
                     { "event": "DRAWN", "payloadSchema": [{ "name": "value", "type": "string", "required": true }] },
@@ -213,7 +213,7 @@ mod os_grants {
             "name": name,
             "entity": { "name": format!("{name}Row"), "persistence": "runtime", "fields": [{ "name": "id", "type": "string", "required": true }] },
             "traits": [{
-                "name": format!("{name}Runner"), "linkedEntity": format!("{name}Row"), "category": "interaction", "dispatch": local.then_some("client"),
+                "name": format!("{name}Runner"), "linkedEntity": format!("{name}Row"), "dispatch": local.then_some("client"),
                 "stateMachine": {
                     "states": [{ "name": "idle", "isInitial": true }],
                     "events": [{ "key": "INIT" }],
@@ -557,7 +557,7 @@ mod redis {
                 "name": "Cache",
                 "entity": { "name": "Row", "persistence": "runtime", "fields": [{ "name": "id", "type": "string", "required": true }] },
                 "traits": [{
-                    "name": "Reader", "linkedEntity": "Row", "category": "interaction",
+                    "name": "Reader", "linkedEntity": "Row", 
                     "config": {
                         "pw": { "type": "secret", "default": "REDIS_PW" },
                         "plain": { "type": "string", "default": "x" },
@@ -681,7 +681,7 @@ mod postgres {
                 "name": "Db",
                 "entity": { "name": "Row", "persistence": "runtime", "fields": [{ "name": "id", "type": "string", "required": true }] },
                 "traits": [{
-                    "name": "Reader", "linkedEntity": "Row", "category": "interaction",
+                    "name": "Reader", "linkedEntity": "Row", 
                     "config": {
                         "pw": { "type": "secret", "default": "PG_PW" },
                         "origin": { "type": "url", "default": "postgres://db.internal:5432" }

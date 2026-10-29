@@ -16,7 +16,7 @@ fn upstream(effects: Value) -> String {
             "entity": { "name": "Thing", "persistence": "runtime",
                 "fields": [{ "name": "id", "type": "string", "required": true }, { "name": "token", "type": "string" }] },
             "traits": [{
-                "name": "ThingFetch", "linkedEntity": "Thing", "category": "interaction",
+                "name": "ThingFetch", "linkedEntity": "Thing", 
                 "config": { "apiKey": { "type": "secret", "default": "THING_KEY" } },
                 "stateMachine": {
                     "states": [{ "name": "idle", "isInitial": true }],

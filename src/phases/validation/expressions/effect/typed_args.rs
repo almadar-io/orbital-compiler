@@ -6,7 +6,7 @@
 use super::set::ExprReturnCtx;
 use std::sync::Arc;
 use super::TraitScopes;
-use orbital_core_base::ir::types::{DeclaredShape, OirType};
+use orbital_core_base::ir::types::{DeclaredShape, OirType, ShapeError};
 use orbital_core_base::schema::types::PayloadField;
 use orbital_core_base::schema::{
     EntityDefinition, OrbitalSchema, RewriteVisit, SExpression, TraitReference,
@@ -27,7 +27,7 @@ fn unchanged_list(old: &[SExpression], new: &[SExpression]) -> bool {
 
 /// Record the declared list types of `schema`'s operator arguments in place. A trait none of whose expressions
 /// changes stays the shared definition.
-pub fn record_declared_shapes(schema: &mut OrbitalSchema) {
+pub fn record_declared_shapes(schema: &mut OrbitalSchema) -> Result<(), ShapeError> {
     let recorded = {
         let view: &OrbitalSchema = schema;
         let mut entities: HashMap<String, &EntityDefinition> = HashMap::new();
@@ -60,11 +60,12 @@ pub fn record_declared_shapes(schema: &mut OrbitalSchema) {
                         types: Some(&types),
                         schema: Some(view),
                     };
-                    let guard = transition.guard.as_ref().map(|guard| declare(guard, &ctx, &aliases));
+                    let guard = transition.guard.as_ref().map(|guard| declare(guard, &ctx, &aliases)).transpose()?;
                     let effects = transition
                         .effects
                         .as_ref()
-                        .map(|effects| effects.iter().map(|e| declare(e, &ctx, &aliases)).collect::<Vec<_>>());
+                        .map(|effects| effects.iter().map(|e| declare(e, &ctx, &aliases)).collect::<Result<Vec<_>, _>>())
+                        .transpose()?;
                     let guard_kept = match (&transition.guard, &guard) {
                         (Some(old), Some(new)) => old.same_node(new),
                         _ => true,
@@ -85,9 +86,9 @@ pub fn record_declared_shapes(schema: &mut OrbitalSchema) {
                         schema: Some(view),
                     };
                     for (k, tick) in ticks.iter().enumerate() {
-                        let guard = tick.guard.as_ref().map(|guard| declare(guard, &ctx, &aliases));
+                        let guard = tick.guard.as_ref().map(|guard| declare(guard, &ctx, &aliases)).transpose()?;
                         let effects: Vec<SExpression> =
-                            tick.effects.iter().map(|e| declare(e, &ctx, &aliases)).collect();
+                            tick.effects.iter().map(|e| declare(e, &ctx, &aliases)).collect::<Result<_, _>>()?;
                         let guard_kept = match (&tick.guard, &guard) {
                             (Some(old), Some(new)) => old.same_node(new),
                             _ => true,
@@ -128,10 +129,11 @@ pub fn record_declared_shapes(schema: &mut OrbitalSchema) {
             out_ticks[k].effects = effects;
         }
     }
+    Ok(())
 }
 
 /// `expr` with each `json/parse` / `as` shape naming a program alias recorded as that alias's type (G-ORB-420).
-fn declare(expr: &SExpression, ctx: &ExprReturnCtx<'_>, aliases: &Aliases) -> SExpression {
+fn declare(expr: &SExpression, ctx: &ExprReturnCtx<'_>, aliases: &Aliases) -> Result<SExpression, ShapeError> {
     let version = ctx.schema.and_then(|schema| schema.type_contract_version);
     record_parse_shapes(expr, aliases, version)
 }
@@ -139,19 +141,19 @@ fn declare(expr: &SExpression, ctx: &ExprReturnCtx<'_>, aliases: &Aliases) -> SE
 type Aliases = BTreeMap<String, Vec<PayloadField>>;
 
 /// A declared type as the kernel's run-time check reads it: the type, with the program types it names, transitively.
-fn recorded_type(name: Option<String>, ty: OirType, aliases: &Aliases, version: Option<u32>) -> String {
-    let mut shape = DeclaredShape::with_named(name, ty, aliases);
+fn recorded_type(name: Option<String>, ty: OirType, aliases: &Aliases, version: Option<u32>) -> Result<String, ShapeError> {
+    let mut shape = DeclaredShape::with_named(name, ty, aliases)?;
     shape.version = version;
     if shape.version.is_none() && shape.named.is_empty() && shape.name.is_none() {
-        return serde_json::to_string(&shape.ty).unwrap_or_default();
+        return Ok(serde_json::to_string(&shape.ty).unwrap_or_default());
     }
-    serde_json::to_string(&shape).unwrap_or_default()
+    Ok(serde_json::to_string(&shape).unwrap_or_default())
 }
 
 /// `expr` with every `json/parse` whose shape names a program alias given that alias's recorded type, and every
 /// `let` binding's declared type given the program types it names.
-fn record_parse_shapes(expr: &SExpression, aliases: &Aliases, version: Option<u32>) -> SExpression {
-    let rewritten: Result<SExpression, std::convert::Infallible> = expr.try_rewrite(
+fn record_parse_shapes(expr: &SExpression, aliases: &Aliases, version: Option<u32>) -> Result<SExpression, ShapeError> {
+    expr.try_rewrite(
         |node| {
             Ok(if matches!(node.operator(), Some("quote" | "quasiquote")) {
                 RewriteVisit::Keep
@@ -174,7 +176,7 @@ fn record_parse_shapes(expr: &SExpression, aliases: &Aliases, version: Option<u3
                                 if let Some(mut declared) = DeclaredShape::parse(shape) {
                                     declared.version = version.or(declared.version);
                                     *shape = if declared.named.is_empty() {
-                                        recorded_type(declared.name, declared.ty, aliases, declared.version).into()
+                                        recorded_type(declared.name, declared.ty, aliases, declared.version)?.into()
                                     } else {
                                         serde_json::to_string(&declared).unwrap_or_default().into()
                                     };
@@ -186,19 +188,15 @@ fn record_parse_shapes(expr: &SExpression, aliases: &Aliases, version: Option<u3
             }
             if let [SExpression::String(head), _, SExpression::String(shape)] = out.as_slice() {
                 if head == "json/parse" || head == "as" {
-                    if let Some(declared) = DeclaredShape::of_alias(shape, aliases) {
+                    if let Some(declared) = DeclaredShape::of_alias(shape, aliases)? {
                         out[2] =
-                            SExpression::string(recorded_type(declared.name, declared.ty, aliases, version.or(declared.version)));
+                            SExpression::string(recorded_type(declared.name, declared.ty, aliases, version.or(declared.version))?);
                     }
                 }
             }
             Ok(SExpression::Array(out))
         },
-    );
-    match rewritten {
-        Ok(out) => out,
-        Err(never) => match never {},
-    }
+    )
 }
 
 /// Whether a declared type is a list whose items may differ in kind: a list of a union or of `SExpr`.
@@ -296,7 +294,7 @@ mod tests {
                 ]
             ]),
         );
-        record_declared_shapes(&mut schema);
+        record_declared_shapes(&mut schema).expect("shapes");
         let effect = effect_of(&schema);
         let expression = serde_json::from_value(effect[2].clone()).unwrap();
         let payload = serde_json::from_value(json!({"via": [{"id": 1}, "text"]})).unwrap();
@@ -315,7 +313,7 @@ mod tests {
         ] });
         let effect = json!(["set", "@entity.count", ["array/len", "@payload.via"]]);
         let mut schema = program(via, effect.clone());
-        record_declared_shapes(&mut schema);
+        record_declared_shapes(&mut schema).expect("shapes");
         assert_eq!(effect_of(&schema), effect);
     }
 
@@ -327,7 +325,7 @@ mod tests {
         );
         let TraitReference::Inline(before) = &schema.orbitals[0].traits[0] else { panic!("inline trait") };
         let before = Arc::clone(before);
-        record_declared_shapes(&mut schema);
+        record_declared_shapes(&mut schema).expect("shapes");
         let TraitReference::Inline(after) = &schema.orbitals[0].traits[0] else { panic!("inline trait") };
         assert!(Arc::ptr_eq(&before, after), "a trait with no shape to record is not copied");
     }
@@ -338,7 +336,7 @@ mod tests {
         let mut schema = with_row_types(program(json!({ "name": "via", "type": "string" }), effect));
         let TraitReference::Inline(before) = &schema.orbitals[0].traits[0] else { panic!("inline trait") };
         let before = Arc::clone(before);
-        record_declared_shapes(&mut schema);
+        record_declared_shapes(&mut schema).expect("shapes");
         let TraitReference::Inline(after) = &schema.orbitals[0].traits[0] else { panic!("inline trait") };
         assert_ne!(effect_of(&schema)[2][2], json!("Point"), "the alias's type is recorded");
         assert!(!Arc::ptr_eq(&before, after), "the changed trait is its own copy; the shared one is untouched");
@@ -371,7 +369,7 @@ mod tests {
             ["json/parse", "@payload.via", shape]
         ]);
         let mut schema = with_row_types(program(via, effect));
-        record_declared_shapes(&mut schema);
+        record_declared_shapes(&mut schema).expect("shapes");
         effect_of(&schema)[2][2].clone()
     }
 
@@ -381,7 +379,7 @@ mod tests {
         let mut schema = with_row_types(program(json!({"name":"via","type":"string"}), effect));
         schema.types = schema.orbitals[0].types.take();
         schema.type_contract_version = Some(1);
-        record_declared_shapes(&mut schema);
+        record_declared_shapes(&mut schema).expect("shapes");
         let value = effect_of(&schema);
         let recorded = DeclaredShape::parse(value[2][2].as_str().expect("recorded descriptor"))
             .expect("root alias must resolve through the canonical schema owner");
@@ -396,7 +394,7 @@ mod tests {
         let mut schema = with_row_types(program(json!({"name":"via","type":"string"}), effect));
         schema.orbitals[0].types.as_mut().unwrap().get_mut("Point").unwrap()[0].nullable = Some(false);
         assert_eq!(schema.type_contract_version, None);
-        record_declared_shapes(&mut schema);
+        record_declared_shapes(&mut schema).expect("shapes");
         let value = effect_of(&schema);
         let recorded = DeclaredShape::parse(value[2][2].as_str().expect("recorded descriptor")).unwrap();
         assert_eq!(recorded.version, None, "field facts cannot invent root provenance");
@@ -425,7 +423,7 @@ mod tests {
         let cast = |shape: &str| {
             let effect = json!(["set", "@entity.count", ["as", "@payload.via", shape]]);
             let mut schema = with_row_types(program(json!({ "name": "via", "type": "string" }), effect));
-            record_declared_shapes(&mut schema);
+            record_declared_shapes(&mut schema).expect("shapes");
             effect_of(&schema)[2][2].clone()
         };
         let recorded = DeclaredShape::parse(cast("Point").as_str().expect("recorded descriptor")).expect("an alias records its type");
@@ -453,7 +451,7 @@ mod tests {
         let names = json!({ "name": "via", "type": "[string]" });
         let effect = json!(["set", "@entity.count", ["array/len", "@payload.via"]]);
         let mut schema = program(names, effect.clone());
-        record_declared_shapes(&mut schema);
+        record_declared_shapes(&mut schema).expect("shapes");
         assert_eq!(effect_of(&schema), effect);
     }
 }

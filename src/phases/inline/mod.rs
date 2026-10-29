@@ -288,6 +288,11 @@ pub enum InlineError {
         declared: String,
     },
 
+    #[error(
+        "Trait '{trait_name}' keeps config knob '{knob}' typed `unknown` after inlining; a call-site value takes the callee knob's declared type, so the callee must declare one"
+    )]
+    UnstampedConfigKnob { trait_name: String, knob: String },
+
     #[error("`unquote` at {path} appears outside a quasiquote body")]
     UnquoteOutsideQuasiquote { path: String },
 
@@ -348,7 +353,7 @@ impl InlineError {
             InlineError::BehaviorRefNotLiteral { .. } => "ORB_T_BEHAVIOR_REF_NOT_LITERAL",
             InlineError::UnquoteOutsideQuasiquote { .. } => "ORB_T_UNQUOTE_OUTSIDE_QUASIQUOTE",
             InlineError::UnknownEventRef { .. } => "ORB_ID_UNKNOWN_REF",
-            InlineError::ConfigWiringTypeMismatch { .. } => "ORB_T_CONFIG_SHAPE_MISMATCH",
+            InlineError::ConfigWiringTypeMismatch { .. } | InlineError::UnstampedConfigKnob { .. } => "ORB_T_CONFIG_SHAPE_MISMATCH",
             InlineError::Loader(LoaderError::PackageNotInstalled { .. })
             | InlineError::Loader(LoaderError::BehaviorPackageNotInstalled { .. }) => {
                 "ORB_BEHAVIOR_PACKAGE_NOT_INSTALLED"
@@ -6552,6 +6557,7 @@ mod tests {
             view_type: None,
             primary_entity: None,
             is_initial: None,
+            is_not_found: None,
             traits: None,
             sections: None,
             icon: None,
@@ -7121,6 +7127,7 @@ mod tests {
             entity_id: Some("ent_IMPORTED_THREADPOST".to_string()),
             cardinality: Some(Cardinality::Many),
             on_delete: None,
+            display: None,
         });
         let imported = EntityDefinition {
             timestamps: None,

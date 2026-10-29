@@ -1877,7 +1877,10 @@ pub(crate) fn declared_list_types(
             _ => false,
         };
         if point_in_time {
-            let ty = crate::phases::resolve::config_field_carried_type(field);
+            // A knob type with no shape is refused where the trait's config schema resolves.
+            let Ok(ty) = crate::phases::resolve::config_field_carried_type(field) else {
+                continue;
+            };
             if let Ok(text) = serde_json::to_string(&ty) {
                 out.insert(knob.clone(), SExpression::string(text));
             }
@@ -1908,7 +1911,9 @@ pub(crate) fn declared_list_types(
         for member in field.properties.iter_mut().flat_map(|p| p.values_mut()) {
             super::sigil_types::name_knob_records(member, &named);
         }
-        let ty = crate::phases::resolve::config_field_carried_type(&field);
+        let Ok(ty) = crate::phases::resolve::config_field_carried_type(&field) else {
+            continue;
+        };
         let list_type = matches!(&ty, orbital_core_base::ir::OirType::Array { .. })
             || matches!(&ty, orbital_core_base::ir::OirType::Optional { inner } if matches!(**inner, orbital_core_base::ir::OirType::Array { .. }));
         if matches!(value, SExpression::Array(_)) != list_type
@@ -2685,10 +2690,11 @@ pub(crate) fn resolve_type_param_sentinels(
     let declared_bindings: BTreeMap<String, orbital_core_base::ir::OirType> = subs
         .iter()
         .filter_map(|(name, sub)| {
+            // A type argument with no shape is refused where its alias or entity is declared.
             let ty = match sub {
-                ParamSub::Scalar(_) => orbital_core_base::ir::field_shape(bindings.get(name)?),
+                ParamSub::Scalar(_) => orbital_core_base::ir::field_shape(bindings.get(name)?).ok()?,
                 ParamSub::Struct(fields) => {
-                    orbital_core_base::ir::types::declared_alias_shape(fields)
+                    orbital_core_base::ir::types::declared_alias_shape(fields).ok()?
                 }
                 ParamSub::Entity(entity) => orbital_core_base::ir::OirType::Reference {
                     entity: entity.name.clone(),
@@ -2700,7 +2706,7 @@ pub(crate) fn resolve_type_param_sentinels(
     rewrite_trait_expressions(trait_def, &mut |expr| {
         changed |= rewrite_recorded_shapes(expr, &mut |shape| {
             let old = shape.clone();
-            let root_variable = matches!(&shape.ty, orbital_core_base::ir::OirType::Var { name } if declared_bindings.contains_key(name));
+            let root_variable = matches!(&shape.ty, orbital_core_base::ir::OirType::Var { name } if declared_bindings.contains_key(name.as_str()));
             shape.ty.substitute_type_vars(&declared_bindings);
             for ty in shape.named.values_mut() {
                 ty.substitute_type_vars(&declared_bindings);
@@ -2712,25 +2718,29 @@ pub(crate) fn resolve_type_param_sentinels(
                 };
             }
             let recorded = &shape.named;
-            *shape = orbital_core_base::ir::types::DeclaredShape::with_resolver(
+            // A named type with no shape is refused where it is declared; the recorded shape stays as it was.
+            let Ok(closed) = orbital_core_base::ir::types::DeclaredShape::with_resolver(
                 shape.name.clone(),
                 shape.ty.clone(),
                 |name| {
-                    entities_by_name
+                    if let Some(entity) = entities_by_name.get(name) {
+                        return orbital_core_base::ir::types::declared_alias_shape(
+                            &entity_fields_to_payload_fields(entity),
+                        )
+                        .map(Some);
+                    }
+                    if let Some(recorded) = recorded.get(name) {
+                        return Ok(Some(recorded.clone()));
+                    }
+                    types_by_name
                         .get(name)
-                        .map(|entity| {
-                            orbital_core_base::ir::types::declared_alias_shape(
-                                &entity_fields_to_payload_fields(entity),
-                            )
-                        })
-                        .or_else(|| recorded.get(name).cloned())
-                        .or_else(|| {
-                            types_by_name.get(name).map(|fields| {
-                                orbital_core_base::ir::types::declared_alias_shape(fields)
-                            })
-                        })
+                        .map(|fields| orbital_core_base::ir::types::declared_alias_shape(fields))
+                        .transpose()
                 },
-            );
+            ) else {
+                return false;
+            };
+            *shape = closed;
             *shape != old
         });
     });
@@ -4009,7 +4019,7 @@ mod literal_list_tests {
         };
         let t = Arc::make_mut(t);
         apply_inline_config_defaults(t, &mut Vec::new());
-        crate::phases::validation::effect::record_declared_shapes(&mut schema);
+        crate::phases::validation::effect::record_declared_shapes(&mut schema).expect("the probe types have shapes");
         let TraitReference::Inline(t) = &schema.orbitals[0].traits[0] else {
             panic!("inline trait")
         };
@@ -4380,7 +4390,6 @@ mod role_literal_tests {
         serde_json::from_value(json!({
             "name": "Layout",
             "linkedEntity": "Person",
-            "category": "interaction",
             "config": {
                 "allowedRoles": { "type": "unknown", "default": allowed },
                 "viewerRole": { "type": "unknown", "default": viewer_default },
@@ -4444,7 +4453,6 @@ mod role_literal_tests {
         serde_json::from_value(json!({
             "name": "Ledger",
             "linkedEntity": "Person",
-            "category": "interaction",
             "config": {
                 "reconcileRoles": { "type": "unknown", "default": roles },
                 "otherList": { "type": "unknown", "default": other },
@@ -4753,7 +4761,6 @@ mod payload_entity_marker_tests {
         serde_json::from_value(json!({
             "name": "T",
             "linkedEntity": "ConfirmAction",
-            "category": "interaction",
             "stateMachine": {
                 "states": [ { "name": "idle", "isInitial": true } ],
                 "events": [ { "key": "DELETE", "payloadSchema": fields } ],
@@ -5049,7 +5056,6 @@ mod payload_entity_marker_tests {
         });
         let mut td: TraitDefinition = serde_json::from_value(json!({
             "name": "LookupRun",
-            "category": "interaction",
             "typeParams": [ { "name": "e", "kind": "Type", "default": "string" } ],
             "typeArgs": type_args,
             "emits": [ { "event": "OUT", "payloadSchema": [
@@ -5086,7 +5092,7 @@ mod payload_entity_marker_tests {
             .iter()
             .find(|f| f.name == name)
             .expect("field carried");
-        orbital_core_base::ir::types::payload_field_shape(field)
+        orbital_core_base::ir::types::payload_field_shape(field).unwrap()
     }
 
     /// A type parameter that falls back to its declared default is substituted in a listened list's element too, so the
@@ -5155,7 +5161,7 @@ mod payload_entity_marker_tests {
             &BTreeMap::new(),
         );
         let var = OirType::Var {
-            name: "e".to_string(),
+            name: "e".into(),
         };
         assert_eq!(shape_of(&td, true, "accepted"), OirType::array(var.clone()));
         assert_eq!(shape_of(&td, false, "entries"), OirType::array(var.clone()));
@@ -5195,7 +5201,6 @@ mod payload_entity_marker_tests {
         serde_json::from_value(json!({
             "name": "T",
             "linkedEntity": "Item",
-            "category": "interaction",
             "emits": [ { "event": event, "payloadEntity": payload_entity, "payloadSchema": schema } ],
             "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
         }))
@@ -5274,7 +5279,6 @@ mod payload_entity_marker_tests {
             serde_json::from_value(json!({
                 "name": "T",
                 "linkedEntity": "Item",
-                "category": "interaction",
                 "typeParams": [ { "name": "v", "kind": "Type" }, { "name": "e", "kind": "Entity" }, { "name": "w", "kind": "Type" } ],
                 "typeArgs": args,
                 "config": {
@@ -5325,7 +5329,6 @@ mod payload_entity_marker_tests {
         let mut td: TraitDefinition = serde_json::from_value(json!({
             "name": "T",
             "linkedEntity": "Item",
-            "category": "interaction",
             "typeParams": [ { "name": "v", "kind": "Type" }, { "name": "e", "kind": "Entity" }, { "name": "w", "kind": "Type" } ],
             "typeArgs": { "v": "number" },
             "config": {
@@ -5516,11 +5519,11 @@ mod native_record_generic_metadata_tests {
             assert_eq!(returned.required, Some(true));
             assert_eq!(returned.nullable, Some(false));
             assert_eq!(
-                payload_field_shape(&returned),
-                payload_field_shape(&payload)
+                payload_field_shape(&returned).unwrap(),
+                payload_field_shape(&payload).unwrap()
             );
             if tag == "string" {
-                assert!(matches!(field_shape(&field), OirType::String));
+                assert!(matches!(field_shape(&field).unwrap(), OirType::String));
                 assert!(field.items.is_none());
             }
         }

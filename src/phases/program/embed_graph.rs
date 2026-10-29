@@ -410,7 +410,6 @@ mod tests {
         trait_ref(json!({
             "name": name,
             "linkedEntity": "Item",
-            "category": "interaction",
             "config": config,
             "stateMachine": {
                 "states": [ { "name": "idle", "isInitial": true } ],

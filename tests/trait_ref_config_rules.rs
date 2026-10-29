@@ -23,7 +23,6 @@ const K_ATOM: &str = r#"{
         {
           "name": "Widget",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "config": { "k": { "type": "number", "default": 0 } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],

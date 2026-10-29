@@ -60,7 +60,6 @@ const ATOM_FIXTURE: &str = r#"{
         {
           "name": "TestConfigAtomTrait",
           "linkedEntity": "TestRecord",
-          "category": "interaction",
           "stateMachine": {
             "states": [
               { "name": "idle", "isInitial": true },
@@ -380,7 +379,6 @@ const TWO_LVL_BASE: &str = r#"{
         {
           "name": "TwoLvlBaseTrait",
           "linkedEntity": "BaseRecord",
-          "category": "interaction",
           "config": {
             "titleBinding": { "type": "string", "default": "@item.name" }
           },
@@ -574,7 +572,6 @@ const HOISTED_CHAIN_ATOM: &str = r#"{
         {
           "name": "Feed",
           "linkedEntity": "Item",
-          "category": "interaction",
           "config": { "title": { "type": "string", "default": "FeedTitle" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -586,7 +583,6 @@ const HOISTED_CHAIN_ATOM: &str = r#"{
         {
           "name": "Stack8",
           "linkedEntity": "Item",
-          "category": "interaction",
           "config": { "gap": { "type": "string", "default": "8" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -598,7 +594,6 @@ const HOISTED_CHAIN_ATOM: &str = r#"{
         {
           "name": "Stack5",
           "linkedEntity": "Item",
-          "category": "interaction",
           "config": { "direction": { "type": "string", "default": "column" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -610,7 +605,6 @@ const HOISTED_CHAIN_ATOM: &str = r#"{
         {
           "name": "Typography4",
           "linkedEntity": "Item",
-          "category": "interaction",
           "config": { "content": { "type": "string", "default": "@config.title" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -723,7 +717,6 @@ const KEY_SWITCH_ATOM: &str = r#"{
         {
           "name": "Feed",
           "linkedEntity": "Item",
-          "category": "interaction",
           "config": { "heading": { "type": "string", "default": "X" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -735,7 +728,6 @@ const KEY_SWITCH_ATOM: &str = r#"{
         {
           "name": "Stack8",
           "linkedEntity": "Item",
-          "category": "interaction",
           "config": { "title": { "type": "string", "default": "@config.heading" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -747,7 +739,6 @@ const KEY_SWITCH_ATOM: &str = r#"{
         {
           "name": "Typography4",
           "linkedEntity": "Item",
-          "category": "interaction",
           "config": { "content": { "type": "string", "default": "@config.title" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -834,14 +825,12 @@ const REF_FORWARD_WIDGETS: &str = r#"{
         {
           "name": "StackRender",
           "linkedEntity": "Widget",
-          "category": "interaction",
-          "config": { "children": { "type": "unknown", "default": [] } },
+          "config": { "children": { "type": "[string]", "items": { "type": "string" }, "default": [] } },
           "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
         },
         {
           "name": "TypographyRender",
           "linkedEntity": "Widget",
-          "category": "interaction",
           "config": { "content": { "type": "string", "default": "" } },
           "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
         }
@@ -872,7 +861,6 @@ fn ref_forward_consumer_source() -> String {
         {
           "name": "Feed",
           "linkedEntity": "Item",
-          "category": "interaction",
           "config": { "title": { "type": "string", "default": "Activity Timeline" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
@@ -1001,7 +989,6 @@ const PROPOSITION_ATOM: &str = r#"{
     "traits": [{
       "name": "Count",
       "linkedEntity": "Counter",
-      "category": "interaction",
       "config": { "step": { "type": "number", "default": 1 } },
       "stateMachine": {
         "states": [{ "name": "idle", "isInitial": true, "holds": [">=", "@entity.count", 0] }],
@@ -1099,7 +1086,7 @@ const OBLIGATED_ATOM: &str = r#"{
       { "kind": "identity", "name": "Viewer", "shape": [{ "name": "role", "type": "string" }] }
     ],
     "traits": [
-      { "name": "Count", "linkedEntity": "Counter", "category": "interaction",
+      { "name": "Count", "linkedEntity": "Counter", 
         "stateMachine": {
           "states": [{ "name": "idle", "isInitial": true }],
           "events": [{ "key": "BUMP", "name": "Bump" }],
@@ -1107,7 +1094,7 @@ const OBLIGATED_ATOM: &str = r#"{
             "effects": [["set", "@entity.count", ["+", "@entity.count", 1]], ["emit", "BUMPED", {}]] }]
         },
         "emits": [{ "event": "BUMPED", "scope": "external" }] },
-      { "name": "Sibling", "linkedEntity": "Counter", "category": "interaction",
+      { "name": "Sibling", "linkedEntity": "Counter", 
         "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [], "transitions": [] } }
     ],
     "pages": [{ "name": "CounterPage", "path": "/counter", "traits": [{ "ref": "Count" }] }]

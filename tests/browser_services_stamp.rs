@@ -13,7 +13,6 @@ const PROGRAM: &str = r#"{
     "traits": [{
       "name": "Pageview",
       "linkedEntity": "Visit",
-      "category": "lifecycle",
       "stateMachine": {
         "states": [ { "name": "active", "isInitial": true } ],
         "events": [ { "key": "INIT" }, { "key": "ASK" }, { "key": "SENT" }, { "key": "NOT_SENT" } ],
@@ -70,7 +69,7 @@ fn credential_program(credential: &str) -> String {
     "name": "Visits",
     "entity": {{ "name": "Visit", "persistence": "runtime", "fields": [ {{ "name": "id", "type": "string", "required": true }} ] }},
     "traits": [{{
-      "name": "Pageview", "linkedEntity": "Visit", "category": "lifecycle",
+      "name": "Pageview", "linkedEntity": "Visit", 
       "config": {{ "token": {{ "type": "secret", "default": "SITE_TOKEN", "description": "The site token." }} }},
       "stateMachine": {{
         "states": [ {{ "name": "active", "isInitial": true }} ],

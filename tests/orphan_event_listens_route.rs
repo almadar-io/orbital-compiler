@@ -35,7 +35,6 @@ fn orphan_errors(schema: Value) -> Vec<String> {
 fn schema_with(listens: Option<Value>) -> Value {
     let mut reverter = json!({
         "name": "Reverter",
-        "scope": "instance",
         "linkedEntity": "Row",
         "stateMachine": {
             "states": [{ "name": "idle", "isInitial": true }],
@@ -60,7 +59,7 @@ fn schema_with(listens: Option<Value>) -> Value {
             },
             "traits": [
                 {
-                    "name": "Lister", "scope": "instance", "linkedEntity": "Row",
+                    "name": "Lister", "linkedEntity": "Row",
                     "stateMachine": {
                         "states": [{ "name": "idle", "isInitial": true }],
                         "events": [{ "key": "INIT", "name": "Init" }],
@@ -80,7 +79,7 @@ fn schema_with(listens: Option<Value>) -> Value {
                 reverter
             ],
             "pages": [{
-                "name": "P", "path": "/rows", "linkedEntity": "Row",
+                "name": "P", "path": "/rows",
                 "traits": [{ "ref": "Lister" }, { "ref": "Reverter" }]
             }]
         }]

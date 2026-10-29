@@ -48,7 +48,6 @@ fn upstream() -> String {
         {{
           "name": "RunList",
           "linkedEntity": "Run",
-          "category": "interaction",
           "stateMachine": {{
             "states": [ {{ "name": "idle", "isInitial": true }} ],
             "events": [ {{ "key": "INIT" }} ],
@@ -65,7 +64,6 @@ fn upstream() -> String {
         {{
           "name": "SessionView",
           "linkedEntity": "Session",
-          "category": "interaction",
           "stateMachine": {{
             "states": [ {{ "name": "idle", "isInitial": true }} ],
             "events": [ {{ "key": "INIT" }} ],
@@ -98,7 +96,6 @@ fn consumer(entities: &str, use_entities: &str) -> String {
         {{
           "name": "AccountView",
           "linkedEntity": "Customer",
-          "category": "interaction",
           "stateMachine": {{
             "states": [ {{ "name": "idle", "isInitial": true }} ],
             "events": [ {{ "key": "INIT" }} ],
@@ -239,7 +236,7 @@ const IDENTITY_ATOM: &str = r#"{
       "entity": { "name": "Person", "id": "ent_01J00000000000000000000001", "persistence": "persistent", "identity": true,
         "fields": [ { "name": "id", "type": "string", "required": true }, { "name": "role", "type": "string" } ] },
       "traits": [
-        { "name": "MyAccount", "linkedEntity": "Person", "category": "interaction",
+        { "name": "MyAccount", "linkedEntity": "Person", 
           "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "events": [ { "key": "INIT" } ],
             "transitions": [ { "from": "idle", "to": "idle", "event": "INIT", "effects": [ ["render-ui", "main", { "type": "stack" }] ] } ] } }
       ],
@@ -341,7 +338,7 @@ const OWNER_NOTES: &str = r#"{
         "fields": [ { "name": "id", "type": "string", "required": true }, { "name": "body", "type": "string" } ] }
     ],
     "traits": [{
-      "name": "NoteList", "linkedEntity": "Note", "category": "interaction",
+      "name": "NoteList", "linkedEntity": "Note", 
       "stateMachine": {
         "states": [ { "name": "idle", "isInitial": true } ],
         "events": [ { "key": "INIT" } ],
@@ -349,7 +346,7 @@ const OWNER_NOTES: &str = r#"{
           "effects": [ ["fetch", "Note"], ["fetch", "Author"], ["render-ui", "main", { "type": "stack" }] ] } ]
       }
     }, {
-      "name": "DraftEditor", "linkedEntity": "Note", "category": "interaction",
+      "name": "DraftEditor", "linkedEntity": "Note", 
       "stateMachine": {
         "states": [ { "name": "idle", "isInitial": true } ],
         "events": [ { "key": "INIT" } ],
@@ -357,7 +354,7 @@ const OWNER_NOTES: &str = r#"{
           "effects": [ ["fetch", "Draft"], ["render-ui", "main", { "type": "stack" }] ] } ]
       }
     }, {
-      "name": "DraftReview", "linkedEntity": "Note", "category": "interaction",
+      "name": "DraftReview", "linkedEntity": "Note", 
       "stateMachine": {
         "states": [ { "name": "idle", "isInitial": true } ],
         "events": [ { "key": "INIT" } ],
@@ -380,7 +377,7 @@ fn owner_notes_consumer(entities: &str) -> String {
       "entity": {{ "name": "Scratch", "persistence": "persistent", "collection": "scratch",
         "fields": [ {{ "name": "id", "type": "string", "required": true }}, {{ "name": "body", "type": "string" }} ] }},
       "traits": [{{
-        "name": "ScratchView", "linkedEntity": "Scratch", "category": "interaction",
+        "name": "ScratchView", "linkedEntity": "Scratch", 
         "stateMachine": {{ "states": [ {{ "name": "idle", "isInitial": true }} ], "events": [ {{ "key": "INIT" }} ],
           "transitions": [ {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [ ["render-ui", "main", {{ "type": "stack" }}] ] }} ] }}
       }}],

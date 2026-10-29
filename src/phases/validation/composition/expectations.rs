@@ -559,13 +559,16 @@ fn check_event_payload(
             continue;
         };
         let required_ok = !want.required.unwrap_or(false) || have.required.unwrap_or(false);
-        let types_ok = expectation_shapes_compatible(
-            payload_field_shape(want),
-            payload_field_shape(have),
-            want.values.as_ref().map(|_| false),
-            have.values.as_ref().map(|_| false),
-            schema,
-        );
+        let types_ok = match (payload_field_shape(want), payload_field_shape(have)) {
+            (Ok(expected), Ok(actual)) => expectation_shapes_compatible(
+                expected,
+                actual,
+                want.values.as_ref().map(|_| false),
+                have.values.as_ref().map(|_| false),
+                schema,
+            ),
+            _ => false,
+        };
         let values_ok = match (&want.values, &have.values) {
             (Some(w), Some(h)) => w.iter().all(|m| enum_value_is_member(m, h)),
             _ => true,
@@ -716,9 +719,12 @@ fn types_compatible(
     actual: &FieldDefinition,
     schema: &OrbitalSchema,
 ) -> bool {
+    let (Ok(expected_shape), Ok(actual_shape)) = (field_shape(expected), field_shape(actual)) else {
+        return false;
+    };
     expectation_shapes_compatible(
-        field_shape(expected),
-        field_shape(actual),
+        expected_shape,
+        actual_shape,
         vocabulary(expected).map(|_| expected.values.as_ref().is_none_or(Vec::is_empty)),
         vocabulary(actual).map(|_| actual.values.as_ref().is_none_or(Vec::is_empty)),
         schema,
@@ -756,7 +762,7 @@ fn expectation_shapes_compatible(
         }
     }
     checked_sub_with_named(&actual, &expected, &|name| {
-        declared_struct_type(schema, name)
+        declared_struct_type(schema, name).ok().flatten()
     })
     .is_some()
 }

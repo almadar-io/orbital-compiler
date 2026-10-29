@@ -113,7 +113,6 @@ fn atom_fixture(config_knob: &str, type_when: &str, value_field_type: &str) -> S
         {{
           "name": "TestInputRender",
           "linkedEntity": "TestInputItem",
-          "category": "interaction",
           "config": {{
             "action": {{ "type": "event", "default": "ACTION" }},
             "{config_knob}": {{ "type": "string", "default": "text" }}

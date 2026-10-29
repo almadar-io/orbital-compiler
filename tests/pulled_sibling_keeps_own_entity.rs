@@ -30,7 +30,6 @@ const ATOM: &str = r#"{
         {
           "name": "TicketManage",
           "linkedEntity": "Ticket",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],
@@ -43,7 +42,6 @@ const ATOM: &str = r#"{
         {
           "name": "TicketCorrespondence",
           "linkedEntity": "TicketMessage",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],
@@ -56,7 +54,6 @@ const ATOM: &str = r#"{
         {
           "name": "TicketBadge",
           "linkedEntity": "Ticket",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],
@@ -68,7 +65,7 @@ const ATOM: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "TicketsPage", "path": "/tickets", "linkedEntity": "Ticket", "traits": [ { "ref": "TicketManage" } ] }
+        { "name": "TicketsPage", "path": "/tickets", "traits": [ { "ref": "TicketManage" } ] }
       ]
     }
   ]
@@ -90,7 +87,7 @@ const CONSUMER: &str = r#"{
         { "ref": "Helpdesk.traits.TicketManage", "linkedEntity": "SupportTicket", "name": "SupportManage" }
       ],
       "pages": [
-        { "name": "SupportPage", "path": "/support", "linkedEntity": "SupportTicket", "traits": [ { "ref": "SupportManage" } ] }
+        { "name": "SupportPage", "path": "/support", "traits": [ { "ref": "SupportManage" } ] }
       ]
     }
   ]
@@ -201,7 +198,7 @@ fn atom_with_action(field_type: &str, event: &str, source: &str) -> String {
         } }, "default": [{ "action": event }] }
     });
     atom["orbitals"][0]["traits"].as_array_mut().unwrap().push(serde_json::json!({
-        "name": "RemoveMessages", "linkedEntity": "TicketMessage", "category": "lifecycle",
+        "name": "RemoveMessages", "linkedEntity": "TicketMessage", 
         "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [{ "key": "REMOVE" }],
             "transitions": [{ "from": "idle", "to": "idle", "event": "REMOVE", "effects": [["set", "@entity.content", "removed"]] }] },
         "listens": [{ "event": "REMOVE", "triggers": "REMOVE", "source": { "kind": "trait", "trait": source } }]
@@ -271,7 +268,7 @@ fn struct_config_action_pulls_the_declared_receiver_only_for_event_fields() {
 
 fn receiver_consumer(host_route: bool) -> String {
     let remover = if host_route {
-        r#", { "name": "MyRemover", "linkedEntity": "TicketMessage", "category": "lifecycle",
+        r#", { "name": "MyRemover", "linkedEntity": "TicketMessage", 
             "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "events": [{ "key": "REMOVE" }],
               "transitions": [{ "from": "idle", "to": "idle", "event": "REMOVE", "effects": [["set", "@entity.content", "mine"]] }] },
             "listens": [{ "event": "REMOVE", "triggers": "REMOVE", "source": { "kind": "trait", "trait": "Correspondence" } }] }"#

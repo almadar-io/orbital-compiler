@@ -20,7 +20,6 @@ const ATOM: &str = r#"{
         {
           "name": "MyOrders",
           "linkedEntity": "OrderRecord",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],

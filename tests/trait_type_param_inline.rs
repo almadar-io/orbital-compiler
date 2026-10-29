@@ -45,7 +45,6 @@ fn atom_fixture(type_params_json: &str) -> String {
         {{
           "name": "LookupRun",
           "linkedEntity": "LookupRecord",
-          "category": "interaction",
           "typeParams": {type_params},
           "emits": [
             {{
@@ -92,7 +91,6 @@ fn atom_fixture_array(type_params_json: &str) -> String {
         {{
           "name": "LookupRun",
           "linkedEntity": "LookupRecord",
-          "category": "interaction",
           "typeParams": {type_params},
           "emits": [
             {{
@@ -140,7 +138,6 @@ fn atom_fixture_with_types(type_params_json: &str, atom_types_fragment: &str) ->
         {{
           "name": "LookupRun",
           "linkedEntity": "LookupRecord",
-          "category": "interaction",
           "typeParams": {type_params},
           "emits": [
             {{
@@ -517,7 +514,6 @@ fn standalone_fixture(type_params_json: &str, types_fragment: &str) -> String {
         {{
           "name": "LookupRun",
           "linkedEntity": "LookupRecord",
-          "category": "interaction",
           "typeParams": {type_params},
           "emits": [
             {{
@@ -748,7 +744,6 @@ fn transitive_two_level_import_inherits_middles_binding_past_tops_argless_refere
         {
           "name": "GrandchildRun",
           "linkedEntity": "GrandchildRecord",
-          "category": "interaction",
           "typeParams": [ { "name": "v", "kind": "Type" } ],
           "emits": [
             { "event": "CandidateFound", "payloadSchema": [ { "name": "candidate", "type": "$v" } ] }

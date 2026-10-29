@@ -58,7 +58,6 @@ fn schema_with_colliding_aux(referenced: bool) -> Value {
                 "traits": [{
                     "name": "LocalView",
                     "linkedEntity": "Local",
-                    "category": "interaction",
                     "stateMachine": {
                         "events": [],
                         "states": [{ "name": "idle" }],

@@ -996,7 +996,7 @@ fn field_ref_record_fields(
     use orbital_core_base::ir::types::{field_shape, payload_field_shape};
     let shaped = |defs: &[FieldDefinition]| -> Vec<(String, OrbitalOirType)> {
         defs.iter()
-            .filter_map(|def| Some((def.name.clone()?, field_shape(def))))
+            .filter_map(|def| Some((def.name.clone()?, field_shape(def).unwrap_or_else(|_| OrbitalOirType::erased()))))
             .collect()
     };
     let knob_text = |knob: &str| -> Option<String> {
@@ -1018,7 +1018,7 @@ fn field_ref_record_fields(
     if let Some(properties) = properties.filter(|p| !p.is_empty()) {
         let fields = properties
             .iter()
-            .map(|(name, def)| (name.clone(), field_shape(def)))
+            .map(|(name, def)| (name.clone(), field_shape(def).unwrap_or_else(|_| OrbitalOirType::erased())))
             .collect();
         return Some((record.unwrap_or("the record").to_string(), fields));
     }
@@ -1045,7 +1045,7 @@ fn field_ref_record_fields(
             .payload_schema
             .as_ref()?
             .iter()
-            .map(|field| (field.name.clone(), payload_field_shape(field)))
+            .map(|field| (field.name.clone(), payload_field_shape(field).unwrap_or_else(|_| OrbitalOirType::erased())))
             .collect();
         return Some((format!("the payload of {event}"), fields));
     }
@@ -1060,7 +1060,7 @@ fn field_ref_record_fields(
         record.to_string(),
         members
             .iter()
-            .map(|member| (member.name.clone(), payload_field_shape(member)))
+            .map(|member| (member.name.clone(), payload_field_shape(member).unwrap_or_else(|_| OrbitalOirType::erased())))
             .collect(),
     ))
 }
@@ -1174,7 +1174,7 @@ fn check_field_ref_names(
     let Some((label, fields)) = field_ref_record_fields(record, properties, bctx) else {
         return result;
     };
-    let expected = element.map(orbital_core_base::ir::types::field_shape);
+    let expected = element.and_then(|element| orbital_core_base::ir::types::field_shape(element).ok());
     let fits = |actual: &OrbitalOirType| match &expected {
         Some(expected) => orbital_core_base::type_compat::assignable(actual, expected),
         None => true,
@@ -1228,6 +1228,16 @@ fn check_field_ref_names(
 /// Walk the declared shape (a `ConfigField` carrying `field_type` +
 /// optional `items` / `properties` / `values`) and check the actual
 /// `default` value against it.
+/// Whether `name` is a record alias of the program (its declared shape is a struct, not a tagged union), resolved
+/// against the aliases in scope; a name that is no alias there, or whose shape is undeclared, is not.
+fn names_a_record(name: &str, binding_ctx: Option<&ReferenceBindingCtx>) -> bool {
+    let Some(bctx) = binding_ctx else { return false };
+    let Some(members) = bctx.aliases.iter().find_map(|aliases| aliases.get(name)) else {
+        return false;
+    };
+    matches!(orbital_core_base::ir::types::declared_alias_shape(members), Ok(OrbitalOirType::Struct { .. }))
+}
+
 fn check_config_default_shape(
     field: &ConfigField,
     default: &SExpression,
@@ -1389,6 +1399,21 @@ fn check_config_default_shape(
     // rule at a time, so a corpus movement has one attributable cause.
     //
     if let Some(props) = &field.properties {
+        if !matches!(default, SExpression::Object(_) | SExpression::Null) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::TraitConfigShapeMismatch,
+                    path,
+                    format!(
+                        "config default has type '{}' but the value isn't an object, got {}",
+                        field.field_type,
+                        super::sexpr::render_sexpr_brief(default)
+                    ),
+                )
+                .with_suggestion("write an object literal `{ … }` with the declared members".to_string()),
+            );
+            return result;
+        }
         if let SExpression::Object(map) = default {
             // A property can self-reference the OWNING alias (`type MenuItem
             // = { subMenu : [MenuItem] }` on a knob declared `lighting :
@@ -1419,7 +1444,15 @@ fn check_config_default_shape(
             };
             let ancestors = root_ancestor_map(field, Some(&root_struct));
             let mut probe = ValidationResult::new();
+            let is_record = field.field_type == "object" || names_a_record(&field.field_type, binding_ctx);
             for (key, prop_schema) in props {
+                if map.get(key).is_none() && is_record && prop_schema.required.unwrap_or(false) {
+                    probe.add_error(ValidationError::error(
+                        ErrorCode::TraitConfigShapeMismatch,
+                        &format!("{}.{}", path, key),
+                        format!("required field '{}' missing on object literal", key),
+                    ));
+                }
                 if let Some(prop_value) = map.get(key) {
                     probe.merge(check_field_def_shape(
                         prop_schema,
@@ -4061,6 +4094,105 @@ mod tuple_shape_tests {
             .is_empty(),
             "knob: wrong slot type"
         );
+    }
+}
+
+#[cfg(test)]
+mod named_alias_required_member_tests {
+    use super::*;
+
+    fn run(types: serde_json::Value, knob: serde_json::Value) -> ValidationResult {
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "t", "version": "1.0.0",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "Row", "fields": [{ "name": "id", "type": "string" }] },
+                "types": types,
+                "traits": [{
+                    "name": "Holder",
+                    "linkedEntity": "Row",
+                    "config": { "p": knob },
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "transitions": [{ "from": "idle", "to": "idle", "event": "GO", "effects": [] }]
+                    }
+                }]
+            }]
+        }))
+        .expect("fixture parses");
+        let mut ctx = ValidationContext::new();
+        crate::phases::validation::collect_names(&schema, &mut ctx);
+        validate_all_config_types(&schema, &mut ctx);
+        ctx.result
+    }
+
+    fn point_members() -> serde_json::Value {
+        serde_json::json!({
+            "x": { "name": "x", "type": "number", "required": true },
+            "y": { "name": "y", "type": "number", "required": true }
+        })
+    }
+
+    fn point_alias() -> serde_json::Value {
+        serde_json::json!({ "Pt": [
+            { "name": "x", "type": "number", "required": true },
+            { "name": "y", "type": "number", "required": true }
+        ] })
+    }
+
+    fn missing(result: &ValidationResult) -> Vec<String> {
+        result
+            .errors
+            .iter()
+            .filter(|e| e.message.contains("required field") && e.message.contains("missing"))
+            .map(|e| e.message.clone())
+            .collect()
+    }
+
+    #[test]
+    fn a_named_record_default_missing_a_required_member_is_refused() {
+        let knob = |default: serde_json::Value| {
+            serde_json::json!({ "type": "Pt", "properties": point_members(), "default": default })
+        };
+        let result = run(point_alias(), knob(serde_json::json!({})));
+        assert_eq!(missing(&result).len(), 2, "both x and y are named: {:?}", result.errors);
+        assert!(missing(&result).iter().any(|m| m.contains("'x'")));
+        let partial = run(point_alias(), knob(serde_json::json!({ "x": 1 })));
+        assert_eq!(missing(&partial).len(), 1, "{:?}", partial.errors);
+        assert!(missing(&partial)[0].contains("'y'"));
+        let whole = run(point_alias(), knob(serde_json::json!({ "x": 1, "y": 2 })));
+        assert!(missing(&whole).is_empty(), "control: a whole record passes: {:?}", whole.errors);
+    }
+
+    #[test]
+    fn an_anonymous_record_default_is_checked_the_same_way() {
+        let anonymous = |default: serde_json::Value| {
+            serde_json::json!({ "type": "object", "properties": point_members(), "default": default })
+        };
+        assert_eq!(missing(&run(serde_json::json!({}), anonymous(serde_json::json!({})))).len(), 2);
+        assert!(missing(&run(serde_json::json!({}), anonymous(serde_json::json!({ "x": 1, "y": 2 })))).is_empty());
+    }
+
+    #[test]
+    fn a_named_tagged_union_default_is_not_checked_as_a_record() {
+        let types = serde_json::json!({ "Shape": [{
+            "name": "", "type": "union", "values": ["Circle", "Square"],
+            "properties": [
+                { "name": "Circle", "type": "object", "properties": [{ "name": "radius", "type": "number", "required": true }] },
+                { "name": "Square", "type": "object", "properties": [{ "name": "side", "type": "number", "required": true }] }
+            ]
+        }] });
+        let variants = serde_json::json!({
+            "Circle": { "name": "Circle", "type": "object", "properties": { "radius": { "name": "radius", "type": "number", "required": true } } },
+            "Square": { "name": "Square", "type": "object", "properties": { "side": { "name": "side", "type": "number", "required": true } } }
+        });
+        let knob = |default: serde_json::Value| {
+            serde_json::json!({ "type": "Shape", "values": ["Circle", "Square"], "properties": variants, "default": default })
+        };
+        let valid = run(types.clone(), knob(serde_json::json!({ "radius": 2 })));
+        assert!(missing(&valid).is_empty(), "control: a valid variant passes: {:?}", valid.errors);
+        let other = run(types, knob(serde_json::json!({ "side": 2 })));
+        assert!(missing(&other).is_empty(), "control: the other variant passes: {:?}", other.errors);
     }
 }
 

@@ -18,7 +18,6 @@ const AGENT: &str = r#"{
     "traits": [{
       "name": "AgentLayout",
       "linkedEntity": "AgentState",
-      "category": "interaction",
       "config": { "appName": { "type": "string", "default": "@config.appName" } },
       "stateMachine": {
         "states": [ { "name": "idle", "isInitial": true } ],

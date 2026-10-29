@@ -8,7 +8,7 @@
 //! so field order and optional-field presence are the program's own; golden cases recorded from the original
 //! live in `tests/fixtures/compose-app/`.
 
-use orbital_core_base::value::{Value, ValueMap as Map};
+use orbital_core_base::value::{Shared, Value, ValueMap as Map};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use super::compose_behaviors::{compose_behaviors, ComposeBehaviorsInput};
@@ -272,7 +272,7 @@ fn rewrite_inline_trait_name(node: &mut Value, old: &str, new: &str) {
         Value::Object(o) => {
             for key in ["name", "ref", "trait"] {
                 if o.get(key).and_then(Value::as_str) == Some(old) {
-                    o.insert(key.to_string(), Value::string(new.to_string()));
+                    o.insert(key.to_string().into(), Value::string(new.to_string()));
                 }
             }
             if let Some(Value::Array(traits)) = o.get_mut("traits") {
@@ -304,7 +304,7 @@ fn rewrite_own_route(node: &mut Value, old: &str, new: &str) {
         }
         Value::Object(o) => {
             if o.get("path").and_then(Value::as_str) == Some(old) {
-                o.insert("path".to_string(), Value::string(new.to_string()));
+                o.insert("path".into(), Value::string(new.to_string()));
             }
             o.iter_mut()
                 .filter(|(k, _)| k.as_str() != "address")
@@ -630,7 +630,7 @@ fn collect_owner_stamped_fields(node: &Value, out: &mut BTreeMap<String, BTreeSe
                         if is_user_id_token(value) {
                             out.entry(entity.to_string())
                                 .or_default()
-                                .insert(key.clone());
+                                .insert(key.to_string());
                         }
                     }
                 }
@@ -649,7 +649,7 @@ fn collect_persisted_fields(node: &Value, entity_name: &str, out: &mut BTreeSet<
         Value::Array(a) => {
             if is_persist_write(a) && a.get(2).and_then(Value::as_str) == Some(entity_name) {
                 if let Some(payload) = persist_payload(a) {
-                    out.extend(payload.keys().cloned());
+                    out.extend(payload.keys().map(|k| k.to_string()));
                 }
             }
             a.iter()
@@ -1382,7 +1382,7 @@ fn link_landing_pages(
     nav_declaring: &[String],
     organism_order_of: Option<&dyn Fn(&str) -> Option<f64>>,
 ) -> (Value, Vec<Value>) {
-    let nav_knobs: Vec<(&String, &Value)> = config
+    let nav_knobs: Vec<(&Shared<String>, &Value)> = config
         .as_object()
         .into_iter()
         .flatten()
@@ -1672,7 +1672,7 @@ fn rename_entity_walk(node: &Value, from: &str, to: &str) -> Value {
                                 .flatten()
                                 .map(|(n, id)| {
                                     (
-                                        if n == from { to.to_string() } else { n.clone() },
+                                        if n == from { to.into() } else { n.clone() },
                                         id.clone(),
                                     )
                                 })
@@ -1702,14 +1702,14 @@ fn rename_entity_walk(node: &Value, from: &str, to: &str) -> Value {
             }
             let named_from = o.get("name").and_then(Value::as_str) == Some(from);
             if named_from && o.get("fields").is_some_and(Value::is_array) {
-                out.insert("name".to_string(), Value::string(to.to_string()));
+                out.insert("name".into(), Value::string(to.to_string()));
             }
             if matches!(
                 o.get("kind").and_then(Value::as_str),
                 Some("persist" | "fetch")
             ) && o.get("resource").and_then(Value::as_str) == Some(from)
             {
-                out.insert("resource".to_string(), Value::string(to.to_string()));
+                out.insert("resource".into(), Value::string(to.to_string()));
             }
             if named_from
                 && matches!(
@@ -1717,12 +1717,12 @@ fn rename_entity_walk(node: &Value, from: &str, to: &str) -> Value {
                     Some("entity" | "identity")
                 )
             {
-                out.insert("name".to_string(), Value::string(to.to_string()));
+                out.insert("name".into(), Value::string(to.to_string()));
             }
             if o.get("type").and_then(Value::as_str) == Some("entity")
                 && o.get("default").and_then(Value::as_str) == Some(from)
             {
-                out.insert("default".to_string(), Value::string(to.to_string()));
+                out.insert("default".into(), Value::string(to.to_string()));
             }
             Value::object(out)
         }
@@ -2023,7 +2023,7 @@ fn namespace_organisms(
                     .and_then(Value::as_object)
                     .into_iter()
                     .flatten()
-                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .map(|(k, v)| (k.to_string(), v.clone()))
                     .collect();
                 type_args.sort_by(|a, b| a.0.cmp(&b.0));
                 let tail: Vec<&str> = r.split('.').skip(1).collect();
@@ -2230,7 +2230,7 @@ fn rename_listen_sources(node: &Value, orbital: &str, from: &str, to: &str) -> V
                 && o.get("orbital").and_then(Value::as_str) == Some(orbital)
                 && o.get("trait").and_then(Value::as_str) == Some(from)
             {
-                out.insert("trait".to_string(), Value::string(to.to_string()));
+                out.insert("trait".into(), Value::string(to.to_string()));
             }
             Value::object(out)
         }
@@ -2281,11 +2281,11 @@ pub(crate) fn merge_ledgers(files: &[Value]) -> Option<Value> {
         };
         saw = true;
         for (id, entry) in entries {
-            merged.entry(id.clone()).or_insert_with(|| entry.clone());
+            merged.entry(id.to_string()).or_insert_with(|| entry.clone());
         }
     }
     saw.then(
-        || json!({ "schemaVersion": 1, "entries": Value::Object(merged.into_iter().collect()) }),
+        || json!({ "schemaVersion": 1, "entries": Value::Object(merged.into_iter().map(|(k, v)| (k.into(), v)).collect()) }),
     )
 }
 
@@ -2561,7 +2561,7 @@ pub fn compose_orbital_surface_owned(
         if kept.is_empty() {
             o.shift_remove("config");
         } else {
-            o.insert("config".to_string(), Value::object(kept));
+            o.insert("config".into(), Value::object(kept));
         }
     }
     let mut config_sources: Vec<Value> = Vec::new();
@@ -2614,33 +2614,33 @@ pub fn compose_orbital_surface_owned(
     }
 
     let mut out = Map::default();
-    out.insert("orbitals".to_string(), Value::array(orbitals));
+    out.insert("orbitals".into(), Value::array(orbitals));
     if let Some(c) = config {
-        out.insert("config".to_string(), c);
+        out.insert("config".into(), c);
     }
     if let Some(l) = ledger {
-        out.insert("ledger".to_string(), l);
+        out.insert("ledger".into(), l);
     }
-    out.insert("surfaceRenames".to_string(), surface_renames);
-    out.insert("identity".to_string(), identity);
+    out.insert("surfaceRenames".into(), surface_renames);
+    out.insert("identity".into(), identity);
     out.insert(
-        "navItemsNarrowed".to_string(),
+        "navItemsNarrowed".into(),
         Value::array(nav_items_narrowed),
     );
     out.insert(
-        "configNavItemsNarrowed".to_string(),
+        "configNavItemsNarrowed".into(),
         Value::array(config_nav_narrowed),
     );
     out.insert(
-        "landingNavAdded".to_string(),
+        "landingNavAdded".into(),
         Value::array(landing_nav_added),
     );
     out.insert(
-        "organismRenames".to_string(),
+        "organismRenames".into(),
         Value::array(namespaced.renames),
     );
     out.insert(
-        "unrenamableCollisions".to_string(),
+        "unrenamableCollisions".into(),
         Value::array(namespaced.unrenamable),
     );
     Ok(Value::object(out))
@@ -2688,7 +2688,7 @@ pub fn union_os_grants(a: Option<&Value>, b: Option<&Value>) -> Value {
     }
     for (key, items) in [("fs", anchored_fs), ("exec", anchored_exec), ("net", anchored_net)] {
         if !items.is_empty() {
-            anchored_out.insert(key.to_string(), Value::array(items));
+            anchored_out.insert(key.to_string().into(), Value::array(items));
         }
     }
     let mut out = Map::default();
@@ -2697,22 +2697,22 @@ pub fn union_os_grants(a: Option<&Value>, b: Option<&Value>) -> Value {
     let net = keyed_in(&sets, "net", &["target"], "kinds");
     let dev = keyed_in(&sets, "dev", &["target"], "kinds");
     if !fs.is_empty() {
-        out.insert("fs".to_string(), Value::array(fs));
+        out.insert("fs".into(), Value::array(fs));
     }
     if !net.is_empty() {
-        out.insert("net".to_string(), Value::array(net));
+        out.insert("net".into(), Value::array(net));
     }
     if !dev.is_empty() {
-        out.insert("dev".to_string(), Value::array(dev));
+        out.insert("dev".into(), Value::array(dev));
     }
     for key in ["exec", "env", "stdio", "sys", "desktop"] {
         let l = list(key);
         if !l.is_empty() {
-            out.insert(key.to_string(), Value::array(l));
+            out.insert(key.to_string().into(), Value::array(l));
         }
     }
     if !anchored_out.is_empty() {
-        out.insert("anchored".to_string(), Value::object(anchored_out));
+        out.insert("anchored".into(), Value::object(anchored_out));
     }
     Value::object(out)
 }
@@ -2829,13 +2829,13 @@ pub fn compose_app_from_owned_files(
         schema["osGrants"] = grants;
     }
     let mut out = Map::default();
-    out.insert("schema".to_string(), schema);
+    out.insert("schema".into(), schema);
     out.insert(
-        "layout".to_string(),
+        "layout".into(),
         serde_json::from_value(serde_json::to_value(&composed.layout).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?,
     );
     out.insert(
-        "wiring".to_string(),
+        "wiring".into(),
         serde_json::from_value(serde_json::to_value(&composed.wiring).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?,
     );
     for key in [
@@ -2848,7 +2848,7 @@ pub fn compose_app_from_owned_files(
         "unrenamableCollisions",
     ] {
         if let Some(v) = surface.get(key) {
-            out.insert(key.to_string(), v.clone());
+            out.insert(key.to_string().into(), v.clone());
         }
     }
     Ok(Value::object(out))

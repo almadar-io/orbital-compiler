@@ -21,7 +21,6 @@ const CHROME: &str = r#"{
         {
           "name": "Header",
           "linkedEntity": "ChromeView",
-          "category": "interaction",
           "config": {
             "label": { "type": "string", "default": "@config.product" },
             "brand": { "type": "string", "default": ["if", ["==", "@config.product", "rawi"], "Rawi", "KFlow"] }

@@ -32,7 +32,6 @@ const UPSTREAM: &str = r#"{
         {
           "name": "ProgressList",
           "linkedEntity": "Progress",
-          "category": "interaction",
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "INIT" } ],

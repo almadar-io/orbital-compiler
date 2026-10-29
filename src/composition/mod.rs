@@ -10,7 +10,7 @@
 //! for the same input. Algorithmic drift between Rust and TS is a blocker.
 
 
-use orbital_core_base::value::{Value, ValueMap};
+use orbital_core_base::value::{Shared, Value, ValueMap};
 
 /// What a `json!` field or element may be: a core value built straight from it, no JSON tree between.
 pub(crate) trait ToValue {
@@ -35,6 +35,11 @@ impl ToValue for &str {
 impl ToValue for String {
     fn to_value(self) -> Value {
         Value::string(self)
+    }
+}
+impl ToValue for Shared<String> {
+    fn to_value(self) -> Value {
+        Value::String(self)
     }
 }
 impl ToValue for &String {
@@ -108,7 +113,7 @@ macro_rules! json {
 pub(crate) fn object_value(fields: Vec<(&str, Value)>) -> Value {
     let mut map = ValueMap::default();
     for (key, value) in fields {
-        map.insert(key.to_string(), value);
+        map.insert(key.into(), value);
     }
     Value::object(map)
 }

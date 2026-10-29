@@ -35,7 +35,7 @@ fn program(egress: Value, config: Value, effects: Value) -> OrbitalSchema {
                 "fields": [{ "name": "id", "type": "string", "required": true }, { "name": "token", "type": "string" }]
             },
             "traits": [{
-                "name": "Searcher", "linkedEntity": "Row", "category": "interaction",
+                "name": "Searcher", "linkedEntity": "Row", 
                 "config": config,
                 "emits": [
                     { "event": "SEARCHED", "payloadSchema": [{ "name": "status", "type": "number", "required": true }] },
@@ -878,7 +878,7 @@ mod browser_effects_validation {
                 "name": "Host",
                 "entity": { "name": "Row", "persistence": "runtime", "fields": [{ "name": "id", "type": "string", "required": true }, { "name": "body", "type": "string" }] },
                 "traits": [{
-                    "name": "Reporter", "linkedEntity": "Row", "category": "interaction",
+                    "name": "Reporter", "linkedEntity": "Row", 
                     "config": {
                         "endpoint": { "type": "url", "default": "https://collector.example.com/e" },
                         "relative": { "type": "url", "default": "/e" }
@@ -1053,7 +1053,7 @@ mod tab_effects_validation {
                 "name": "Host",
                 "entity": { "name": "Row", "persistence": "runtime", "fields": [{ "name": "id", "type": "string", "required": true }, { "name": "tab", "type": "number" }] },
                 "traits": [{
-                    "name": "Driver", "linkedEntity": "Row", "category": "interaction",
+                    "name": "Driver", "linkedEntity": "Row", 
                     "ticks": ticks,
                     "emits": [
                         { "event": "TAB_OK", "payloadSchema": payload },

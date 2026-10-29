@@ -340,6 +340,19 @@ fn validate_emit_literal(
                         );
                     }
                     let expected = field.field_type.as_str();
+                    if let Some(set) = declared_oir(field, schema_types).and_then(|declared| closed_set_misses(value, &declared)) {
+                        result.add_error(
+                            ValidationError::error(
+                                ErrorCode::EmitPayloadFieldTypeMismatch,
+                                path,
+                                format!(
+                                    "Emit '{}' field '{}' is not one of the declared values ({})",
+                                    event_name, key, set
+                                ),
+                            )
+                            .with_suggestion("Emit one of the declared values"),
+                        );
+                    }
                     if let Some(slot) = null_into_non_null_slot(field, value, type_ctx, schema_types, guard) {
                         result.add_error(
                             ValidationError::error(
@@ -385,6 +398,23 @@ fn validate_emit_literal(
                                     element
                                 )),
                             );
+                        } else if let Some((declared, inferred)) = declared_oir(field, schema_types)
+                            .and_then(|declared| record_item_incompatible(value, &declared, type_ctx, guard).map(|item| (declared, item)))
+                        {
+                            result.add_error(
+                                ValidationError::error(
+                                    ErrorCode::EmitPayloadFieldTypeMismatch,
+                                    path,
+                                    format!(
+                                        "Emit '{}' field '{}' has a list item of type '{}', declared as '{}'",
+                                        event_name,
+                                        key,
+                                        orbital_core_base::signature::describe_type(&inferred),
+                                        orbital_core_base::signature::describe_type(&declared)
+                                    ),
+                                )
+                                .with_suggestion("Make every list item a record with the declared members"),
+                            );
                         }
                     } else if let Some(actual) = orbital_core_eval::literal_type::literal_value_type(value)
                         .filter(|_| !matches!(value, SExpression::Object(_)))
@@ -415,22 +445,15 @@ fn validate_emit_literal(
                                 )),
                             );
                         }
-                    } else if let Some(inferred) = record_literal_incompatible(
-                        value,
-                        &crate::phases::resolve::payload_field_oir_type(field, schema_types),
-                        type_ctx,
-                        guard,
-                    )
-                    .or_else(|| {
-                        if matches!(value, SExpression::Object(_)) {
-                            return None;
-                        }
-                        expr_return_incompatible_given(
-                            value,
-                            &crate::phases::resolve::payload_field_oir_type(field, schema_types),
-                            type_ctx,
-                            guard,
-                        )
+                    } else if let Some((declared, inferred)) = declared_oir(field, schema_types).and_then(|declared| {
+                        record_literal_incompatible(value, &declared, type_ctx, guard)
+                            .or_else(|| {
+                                if matches!(value, SExpression::Object(_)) {
+                                    return None;
+                                }
+                                expr_return_incompatible_given(value, &declared, type_ctx, guard)
+                            })
+                            .map(|inferred| (declared, inferred))
                     }) {
                         // Operator-call payload value (e.g. `(object/get (array/find …) id)`):
                         // `literal_value_type` returned `None`, so infer its result type through
@@ -446,9 +469,7 @@ fn validate_emit_literal(
                                     event_name,
                                     key,
                                     orbital_core_base::signature::describe_type(&inferred),
-                                    orbital_core_base::signature::describe_type(
-                                        &crate::phases::resolve::payload_field_oir_type(field, schema_types)
-                                    )
+                                    orbital_core_base::signature::describe_type(&declared)
                                 ),
                             )
                             .with_suggestion(format!(
@@ -474,14 +495,14 @@ fn null_into_non_null_slot(
     schema_types: &OrbitalSchema,
     guard: Option<&SExpression>,
 ) -> Option<orbital_core_base::ir::OirType> {
-    if !matches!(value, SExpression::Array(_) | SExpression::Object(_)) {
+    if !matches!(value, SExpression::Array(_) | SExpression::Object(_) | SExpression::Null) {
         return None;
     }
     let lowered = orbital_core_eval::lower::lower_sexpr(value).ok()?;
     let condition = guard.and_then(|guard| orbital_core_eval::lower::lower_sexpr(guard).ok());
     crate::type_infer::null_at_declared_slot(
         &lowered,
-        &crate::phases::resolve::payload_field_oir_type(field, schema_types),
+        &declared_oir(field, schema_types)?,
         condition.as_ref(),
         type_ctx,
     )
@@ -772,6 +793,11 @@ fn check_repeated_emits(effects: &[SExpression], path: &str, ctx: &mut Validatio
     }
 }
 
+/// The type a payload field declares; `None` for one with no shape, which `validate_type_shapes` reports.
+fn declared_oir(field: &PayloadField, schema: &OrbitalSchema) -> Option<orbital_core_base::ir::OirType> {
+    crate::phases::resolve::payload_field_oir_type(field, schema).ok()
+}
+
 /// The element type of a `[T]` slot (`[string]` -> `string`); `None` for a bare `array`, a tuple (`[a, b]`) or
 /// anything that is not a one-element list type.
 fn list_element_type(declared: &str) -> Option<&str> {
@@ -804,18 +830,15 @@ fn list_item_mismatch(
                 }
             }
             None => {
-                if let Some(inferred) = expr_return_incompatible_in_ctx(
-                    item,
-                    &crate::phases::resolve::payload_field_oir_type(
-                        &PayloadField {
-                            nullable: None,
-                            additional_properties: None,
-                            name: String::new(), field_type: element.to_string(), values: None, required: None,
-                            description: None, properties: None, type_when: None, entity: None, projected_from: None, items: None,
-                        }, schema_types,
-                    ),
-                    type_ctx,
-                ) {
+                let element_field = PayloadField {
+                    nullable: None,
+                    additional_properties: None,
+                    name: String::new(), field_type: element.to_string(), values: None, required: None,
+                    description: None, properties: None, type_when: None, entity: None, projected_from: None, items: None,
+                };
+                if let Some(inferred) = declared_oir(&element_field, schema_types)
+                    .and_then(|declared| expr_return_incompatible_in_ctx(item, &declared, type_ctx))
+                {
                     return Some(orbital_core_base::type_compat::oir_type_kind(&inferred));
                 }
             }
@@ -846,7 +869,7 @@ fn literal_record_type<C: crate::type_infer::TypeCtx>(
                 Some(condition) => crate::type_infer::infer_under_condition(condition, &resolved, ctx),
                 None => crate::type_infer::infer_oir_expr_type(&resolved, ctx),
             })
-            .unwrap_or(OirType::Json),
+            .unwrap_or_else(OirType::erased),
     }
 }
 
@@ -866,6 +889,45 @@ fn record_literal_incompatible<C: crate::type_infer::TypeCtx>(
     let fits = orbital_core_base::type_compat::sub_with_named(&literal, declared, &|name| ctx.named_type(name))
         .is_some_and(|c| !c.requires_cast());
     (!fits).then_some(literal)
+}
+
+/// The closed set (`"a" | "b"`) a string literal written inside `value` falls outside, read top-down through the
+/// declared type's records, lists and optionals; `None` when every string literal is a member or the slot is open.
+fn closed_set_misses(value: &SExpression, declared: &orbital_core_base::ir::OirType) -> Option<String> {
+    use orbital_core_base::ir::OirType;
+    match (value, declared) {
+        (_, OirType::Optional { inner }) => closed_set_misses(value, inner),
+        (SExpression::String(literal), OirType::Enum { name }) => {
+            let members = orbital_core_base::type_compat::literal_union_members(name)?;
+            (!literal.contains('@') && !members.contains(literal)).then(|| members.join(", "))
+        }
+        (SExpression::Array(items), OirType::Array { inner })
+            if orbital_core_eval::literal_type::literal_value_type(value) == Some("array") =>
+        {
+            items.iter().find_map(|item| closed_set_misses(item, inner))
+        }
+        (SExpression::Object(members), OirType::Struct { fields, .. }) => members.iter().find_map(|(name, member)| {
+            let field = fields.iter().find(|field| &field.name == name)?;
+            closed_set_misses(member, &field.field_type)
+        }),
+        _ => None,
+    }
+}
+
+/// The record type of the first record literal in a list literal that does not fit the declared list's element type.
+fn record_item_incompatible<C: crate::type_infer::TypeCtx>(
+    value: &SExpression,
+    declared: &orbital_core_base::ir::OirType,
+    ctx: &C,
+    guard: Option<&SExpression>,
+) -> Option<orbital_core_base::ir::OirType> {
+    let (SExpression::Array(items), orbital_core_base::ir::OirType::Array { inner }) = (value, declared) else {
+        return None;
+    };
+    if orbital_core_eval::literal_type::literal_value_type(value) != Some("array") {
+        return None;
+    }
+    items.iter().find_map(|item| record_literal_incompatible(item, inner, ctx, guard))
 }
 
 fn primitive_types_compatible(declared: &str, actual: &str) -> bool {

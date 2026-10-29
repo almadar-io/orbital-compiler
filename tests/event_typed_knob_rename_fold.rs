@@ -32,7 +32,6 @@ const ATOM_PICKER: &str = r#"{
         {
           "name": "PickerRender",
           "linkedEntity": "Item",
-          "category": "interaction",
           "config": {
             "clickEvent": { "type": "event", "default": "PICK", "label": "Click event" }
           },
@@ -60,7 +59,7 @@ const ATOM_PICKER: &str = r#"{
         }
       ],
       "pages": [
-        { "name": "ItemPage", "path": "/item", "linkedEntity": "Item", "traits": [ { "ref": "PickerRender" } ] }
+        { "name": "ItemPage", "path": "/item", "traits": [ { "ref": "PickerRender" } ] }
       ]
     }
   ]
@@ -88,7 +87,7 @@ fn consumer(config_block: &str) -> String {
         }}
       ],
       "pages": [
-        {{ "name": "ThingPage", "path": "/thing", "linkedEntity": "Thing", "traits": [ {{ "ref": "ThingPicker" }} ] }}
+        {{ "name": "ThingPage", "path": "/thing", "traits": [ {{ "ref": "ThingPicker" }} ] }}
       ]
     }}
   ]

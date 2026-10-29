@@ -17,7 +17,7 @@ const LEAF: &str = r#"{
       "name": "Leaf",
       "entity": { "name": "LeafState", "persistence": "runtime", "fields": [ { "name": "id", "type": "string", "required": true } ] },
       "traits": [
-        { "name": "LeafView", "linkedEntity": "LeafState", "category": "interaction",
+        { "name": "LeafView", "linkedEntity": "LeafState", 
           "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "events": [],
             "transitions": [ { "from": "idle", "to": "idle", "event": "INIT", "effects": [ ["render-ui", "main", { "type": "typography", "content": "Leaf" }] ] } ] } }
       ],
@@ -37,7 +37,7 @@ const POST: &str = r#"{
       "uses": [ { "from": "./leaf.orb", "as": "L", "config": { "bogus": { "type": "number", "default": 1 } } } ],
       "entity": { "name": "PostState", "persistence": "runtime", "fields": [ { "name": "id", "type": "string", "required": true } ] },
       "traits": [
-        { "name": "PostView", "linkedEntity": "PostState", "category": "interaction",
+        { "name": "PostView", "linkedEntity": "PostState", 
           "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "events": [],
             "transitions": [ { "from": "idle", "to": "idle", "event": "INIT", "effects": [ ["render-ui", "main", { "type": "typography", "content": "Why we started" }] ] } ] } }
       ],
@@ -54,7 +54,7 @@ const OTHER: &str = r#"{
       "name": "Other",
       "entity": { "name": "OtherState", "persistence": "runtime", "fields": [ { "name": "id", "type": "string", "required": true } ] },
       "traits": [
-        { "name": "OtherView", "linkedEntity": "OtherState", "category": "interaction",
+        { "name": "OtherView", "linkedEntity": "OtherState", 
           "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "events": [],
             "transitions": [ { "from": "idle", "to": "idle", "event": "INIT", "effects": [ ["render-ui", "main", { "type": "typography", "content": "Other" }] ] } ] } }
       ],

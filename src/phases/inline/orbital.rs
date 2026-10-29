@@ -3278,7 +3278,6 @@ mod tests {
                 {
                     "name": "A",
                     "linkedEntity": "Widget",
-                    "category": "interaction",
                     "stateMachine": {
                         "states": [ { "name": "idle", "isInitial": true } ],
                         "events": [ { "key": "OPEN", "id": "evt_UPSTREAMOPEN00000000000000" } ],
@@ -3298,7 +3297,6 @@ mod tests {
                 {
                     "name": "B",
                     "linkedEntity": "Widget",
-                    "category": "interaction",
                     "stateMachine": {
                         "states": [ { "name": "idle", "isInitial": true } ],
                         "events": [ { "key": "PING", "id": "evt_UPSTREAMPING00000000000000" } ],
@@ -3309,7 +3307,6 @@ mod tests {
                 {
                     "name": "C",
                     "linkedEntity": "Widget",
-                    "category": "interaction",
                     "stateMachine": {
                         "states": [ { "name": "idle", "isInitial": true } ],
                         "transitions": []
@@ -4057,7 +4054,6 @@ mod tests {
                 {
                     "name": "PanelFetcher",
                     "linkedEntity": "Widget",
-                    "category": "interaction",
                     "stateMachine": {
                         "states": [ { "name": "idle", "isInitial": true } ],
                         "events": [ { "key": "LOAD" } ],
@@ -4107,7 +4103,6 @@ mod tests {
                 {
                     "name": "EmployeeFetcher",
                     "linkedEntity": "Widget",
-                    "category": "interaction",
                     "stateMachine": {
                         "states": [ { "name": "idle", "isInitial": true } ],
                         "events": [ { "key": "LOAD" } ],
@@ -4517,7 +4512,7 @@ mod tests {
             },
             "traits": [
                 {
-                    "name": "A", "linkedEntity": "Widget", "category": "interaction",
+                    "name": "A", "linkedEntity": "Widget", 
                     "config": { "itemClickEvent": { "type": "string", "default": "VIEW" } },
                     "stateMachine": {
                         "states": [ { "name": "idle", "isInitial": true } ],
@@ -4527,7 +4522,7 @@ mod tests {
                     }
                 },
                 {
-                    "name": "B", "linkedEntity": "Widget", "category": "interaction",
+                    "name": "B", "linkedEntity": "Widget", 
                     "stateMachine": {
                         "states": [ { "name": "idle", "isInitial": true } ],
                         "events": [ { "key": "OPEN" } ],
@@ -4536,7 +4531,7 @@ mod tests {
                     }
                 },
                 {
-                    "name": "C", "linkedEntity": "Widget", "category": "interaction",
+                    "name": "C", "linkedEntity": "Widget", 
                     "config": { "itemClickEvent": { "type": "string", "default": "@config.itemClickEvent" } },
                     "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
                 }
@@ -4735,7 +4730,7 @@ mod tests {
             ],
             "traits": [
                 {
-                    "name": "Embedder1", "linkedEntity": "Widget", "category": "interaction",
+                    "name": "Embedder1", "linkedEntity": "Widget", 
                     "config": { "embedKnob1": { "type": "string", "default": "VALUE1" } },
                     "stateMachine": {
                         "states": [ { "name": "idle", "isInitial": true } ],
@@ -4745,7 +4740,7 @@ mod tests {
                     }
                 },
                 {
-                    "name": "Embedder2", "linkedEntity": "Widget", "category": "interaction",
+                    "name": "Embedder2", "linkedEntity": "Widget", 
                     "config": { "embedKnob2": { "type": "string", "default": "VALUE2" } },
                     "stateMachine": {
                         "states": [ { "name": "idle", "isInitial": true } ],
@@ -4755,7 +4750,7 @@ mod tests {
                     }
                 },
                 {
-                    "name": "Sibling", "linkedEntity": "Widget", "category": "interaction",
+                    "name": "Sibling", "linkedEntity": "Widget", 
                     "config": {
                         "embedKnob1": { "type": "string", "default": "@config.embedKnob1" },
                         "embedKnob2": { "type": "string", "default": "@config.embedKnob2" }
@@ -4763,7 +4758,7 @@ mod tests {
                     "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
                 },
                 {
-                    "name": "OtherFetcher", "linkedEntity": "Widget", "category": "interaction",
+                    "name": "OtherFetcher", "linkedEntity": "Widget", 
                     "config": { "deadKnob": { "type": "string", "default": "@config.deadKnobOrbital" } },
                     "stateMachine": {
                         "states": [ { "name": "idle", "isInitial": true } ],
@@ -4774,7 +4769,7 @@ mod tests {
                     }
                 },
                 {
-                    "name": "AppLayoutTrait", "linkedEntity": "Widget", "category": "interaction",
+                    "name": "AppLayoutTrait", "linkedEntity": "Widget", 
                     "config": { "navItems": { "type": "array", "default": "@config.navItems" } },
                     "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
                 }
@@ -5920,7 +5915,6 @@ mod tests {
         let sibling_td: TraitDefinition = serde_json::from_value(json!({
             "name": "LocalSiblingTrait",
             "linkedEntity": "LocalWidget",
-            "category": "interaction",
             "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
         }))
         .unwrap();
@@ -6063,7 +6057,6 @@ mod tests {
                 serde_json::from_value(json!({
                     "name": name,
                     "linkedEntity": "Up",
-                    "category": "interaction",
                     "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
                 }))
                 .expect("sibling fixture")
@@ -6122,7 +6115,6 @@ mod tests {
         serde_json::from_value(json!({
             "name": name,
             "linkedEntity": "Up",
-            "category": "interaction",
             "stateMachine": {
                 "states": [ { "name": "idle", "isInitial": true } ],
                 "events": [ { "key": "GO" } ],
