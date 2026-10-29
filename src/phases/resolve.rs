@@ -663,7 +663,7 @@ impl<'a> Resolver<'a> {
             for instance in instances {
                 let mut oir_instance = orbital_core_base::ir::OirObject::new();
                 for (key, value) in instance {
-                    oir_instance.insert(key.clone(), self.sexpr_to_value(value));
+                    oir_instance.insert(key.to_string(), self.sexpr_to_value(value));
                 }
                 oir_entity.instances.push(oir_instance);
             }
@@ -1221,7 +1221,7 @@ impl<'a> Resolver<'a> {
                 if let Some(mapping) = &listen.payload_mapping {
                     let mut resolved = orbital_core_base::ir::OirFields::new();
                     for (field, expr) in mapping {
-                        resolved.insert(field.clone(), self.resolve_sexpr(expr)?);
+                        resolved.insert(field.to_string(), self.resolve_sexpr(expr)?);
                     }
                     oir.payload_mapping = Some(resolved);
                 }
@@ -1415,6 +1415,7 @@ impl<'a> Resolver<'a> {
         oir_page.indexing = page.indexing;
         oir_page.source_page = page.source_page.clone();
         oir_page.translation_of = page.translation_of.clone();
+        oir_page.is_initial = page.is_initial == Some(true);
         oir_page.title = page.title.clone();
         oir_page.description = page.description.clone();
 
@@ -1479,7 +1480,7 @@ impl<'a> Resolver<'a> {
             for (key, value) in props {
                 pattern
                     .config
-                    .insert(key.clone(), self.sexpr_to_value(value));
+                    .insert(key.to_string(), self.sexpr_to_value(value));
             }
         }
 
@@ -2820,6 +2821,43 @@ mod tests {
     }
 
     #[test]
+    fn entity_collection_is_the_declared_one_else_the_entity_name() {
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "app", "version": "1.0.0",
+            "orbitals": [
+                { "name": "A", "entity": { "name": "InterviewSlot", "fields": [{ "name": "title", "type": "string" }] }, "traits": [], "pages": [] },
+                { "name": "B", "entity": { "name": "Booking", "collection": "bookings_v2", "fields": [{ "name": "title", "type": "string" }] }, "traits": [], "pages": [] }
+            ]
+        }))
+        .expect("fixture parses");
+        let oir = resolve_to_oir(&schema).expect("resolves");
+        let collection = |name: &str| oir.entities.iter().find(|e| e.name == name).unwrap().collection.clone();
+        assert_eq!(collection("InterviewSlot"), "InterviewSlot");
+        assert_eq!(collection("Booking"), "bookings_v2");
+    }
+
+    #[test]
+    fn page_initial_marker_is_stamped_on_the_resolved_page() {
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "app", "version": "1.0.0",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "E", "fields": [{ "name": "title", "type": "string" }] },
+                "traits": [],
+                "pages": [
+                    { "name": "First", "path": "/first", "traits": [] },
+                    { "name": "Second", "path": "/second", "isInitial": true, "traits": [] }
+                ]
+            }]
+        }))
+        .expect("fixture parses");
+        let oir = resolve_to_oir(&schema).expect("resolves");
+        assert!(!oir.pages[0].is_initial);
+        assert!(oir.pages[1].is_initial);
+        assert_eq!(oir.initial_page().map(|p| p.name.as_str()), Some("Second"));
+    }
+
+    #[test]
     fn config_forward_event_resolved_empty_is_omitted_from_oir() {
         // Mirrors what the inline phase leaves behind for a config-forward
         // event (`@config.extraAddonEvent -> external {...}`) whose knob is
@@ -3140,7 +3178,7 @@ mod tests {
     fn sexpr_call(op: &str, args: &[&str]) -> SExpression {
         let mut elems = vec![SExpression::String(op.to_string().into())];
         elems.extend(args.iter().map(|a| SExpression::String(a.to_string().into())));
-        SExpression::Array(elems)
+        SExpression::Array(elems.into())
     }
 
     #[test]
@@ -3241,7 +3279,7 @@ mod tests {
             SExpression::Bool(false),
             SExpression::Bool(false),
             SExpression::Bool(true),
-        ]);
+        ].into());
         let lowered = resolve_sexpr_standalone(&expr).expect("lowers");
         let round_tripped = lowered.to_sexpression().expect("has a guard form");
         let json = serde_json::to_string(&round_tripped.to_canonical_json()).expect("serializes");
@@ -3258,7 +3296,7 @@ mod tests {
             SExpression::Bool(true),
             SExpression::Bool(true),
             SExpression::Bool(false),
-        ]);
+        ].into());
         let lowered = resolve_sexpr_standalone(&expr).expect("lowers");
         let round_tripped = lowered.to_sexpression().expect("has a guard form");
         let json = serde_json::to_string(&round_tripped.to_canonical_json()).expect("serializes");

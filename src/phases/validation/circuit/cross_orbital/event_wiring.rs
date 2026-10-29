@@ -47,15 +47,15 @@ mod async_result_collector_tests {
     fn effect_with_emit(op: &str, emit: &[(&str, &str)]) -> SExpression {
         let mut emit_map = orbital_core_base::schema::SObject::new();
         for (k, v) in emit {
-            emit_map.insert((*k).to_string(), SExpression::String(((*v).to_string()).into()));
+            emit_map.insert((*k).into(), SExpression::String(((*v).to_string()).into()));
         }
         let mut options = orbital_core_base::schema::SObject::new();
-        options.insert("emit".to_string(), SExpression::object(emit_map));
+        options.insert("emit".into(), SExpression::object(emit_map));
         SExpression::Array(vec![
             SExpression::String(op.to_string().into()),
             SExpression::String(("Item".to_string()).into()),
             SExpression::object(options),
-        ])
+        ].into())
     }
 
     #[test]
@@ -83,9 +83,9 @@ mod async_result_collector_tests {
         let wrapped_fetch = SExpression::Array(vec![
             SExpression::String(("if".to_string()).into()),
             SExpression::Bool(true),
-            SExpression::Array(vec![effect_with_emit("fetch", &[("success", "Nested")])]),
-            SExpression::Array(vec![]),
-        ]);
+            SExpression::Array(vec![effect_with_emit("fetch", &[("success", "Nested")])].into()),
+            SExpression::Array(vec![].into()),
+        ].into());
         let got = collect_async_result_events(&[call_service, wrapped_fetch]);
         assert_eq!(got, HashSet::from(["Nested".to_string()]));
     }

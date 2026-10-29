@@ -355,7 +355,7 @@ fn concat_roots(
         }
         roots = next;
     }
-    Some(roots.into_iter().map(SExpression::Array).collect())
+    Some(roots.into_iter().map(SExpression::array).collect())
 }
 
 /// `orb validate --final`: a config-fed `os/` target is a literal once the program is composed, so every value it

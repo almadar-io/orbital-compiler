@@ -174,11 +174,11 @@ mod tests {
             SExpression::String(("render-ui".to_string()).into()),
             SExpression::String(("main".to_string()).into()),
             SExpression::object(
-                [("type".to_string(), SExpression::String(("card".to_string()).into()))]
+                [("type".into(), SExpression::String(("card".to_string()).into()))]
                     .into_iter()
                     .collect(),
             ),
-        ]);
+        ].into());
 
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
@@ -191,11 +191,11 @@ mod tests {
             SExpression::String(("render-ui".to_string()).into()),
             SExpression::String(("invalid-slot".to_string()).into()),
             SExpression::object(
-                [("type".to_string(), SExpression::String(("card".to_string()).into()))]
+                [("type".into(), SExpression::String(("card".to_string()).into()))]
                     .into_iter()
                     .collect(),
             ),
-        ]);
+        ].into());
 
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
@@ -214,35 +214,35 @@ mod tests {
             SExpression::object(
                 [
                     (
-                        "type".to_string(),
+                        "type".into(),
                         SExpression::String(("table-view".to_string()).into()),
                     ),
                     (
-                        "itemActions".to_string(),
+                        "itemActions".into(),
                         SExpression::Array(vec![SExpression::object(
                             [
                                 (
-                                    "label".to_string(),
+                                    "label".into(),
                                     SExpression::String(("Delete".to_string()).into()),
                                 ),
                                 (
-                                    "event".to_string(),
+                                    "event".into(),
                                     SExpression::String(("DELETE".to_string()).into()),
                                 ),
                                 (
-                                    "condition".to_string(), // Unknown/hallucinated prop
+                                    "condition".into(), // Unknown/hallucinated prop
                                     SExpression::String(("@entity.canDelete".to_string()).into()),
                                 ),
                             ]
                             .into_iter()
                             .collect(),
-                        )]),
+                        )].into()),
                     ),
                 ]
                 .into_iter()
                 .collect(),
             ),
-        ]);
+        ].into());
 
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
@@ -262,7 +262,7 @@ mod tests {
         SExpression::object(
             pairs
                 .iter()
-                .map(|(k, v)| (k.to_string(), v.clone()))
+                .map(|(k, v)| (k.to_string().into(), v.clone()))
                 .collect(),
         )
     }
@@ -270,8 +270,8 @@ mod tests {
         SExpression::Array(vec![
             s("array/map"),
             s(coll),
-            SExpression::Array(vec![s("fn"), s(param), node]),
-        ])
+            SExpression::Array(vec![s("fn"), s(param), node].into()),
+        ].into())
     }
 
     /// `["if", cond, then, else?]` is a legal children entry — the runtime
@@ -285,15 +285,15 @@ mod tests {
     fn conditional_children_entry_not_rejected() {
         let toolbar = obj(&[("type", s("stack"))]);
         let empty = obj(&[("type", s("stack"))]);
-        let cond = SExpression::Array(vec![s("if"), s("@config.bodySearch"), toolbar, empty]);
+        let cond = SExpression::Array(vec![s("if"), s("@config.bodySearch"), toolbar, empty].into());
         let effect = SExpression::Array(vec![
             s("render-ui"),
             s("main"),
             obj(&[
                 ("type", s("stack")),
-                ("children", SExpression::Array(vec![cond])),
+                ("children", SExpression::Array(vec![cond].into())),
             ]),
-        ]);
+        ].into());
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         assert!(
@@ -313,15 +313,15 @@ mod tests {
             s("if"),
             s("@config.bodySearch"),
             obj(&[("type", s("stack"))]),
-        ]);
+        ].into());
         let effect = SExpression::Array(vec![
             s("render-ui"),
             s("main"),
             obj(&[
                 ("type", s("stack")),
-                ("children", SExpression::Array(vec![cond])),
+                ("children", SExpression::Array(vec![cond].into())),
             ]),
-        ]);
+        ].into());
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         assert!(
@@ -344,15 +344,15 @@ mod tests {
             s("@config.bodySearch"),
             obj(&[("type", s("stack"))]),
             obj(&[("type", s("definitely-not-a-real-pattern"))]),
-        ]);
+        ].into());
         let effect = SExpression::Array(vec![
             s("render-ui"),
             s("main"),
             obj(&[
                 ("type", s("stack")),
-                ("children", SExpression::Array(vec![cond])),
+                ("children", SExpression::Array(vec![cond].into())),
             ]),
-        ]);
+        ].into());
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         assert!(
@@ -368,15 +368,15 @@ mod tests {
     /// keyed on the `if` head, not on "array".
     #[test]
     fn non_conditional_array_children_entry_still_rejected() {
-        let bogus = SExpression::Array(vec![s("totally-bogus"), s("x")]);
+        let bogus = SExpression::Array(vec![s("totally-bogus"), s("x")].into());
         let effect = SExpression::Array(vec![
             s("render-ui"),
             s("main"),
             obj(&[
                 ("type", s("stack")),
-                ("children", SExpression::Array(vec![bogus])),
+                ("children", SExpression::Array(vec![bogus].into())),
             ]),
-        ]);
+        ].into());
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         assert!(
@@ -398,10 +398,10 @@ mod tests {
             s(">"),
             SExpression::Array(vec![
                 s("array/len"),
-                SExpression::Array(vec![obj(&[("field", s("status")), ("label", s("Status"))])]),
-            ]),
+                SExpression::Array(vec![obj(&[("field", s("status")), ("label", s("Status"))])].into()),
+            ].into()),
             SExpression::Number(0.0),
-        ])
+        ].into())
     }
 
     fn stack_with_children(children: SExpression) -> SExpression {
@@ -409,7 +409,7 @@ mod tests {
             s("render-ui"),
             s("main"),
             obj(&[("type", s("stack")), ("children", children)]),
-        ])
+        ].into())
     }
 
     fn render_errors(effect: &SExpression) -> Vec<ValidationError> {
@@ -422,8 +422,8 @@ mod tests {
             s("if"),
             record_condition(),
             obj(&[("type", s("stack"))]),
-        ]);
-        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry])));
+        ].into());
+        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry].into())));
         assert!(
             errors.is_empty(),
             "the condition's records must not be walked as patterns: {:?}",
@@ -438,8 +438,8 @@ mod tests {
             record_condition(),
             obj(&[("type", s("stack"))]),
             obj(&[("type", s("divider"))]),
-        ]);
-        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry])));
+        ].into());
+        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry].into())));
         assert!(
             errors.is_empty(),
             "the condition's records must not be walked as patterns: {:?}",
@@ -452,9 +452,9 @@ mod tests {
         let value = SExpression::Array(vec![
             s("if"),
             record_condition(),
-            SExpression::Array(vec![obj(&[("type", s("stack"))])]),
-            SExpression::Array(vec![obj(&[("type", s("divider"))])]),
-        ]);
+            SExpression::Array(vec![obj(&[("type", s("stack"))])].into()),
+            SExpression::Array(vec![obj(&[("type", s("divider"))])].into()),
+        ].into());
         let errors = render_errors(&stack_with_children(value));
         assert!(
             errors.is_empty(),
@@ -469,9 +469,9 @@ mod tests {
             s("if"),
             record_condition(),
             obj(&[("type", s("stack"))]),
-        ]);
+        ].into());
         let bogus = obj(&[("type", s("definitely-not-a-real-pattern"))]);
-        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry, bogus])));
+        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry, bogus].into())));
         let invalid: Vec<&str> = errors
             .iter()
             .filter(|e| e.code == ErrorCode::RenderUIInvalidPattern)
@@ -500,8 +500,8 @@ mod tests {
                 "item",
                 obj(&[("type", s("badge")), ("label", s("@item.name"))]),
             ),
-        ]);
-        let errors = render_errors(&stack_with_children(SExpression::Array(vec![ok])));
+        ].into());
+        let errors = render_errors(&stack_with_children(SExpression::Array(vec![ok].into())));
         assert!(
             errors.is_empty(),
             "a mapped-children arm is one node producer: {:?}",
@@ -515,8 +515,8 @@ mod tests {
                 "item",
                 obj(&[("type", s("definitely-not-a-real-pattern"))]),
             ),
-        ]);
-        let errors = render_errors(&stack_with_children(SExpression::Array(vec![bad])));
+        ].into());
+        let errors = render_errors(&stack_with_children(SExpression::Array(vec![bad].into())));
         assert!(
             errors
                 .iter()
@@ -533,8 +533,8 @@ mod tests {
             s("if"),
             record_condition(),
             obj(&[("type", s("definitely-not-a-real-pattern"))]),
-        ]);
-        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry])));
+        ].into());
+        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry].into())));
         assert!(
             errors
                 .iter()
@@ -550,8 +550,8 @@ mod tests {
         let value = SExpression::Array(vec![
             s("array/concat"),
             s("@entity.buttons"),
-            SExpression::Array(vec![obj(&[("type", s("definitely-not-a-real-pattern"))])]),
-        ]);
+            SExpression::Array(vec![obj(&[("type", s("definitely-not-a-real-pattern"))])].into()),
+        ].into());
         let errors = render_errors(&stack_with_children(value));
         assert!(
             errors
@@ -574,10 +574,10 @@ mod tests {
                 ("type", s("stack")),
                 (
                     "children",
-                    SExpression::Array(vec![array_map("@entity.items", "item", badge)]),
+                    SExpression::Array(vec![array_map("@entity.items", "item", badge)].into()),
                 ),
             ]),
-        ]);
+        ].into());
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         assert!(
@@ -602,10 +602,10 @@ mod tests {
                 ("type", s("stack")),
                 (
                     "children",
-                    SExpression::Array(vec![array_map("@entity.items", "item", bad)]),
+                    SExpression::Array(vec![array_map("@entity.items", "item", bad)].into()),
                 ),
             ]),
-        ]);
+        ].into());
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         assert!(
@@ -630,7 +630,7 @@ mod tests {
                 ("type", s("stack")),
                 ("children", array_map("@entity.items", "item", badge)),
             ]),
-        ]);
+        ].into());
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         assert!(
@@ -649,7 +649,7 @@ mod tests {
         // rejected as an unknown/invalid prop or pattern (callback-kind prop
         // accepts the lambda form).
         let badge = obj(&[("type", s("badge")), ("label", s("@item.name"))]);
-        let lambda = SExpression::Array(vec![s("fn"), s("item"), badge]);
+        let lambda = SExpression::Array(vec![s("fn"), s("item"), badge].into());
         for pattern in [
             "data-list",
             "data-grid",
@@ -666,7 +666,7 @@ mod tests {
                     ("entity", s("@entity")),
                     ("renderItem", lambda.clone()),
                 ]),
-            ]);
+            ].into());
             let entity_defs = HashMap::new();
             let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
             let renderitem_err = result.errors.iter().any(|e| {
@@ -686,11 +686,11 @@ mod tests {
     fn test_is_render_ui_effect() {
         assert!(is_render_ui_effect(&SExpression::Array(vec![
             SExpression::String(("render-ui".to_string()).into()),
-        ])));
+        ].into())));
 
         assert!(!is_render_ui_effect(&SExpression::Array(vec![
             SExpression::String(("set".to_string()).into()),
-        ])));
+        ].into())));
     }
 
     #[test]
@@ -702,22 +702,22 @@ mod tests {
             SExpression::object(
                 [
                     (
-                        "type".to_string(),
+                        "type".into(),
                         SExpression::String(("game-menu".to_string()).into()),
                     ),
                     (
-                        "title".to_string(),
+                        "title".into(),
                         SExpression::String(("Main Menu".to_string()).into()),
                     ),
                     (
-                        "inventorySlots".to_string(), // Not a valid prop for game-menu
-                        SExpression::Array(vec![]),
+                        "inventorySlots".into(), // Not a valid prop for game-menu
+                        SExpression::Array(vec![].into()),
                     ),
                 ]
                 .into_iter()
                 .collect(),
             ),
-        ]);
+        ].into());
 
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
@@ -741,22 +741,22 @@ mod tests {
             SExpression::object(
                 [
                     (
-                        "type".to_string(),
+                        "type".into(),
                         SExpression::String(("game-menu".to_string()).into()),
                     ),
                     (
-                        "title".to_string(),
+                        "title".into(),
                         SExpression::String(("Main Menu".to_string()).into()),
                     ),
                     (
-                        "options".to_string(), // Correct prop name
-                        SExpression::Array(vec![]),
+                        "options".into(), // Correct prop name
+                        SExpression::Array(vec![].into()),
                     ),
                 ]
                 .into_iter()
                 .collect(),
             ),
-        ]);
+        ].into());
 
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
@@ -780,19 +780,19 @@ mod tests {
             SExpression::object(
                 [
                     (
-                        "type".to_string(),
+                        "type".into(),
                         SExpression::String(("filter-group".to_string()).into()),
                     ),
                     (
-                        "entity".to_string(),
+                        "entity".into(),
                         SExpression::String(("Contact".to_string()).into()),
                     ),
-                    ("filters".to_string(), SExpression::Array(vec![])),
+                    ("filters".into(), SExpression::Array(vec![].into())),
                 ]
                 .into_iter()
                 .collect(),
             ),
-        ]);
+        ].into());
 
         let entity_defs = HashMap::new();
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
@@ -953,25 +953,25 @@ mod tests {
             SExpression::object(
                 [
                     (
-                        "type".to_string(),
+                        "type".into(),
                         SExpression::String(("data-grid".to_string()).into()),
                     ),
                     (
-                        "entity".to_string(),
+                        "entity".into(),
                         SExpression::String(("Inspection".to_string()).into()),
                     ),
                     (
-                        "fields".to_string(),
+                        "fields".into(),
                         SExpression::Array(vec![
                             SExpression::String(("title".to_string()).into()),
                             SExpression::String(("company.name".to_string()).into()),
-                        ]),
+                        ].into()),
                     ),
                 ]
                 .into_iter()
                 .collect(),
             ),
-        ]);
+        ].into());
 
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         // Should have no field path errors
@@ -1049,22 +1049,22 @@ mod tests {
             SExpression::object(
                 [
                     (
-                        "type".to_string(),
+                        "type".into(),
                         SExpression::String(("data-grid".to_string()).into()),
                     ),
                     (
-                        "entity".to_string(),
+                        "entity".into(),
                         SExpression::String(("Inspection".to_string()).into()),
                     ),
                     (
-                        "fields".to_string(),
-                        SExpression::Array(vec![SExpression::String(("company.name".to_string()).into())]),
+                        "fields".into(),
+                        SExpression::Array(vec![SExpression::String(("company.name".to_string()).into())].into()),
                     ),
                 ]
                 .into_iter()
                 .collect(),
             ),
-        ]);
+        ].into());
 
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         // Should have field path warning for missing relation

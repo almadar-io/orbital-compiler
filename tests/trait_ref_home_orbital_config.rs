@@ -177,7 +177,7 @@ fn trait_form_reference_resolves_forward_against_the_home_orbital_when_the_consu
         config_default(local, "columns"),
         Some(SExpression::Array(vec![SExpression::String(
             ("upstreamCol".to_string()).into()
-        )])),
+        )].into())),
         "columns must resolve to HomeOrbital's declared browseColumns default, \
          not stay an unresolved @config.browseColumns forward"
     );
@@ -218,7 +218,7 @@ fn trait_form_reference_prefers_the_consumers_own_orbital_declaration_over_the_h
         config_default(local, "columns"),
         Some(SExpression::Array(vec![SExpression::String(
             ("consumerCol".to_string()).into()
-        )])),
+        )].into())),
         "the consumer's own orbital-level browseColumns must win over HomeOrbital's"
     );
 
@@ -253,7 +253,7 @@ fn trait_form_reference_honors_the_uses_config_override_of_an_upstream_app_knob(
         config_default(local, "columns"),
         Some(SExpression::Array(vec![SExpression::String(
             ("upstreamCol".to_string()).into()
-        )])),
+        )].into())),
     );
 
     let result = validate_comprehensive_without_services(&schema);
@@ -266,4 +266,121 @@ fn trait_form_reference_honors_the_uses_config_override_of_an_upstream_app_knob(
         dangling.is_empty(),
         "expected 0 ORB_CONFIG_DANGLING_REF, got: {dangling:#?}"
     );
+}
+
+/// G-ORB-557: the chrome file declares the app knobs `pathPrefix` and `pagePath`; its trait folds both into one
+/// nested value. A middle file re-hosts that trait in an orbital that declares `pathPrefix` itself (so the
+/// importer may override it), and a top file imports that orbital again. `pagePath` is reachable only in the chrome
+/// file, so it must fold there, while `pathPrefix` stays the importer's to set.
+const CHROME: &str = r#"{
+  "name": "chrome",
+  "version": "1.0.0",
+  "config": {
+    "pathPrefix": { "type": "string", "default": "" },
+    "pagePath": { "type": "string", "default": "/home" }
+  },
+  "orbitals": [{
+    "name": "ChromeOrbital",
+    "entity": { "name": "ChromeView", "persistence": "runtime", "fields": [ { "name": "id", "type": "string", "required": true } ] },
+    "traits": [{
+      "name": "AppLayout",
+      "linkedEntity": "ChromeView",
+      "category": "interaction",
+      "config": { "currentPath": { "type": "unknown", "default": ["str/concat", "@config.pathPrefix", "@config.pagePath"] } },
+      "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+    }]
+  }]
+}"#;
+
+const MID: &str = r#"{
+  "name": "mid",
+  "version": "1.0.0",
+  "orbitals": [{
+    "name": "Courses",
+    "uses": [ { "from": "./chrome.orb", "as": "Chrome" } ],
+    "config": { "pathPrefix": { "type": "string", "default": "" } },
+    "entity": { "name": "CourseItem", "persistence": "runtime", "fields": [ { "name": "id", "type": "string", "required": true } ] },
+    "traits": [
+      { "ref": "Chrome.traits.AppLayout", "name": "Layout", "linkedEntity": "CourseItem" },
+      {
+        "name": "Reader",
+        "linkedEntity": "CourseItem",
+        "category": "interaction",
+        "config": { "prefix": { "type": "string", "default": "@config.pathPrefix" } },
+        "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
+      }
+    ]
+  }]
+}"#;
+
+fn top_source(prefix: Option<&str>) -> String {
+    let config = prefix.map_or(String::new(), |p| {
+        format!(r#", "config": {{ "pathPrefix": {{ "type": "string", "default": "{p}" }} }}"#)
+    });
+    format!(
+        r#"{{
+  "name": "top",
+  "version": "1.0.0",
+  "orbitals": [{{
+    "name": "CoursesEN",
+    "uses": [ {{ "from": "./mid.orb", "as": "Mid" }} ],
+    "entity": "Mid.orbitals.Courses.entity",
+    "traits": [],
+    "reference": {{ "ref": "Mid.orbitals.Courses"{config} }}
+  }}]
+}}"#
+    )
+}
+
+fn through_two_imports(prefix: Option<&str>) -> OrbitalSchema {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("chrome.orb"), CHROME).expect("write chrome.orb");
+    std::fs::write(dir.path().join("mid.orb"), MID).expect("write mid.orb");
+    let top = dir.path().join("top.orb");
+    std::fs::write(&top, top_source(prefix)).expect("write top.orb");
+    let mut schema = parse_file(&top).expect("top parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&top)).expect("inline succeeds");
+    schema
+}
+
+fn layout(schema: &OrbitalSchema) -> &orbital_core_base::schema::TraitDefinition {
+    schema.orbitals[0]
+        .traits
+        .iter()
+        .find_map(|t| match t {
+            TraitReference::Inline(td) if td.name.ends_with("Layout") => Some(td),
+            _ => None,
+        })
+        .expect("the re-imported orbital carries the Layout trait")
+}
+
+fn str_concat(prefix: &str, page: &str) -> SExpression {
+    SExpression::Array(vec![
+        SExpression::String("str/concat".to_string().into()),
+        SExpression::String(prefix.to_string().into()),
+        SExpression::String(page.to_string().into()),
+    ].into())
+}
+
+fn dangling(schema: &OrbitalSchema) -> Vec<String> {
+    validate_comprehensive_without_services(schema)
+        .errors
+        .iter()
+        .filter(|e| e.code == ErrorCode::ConfigDanglingRef)
+        .map(|e| e.message.clone())
+        .collect()
+}
+
+#[test]
+fn a_knob_declared_only_in_the_home_file_folds_through_a_second_orbital_import() {
+    let schema = through_two_imports(None);
+    assert_eq!(config_default(layout(&schema), "currentPath"), Some(str_concat("", "/home")));
+    assert!(dangling(&schema).is_empty(), "{:?}", dangling(&schema));
+}
+
+#[test]
+fn control_the_importers_own_orbital_knob_still_overrides_through_a_second_orbital_import() {
+    let schema = through_two_imports(Some("/ar"));
+    assert_eq!(config_default(layout(&schema), "currentPath"), Some(str_concat("/ar", "/home")));
+    assert!(dangling(&schema).is_empty(), "{:?}", dangling(&schema));
 }

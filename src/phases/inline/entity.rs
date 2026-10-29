@@ -530,7 +530,7 @@ fn collect_fetch_persist_fields(
                         if w.entity == entity_def.name {
                             *matched = true;
                             if let Some(SExpression::Object(data_fields)) = w.data {
-                                out.extend(data_fields.keys().cloned());
+                                out.extend(data_fields.keys().map(|k| k.to_string()));
                             }
                         }
                     }
@@ -542,7 +542,7 @@ fn collect_fetch_persist_fields(
                     if entity_name == &entity_def.name {
                         *matched = true;
                         if let Some(SExpression::Object(data_fields)) = arr.get(entity_index + 1) {
-                            out.extend(data_fields.keys().cloned());
+                            out.extend(data_fields.keys().map(|k| k.to_string()));
                         }
                     }
                 }
@@ -717,7 +717,7 @@ mod render_ui_pattern_contract_reference_tests {
             SExpression::String(("render-ui".to_string()).into()),
             SExpression::String(("main".to_string()).into()),
             node,
-        ]);
+        ].into());
         TraitDefinition {
             dispatch: None,
             effect_row: None,
@@ -766,13 +766,13 @@ mod render_ui_pattern_contract_reference_tests {
     fn calendar_grid_node() -> SExpression {
         let mut obj = orbital_core_base::schema::SObject::new();
         obj.insert(
-            "type".to_string(),
+            "type".into(),
             SExpression::String(("calendar-grid".to_string()).into()),
         );
         // No literal "entity" key — defaults to the trait's own linked_entity,
         // matching `ui-calendar-grid.lolo`'s real render-ui node.
         obj.insert(
-            "events".to_string(),
+            "events".into(),
             SExpression::String(("@entity".to_string()).into()),
         );
         SExpression::object(obj)
@@ -801,11 +801,11 @@ mod render_ui_pattern_contract_reference_tests {
     fn render_ui_pattern_contract_field_not_referenced_for_a_different_bound_entity() {
         let e = entity("Schedule");
         let mut obj = match calendar_grid_node() {
-            SExpression::Object(o) => *o,
+            SExpression::Object(o) => o.into_inner(),
             _ => unreachable!(),
         };
         obj.insert(
-            "entity".to_string(),
+            "entity".into(),
             SExpression::String(("Other".to_string()).into()),
         );
         let t = trait_with_render_ui("Schedule", SExpression::object(obj));

@@ -136,7 +136,7 @@ pub(crate) fn walk_nested_call_services(
             }
         }
         SExpression::Object(obj) => {
-            let mut keys: Vec<&String> = obj.keys().collect();
+            let mut keys: Vec<&orbital_core_base::value::Shared<String>> = obj.keys().collect();
             keys.sort();
             for key in keys {
                 result.merge(walk_nested_call_services(&obj[key], path, registry));

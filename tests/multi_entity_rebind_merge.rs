@@ -341,7 +341,7 @@ fn no_rebind_import_registers_aux_once_and_merges_nowhere() {
 // lint-relation-targets `an-auxiliary-entity-is-a-legal-target-and-its-own-relations-are-walked`.
 
 #[test]
-fn aux_entity_gets_default_collection() {
+fn enrich_stamps_no_default_collection_on_an_aux_entity() {
     let src = r#"{
       "name": "test-aux-enrich",
       "version": "1.0.0",
@@ -365,8 +365,8 @@ fn aux_entity_gets_default_collection() {
     let aux = aux_entity(&schema, "TagRef");
     match aux {
         EntityRef::Inline(e) => assert!(
-            e.collection.is_some(),
-            "aux entity must receive a default collection"
+            e.collection.is_none(),
+            "a collection is declared or the entity name; enrich derives none"
         ),
         _ => panic!("expected inline aux"),
     }

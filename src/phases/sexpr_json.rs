@@ -11,7 +11,7 @@ pub fn sexpr_obj_to_json_map(
 ) -> serde_json::Map<String, serde_json::Value> {
     let mut map = serde_json::Map::new();
     for (key, value) in obj {
-        map.insert(key.clone(), sexpr_to_json(value));
+        map.insert(key.to_string(), sexpr_to_json(value));
     }
     map
 }

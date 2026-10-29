@@ -1200,10 +1200,10 @@ mod tests {
         assert!(list_slot_mismatch(r#"[true]"#));
     }
 
-    fn list_alias_mismatch(shape: &str) -> bool {
+    fn list_alias_mismatch(shape: &str, fallback: &str) -> bool {
         let json = persist_trait_json(
             r#"{ "event": "LISTED", "payloadSchema": [{ "name": "items", "type": "[object]" }] }"#,
-            &format!(r#"["emit", "LISTED", {{ "items": ["json/parse", "[]", "{shape}"] }}]"#),
+            &format!(r#"["emit", "LISTED", {{ "items": ["default", ["json/parse", "[]", "{shape}"], {fallback}] }}]"#),
         )
         .replacen(
             r#""name": "ThreadOrbital","#,
@@ -1216,16 +1216,16 @@ mod tests {
         ctx.result.errors.iter().any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
     }
 
-    /// `json/parse` over a list alias is the list the alias names, so it fills a list slot.
+    /// `json/parse` over a list alias is the list the alias names (null on a misfit), so with a fallback it fills a list slot.
     #[test]
     fn json_parse_over_a_list_alias_fills_a_list_slot() {
-        assert!(!list_alias_mismatch("Points"));
+        assert!(!list_alias_mismatch("Points", "[]"));
     }
 
     /// NEGATIVE CONTROL — a struct alias is a record, not a list.
     #[test]
     fn json_parse_over_a_struct_alias_does_not_fill_a_list_slot() {
-        assert!(list_alias_mismatch("Point"));
+        assert!(list_alias_mismatch("Point", "{}"));
     }
 
     const EMBED_TYPES: &str = r#""types": {

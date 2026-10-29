@@ -1073,7 +1073,7 @@ fn resolve_value_literal_candidates(
                             if let (Some(SExpression::String(name)), Some(value)) =
                                 (pair.first(), pair.get(1))
                             {
-                                scope.insert(name.clone().into_inner(), value.clone());
+                                scope.insert(name.clone(), value.clone());
                             }
                         }
                     }
@@ -1117,7 +1117,7 @@ fn collect_entity_field_literal_candidates(
                             if let (Some(SExpression::String(name)), Some(value)) =
                                 (pair.first(), pair.get(1))
                             {
-                                lets.insert(name.clone().into_inner(), value.clone());
+                                lets.insert(name.clone(), value.clone());
                             }
                         }
                     }

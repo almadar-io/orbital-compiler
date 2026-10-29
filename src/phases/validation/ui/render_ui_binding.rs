@@ -976,7 +976,7 @@ mod tests {
             SExpression::String(("default".to_string()).into()),
             SExpression::String(("@payload.totalCount".to_string()).into()),
             SExpression::Number(10.0),
-        ]);
+        ].into());
         assert_eq!(resolve_binding_type(&expr, &ctx), BindingType::Number);
     }
 

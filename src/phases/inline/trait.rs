@@ -223,7 +223,7 @@ pub(crate) fn apply_overrides_to_trait(
     if let Some(declared) = trait_def.config.as_ref() {
         for (k, field) in declared.iter() {
             if let Some(default) = field.default.as_ref() {
-                effective_config.insert(k.clone(), default.clone());
+                effective_config.insert(k.as_str().into(), default.clone());
             }
         }
     }
@@ -237,7 +237,7 @@ pub(crate) fn apply_overrides_to_trait(
                     .map(|f| f.field_type.as_str())
                     .unwrap_or("");
                 effective_config.insert(
-                    k.clone(),
+                    k.as_str().into(),
                     canonicalize_unbound_trait_override(base_field_type, v.clone()),
                 );
             }
@@ -308,7 +308,7 @@ pub(crate) fn apply_overrides_to_trait(
             })
             .unwrap_or_default();
         for (knob, renamed) in renames {
-            effective_config.insert(knob.clone(), SExpression::string(renamed.clone()));
+            effective_config.insert(knob.as_str().into(), SExpression::string(renamed.clone()));
             if let Some(cfg) = trait_def.config.as_mut() {
                 if let Some(field) = cfg.get_mut(&knob) {
                     field.default = Some(SExpression::string(renamed));
@@ -417,7 +417,7 @@ pub(crate) fn apply_overrides_to_trait(
     // declared `field_type`.
     if let Some(declared) = trait_def.config.as_ref() {
         for (k, value) in effective_config.iter_mut() {
-            if let Some(field) = declared.get(k) {
+            if let Some(field) = declared.get(k.as_str()) {
                 mark_config_literal_lists(value, field);
             }
         }
@@ -544,7 +544,7 @@ pub(crate) fn apply_overrides_to_trait(
             })
             .unwrap_or_default();
         for (knob, renamed) in event_knob_renames {
-            effective_config.insert(knob.clone(), SExpression::string(renamed.clone()));
+            effective_config.insert(knob.as_str().into(), SExpression::string(renamed.clone()));
             if let Some(cfg) = trait_def.config.as_mut() {
                 if let Some(field) = cfg.get_mut(&knob) {
                     field.default = Some(SExpression::string(renamed));
@@ -589,7 +589,7 @@ pub(crate) fn apply_overrides_to_trait(
             })
             .unwrap_or_default();
         for (knob, folded) in member_folds {
-            effective_config.insert(knob.clone(), folded.clone());
+            effective_config.insert(knob.as_str().into(), folded.clone());
             if let Some(cfg) = trait_def.config.as_mut() {
                 if let Some(field) = cfg.get_mut(&knob) {
                     field.default = Some(folded);
@@ -843,7 +843,7 @@ fn wrap_narrowed_display_set(expr: &mut SExpression, string_fields: &HashSet<Str
             && set_entity_field(&items[1]).is_some_and(|f| string_fields.contains(f));
         if is_narrowed_set {
             let value = items[2].clone();
-            items[2] = SExpression::Array(vec![SExpression::string("str/concat"), value]);
+            items[2] = SExpression::Array(vec![SExpression::string("str/concat"), value].into());
         }
         for item in items.iter_mut() {
             wrap_narrowed_display_set(item, string_fields);
@@ -1175,7 +1175,32 @@ pub(super) fn forwarded_sibling_config_from_tracked(
     upstream_orbital_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
     upstream_schema_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
     schema_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    schema_only_keys: Option<&mut HashSet<String>>,
+) -> Option<orbital_core_base::collections::IndexMap<String, ConfigField>> {
+    forwarded_sibling_config_keeping(
+        declared,
+        embedder_chain,
+        orbital_config,
+        upstream_orbital_config,
+        upstream_schema_config,
+        schema_config,
+        schema_only_keys,
+        None,
+    )
+}
+
+/// {@link forwarded_sibling_config_from_tracked}, leaving every `@config.<knob>` forward
+/// whose knob `keep` names untouched: that knob stays the importer's to set.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn forwarded_sibling_config_keeping(
+    declared: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    embedder_chain: &[&orbital_core_base::collections::IndexMap<String, ConfigField>],
+    orbital_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    upstream_orbital_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    upstream_schema_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    schema_config: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
     mut schema_only_keys: Option<&mut HashSet<String>>,
+    keep: Option<&dyn Fn(&str) -> bool>,
 ) -> Option<orbital_core_base::collections::IndexMap<String, ConfigField>> {
     let declared = declared?;
     let rungs = ForwardRungs {
@@ -1184,6 +1209,7 @@ pub(super) fn forwarded_sibling_config_from_tracked(
         upstream_orbital_config,
         upstream_schema_config,
         schema_config,
+        keep,
     };
     let mut out: orbital_core_base::collections::IndexMap<String, ConfigField> = orbital_core_base::collections::IndexMap::new();
     for (key, field) in declared.iter() {
@@ -1251,6 +1277,7 @@ struct ForwardRungs<'a> {
     upstream_orbital_config: Option<&'a orbital_core_base::collections::IndexMap<String, ConfigField>>,
     upstream_schema_config: Option<&'a orbital_core_base::collections::IndexMap<String, ConfigField>>,
     schema_config: Option<&'a orbital_core_base::collections::IndexMap<String, ConfigField>>,
+    keep: Option<&'a dyn Fn(&str) -> bool>,
 }
 
 struct ForwardHit<'a> {
@@ -1266,7 +1293,7 @@ impl<'a> ForwardRungs<'a> {
     /// another whole `@config.<key>`. `None` for a dotted knob or when no
     /// rung supplies a concrete value.
     fn resolve(&self, knob: &str) -> Option<ForwardHit<'a>> {
-        if knob.is_empty() || knob.contains('.') {
+        if knob.is_empty() || knob.contains('.') || self.keep.is_some_and(|keep| keep(knob)) {
             return None;
         }
         let mut current_key = knob.to_string();
@@ -1334,30 +1361,9 @@ pub(super) fn forwarded_expression(
         upstream_orbital_config: None,
         upstream_schema_config: None,
         schema_config,
+        keep: None,
     };
     substitute_nested_forwards(expr, &orbital_core_base::collections::IndexMap::new(), &rungs, &mut Vec::new(), &mut false)
-}
-
-/// Every `@config.<knob>` leaf in `expr`, whole-string or nested.
-fn collect_config_forward_knobs(expr: &SExpression, out: &mut Vec<String>) {
-    match expr {
-        SExpression::String(s) => {
-            if let Some(knob) = s.strip_prefix("@config.") {
-                out.push(knob.to_string());
-            }
-        }
-        SExpression::Array(items) => {
-            for item in items {
-                collect_config_forward_knobs(item, out);
-            }
-        }
-        SExpression::Object(map) => {
-            for v in map.values() {
-                collect_config_forward_knobs(v, out);
-            }
-        }
-        SExpression::Null | SExpression::Bool(_) | SExpression::Number(_) => {}
-    }
 }
 
 /// `expr` with every nested `@config.<knob>` leaf that `rungs` resolves
@@ -1395,7 +1401,7 @@ fn substitute_nested_forwards(
                     }
                 })
                 .collect();
-            changed.then_some(SExpression::Array(next))
+            changed.then_some(SExpression::Array(next.into()))
         }
         SExpression::Object(map) => {
             let mut changed = false;
@@ -1842,6 +1848,10 @@ pub(crate) fn inline_traits(
                 // `@config.X` live so the override substitution reaches it; the
                 // consumer's own top-level resolution (Reference arm / sibling
                 // pull, both defer=false) then folds it to the effective value.
+                if ctx.defer_config_subst || trait_def.config.is_none() {
+                    result.push(TraitReference::Inline(Arc::clone(trait_def)));
+                    continue;
+                }
                 let mut td = TraitDefinition::clone(trait_def);
                 if !ctx.defer_config_subst {
                     // §157 `config-knobs`, §12 three-level chain: a top-level
@@ -2084,7 +2094,7 @@ pub(crate) fn inline_traits(
                                                 || orbital_config
                                                     .is_some_and(|c| c.contains_key(knob))
                                         };
-                                        if let Some(resolved) = forwarded_sibling_config_from(
+                                        if let Some(resolved) = forwarded_sibling_config_keeping(
                                             trait_def.config.as_ref(),
                                             &[],
                                             None,
@@ -2096,24 +2106,13 @@ pub(crate) fn inline_traits(
                                             .as_ref(),
                                             alias_schema_configs.get(&alias),
                                             None,
+                                            None,
+                                            Some(&overridable),
                                         ) {
-                                            let declared =
-                                                trait_def.config.clone().unwrap_or_default();
                                             let cfg =
                                                 trait_def.config.get_or_insert_with(orbital_core_base::collections::IndexMap::new);
                                             for (k, v) in resolved {
-                                                let mut knobs: Vec<String> = Vec::new();
-                                                if let Some(value) = declared
-                                                    .get(&k)
-                                                    .and_then(|f| f.default.as_ref())
-                                                {
-                                                    collect_config_forward_knobs(value, &mut knobs);
-                                                }
-                                                if !knobs.is_empty()
-                                                    && knobs.iter().all(|knob| !overridable(knob))
-                                                {
-                                                    cfg.insert(k, v);
-                                                }
+                                                cfg.insert(k, v);
                                             }
                                         }
                                     }
@@ -2977,7 +2976,7 @@ mod entity_id_reader_tests {
                         s("render-ui"),
                         s("main"),
                         s(&format!("@config.{knob}")),
-                    ])]),
+                    ].into())]),
                     ensures: None,
                 }],
             },
@@ -3147,16 +3146,16 @@ mod entity_id_reader_tests {
                         s("main"),
                         SExpression::object(
                             vec![
-                                ("title".to_string(), s(&format!("@{}.title", token))),
+                                ("title".into(), s(&format!("@{}.title", token))),
                                 (
-                                    "rows".to_string(),
-                                    SExpression::Array(vec![s("fetch"), s(token)]),
+                                    "rows".into(),
+                                    SExpression::Array(vec![s("fetch"), s(token)].into()),
                                 ),
                             ]
                             .into_iter()
                             .collect(),
                         ),
-                    ])]),
+                    ].into())]),
                     ensures: None,
                 }],
             },
@@ -3370,7 +3369,7 @@ mod entity_id_reader_tests {
                 s("create"),
                 s("WikiPageRevision"),
                 SExpression::object(orbital_core_base::schema::SObject::new()),
-            ]));
+            ].into()));
         td.linked_entity = Some("WikiPage".to_string());
         td.linked_entity_id = Some("ent-page".to_string());
         // The atom's own side-map: WikiPage (primary) + WikiPageRevision
@@ -3444,7 +3443,7 @@ mod entity_id_reader_tests {
             .effects
             .as_mut()
             .unwrap()
-            .push(SExpression::Array(vec![s("fetch"), s("WikiPage")]));
+            .push(SExpression::Array(vec![s("fetch"), s("WikiPage")].into()));
         td.linked_entity = Some("WikiAttachment".to_string());
         td.linked_entity_id = Some("ent-atom-attachment".to_string());
         td.entity_ref_ids = Some(orbital_core_base::collections::IndexMap::from([
@@ -4135,7 +4134,7 @@ mod config_ref_emit_name_tests {
     fn a_knob_resolved_to_empty_declares_no_event_and_no_emit() {
         let mut td = calendar_trait();
         let config = orbital_core_base::schema::SObject::from([(
-            "onEventClick".to_string(),
+            "onEventClick".into(),
             SExpression::String(String::new().into()),
         )]);
         resolve_config_ref_emit_names(&mut td, &config);
@@ -4162,7 +4161,7 @@ mod config_ref_emit_name_tests {
     fn control_a_knob_resolved_to_a_name_renames_both() {
         let mut td = calendar_trait();
         let config = orbital_core_base::schema::SObject::from([(
-            "onEventClick".to_string(),
+            "onEventClick".into(),
             SExpression::String(("OPEN_NOTE".to_string()).into()),
         )]);
         resolve_config_ref_emit_names(&mut td, &config);

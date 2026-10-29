@@ -132,17 +132,17 @@ fn answer(
         // Nothing observes a describe without a success route.
         return Ok(Some(SExpression::Array(vec![SExpression::String(
             "do".into(),
-        )])));
+        )].into())));
     };
     let description: SExpression = serde_json::from_value(description)
         .map_err(|e| reflection_error(format!("the description is not program data: {e}")))?;
     let mut payload = orbital_core_base::schema::SObject::new();
-    payload.insert("result".to_string(), quote_expr(&description));
+    payload.insert("result".into(), quote_expr(&description));
     Ok(Some(SExpression::Array(vec![
         SExpression::string("emit"),
         SExpression::string(success.to_string()),
         SExpression::object(payload),
-    ])))
+    ].into())))
 }
 
 /// One answer per trait value and program location within a fold: a site names the same trait

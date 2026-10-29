@@ -69,7 +69,7 @@ fn expand_children_operators(children: &SExpression) -> SExpression {
                 _ => {}
             }
         }
-        return SExpression::Array(out);
+        return SExpression::Array(out.into());
     }
     if is_operator_call(children) {
         let SExpression::Array(items) = children else {
@@ -83,7 +83,7 @@ fn expand_children_operators(children: &SExpression) -> SExpression {
                 _ => {}
             }
         }
-        return SExpression::Array(out);
+        return SExpression::Array(out.into());
     }
     if let SExpression::Array(items) = children {
         if items.iter().any(is_operator_call) {
@@ -100,7 +100,7 @@ fn expand_children_operators(children: &SExpression) -> SExpression {
                 }
                 out.push(item.clone());
             }
-            return SExpression::Array(out);
+            return SExpression::Array(out.into());
         }
     }
     children.clone()
@@ -286,7 +286,7 @@ pub(crate) fn validate_pattern(
                             if prop_name == "type" || prop_name == "entity" {
                                 continue;
                             }
-                            let Some(prop_schema) = embedded_pattern.props_schema.get(prop_name)
+                            let Some(prop_schema) = embedded_pattern.props_schema.get(prop_name.as_str())
                             else {
                                 continue;
                             };
@@ -886,7 +886,7 @@ mod entity_prop_contract_tests {
     fn pattern_obj(entries: Vec<(&str, SExpression)>) -> orbital_core_base::schema::SObject {
         entries
             .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
+            .map(|(k, v)| (k.into(), v))
             .collect()
     }
 
@@ -970,7 +970,7 @@ mod entity_prop_contract_tests {
         let columns = SExpression::Array(vec![SExpression::object(pattern_obj(vec![(
             "field",
             SExpression::String(("subtitle".to_string()).into()),
-        )]))]);
+        )]))].into());
         let obj = pattern_obj(vec![
             ("entity", SExpression::String(("Article".to_string()).into())),
             ("columns", columns),
@@ -1205,7 +1205,7 @@ mod children_operator_tests {
     fn obj(pairs: &[(&str, SExpression)]) -> SExpression {
         let mut m: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         for (k, v) in pairs {
-            m.insert((*k).to_string(), v.clone());
+            m.insert((*k).into(), v.clone());
         }
         SExpression::object(m)
     }
@@ -1232,8 +1232,8 @@ mod children_operator_tests {
         let p = stack_with(SExpression::Array(vec![
             s("array/concat"),
             s("@buttons"),
-            SExpression::Array(vec![typo]),
-        ]));
+            SExpression::Array(vec![typo].into()),
+        ].into()));
         let got = codes(&check(&p));
         assert!(
             !got.iter().any(|c| c == "ORB_RUI_INVALID_PATTERN"),
@@ -1249,8 +1249,8 @@ mod children_operator_tests {
         let p = stack_with(SExpression::Array(vec![
             s("array/concat"),
             s("@buttons"),
-            SExpression::Array(vec![bogus]),
-        ]));
+            SExpression::Array(vec![bogus].into()),
+        ].into()));
         let got = codes(&check(&p));
         assert!(
             got.iter().any(|c| c == "ORB_RUI_INVALID_PATTERN"),

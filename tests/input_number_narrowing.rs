@@ -456,8 +456,8 @@ fn narrowed_display_buffer_set_gets_str_concat() {
         orbital_core_base::schema::SExpression::Array(vec![
             orbital_core_base::schema::SExpression::String(("str/concat".to_string()).into()),
             orbital_core_base::schema::SExpression::String(("?value".to_string()).into()),
-        ]),
-    ]);
+        ].into()),
+    ].into());
     assert_eq!(
         effects[0], expected,
         "the string-typed display-buffer `set` must wrap its `?value` read in `(str/concat ...)`, not bare `concat`"
@@ -481,7 +481,7 @@ fn unnarrowed_number_field_set_is_untouched() {
         orbital_core_base::schema::SExpression::String(("set".to_string()).into()),
         orbital_core_base::schema::SExpression::String(("@entity.count".to_string()).into()),
         orbital_core_base::schema::SExpression::String(("?value".to_string()).into()),
-    ]);
+    ].into());
     assert_eq!(
         effects[1], untouched,
         "a `set` into an already-number-typed entity field must NOT be wrapped — only a string-typed target needs stringifying"

@@ -91,15 +91,15 @@ fn filter_group_effect(entity_name: &str, filters: Vec<&str>) -> SExpression {
         SExpression::object(
             [
                 (
-                    "type".to_string(),
+                    "type".into(),
                     SExpression::String(("filter-group".to_string()).into()),
                 ),
                 (
-                    "entity".to_string(),
+                    "entity".into(),
                     SExpression::String(entity_name.to_string().into()),
                 ),
                 (
-                    "filters".to_string(),
+                    "filters".into(),
                     SExpression::Array(
                         filters
                             .into_iter()
@@ -111,7 +111,7 @@ fn filter_group_effect(entity_name: &str, filters: Vec<&str>) -> SExpression {
             .into_iter()
             .collect(),
         ),
-    ])
+    ].into())
 }
 
 fn count_field_ref_warnings(result: &ValidationResult) -> usize {
@@ -260,29 +260,29 @@ fn pattern_prop_without_marker_is_not_validated() {
         SExpression::object(
             [
                 (
-                    "type".to_string(),
+                    "type".into(),
                     SExpression::String(("game-menu".to_string()).into()),
                 ),
                 (
-                    "entity".to_string(),
+                    "entity".into(),
                     SExpression::String(("Product".to_string()).into()),
                 ),
                 (
-                    "title".to_string(),
+                    "title".into(),
                     SExpression::String(("Main Menu".to_string()).into()),
                 ),
                 (
-                    "options".to_string(),
+                    "options".into(),
                     SExpression::Array(vec![
                         SExpression::String(("arbitrary-not-a-field".to_string()).into()),
                         SExpression::String(("another-random-string".to_string()).into()),
-                    ]),
+                    ].into()),
                 ),
             ]
             .into_iter()
             .collect(),
         ),
-    ]);
+    ].into());
 
     let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
 
@@ -313,26 +313,26 @@ fn data_grid_image_field_valid_scalar() {
         SExpression::object(
             [
                 (
-                    "type".to_string(),
+                    "type".into(),
                     SExpression::String(("data-grid".to_string()).into()),
                 ),
                 (
-                    "entity".to_string(),
+                    "entity".into(),
                     SExpression::String(("Photo".to_string()).into()),
                 ),
                 (
-                    "fields".to_string(),
-                    SExpression::Array(vec![SExpression::String(("url".to_string()).into())]),
+                    "fields".into(),
+                    SExpression::Array(vec![SExpression::String(("url".to_string()).into())].into()),
                 ),
                 (
-                    "imageField".to_string(),
+                    "imageField".into(),
                     SExpression::String(("thumbnail".to_string()).into()),
                 ),
             ]
             .into_iter()
             .collect(),
         ),
-    ]);
+    ].into());
 
     let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
 
@@ -360,26 +360,26 @@ fn data_grid_image_field_invalid_scalar_warns() {
         SExpression::object(
             [
                 (
-                    "type".to_string(),
+                    "type".into(),
                     SExpression::String(("data-grid".to_string()).into()),
                 ),
                 (
-                    "entity".to_string(),
+                    "entity".into(),
                     SExpression::String(("Photo".to_string()).into()),
                 ),
                 (
-                    "fields".to_string(),
-                    SExpression::Array(vec![SExpression::String(("url".to_string()).into())]),
+                    "fields".into(),
+                    SExpression::Array(vec![SExpression::String(("url".to_string()).into())].into()),
                 ),
                 (
-                    "imageField".to_string(),
+                    "imageField".into(),
                     SExpression::String(("doesnotexist".to_string()).into()),
                 ),
             ]
             .into_iter()
             .collect(),
         ),
-    ]);
+    ].into());
 
     let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
 

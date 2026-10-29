@@ -156,7 +156,7 @@ fn notify_tuple(level: &str, message: &str) -> SExpression {
         SExpression::String(("notify".to_string()).into()),
         SExpression::String(level.to_string().into()),
         SExpression::String(message.to_string().into()),
-    ])
+    ].into())
 }
 
 #[test]
@@ -190,23 +190,23 @@ fn a_render_ui_toast_effect_carries_no_retirement_error() {
         SExpression::object(
             [
                 (
-                    "type".to_string(),
+                    "type".into(),
                     SExpression::String(("alert".to_string()).into()),
                 ),
                 (
-                    "variant".to_string(),
+                    "variant".into(),
                     SExpression::String(("error".to_string()).into()),
                 ),
                 (
-                    "message".to_string(),
+                    "message".into(),
                     SExpression::String(("Saving failed".to_string()).into()),
                 ),
-                ("dismissible".to_string(), SExpression::Bool(true)),
+                ("dismissible".into(), SExpression::Bool(true)),
             ]
             .into_iter()
             .collect(),
         ),
-    ]);
+    ].into());
     let schema = schema_with_effects(vec![toast]);
     let result = validate_comprehensive_without_services(&schema);
     assert!(

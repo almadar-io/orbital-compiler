@@ -427,6 +427,8 @@ pub struct ExternalOrbitalLoader {
     #[cfg(test)]
     source_lowerer_override: Option<SourceLowerer>,
     trait_origins: std::rc::Rc<RefCell<SourceTraitOrigins>>,
+    /// (importing orbital, type name) → the file whose atom declared the type it pulled in.
+    type_origins: RefCell<HashMap<(String, String), PathBuf>>,
     config: LoaderConfig,
     cache: LoaderCache,
     /// Behavior name → `.orb` path per registry root, built by one walk of the
@@ -452,6 +454,7 @@ impl ExternalOrbitalLoader {
             #[cfg(test)]
             source_lowerer_override: None,
             trait_origins: Default::default(),
+            type_origins: RefCell::new(HashMap::new()),
             config,
             cache: LoaderCache::new(),
             registry_index: RefCell::new(HashMap::new()),
@@ -459,6 +462,20 @@ impl ExternalOrbitalLoader {
             touched: HashSet::new(),
             recordings: Vec::new(),
         }
+    }
+
+    pub(crate) fn record_type_origin(&self, orbital: &str, type_name: &str, file: PathBuf) {
+        self.type_origins
+            .borrow_mut()
+            .entry((orbital.to_string(), type_name.to_string()))
+            .or_insert(file);
+    }
+
+    pub(crate) fn type_origin(&self, orbital: &str, type_name: &str) -> Option<PathBuf> {
+        self.type_origins
+            .borrow()
+            .get(&(orbital.to_string(), type_name.to_string()))
+            .cloned()
     }
 
     pub(crate) fn trait_origins(&self) -> std::rc::Rc<RefCell<SourceTraitOrigins>> {
@@ -469,6 +486,7 @@ impl ExternalOrbitalLoader {
     /// but no longer count as this schema's.
     pub fn begin_schema(&mut self) {
         self.touched.clear();
+        self.type_origins.borrow_mut().clear();
     }
 
     /// Start recording which files are loaded until the matching [`Self::end_recording`].

@@ -202,7 +202,7 @@ impl Pass<'_> {
                     });
                 if let Some((behavior, member)) = named {
                     let canonical = self.resolve(&behavior, &member, path)?;
-                    map.insert("behavior".to_string(), SExpression::string(canonical));
+                    map.insert("behavior".into(), SExpression::string(canonical));
                 }
                 for (key, v) in map.iter_mut() {
                     if key != "behavior" && key != "trait" && key != "orbital" {

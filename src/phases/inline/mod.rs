@@ -187,7 +187,7 @@ pub enum InlineError {
     },
 
     #[error(
-        "Type name '{name}' is declared by {first} and by {second} with DIFFERENT shapes; \
+        "Type name '{name}' is declared by {first} and by {second} with DIFFERENT shapes ({difference}); \
          a named type is one program-wide name, so one of the two would silently stand in for \
          the other. Rename one of the two declarations."
     )]
@@ -198,6 +198,8 @@ pub enum InlineError {
         first: String,
         /// The second, differing declaration's owner.
         second: String,
+        /// The first differing members: name with both types, or which side alone declares it.
+        difference: String,
         /// Source-tagged path to the second declaration.
         path: String,
     },
@@ -739,7 +741,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     if let Some(e) = first_error {
         return Err(e);
     }
-    reject_ambiguous_type_names(schema)?;
+    reject_ambiguous_type_names(schema, loader)?;
     address_imported_traits(&mut schema.orbitals, &imported_trait_names);
 
     // An entity another orbital owns as its primary is that entity: a copy pulled in as an
@@ -851,36 +853,89 @@ pub fn inline_schema_with_orbital_diagnostics(
 
 /// A named type is one program-wide name (`OirModule::named_types` keeps one entry per name), so two declarations of
 /// a name with different shapes across the composed program's orbitals are refused, never resolved by order.
-fn reject_ambiguous_type_names(schema: &OrbitalSchema) -> Result<(), InlineError> {
+fn reject_ambiguous_type_names(schema: &OrbitalSchema, loader: &ExternalOrbitalLoader) -> Result<(), InlineError> {
     let mut seen: HashMap<&str, (String, &Vec<PayloadField>)> = HashMap::new();
     let scopes = schema
         .types
         .iter()
-        .map(|types| ("the program".to_string(), "types".to_string(), types))
+        .map(|types| (None, "the program".to_string(), "types".to_string(), types))
         .chain(schema.orbitals.iter().filter_map(|o| {
-            o.types
-                .as_ref()
-                .map(|types| (format!("orbital '{}'", o.name), format!("orbitals[name={}]", o.name), types))
+            o.types.as_ref().map(|types| {
+                (Some(o.name.as_str()), format!("orbital '{}'", o.name), format!("orbitals[name={}]", o.name), types)
+            })
         }));
-    for (owner, path, types) in scopes {
+    for (orbital, owner, path, types) in scopes {
         for (name, shape) in types {
+            let declared_by = |orbital: Option<&str>, owner: &str| match orbital.and_then(|o| loader.type_origin(o, name)) {
+                Some(file) => format!("{owner} (declared in {})", file.display()),
+                None => owner.to_string(),
+            };
             match seen.get(name.as_str()) {
                 Some((first, existing)) if *existing != shape => {
                     return Err(InlineError::AmbiguousTypeName {
                         name: name.clone(),
                         first: first.clone(),
-                        second: owner,
+                        second: declared_by(orbital, &owner),
+                        difference: differing_members(existing, shape),
                         path,
                     });
                 }
                 Some(_) => {}
                 None => {
-                    seen.insert(name.as_str(), (owner.clone(), shape));
+                    seen.insert(name.as_str(), (declared_by(orbital, &owner), shape));
                 }
             }
         }
     }
     Ok(())
+}
+
+fn payload_field_spelling(field: &PayloadField) -> String {
+    let mut spelling = field.field_type.clone();
+    if let Some(values) = &field.values {
+        spelling = format!("{spelling} one of [{}]", values.join(", "));
+    }
+    if let Some(items) = &field.items {
+        spelling = format!("{spelling} of {}", payload_field_spelling(items));
+    }
+    if let Some(properties) = &field.properties {
+        let members: Vec<String> = properties.iter().map(|p| format!("{}: {}", p.name, payload_field_spelling(p))).collect();
+        spelling = format!("{spelling} {{ {} }}", members.join(", "));
+    }
+    if field.nullable == Some(true) {
+        spelling.push('?');
+    }
+    if field.required == Some(true) {
+        spelling.push_str(" (required)");
+    }
+    spelling
+}
+
+/// Every member that differs between two declarations of one type, in declaration order: a member on both sides with
+/// another spelling names both, a member on one side only names that side.
+fn differing_members(first: &[PayloadField], second: &[PayloadField]) -> String {
+    let mut differences: Vec<String> = Vec::new();
+    for field in first {
+        match second.iter().find(|other| other.name == field.name) {
+            Some(other) if other != field => differences.push(format!(
+                "member '{}': {} vs {}",
+                field.name,
+                payload_field_spelling(field),
+                payload_field_spelling(other)
+            )),
+            Some(_) => {}
+            None => differences.push(format!("member '{}' only in the first", field.name)),
+        }
+    }
+    for field in second {
+        if !first.iter().any(|other| other.name == field.name) {
+            differences.push(format!("member '{}' only in the second", field.name));
+        }
+    }
+    if differences.is_empty() {
+        return "the same members in a different order".to_string();
+    }
+    differences.join("; ")
 }
 
 /// Drop an imported auxiliary entity when its name collides with a PRIMARY
@@ -1947,6 +2002,9 @@ fn inline_orbital(
             deferred_merges,
         )?;
         references.pairs.append(ctx.reference_pairs.get_mut());
+        for (type_name, file) in ctx.pulled_type_files.take() {
+            loader.record_type_origin(&orbital.name, &type_name, file);
+        }
     }
 
     // ----------------------------------------------------------------
@@ -2242,7 +2300,11 @@ fn inline_orbital(
             {
                 if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
                     // The trait body reads the aliases its own file declares (a `json/parse x Name` shape).
+                    let declaring_file = ctx.aliases.get(&alias).and_then(|entry| entry.source_path.clone());
                     for (type_name, fields) in ctx.get_types_for_trait_orbital(&alias, &name, ref_id.as_deref()) {
+                        if let Some(file) = &declaring_file {
+                            loader.record_type_origin(&orbital.name, &type_name, file.clone());
+                        }
                         pulled_types.entry(type_name).or_insert(fields);
                     }
                     let natural_bound_entity =
@@ -3541,7 +3603,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
             }) {
                 // Both contributors' propositions are owed.
                 *existing_holds = match (existing_holds.take(), holds) {
-                    (Some(a), Some(b)) if a != b => Some(orbital_core_base::schema::SExpression::Array(vec![orbital_core_base::schema::SExpression::string("and"), a, b])),
+                    (Some(a), Some(b)) if a != b => Some(orbital_core_base::schema::SExpression::Array(vec![orbital_core_base::schema::SExpression::string("and"), a, b].into())),
                     (a, b) => a.or(b),
                 };
                 *existing_strict |= strict;
@@ -3872,9 +3934,9 @@ mod tests {
     #[test]
     fn rewrite_entity_refs_rewrites_fetch_atom() {
         // ["fetch", "ModalRecord"] → ["fetch", "ShoppingCart"]
-        let mut expr = SExpression::Array(vec![s("fetch"), s("ModalRecord")]);
+        let mut expr = SExpression::Array(vec![s("fetch"), s("ModalRecord")].into());
         rewrite_entity_refs(&mut expr, "ModalRecord", "ShoppingCart");
-        assert_eq!(expr, SExpression::Array(vec![s("fetch"), s("ShoppingCart")]));
+        assert_eq!(expr, SExpression::Array(vec![s("fetch"), s("ShoppingCart")].into()));
     }
 
     #[test]
@@ -3893,7 +3955,7 @@ mod tests {
     #[test]
     fn rewrite_entity_refs_does_not_rewrite_unrelated_entity() {
         // ["fetch", "OtherEntity"] stays as-is.
-        let mut expr = SExpression::Array(vec![s("fetch"), s("OtherEntity")]);
+        let mut expr = SExpression::Array(vec![s("fetch"), s("OtherEntity")].into());
         let snapshot = expr.clone();
         rewrite_entity_refs(&mut expr, "ModalRecord", "ShoppingCart");
         assert_eq!(expr, snapshot);
@@ -3923,13 +3985,13 @@ mod tests {
         // plus a nested binding root inside a sibling array.
         let mut obj: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         obj.insert(
-            "children".to_string(),
-            SExpression::Array(vec![SExpression::Array(vec![s("fetch"), s("ModalRecord")])]),
+            "children".into(),
+            SExpression::Array(vec![SExpression::Array(vec![s("fetch"), s("ModalRecord")].into())].into()),
         );
-        obj.insert("title".to_string(), s("@ModalRecord.name"));
+        obj.insert("title".into(), s("@ModalRecord.name"));
 
         let mut expr =
-            SExpression::Array(vec![s("render-ui"), s("main"), SExpression::object(obj)]);
+            SExpression::Array(vec![s("render-ui"), s("main"), SExpression::object(obj)].into());
 
         rewrite_entity_refs(&mut expr, "ModalRecord", "ShoppingCart");
 
@@ -3943,7 +4005,7 @@ mod tests {
                     &SExpression::Array(vec![SExpression::Array(vec![
                         s("fetch"),
                         s("ShoppingCart")
-                    ])])
+                    ].into())].into())
                 );
                 assert_eq!(map.get("title").unwrap(), &s("@ShoppingCart.name"));
             } else {
@@ -4078,7 +4140,7 @@ mod tests {
                 effects: Some(vec![SExpression::Array(vec![
                     SExpression::String(("fetch".to_string()).into()),
                     SExpression::String(("ModalRecord".to_string()).into()),
-                ])]),
+                ].into())]),
                 ensures: None,
             });
 
@@ -4117,7 +4179,7 @@ mod tests {
             &SExpression::Array(vec![
                 SExpression::String(("fetch".to_string()).into()),
                 SExpression::String(("CartItem".to_string()).into()),
-            ]),
+            ].into()),
             "rename path must not interfere with linked_entity rewrite"
         );
     }
@@ -5180,18 +5242,18 @@ mod tests {
         // An expression with no entity references anywhere should be
         // byte-identical after rewrite.
         let mut obj: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
-        obj.insert("type".to_string(), s("stack"));
-        obj.insert("direction".to_string(), s("vertical"));
+        obj.insert("type".into(), s("stack"));
+        obj.insert("direction".into(), s("vertical"));
         obj.insert(
-            "children".to_string(),
+            "children".into(),
             SExpression::Array(vec![
-                SExpression::Array(vec![s("emit"), s("SAVED")]),
+                SExpression::Array(vec![s("emit"), s("SAVED")].into()),
                 s("@payload.data"),
-            ]),
+            ].into()),
         );
 
         let mut expr =
-            SExpression::Array(vec![s("render-ui"), s("main"), SExpression::object(obj)]);
+            SExpression::Array(vec![s("render-ui"), s("main"), SExpression::object(obj)].into());
         let snapshot = expr.clone();
         rewrite_entity_refs(&mut expr, "ModalRecord", "ShoppingCart");
         assert_eq!(expr, snapshot);
@@ -5312,12 +5374,12 @@ mod tests {
             SExpression::Array(vec![
                 SExpression::String(("fetch".to_string()).into()),
                 SExpression::String(("A".to_string()).into()),
-            ]),
+            ].into()),
             SExpression::Array(vec![
                 SExpression::String(("fetch".to_string()).into()),
                 SExpression::String(("B".to_string()).into()),
-            ]),
-        ]);
+            ].into()),
+        ].into());
 
         rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
@@ -5345,7 +5407,7 @@ mod tests {
         let mut expr = SExpression::Array(vec![
             SExpression::String(("emit".to_string()).into()),
             SExpression::String(("OPEN".to_string()).into()),
-        ]);
+        ].into());
 
         rewrite_identifiers(&mut expr, &orbital_core_base::collections::IndexMap::new(), &event_subs);
 
@@ -5368,13 +5430,13 @@ mod tests {
         event_subs.insert("FILTER".to_string(), "NARROW".to_string());
 
         let mut payload_obj: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
-        payload_obj.insert("value".to_string(), SExpression::String(("".to_string()).into()));
-        payload_obj.insert("field".to_string(), SExpression::String(("".to_string()).into()));
+        payload_obj.insert("value".into(), SExpression::String(("".to_string()).into()));
+        payload_obj.insert("field".into(), SExpression::String(("".to_string()).into()));
         let mut expr = SExpression::Array(vec![
             SExpression::String(("emit".to_string()).into()),
             SExpression::String(("FILTER".to_string()).into()),
             SExpression::object(payload_obj),
-        ]);
+        ].into());
 
         rewrite_identifiers(&mut expr, &orbital_core_base::collections::IndexMap::new(), &event_subs);
 
@@ -5405,8 +5467,8 @@ mod tests {
             SExpression::Array(vec![
                 SExpression::String(("fetch".to_string()).into()),
                 SExpression::String(("OldEntity".to_string()).into()),
-            ]),
-        ]);
+            ].into()),
+        ].into());
 
         rewrite_identifiers(&mut expr, &entity_subs, &event_subs);
 
@@ -5435,11 +5497,11 @@ mod tests {
 
         let mut object = orbital_core_base::schema::SObject::new();
         object.insert(
-            "type".to_string(),
+            "type".into(),
             SExpression::String(("button".to_string()).into()),
         );
         object.insert(
-            "action".to_string(),
+            "action".into(),
             SExpression::String(("OPEN".to_string()).into()),
         );
         let mut expr = SExpression::object(object);
@@ -5473,7 +5535,7 @@ mod tests {
 
         let mut object = orbital_core_base::schema::SObject::new();
         object.insert(
-            "content".to_string(),
+            "content".into(),
             SExpression::String(("OPEN".to_string()).into()),
         );
         let mut expr = SExpression::object(object);
@@ -5815,7 +5877,7 @@ mod tests {
                     effects: Some(vec![SExpression::Array(vec![
                         SExpression::String(("emit".to_string()).into()),
                         SExpression::String(("OPEN".to_string()).into()),
-                    ])]),
+                    ].into())]),
                     ensures: None,
                 }],
             },
@@ -5871,10 +5933,10 @@ mod tests {
         let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
-        let mut expr = SExpression::Array(vec![s("fetch"), s("Source")]);
+        let mut expr = SExpression::Array(vec![s("fetch"), s("Source")].into());
         rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
-        assert_eq!(expr, SExpression::Array(vec![s("fetch"), s("Target")]));
+        assert_eq!(expr, SExpression::Array(vec![s("fetch"), s("Target")].into()));
     }
 
     #[test]
@@ -5886,18 +5948,18 @@ mod tests {
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
         let mut criteria = orbital_core_base::schema::SObject::new();
-        criteria.insert("limit".to_string(), SExpression::Number(10.0));
+        criteria.insert("limit".into(), SExpression::Number(10.0));
 
         let mut expr = SExpression::Array(vec![
             s("fetch"),
             s("Source"),
             SExpression::object(criteria.clone()),
-        ]);
+        ].into());
         rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
         assert_eq!(
             expr,
-            SExpression::Array(vec![s("fetch"), s("Target"), SExpression::object(criteria),])
+            SExpression::Array(vec![s("fetch"), s("Target"), SExpression::object(criteria),].into())
         );
     }
 
@@ -5909,14 +5971,14 @@ mod tests {
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
         let mut payload = orbital_core_base::schema::SObject::new();
-        payload.insert("data".to_string(), s("@payload.data"));
+        payload.insert("data".into(), s("@payload.data"));
 
         let mut expr = SExpression::Array(vec![
             s("persist"),
             s("create"),
             s("Source"),
             SExpression::object(payload.clone()),
-        ]);
+        ].into());
         rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
         assert_eq!(
@@ -5926,7 +5988,7 @@ mod tests {
                 s("create"),
                 s("Target"),
                 SExpression::object(payload),
-            ])
+            ].into())
         );
     }
 
@@ -5937,30 +5999,30 @@ mod tests {
         let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
-        let mut update = SExpression::Array(vec![s("persist"), s("update"), s("Source")]);
+        let mut update = SExpression::Array(vec![s("persist"), s("update"), s("Source")].into());
         rewrite_identifiers(&mut update, &entity_subs, &orbital_core_base::collections::IndexMap::new());
         assert_eq!(
             update,
-            SExpression::Array(vec![s("persist"), s("update"), s("Target")])
+            SExpression::Array(vec![s("persist"), s("update"), s("Target")].into())
         );
 
-        let mut delete = SExpression::Array(vec![s("persist"), s("delete"), s("Source")]);
+        let mut delete = SExpression::Array(vec![s("persist"), s("delete"), s("Source")].into());
         rewrite_identifiers(&mut delete, &entity_subs, &orbital_core_base::collections::IndexMap::new());
         assert_eq!(
             delete,
-            SExpression::Array(vec![s("persist"), s("delete"), s("Target")])
+            SExpression::Array(vec![s("persist"), s("delete"), s("Target")].into())
         );
     }
 
     fn persist_row(entity: &str, key: &str) -> SExpression {
         let mut data = orbital_core_base::schema::SObject::new();
-        data.insert(key.to_string(), s("@payload.v"));
+        data.insert(key.into(), s("@payload.v"));
         SExpression::Array(vec![
             s("persist"),
             s("upsert"),
             s(entity),
             SExpression::object(data),
-        ])
+        ].into())
     }
 
     #[test]
@@ -5988,16 +6050,16 @@ mod tests {
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
         let mut row1 = orbital_core_base::schema::SObject::new();
-        row1.insert("name".to_string(), s("row-1"));
+        row1.insert("name".into(), s("row-1"));
         let mut row2 = orbital_core_base::schema::SObject::new();
-        row2.insert("name".to_string(), s("row-2"));
+        row2.insert("name".into(), s("row-2"));
 
         let rows = SExpression::Array(vec![
             SExpression::object(row1.clone()),
             SExpression::object(row2.clone()),
-        ]);
+        ].into());
 
-        let mut expr = SExpression::Array(vec![s("persist"), s("batch"), rows.clone()]);
+        let mut expr = SExpression::Array(vec![s("persist"), s("batch"), rows.clone()].into());
         let snapshot = expr.clone();
         rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
@@ -6019,12 +6081,12 @@ mod tests {
 
         let mut obj: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
         obj.insert(
-            "children".to_string(),
-            SExpression::Array(vec![SExpression::Array(vec![s("fetch"), s("Source")])]),
+            "children".into(),
+            SExpression::Array(vec![SExpression::Array(vec![s("fetch"), s("Source")].into())].into()),
         );
 
         let mut expr =
-            SExpression::Array(vec![s("render-ui"), s("main"), SExpression::object(obj)]);
+            SExpression::Array(vec![s("render-ui"), s("main"), SExpression::object(obj)].into());
         rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
         if let SExpression::Array(items) = &expr {
@@ -6032,7 +6094,7 @@ mod tests {
                 let children = map.get("children").unwrap();
                 assert_eq!(
                     children,
-                    &SExpression::Array(vec![SExpression::Array(vec![s("fetch"), s("Target")])]),
+                    &SExpression::Array(vec![SExpression::Array(vec![s("fetch"), s("Target")].into())].into()),
                     "nested fetch inside render-ui children must be rewritten"
                 );
             } else {
@@ -6050,7 +6112,7 @@ mod tests {
         let mut entity_subs: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         entity_subs.insert("Source".to_string(), "Target".to_string());
 
-        let mut expr = SExpression::Array(vec![s("fetch"), s("OtherEntity")]);
+        let mut expr = SExpression::Array(vec![s("fetch"), s("OtherEntity")].into());
         let snapshot = expr.clone();
         rewrite_identifiers(&mut expr, &entity_subs, &orbital_core_base::collections::IndexMap::new());
 
@@ -6090,7 +6152,7 @@ mod tests {
                         to: "loading".to_string(),
                         event: "LOAD".to_string(),
                         guard: None,
-                        effects: Some(vec![SExpression::Array(vec![s("fetch"), s("Source")])]),
+                        effects: Some(vec![SExpression::Array(vec![s("fetch"), s("Source")].into())]),
                         ensures: None,
                     },
                     TransitionDefinition {
@@ -6104,7 +6166,7 @@ mod tests {
                             s("create"),
                             s("Source"),
                             s("@payload.data"),
-                        ])]),
+                        ].into())]),
                         ensures: None,
                     },
                 ],
@@ -6144,7 +6206,7 @@ mod tests {
             .expect("fetch effects present")[0];
         assert_eq!(
             fetch_effect,
-            &SExpression::Array(vec![s("fetch"), s("Target")]),
+            &SExpression::Array(vec![s("fetch"), s("Target")].into()),
             "fetch effect entity slot must be rewritten by linked_entity override"
         );
 
@@ -6160,7 +6222,7 @@ mod tests {
                 s("create"),
                 s("Target"),
                 s("@payload.data"),
-            ]),
+            ].into()),
             "persist create effect entity slot must be rewritten by linked_entity override"
         );
     }
@@ -9385,15 +9447,15 @@ mod tests {
                 event: "INIT".to_string(),
                 guard: None,
                 effects: Some(vec![
-                    SExpression::Array(vec![s("set"), s("@entity.note"), s("x")]),
+                    SExpression::Array(vec![s("set"), s("@entity.note"), s("x")].into()),
                     SExpression::Array(vec![
                         s("persist"),
                         s("create"),
                         s("Other"),
                         SExpression::object(
-                            [("flag".to_string(), s("true"))].into_iter().collect(),
+                            [("flag".into(), s("true"))].into_iter().collect(),
                         ),
-                    ]),
+                    ].into()),
                 ]),
                 ensures: None,
             });
@@ -9662,6 +9724,10 @@ mod ambiguous_type_name_tests {
         serde_json::from_value(serde_json::json!({ "name": "p", "orbitals": orbitals })).expect("program")
     }
 
+    fn loader() -> ExternalOrbitalLoader {
+        ExternalOrbitalLoader::new(Default::default())
+    }
+
     fn badge(fields: &[(&str, &str)]) -> serde_json::Value {
         let fields: Vec<_> = fields.iter().map(|(n, t)| serde_json::json!({ "name": n, "type": t })).collect();
         serde_json::json!({ "Badge": fields })
@@ -9673,10 +9739,41 @@ mod ambiguous_type_name_tests {
             "AtomA": badge(&[("id", "string"), ("active", "boolean")]),
             "AtomB": badge(&[("code", "string"), ("score", "number")]),
         }));
-        let err = reject_ambiguous_type_names(&schema).expect_err("ambiguous name must be refused");
+        let err = reject_ambiguous_type_names(&schema, &loader()).expect_err("ambiguous name must be refused");
         assert_eq!(err.structured_code(), "ORB_T_AMBIGUOUS_TYPE_NAME");
         let text = err.to_string();
         assert!(text.contains("'Badge'") && text.contains("orbital 'AtomA'") && text.contains("orbital 'AtomB'"), "{text}");
+    }
+
+    #[test]
+    fn a_clash_on_one_differing_member_names_both_files_and_that_member_with_both_types() {
+        let schema = program(serde_json::json!({
+            "AtomA": badge(&[("id", "string"), ("score", "number")]),
+            "AtomB": badge(&[("id", "string"), ("score", "string")]),
+        }));
+        let loader = loader();
+        loader.record_type_origin("AtomA", "Badge", "/std/atom_a.lolo".into());
+        loader.record_type_origin("AtomB", "Badge", "/std/atom_b.lolo".into());
+        let text = reject_ambiguous_type_names(&schema, &loader).expect_err("clash").to_string();
+        assert!(text.contains("/std/atom_a.lolo") && text.contains("/std/atom_b.lolo"), "{text}");
+        assert!(text.contains("member 'score': number vs string"), "{text}");
+        assert!(!text.contains("member 'id'"), "{text}");
+    }
+
+    #[test]
+    fn a_clash_on_a_member_present_in_one_declaration_only_names_that_member() {
+        let schema = program(serde_json::json!({
+            "AtomA": badge(&[("id", "string"), ("extra", "number")]),
+            "AtomB": badge(&[("id", "string")]),
+        }));
+        let text = reject_ambiguous_type_names(&schema, &loader()).expect_err("clash").to_string();
+        assert!(text.contains("member 'extra' only in the first"), "{text}");
+        let swapped = program(serde_json::json!({
+            "AtomA": badge(&[("id", "string")]),
+            "AtomB": badge(&[("id", "string"), ("extra", "number")]),
+        }));
+        let text = reject_ambiguous_type_names(&swapped, &loader()).expect_err("clash").to_string();
+        assert!(text.contains("member 'extra' only in the second"), "{text}");
     }
 
     #[test]
@@ -9685,19 +9782,19 @@ mod ambiguous_type_name_tests {
             "AtomA": badge(&[("id", "string")]),
             "AtomB": badge(&[("id", "string")]),
         }));
-        assert!(reject_ambiguous_type_names(&same).is_ok());
+        assert!(reject_ambiguous_type_names(&same, &loader()).is_ok());
         let distinct = program(serde_json::json!({
             "AtomA": badge(&[("id", "string")]),
             "AtomB": { "ConnectionBadge": [ { "name": "code", "type": "string" } ] },
         }));
-        assert!(reject_ambiguous_type_names(&distinct).is_ok());
+        assert!(reject_ambiguous_type_names(&distinct, &loader()).is_ok());
     }
 
     #[test]
     fn a_program_level_type_conflicting_with_an_orbital_type_is_refused() {
         let mut schema = program(serde_json::json!({ "AtomA": badge(&[("id", "string")]) }));
         schema.types = serde_json::from_value(badge(&[("code", "string")])).expect("program types");
-        let err = reject_ambiguous_type_names(&schema).expect_err("program vs orbital");
+        let err = reject_ambiguous_type_names(&schema, &loader()).expect_err("program vs orbital");
         assert!(err.to_string().contains("the program"), "{err}");
     }
 }

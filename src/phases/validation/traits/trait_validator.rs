@@ -142,12 +142,12 @@ mod tests {
                         orbital_core_base::schema::SExpression::object({
                             let mut m = orbital_core_base::schema::SObject::new();
                             m.insert(
-                                "type".to_string(),
+                                "type".into(),
                                 orbital_core_base::schema::SExpression::String(("box".to_string()).into()),
                             );
                             m
                         }),
-                    ])]),
+                    ].into())]),
                     ensures: None,
                 },
                 TransitionDefinition {

@@ -793,13 +793,13 @@ mod tests {
     fn href_obj(href: SExpression) -> SExpression {
         let mut m = std::collections::HashMap::new();
         m.insert("href".to_string(), href);
-        SExpression::object(m.into_iter().collect())
+        SExpression::object(m.into_iter().map(|(k, v)| (k.into(), v)).collect())
     }
 
     fn concat(parts: &[SExpression]) -> SExpression {
         let mut items = vec![SExpression::String(("str/concat".to_string()).into())];
         items.extend(parts.iter().cloned());
-        SExpression::Array(items)
+        SExpression::Array(items.into())
     }
 
     #[test]
@@ -837,7 +837,7 @@ mod tests {
         let nested = SExpression::Array(vec![
             SExpression::string("str/upper"),
             SExpression::string("/x"),
-        ]);
+        ].into());
         collect_href_strings(
             &href_obj(concat(&[SExpression::string("/ar"), nested])),
             &mut out,

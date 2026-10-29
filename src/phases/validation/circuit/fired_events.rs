@@ -147,7 +147,7 @@ pub(crate) fn literal_knobs(
                 | SExpression::Number(_)
                 | SExpression::String(_)
                 | SExpression::Null),
-            ) => Some((name.clone(), v.clone())),
+            ) => Some((name.as_str().into(), v.clone())),
             _ => None,
         })
         .collect()
@@ -225,7 +225,7 @@ fn sexpr_has_dynamic_event_binding(
     match expr {
         SExpression::Object(obj) => {
             for (key, value) in obj.iter() {
-                if event_keys.contains(key) {
+                if event_keys.contains(key.as_str()) {
                     if let SExpression::String(s) = value {
                         if s.starts_with('@') {
                             return true;
@@ -339,7 +339,7 @@ fn collect_fired_with_knobs(
             }
             if let [SExpression::String(op), SExpression::String(address), _, SExpression::Object(options), ..] = arr.as_slice() {
                 if op == "program/dispatch" {
-                    if let Some(event) = orbital_core_base::agent_ports::calling_trait_event(address, options.keys().map(String::as_str)) {
+                    if let Some(event) = orbital_core_base::agent_ports::calling_trait_event(address, options.keys().map(|k| k.as_str())) {
                         fired.by_effect.insert((trait_name.to_string(), event.to_string()));
                     }
                 }
@@ -395,7 +395,7 @@ fn collect_fired_with_knobs(
             // names — pattern-sync writes the `kind` mark; we read it.
             let event_keys = ui_event_prop_names();
             for (key, value) in obj.iter() {
-                if event_keys.contains(key) {
+                if event_keys.contains(key.as_str()) {
                     // A value contributes every declared source that can
                     // actually render — a branch whose condition provably
                     // never fires contributes none (`live_sources`; renames
@@ -425,7 +425,7 @@ fn collect_fired_with_knobs(
                 // VALUES — not the prop's value itself — are event names. A
                 // whole-map binding (`directionEvents: "@config.…"`) is
                 // skipped, same as any other unresolvable binding.
-                if event_map_prop_names().contains(key) {
+                if event_map_prop_names().contains(key.as_str()) {
                     if let SExpression::Object(map_values) = value {
                         for map_value in map_values.values() {
                             for leaf in map_value.value_leaves(&live_sources()) {
@@ -581,15 +581,15 @@ mod tests {
                 SExpression::object(
                     [
                         (
-                            "type".to_string(),
+                            "type".into(),
                             SExpression::String(("button".to_string()).into()),
                         ),
-                        ("action".to_string(), SExpression::String(event.to_string().into())),
+                        ("action".into(), SExpression::String(event.to_string().into())),
                     ]
                     .into_iter()
                     .collect(),
                 ),
-            ])]),
+            ].into())]),
             ensures: None,
         }];
         td
@@ -731,9 +731,9 @@ mod tests {
         let tree = SExpression::Array(vec![
             s("if"),
             s(""),
-            SExpression::Array(vec![s("emit"), s("DEAD")]),
-            SExpression::Array(vec![s("emit"), s("LIVE")]),
-        ]);
+            SExpression::Array(vec![s("emit"), s("DEAD")].into()),
+            SExpression::Array(vec![s("emit"), s("LIVE")].into()),
+        ].into());
         let mut fired = FiredEvents::default();
         collect_fired_with_knobs("T", &tree, &orbital_core_base::schema::SObject::new(), &mut fired);
         assert!(
@@ -783,9 +783,9 @@ mod tests {
         let tree = SExpression::Array(vec![
             s("if"),
             s("@config.knob"),
-            SExpression::Array(vec![s("emit"), s("A")]),
-            SExpression::Array(vec![s("emit"), s("B")]),
-        ]);
+            SExpression::Array(vec![s("emit"), s("A")].into()),
+            SExpression::Array(vec![s("emit"), s("B")].into()),
+        ].into());
         let mut fired = FiredEvents::default();
         collect_fired_with_knobs("T", &tree, &orbital_core_base::schema::SObject::new(), &mut fired);
         assert!(fired
@@ -833,14 +833,14 @@ mod tests {
 
     #[test]
     fn live_sources_skips_false_branch() {
-        let value = SExpression::Array(vec![s("if"), s(""), s("SAVE"), s("CANCEL")]);
+        let value = SExpression::Array(vec![s("if"), s(""), s("SAVE"), s("CANCEL")].into());
         let leaves = value.value_leaves(&live_sources());
         assert_eq!(leaves, vec![&s("CANCEL")]);
     }
 
     #[test]
     fn live_sources_keeps_both_when_undecidable() {
-        let value = SExpression::Array(vec![s("if"), s("@config.knob"), s("SAVE"), s("CANCEL")]);
+        let value = SExpression::Array(vec![s("if"), s("@config.knob"), s("SAVE"), s("CANCEL")].into());
         let leaves = value.value_leaves(&live_sources());
         assert_eq!(leaves, vec![&s("SAVE"), &s("CANCEL")]);
     }
@@ -859,13 +859,13 @@ mod tests {
         // { type: "control-grid", directionEvents: { left: "STEER_LEFT", right: "STEER_RIGHT" } }
         let node = SExpression::object(
             [
-                ("type".to_string(), s("control-grid")),
+                ("type".into(), s("control-grid")),
                 (
-                    "directionEvents".to_string(),
+                    "directionEvents".into(),
                     SExpression::object(
                         [
-                            ("left".to_string(), s("STEER_LEFT")),
-                            ("right".to_string(), s("STEER_RIGHT")),
+                            ("left".into(), s("STEER_LEFT")),
+                            ("right".into(), s("STEER_RIGHT")),
                         ]
                         .into_iter()
                         .collect(),
@@ -899,8 +899,8 @@ mod tests {
         // not itself an object of literal event names; unresolvable, skipped.
         let node = SExpression::object(
             [
-                ("type".to_string(), s("control-grid")),
-                ("directionEvents".to_string(), s("@config.directionEvents")),
+                ("type".into(), s("control-grid")),
+                ("directionEvents".into(), s("@config.directionEvents")),
             ]
             .into_iter()
             .collect(),

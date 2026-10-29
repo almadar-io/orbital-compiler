@@ -435,10 +435,10 @@ mod tests {
         SExpression::String(v.to_string().into())
     }
     fn arr(items: Vec<SExpression>) -> SExpression {
-        SExpression::Array(items)
+        SExpression::Array(items.into())
     }
     fn obj(pairs: Vec<(&str, SExpression)>) -> SExpression {
-        SExpression::object(pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+        SExpression::object(pairs.into_iter().map(|(k, v)| (k.into(), v)).collect())
     }
 
     fn render_only_trait(name: &str, pattern: SExpression) -> TraitDefinition {
@@ -579,7 +579,7 @@ mod tests {
                     s("party"),
                     obj(vec![
                         ("type", s("stack")),
-                        ("children", SExpression::Array(body_children)),
+                        ("children", SExpression::Array(body_children.into())),
                     ]),
                 ]),
             ),
@@ -709,7 +709,7 @@ mod tests {
                 ("type", s("badge")),
                 (
                     "children",
-                    SExpression::Array(vec![s("@trait.InlineInner")]),
+                    SExpression::Array(vec![s("@trait.InlineInner")].into()),
                 ),
             ]),
         );
@@ -812,7 +812,7 @@ mod tests {
             "Host",
             obj(vec![
                 ("type", s("stack")),
-                ("children", SExpression::Array(vec![s("@trait.InlineW1")])),
+                ("children", SExpression::Array(vec![s("@trait.InlineW1")].into())),
             ]),
         );
         let mut orbital = make_orbital(vec![host, wrapper]);
@@ -851,14 +851,14 @@ mod tests {
             "CycleA",
             obj(vec![
                 ("type", s("stack")),
-                ("children", SExpression::Array(vec![s("@trait.CycleB")])),
+                ("children", SExpression::Array(vec![s("@trait.CycleB")].into())),
             ]),
         );
         let b = render_only_trait(
             "CycleB",
             obj(vec![
                 ("type", s("stack")),
-                ("children", SExpression::Array(vec![s("@trait.CycleA")])),
+                ("children", SExpression::Array(vec![s("@trait.CycleA")].into())),
             ]),
         );
         let host = host_with_render("Host", lambda_render_pattern(vec![s("@trait.CycleA")]));

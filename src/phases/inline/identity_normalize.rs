@@ -470,14 +470,14 @@ mod tests {
                 SExpression::string("persist"),
                 SExpression::string("create"),
                 SExpression::string("Record"),
-            ])
+            ].into())
         );
         assert_eq!(
             effects[1],
             SExpression::Array(vec![
                 SExpression::string("fetch"),
                 SExpression::string("Record"),
-            ])
+            ].into())
         );
     }
 
@@ -564,7 +564,7 @@ mod tests {
                 SExpression::string("render-ui"),
                 SExpression::string("main"),
                 SExpression::string("@trait.BrowseView"),
-            ])
+            ].into())
         );
     }
 

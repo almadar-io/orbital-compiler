@@ -7,6 +7,7 @@
 //! Also validates config overrides in trait references (TODO: requires
 //! inline resolution for the upstream declaration lookup).
 
+use orbital_core_eval::evaluator::IsoShape;
 use std::collections::{HashMap, HashSet};
 
 use orbital_core_base::schema::{
@@ -515,7 +516,7 @@ fn knob_prop_type_union(trait_def: &TraitDefinition, value_str: &str) -> Option<
                             if s != value_str {
                                 continue;
                             }
-                            let Some(schema) = props.get(k) else { continue };
+                            let Some(schema) = props.get(k.as_str()) else { continue };
                             for t in &schema.types {
                                 if seen.insert(t.clone()) {
                                     union.push(t.clone());
@@ -1677,7 +1678,7 @@ pub(crate) fn check_field_def_shape(
                 }
                 return result;
             };
-            let keys: Vec<&str> = map.keys().map(String::as_str).collect();
+            let keys: Vec<&str> = map.keys().map(|k| k.as_str()).collect();
             let choice = schema.select_union_variant(&keys, |field, tag| match map.get(field) {
                 Some(SExpression::String(actual)) if actual.starts_with('@') => TagReading::LateBound,
                 Some(SExpression::String(actual)) if actual == tag => TagReading::Equal,
@@ -1702,7 +1703,7 @@ pub(crate) fn check_field_def_shape(
                     if let Some(props) = &chosen.properties {
                         let mut unknown: Vec<&str> = map
                             .keys()
-                            .filter(|k| !props.contains_key(*k))
+                            .filter(|k| !props.contains_key(k.as_str()))
                             .map(|k| k.as_str())
                             .collect();
                         unknown.sort_unstable();
@@ -2084,6 +2085,10 @@ fn sexpr_kind(value: &SExpression) -> &'static str {
     }
 }
 
+fn iso_literal_is(value: &SExpression, shape: IsoShape) -> bool {
+    matches!(value, SExpression::String(s) if orbital_core_eval::evaluator::parse_iso(s).is_some_and(|(_, found)| found == shape))
+}
+
 pub(crate) fn check_primitive_shape(
     type_tag: &str,
     value: &SExpression,
@@ -2119,9 +2124,8 @@ pub(crate) fn check_primitive_shape(
         // An id string, or absent — never a stored row/object. `seedRow :
         // Note = {}` is exactly the shape this rejects.
         "relation" => actual == "string" || actual == "null",
-        "date" | "datetime" | "timestamp" => actual == "string" || actual == "number",
-        // A literal moment (epoch milliseconds written in the program) is a valid instant; nothing computed widens into one.
-        "instant" => actual == "number",
+        "date" => iso_literal_is(value, IsoShape::Date),
+        "datetime" | "instant" | "timestamp" => iso_literal_is(value, IsoShape::DateTime),
         _ => true, // Unknown type tags pass — covered by other validators.
     };
     if !ok {
@@ -3631,8 +3635,8 @@ mod recursive_type_literal_tests {
 
     fn item(label: &str, sub_menu: Vec<SExpression>) -> SExpression {
         let mut obj = orbital_core_base::schema::SObject::new();
-        obj.insert("label".to_string(), SExpression::String(label.to_string().into()));
-        obj.insert("subMenu".to_string(), SExpression::Array(sub_menu));
+        obj.insert("label".into(), SExpression::String(label.to_string().into()));
+        obj.insert("subMenu".into(), SExpression::Array(sub_menu.into()));
         SExpression::object(obj)
     }
 
@@ -3647,7 +3651,7 @@ mod recursive_type_literal_tests {
         let depth3 = item("A", vec![item("B", vec![item("C", vec![])])]);
         let result = check_config_default_shape(
             &field,
-            &SExpression::Array(vec![depth3]),
+            &SExpression::Array(vec![depth3].into()),
             "t.config.subMenu",
             &EventScope {
                 events: events.clone(),
@@ -3672,14 +3676,14 @@ mod recursive_type_literal_tests {
         let events = HashSet::new();
         let mut typo_leaf = orbital_core_base::schema::SObject::new();
         typo_leaf.insert(
-            "labell".to_string(), // typo: required "label" is now absent
+            "labell".into(), // typo: required "label" is now absent
             SExpression::String(("C".to_string()).into()),
         );
-        typo_leaf.insert("subMenu".to_string(), SExpression::Array(vec![]));
+        typo_leaf.insert("subMenu".into(), SExpression::Array(vec![].into()));
         let depth3 = item("A", vec![item("B", vec![SExpression::object(typo_leaf)])]);
         let result = check_config_default_shape(
             &field,
-            &SExpression::Array(vec![depth3]),
+            &SExpression::Array(vec![depth3].into()),
             "t.config.subMenu",
             &EventScope {
                 events: events.clone(),
@@ -3799,7 +3803,7 @@ mod required_member_tests {
         let text = check(SExpression::String(("ls".to_string()).into()));
         assert!(text.errors.is_empty(), "a string is the string variant: {:?}", text.errors);
         let mut env = orbital_core_base::schema::SObject::new();
-        env.insert("env".to_string(), SExpression::String(("HOME".to_string()).into()));
+        env.insert("env".into(), SExpression::String(("HOME".to_string()).into()));
         let record = check(SExpression::object(env));
         assert!(record.errors.is_empty(), "a record variant still fits: {:?}", record.errors);
         assert!(
@@ -4025,7 +4029,7 @@ mod tuple_shape_tests {
                 SExpression::Number(1.0),
                 SExpression::string("x"),
                 SExpression::Number(3.0)
-            ]))
+            ].into()))
             .errors
             .is_empty(),
             "wrong slot type"
@@ -4052,7 +4056,7 @@ mod tuple_shape_tests {
                 SExpression::string("a"),
                 SExpression::Number(5.0),
                 SExpression::Number(6.0)
-            ]))
+            ].into()))
             .errors
             .is_empty(),
             "knob: wrong slot type"

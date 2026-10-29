@@ -240,7 +240,7 @@ fn check_headers(expr: &SExpression, grant: bool, path: &str, ctx: &ExprReturnCt
         let error = match operand(value, ctx) {
             RetryOperand::Literal(value) => {
                 let mut header = ValueMap::new();
-                header.insert(name.clone(), value);
+                header.insert(name.to_string(), value);
                 parse_http_headers(Some(&Value::object(header))).err().map(|error| error.message())
             }
             RetryOperand::Typed(ty) if !orbital_core_base::type_compat::oir_type_satisfies(&ty, &OirType::String) => Some(format!("HTTP header `{name}` must evaluate to a string")),
@@ -283,7 +283,7 @@ fn check_retry(expr: &SExpression, path: &str, ctx: &ExprReturnCtx<'_>, result: 
             if fields.keys().any(|name| !HttpRetry::KEYS.contains(&name.as_str())) {
                 return;
             }
-            let fields: Vec<_> = fields.iter().map(|(name, value)| (name.clone(), operand(value, ctx))).collect();
+            let fields: Vec<_> = fields.iter().map(|(name, value)| (name.to_string(), operand(value, ctx))).collect();
             HttpRetry::check_partial(&fields).err().map(|error| error.message())
         }
         _ => match operand(expr, ctx) {
@@ -425,7 +425,7 @@ fn check_beacon_call(arr: &[SExpression], site: &Site, result: &mut ValidationRe
     let request_key = request.and_then(|r| r.get("key"));
     let mut keyed = options.cloned().unwrap_or_default();
     if let Some(key) = request_key {
-        keyed.insert("key".to_string(), key.clone());
+        keyed.insert("key".into(), key.clone());
     }
     result.merge(check_key_and_cancelled(&keyed, site.path, "browser/beacon"));
 }

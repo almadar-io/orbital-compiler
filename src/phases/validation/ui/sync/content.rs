@@ -71,7 +71,7 @@ mod tests {
         SExpression::object(
             pairs
                 .iter()
-                .map(|(k, v)| (k.to_string(), v.clone()))
+                .map(|(k, v)| (k.to_string().into(), v.clone()))
                 .collect(),
         )
     }
@@ -100,7 +100,7 @@ mod tests {
             ("type", SExpression::String(("stack".to_string()).into())),
             (
                 "children",
-                SExpression::Array(vec![SExpression::String(("x".to_string()).into())]),
+                SExpression::Array(vec![SExpression::String(("x".to_string()).into())].into()),
             ),
         ]);
         assert!(is_content_body_pattern(&payload));
@@ -123,7 +123,7 @@ mod tests {
     fn content_body_pattern_false_for_empty_children() {
         let payload = obj(&[
             ("type", SExpression::String(("container".to_string()).into())),
-            ("children", SExpression::Array(vec![])),
+            ("children", SExpression::Array(vec![].into())),
         ]);
         assert!(!is_content_body_pattern(&payload));
     }
@@ -141,7 +141,7 @@ mod tests {
                 SExpression::String(("render-ui".to_string()).into()),
                 SExpression::String(((*slot).to_string()).into()),
                 SExpression::Null,
-            ]);
+            ].into());
             assert!(
                 is_main_slot_render_ui(&effect),
                 "slot {slot} should count as main"
@@ -155,7 +155,7 @@ mod tests {
             SExpression::String(("render-ui".to_string()).into()),
             SExpression::String(("modal".to_string()).into()),
             SExpression::Null,
-        ]);
+        ].into());
         assert!(!is_main_slot_render_ui(&effect));
     }
 }

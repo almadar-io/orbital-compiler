@@ -203,7 +203,7 @@ fn with_fetch_filter_rows(
                 if matches!(items.as_slice(), [SExpression::String(head), SExpression::String(arg), ..] if head == "object/get" && arg == "@entity") {
                     items[1] = row.clone();
                 }
-                SExpression::Array(items)
+                SExpression::Array(items.into())
             }
             SExpression::Object(map) => {
                 SExpression::object(map.iter().map(|(k, v)| (k.clone(), row_reads(v, row))).collect())
@@ -227,7 +227,7 @@ fn with_fetch_filter_rows(
                     }
                 }
             }
-            SExpression::Array(items)
+            SExpression::Array(items.into())
         }
         SExpression::Object(map) => {
             SExpression::object(map.iter().map(|(k, v)| (k.clone(), with_fetch_filter_rows(v, ctx, rows, locals))).collect())
@@ -488,7 +488,14 @@ mod tests {
         assert!(mismatches(r#"["str/upper", "@entity.unknown"]"#, HashMap::new()).is_empty());
         assert!(mismatches(r#"["str/upper", "@payload.x"]"#, HashMap::new()).is_empty());
         assert!(mismatches(r#"["str/upper", null]"#, HashMap::new()).is_empty());
-        assert!(mismatches(r#"["+", "@entity.when", 1]"#, field("when", "date")).is_empty());
+        assert!(mismatches(r#"["str/upper", "@entity.when"]"#, field("when", "date")).is_empty());
+    }
+
+    #[test]
+    fn a_date_is_text_so_arithmetic_on_it_is_an_error() {
+        let got = mismatches(r#"["+", "@entity.when", 1]"#, field("when", "date"));
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert!(mismatches(r#"["+", "@entity.count", 1]"#, field("count", "number")).is_empty(), "control: a number adds");
     }
 
     fn undetermined(json: &str, entity: HashMap<String, EntityFieldMeta>) -> Vec<String> {
@@ -498,6 +505,23 @@ mod tests {
             .filter(|e| e.code == ErrorCode::OperatorArgUndetermined)
             .map(|e| e.message.clone())
             .collect()
+    }
+
+    #[test]
+    fn an_empty_list_in_an_accumulator_object_takes_the_type_its_use_site_gives_it() {
+        let read_out = |init: &str, step: &str| {
+            let json = format!(
+                r#"["array/len", ["object/get", ["array/reduce", ["array/range", 0, 3], {init}, ["fn", ["acc", "i"], {step}]], "out"]]"#
+            );
+            undetermined(&json, HashMap::new())
+        };
+        let append = r#"["object/set", "@acc", "out", ["array/append", ["object/get", "@acc", "out"], "@i"]]"#;
+        assert!(read_out(r#"{"out": []}"#, append).is_empty(), "{:?}", read_out(r#"{"out": []}"#, append));
+        assert!(read_out(r#"{"out": [0]}"#, append).is_empty(), "control: a non-empty list keeps its element type");
+        let unused = read_out(r#"{"out": []}"#, r#""@acc""#);
+        assert_eq!(unused.len(), 1, "control: no use site gives the empty list a type, so it is never guessed: {unused:?}");
+        let alone = undetermined(r#"["array/len", []]"#, HashMap::new());
+        assert_eq!(alone.len(), 1, "control: a bare empty list stays undetermined: {alone:?}");
     }
 
     #[test]
@@ -561,7 +585,7 @@ mod tests {
     #[test]
     fn the_bindings_the_language_defines_are_typed() {
         for expr in [
-            r#"[">", "@now", 5]"#,
+            r#"[">", "@now", "@now"]"#,
             r#"["==", "@state", "idle"]"#,
             r#"["==", "@fromState", "idle"]"#,
             r#"["==", "@locale", "en"]"#,
@@ -572,9 +596,44 @@ mod tests {
             assert!(undetermined(expr, HashMap::new()).is_empty(), "{expr}: {:?}", undetermined(expr, HashMap::new()));
             assert!(mismatches(expr, HashMap::new()).is_empty(), "{expr}: {:?}", mismatches(expr, HashMap::new()));
         }
-        assert_eq!(mismatches(r#"[">", "@now", "x"]"#, HashMap::new()).len(), 1, "control: @now is a number");
+        assert_eq!(mismatches(r#"[">", "@now", "x"]"#, HashMap::new()).len(), 1, "control: @now is a point in time, not text");
+        assert_eq!(mismatches(r#"[">", "@now", 5]"#, HashMap::new()).len(), 1, "control: a number is no point in time");
         assert_eq!(mismatches(r#"["==", "@state", 3]"#, HashMap::new()).len(), 1, "control: @state is a string");
         assert_eq!(mismatches(r#"["==", "@event.payload", 3]"#, HashMap::new()).len(), 1, "a delivery's payload is the triggering event's record");
+    }
+
+    #[test]
+    fn a_declared_iso_literal_knob_is_a_point_in_time() {
+        let read = |kind: &str, text: &str| {
+            serde_json::json!(["time/diff", "@now", ["let", [["knob_at", text, format!(r#"{{"kind":"{kind}"}}"#)]], "@knob_at"], "s"]).to_string()
+        };
+        for (kind, text) in [("instant", "1970-01-01T00:00:00.000Z"), ("datetime", "2026-10-28T10:30:00+02:00"), ("date", "2026-10-28")] {
+            let expr = read(kind, text);
+            assert!(mismatches(&expr, HashMap::new()).is_empty(), "{kind} {text}: {:?}", mismatches(&expr, HashMap::new()));
+        }
+        for (kind, text) in [("instant", "2026-10-28"), ("datetime", "soon"), ("date", "2026-10-28T10:30:00Z")] {
+            let expr = read(kind, text);
+            assert!(!mismatches(&expr, HashMap::new()).is_empty(), "{kind} {text}: a literal off the declared shape is refused");
+        }
+        assert_eq!(
+            mismatches(r#"["time/diff", "@now", "1970-01-01T00:00:00.000Z", "s"]"#, HashMap::new()).len(),
+            1,
+            "control: a bare string value at a date parameter stays refused"
+        );
+    }
+
+    #[test]
+    fn now_is_an_instant_not_a_number() {
+        assert!(
+            mismatches(r#"["time/diff", "@now", "@now", "s"]"#, HashMap::new()).is_empty(),
+            "{:?}",
+            mismatches(r#"["time/diff", "@now", "@now", "s"]"#, HashMap::new())
+        );
+        assert_eq!(mismatches(r#"["/", "@now", 1000]"#, HashMap::new()).len(), 1, "@now in arithmetic");
+        assert!(
+            mismatches(r#"["/", ["time/diff", "@now", "@now", "ms"], 1000]"#, HashMap::new()).is_empty(),
+            "control: a time/diff result is a number"
+        );
     }
 
     fn with_payload(json: &str, shapes: &[(&str, orbital_core_base::ir::OirType)]) -> Vec<String> {

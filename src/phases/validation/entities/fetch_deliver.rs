@@ -508,7 +508,7 @@ impl<'a> Checker<'a> {
         let (body, header) = expr.as_array()?.split_last()?;
         let mut declaration = header.to_vec();
         declaration.push(SExpression::Null);
-        let declaration = SExpression::Array(declaration);
+        let declaration = SExpression::Array(declaration.into());
         let OirExpr::Lambda { params, .. } = orbital_core_eval::lower::lower_sexpr(&declaration).ok()? else {
             return None;
         };

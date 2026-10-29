@@ -124,12 +124,12 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
     // Trait declares EVT with a required field, but a transition emits EVT
     // without the field.
     let mut payload_obj = orbital_core_base::schema::SObject::new();
-    payload_obj.insert("name".to_string(), s("Ada"));
+    payload_obj.insert("name".into(), s("Ada"));
     let emit = SExpression::Array(vec![
         s("emit"),
         s(strict_target_event),
         SExpression::object(payload_obj),
-    ]);
+    ].into());
 
     let trait_def = TraitDefinition {
         dispatch: None,
@@ -555,15 +555,15 @@ fn f2_wildcard_listener_still_reachable_across_orbitals() {
 /// @payload @config.action`, registry `payloadFor: "action"`).
 fn button_action_payload_effect(event: &str, payload_key: &str, entity_field: &str) -> SExpression {
     let mut node = orbital_core_base::schema::SObject::new();
-    node.insert("type".to_string(), s("button"));
-    node.insert("action".to_string(), s(event));
+    node.insert("type".into(), s("button"));
+    node.insert("action".into(), s(event));
     let mut payload = orbital_core_base::schema::SObject::new();
     payload.insert(
-        payload_key.to_string(),
+        payload_key.into(),
         s(&format!("@entity.{}", entity_field)),
     );
-    node.insert("actionPayload".to_string(), SExpression::object(payload));
-    SExpression::Array(vec![s("render-ui"), s("main"), SExpression::object(node)])
+    node.insert("actionPayload".into(), SExpression::object(payload));
+    SExpression::Array(vec![s("render-ui"), s("main"), SExpression::object(node)].into())
 }
 
 /// A trait whose only production of `event` is the rendered button above —

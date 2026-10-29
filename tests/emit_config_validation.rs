@@ -28,14 +28,14 @@ use orbital_core_base::schema::{
 fn emit_object(entries: &[(&str, &str)]) -> SExpression {
     let mut m: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     for (k, v) in entries {
-        m.insert((*k).to_string(), SExpression::String(((*v).to_string()).into()));
+        m.insert((*k).into(), SExpression::String(((*v).to_string()).into()));
     }
     SExpression::object(m)
 }
 
 fn options_with_emit(emit: SExpression) -> SExpression {
     let mut opts: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
-    opts.insert("emit".to_string(), emit);
+    opts.insert("emit".into(), emit);
     SExpression::object(opts)
 }
 
@@ -218,7 +218,7 @@ fn fetch_with_success_and_failure_is_valid() {
             ("success", "PATIENT_LOADED"),
             ("failure", "PATIENT_LOAD_FAILED"),
         ])),
-    ])];
+    ].into())];
     let schema = schema_with_effects(
         effects,
         vec![
@@ -245,7 +245,7 @@ fn fetch_with_on_message_is_rejected() {
         SExpression::String(("fetch".to_string()).into()),
         SExpression::String(("Patient".to_string()).into()),
         options_with_emit(emit_object(&[("on_message", "STREAMING")])),
-    ])];
+    ].into())];
     let schema = schema_with_effects(effects, vec![]);
     let result = validate_comprehensive_without_services(&schema);
     assert!(
@@ -266,7 +266,7 @@ fn set_with_failure_is_rejected() {
         SExpression::String(("@entity.status".to_string()).into()),
         SExpression::String(("done".to_string()).into()),
         options_with_emit(emit_object(&[("failure", "WRITE_FAILED")])),
-    ])];
+    ].into())];
     let schema = schema_with_effects(effects, vec![]);
     let result = validate_comprehensive_without_services(&schema);
     assert!(
@@ -286,7 +286,7 @@ fn set_with_success_is_valid() {
         SExpression::String(("@entity.status".to_string()).into()),
         SExpression::String(("done".to_string()).into()),
         options_with_emit(emit_object(&[("success", "STATUS_CHANGED")])),
-    ])];
+    ].into())];
     let schema = schema_with_effects(effects, vec![declared_emit("STATUS_CHANGED", false)]);
     let result = validate_comprehensive_without_services(&schema);
     assert!(
@@ -308,7 +308,7 @@ fn mixed_case_event_name_accepted_post_phase_2_5() {
         SExpression::String(("fetch".to_string()).into()),
         SExpression::String(("Patient".to_string()).into()),
         options_with_emit(emit_object(&[("success", "patientLoaded")])),
-    ])];
+    ].into())];
     let schema = schema_with_effects(effects, vec![]);
     let result = validate_comprehensive_without_services(&schema);
     assert!(
@@ -330,7 +330,7 @@ fn malformed_event_identifier_still_rejected() {
         SExpression::String(("fetch".to_string()).into()),
         SExpression::String(("Patient".to_string()).into()),
         options_with_emit(emit_object(&[("success", "1badName")])),
-    ])];
+    ].into())];
     let schema = schema_with_effects(effects, vec![]);
     let result = validate_comprehensive_without_services(&schema);
     assert!(
@@ -349,7 +349,7 @@ fn undeclared_event_is_warning() {
         SExpression::String(("fetch".to_string()).into()),
         SExpression::String(("Patient".to_string()).into()),
         options_with_emit(emit_object(&[("success", "PATIENT_LOADED")])),
-    ])];
+    ].into())];
     // No declared emit for PATIENT_LOADED
     let schema = schema_with_effects(effects, vec![]);
     let result = validate_comprehensive_without_services(&schema);
@@ -379,7 +379,7 @@ fn os_watch_http_is_retired_and_unknown_while_a_known_os_operator_is_not() {
         let effects = vec![SExpression::Array(vec![
             str_expr(op),
             str_expr("wss://push"),
-        ])];
+        ].into())];
         let schema = schema_with_effects(effects, vec![]);
         validate_comprehensive_without_services(&schema)
             .errors
@@ -398,7 +398,7 @@ fn options(entries: Vec<(&str, SExpression)>) -> SExpression {
     SExpression::object(
         entries
             .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
+            .map(|(k, v)| (k.into(), v))
             .collect::<orbital_core_base::schema::SObject>(),
     )
 }
@@ -414,11 +414,11 @@ fn keyed_call_service(opts: SExpression) -> SExpression {
         str_expr("run"),
         options(vec![]),
         opts,
-    ])
+    ].into())
 }
 
 fn cancel_call(key: SExpression) -> SExpression {
-    SExpression::Array(vec![str_expr("cancel-call"), key])
+    SExpression::Array(vec![str_expr("cancel-call"), key].into())
 }
 
 fn has_code(effects: Vec<SExpression>, emits: Vec<EmitDefinition>, code: ErrorCode) -> bool {
@@ -538,7 +538,7 @@ fn cancelled_is_not_an_emit_key_of_fetch() {
         str_expr("fetch"),
         str_expr("Patient"),
         options_with_emit(emit_object(&[("cancelled", "STOPPED")])),
-    ])];
+    ].into())];
     assert!(has_code(
         effects,
         cancelled_emit_declared(),
@@ -594,7 +594,7 @@ fn cancel_call_is_satisfied_by_a_keyed_call_in_another_trait_of_the_app() {
 
 #[test]
 fn cancel_call_is_satisfied_by_a_keyed_substrate_op_and_not_by_an_unkeyed_one() {
-    let substrate = |opts: SExpression| SExpression::Array(vec![str_expr("program/eval"), str_expr("@entity.id"), opts]);
+    let substrate = |opts: SExpression| SExpression::Array(vec![str_expr("program/eval"), str_expr("@entity.id"), opts].into());
     let keyed = substrate(options(vec![("key", str_expr("k")), ("emit", emit_object(&[("success", "DONE")]))]));
     assert!(
         !has_code(vec![keyed, cancel_call(str_expr("k"))], vec![declared_emit("DONE", false)], ErrorCode::CancelCallNoKeyedCall),
@@ -618,7 +618,7 @@ fn cancel_call_inside_a_conditional_is_still_found() {
         str_expr("if"),
         SExpression::Bool(true),
         cancel_call(str_expr("k")),
-    ]);
+    ].into());
     assert!(has_code(
         vec![nested],
         vec![],
@@ -632,7 +632,7 @@ fn non_string_key_literals_are_an_error() {
         SExpression::Number(7.0),
         SExpression::Bool(true),
         options(vec![("a", str_expr("b"))]),
-        SExpression::Array(vec![SExpression::Number(1.0)]),
+        SExpression::Array(vec![SExpression::Number(1.0)].into()),
     ] {
         let effects = vec![keyed_call_service(options(vec![
             ("key", bad.clone()),
@@ -658,7 +658,7 @@ fn string_literal_and_expression_keys_are_accepted() {
             str_expr("str/concat"),
             str_expr("a"),
             str_expr("@entity.id"),
-        ]),
+        ].into()),
     ] {
         let effects = vec![keyed_call_service(options(vec![
             ("key", good.clone()),
@@ -690,7 +690,7 @@ fn os_call(op: &str, emit: &[(&str, &str)]) -> SExpression {
         SExpression::String(("127.0.0.1".to_string()).into()),
         SExpression::Number(0.0),
         options_with_emit(emit_object(emit)),
-    ])
+    ].into())
 }
 
 fn emit_key_invalid(op: &str, emit: &[(&str, &str)]) -> bool {

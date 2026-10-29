@@ -785,6 +785,19 @@ impl<'c> Inferer<'c> {
                 }
             }
         }
+        if let OirExpr::String { value: text } = value {
+            use orbital_core_eval::evaluator::{parse_iso, IsoShape};
+            let fits = match &shape.ty {
+                OirType::Date => Some(IsoShape::Date),
+                OirType::DateTime | OirType::Instant => Some(IsoShape::DateTime),
+                _ => None,
+            };
+            if let Some(fits) = fits {
+                if parse_iso(text).is_some_and(|(_, found)| found == fits) {
+                    return Some(shape.ty);
+                }
+            }
+        }
         let mark = self.diagnostics.borrow().len();
         let resolve = |name: &str| {
             shape
@@ -1505,7 +1518,7 @@ impl<'c> Inferer<'c> {
                         // no element until the body builds one: read the body once for the list it builds, then
                         // check it with the parameter typed as that list. The first reading's findings are dropped;
                         // they were made without the element.
-                        let empty = |t: &Option<OirType>| t.as_ref().is_some_and(is_empty_list);
+                        let empty = |t: &Option<OirType>| t.as_ref().is_some_and(holds_empty_list);
                         if typed.iter().any(empty) {
                             let mark = self.diagnostics.borrow().len();
                             let built = self
@@ -1520,7 +1533,7 @@ impl<'c> Inferer<'c> {
                             self.diagnostics.borrow_mut().truncate(mark);
                             if let Some(built) = built {
                                 for slot in typed.iter_mut().filter(|t| empty(t)) {
-                                    *slot = Some(built.clone());
+                                    *slot = slot.as_ref().map(|held| fill_empty_lists(held, &built));
                                 }
                             }
                         }
@@ -1763,6 +1776,27 @@ impl<'c> Inferer<'c> {
                     .flatten()
                 {
                     return Some(self.unfold(item.clone()));
+                }
+            }
+        }
+        if name_fn == "object/set" {
+            if let (Some(Some(record)), Some(OirExpr::String { value: key }), Some(Some(value))) =
+                (arg_types.first(), args.get(1), arg_types.get(2))
+            {
+                if let OirType::Struct { fields, additional } = self.unfold(record.clone()) {
+                    if fields.iter().any(|f| &f.name == key && is_empty_list(&f.field_type)) && !is_empty_list(value) {
+                        let filled: Vec<OirField> = fields
+                            .iter()
+                            .map(|f| {
+                                let mut out = f.clone();
+                                if &f.name == key {
+                                    out.field_type = value.clone();
+                                }
+                                out
+                            })
+                            .collect();
+                        return Some(OirType::Struct { fields: filled.into(), additional });
+                    }
                 }
             }
         }
@@ -2095,7 +2129,7 @@ fn language_binding(
         ].into(),
     };
     Some(match &binding.root {
-        OirBindingRoot::Local(name) if name == "now" => OirType::Number,
+        OirBindingRoot::Local(name) if name == "now" => OirType::Instant,
         OirBindingRoot::State
         | OirBindingRoot::FromState
         | OirBindingRoot::ToState
@@ -2957,6 +2991,39 @@ fn is_empty_list(ty: &OirType) -> bool {
     matches!(ty, OirType::Tuple { items } if items.is_empty())
 }
 
+/// Whether `ty` is the empty list or a record with a field that is (a fold's accumulator `{ out: [] }`).
+fn holds_empty_list(ty: &OirType) -> bool {
+    match ty {
+        OirType::Struct { fields, .. } => fields.iter().any(|f| holds_empty_list(&f.field_type)),
+        other => is_empty_list(other),
+    }
+}
+
+/// `held` with each empty list taken from what `built` has at the same place; an empty list `built` does not type
+/// stays empty.
+fn fill_empty_lists(held: &OirType, built: &OirType) -> OirType {
+    match (held, built) {
+        (held, built) if is_empty_list(held) => {
+            if is_empty_list(built) { held.clone() } else { built.clone() }
+        }
+        (OirType::Struct { fields, additional }, OirType::Struct { fields: built_fields, .. }) => {
+            let filled: Vec<OirField> = fields
+                .iter()
+                .map(|field| match built_fields.iter().find(|b| b.name == field.name) {
+                    Some(b) if holds_empty_list(&field.field_type) => {
+                        let mut out = field.clone();
+                        out.field_type = fill_empty_lists(&field.field_type, &b.field_type);
+                        out
+                    }
+                    _ => field.clone(),
+                })
+                .collect();
+            OirType::Struct { fields: filled.into(), additional: additional.clone() }
+        }
+        (held, _) => held.clone(),
+    }
+}
+
 fn element_of(ty: &OirType) -> Option<OirType> {
     match ty {
         OirType::Array { inner } => Some((**inner).clone()),
@@ -3544,7 +3611,7 @@ mod tests {
             S::String(">".into()),
             S::Number(1.0),
             S::Number(0.0),
-        ]));
+        ].into()));
         assert_eq!(infer_oir_expr_type(&list, &NoCtx), Some(OirType::SExpr));
         assert_eq!(
             infer_oir_expr_type(&quoted(S::Null), &NoCtx),

@@ -301,7 +301,7 @@ pub(crate) fn validate_sexpr_with_locals(
                                 // names first (permissive). lolo lowers `let` to the
                                 // ordered array form above.
                                 for name in bindings.keys() {
-                                    extended_locals.insert(name.clone());
+                                    extended_locals.insert(name.to_string());
                                 }
                                 for (name, value_expr) in bindings.iter() {
                                     result.merge(validate_sexpr_with_locals(
@@ -625,7 +625,7 @@ mod tests {
             SExpression::String(("=".to_string()).into()),
             SExpression::String(("@entity.status".to_string()).into()),
             SExpression::String(("active".to_string()).into()),
-        ]);
+        ].into());
 
         let result = validate_sexpr(&guard, "test", SExprContext::Guard, &HashSet::new());
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
@@ -637,7 +637,7 @@ mod tests {
             SExpression::String(("set".to_string()).into()),
             SExpression::String(("@entity.status".to_string()).into()),
             SExpression::String(("active".to_string()).into()),
-        ]);
+        ].into());
 
         let result = validate_sexpr(&guard, "test", SExprContext::Guard, &HashSet::new());
         assert!(!result.is_valid());
@@ -656,7 +656,7 @@ mod tests {
             SExpression::String(("concat".to_string()).into()),
             SExpression::String(("a".to_string()).into()),
             SExpression::String(("b".to_string()).into()),
-        ]);
+        ].into());
         let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
         assert!(!result.is_valid());
         let err = result
@@ -684,8 +684,8 @@ mod tests {
             SExpression::Array(vec![
                 SExpression::String(("str/upper".to_string()).into()),
                 SExpression::String(("hello world".to_string()).into()),
-            ]),
-        ]);
+            ].into()),
+        ].into());
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
         assert!(!result.is_valid());
         let err = result
@@ -709,7 +709,7 @@ mod tests {
         // A lone-element literal array (an asset-manifest-style data tag,
         // e.g. `["static"]`) whose sole value happens to coincide with some
         // operator's basename must NOT be swept into the call path.
-        let expr = SExpression::Array(vec![SExpression::String(("camelCase".to_string()).into())]);
+        let expr = SExpression::Array(vec![SExpression::String(("camelCase".to_string()).into())].into());
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
         assert!(
             !result
@@ -735,7 +735,7 @@ mod tests {
             SExpression::String(("sms".to_string()).into()),
             SExpression::String(("push".to_string()).into()),
             SExpression::String(("mixed".to_string()).into()),
-        ]);
+        ].into());
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
         assert!(
             !result
@@ -761,9 +761,9 @@ mod tests {
             SExpression::Array(vec![
                 SExpression::String(("a".to_string()).into()),
                 SExpression::String(("b".to_string()).into()),
-            ]),
+            ].into()),
             SExpression::String((", ".to_string()).into()),
-        ]);
+        ].into());
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
         assert!(
             !result
@@ -781,7 +781,7 @@ mod tests {
             // not takes exactly 1 argument, but we give 2
             SExpression::Bool(true),
             SExpression::Bool(false),
-        ]);
+        ].into());
 
         let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
         assert!(!result.is_valid());
@@ -797,13 +797,13 @@ mod tests {
             SExpression::Array(vec![
                 SExpression::String(("acc".to_string()).into()),
                 SExpression::String(("x".to_string()).into()),
-            ]),
+            ].into()),
             SExpression::Array(vec![
                 SExpression::String(("+".to_string()).into()),
                 SExpression::String(("@acc".to_string()).into()),
                 SExpression::String(("@x".to_string()).into()),
-            ]),
-        ])
+            ].into()),
+        ].into())
     }
 
     #[test]
@@ -814,7 +814,7 @@ mod tests {
             SExpression::String(("@entity.items".to_string()).into()),
             reduce_lambda(),
             SExpression::Number(0.0),
-        ]);
+        ].into());
         let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
         assert!(result
             .errors
@@ -829,7 +829,7 @@ mod tests {
             SExpression::String(("@entity.items".to_string()).into()),
             SExpression::Number(0.0),
             reduce_lambda(),
-        ]);
+        ].into());
         let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
         assert!(
             !result
@@ -853,8 +853,8 @@ mod tests {
                 SExpression::String(("+".to_string()).into()),
                 SExpression::String(("@acc".to_string()).into()),
                 SExpression::String(("@item".to_string()).into()),
-            ]),
-        ]);
+            ].into()),
+        ].into());
         let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
         assert!(
             !result
@@ -872,7 +872,7 @@ mod tests {
             SExpression::String(("array/map".to_string()).into()),
             reduce_lambda(),
             SExpression::String(("@entity.items".to_string()).into()),
-        ]);
+        ].into());
         let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
         assert!(result
             .errors
@@ -892,7 +892,7 @@ mod tests {
             SExpression::String(("reviewCount".to_string()).into()),
             SExpression::String((">".to_string()).into()),
             SExpression::Number(0.0),
-        ]);
+        ].into());
 
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
         let err = result
@@ -920,7 +920,7 @@ mod tests {
             SExpression::String(("not".to_string()).into()),
             SExpression::Bool(true),
             SExpression::Bool(false),
-        ]);
+        ].into());
 
         let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
         let err = result
@@ -941,7 +941,7 @@ mod tests {
             SExpression::String(("set".to_string()).into()),
             SExpression::String(("@entity.value".to_string()).into()),
             SExpression::String(("@payload.data".to_string()).into()),
-        ]);
+        ].into());
 
         let result = validate_sexpr(&effect, "test", SExprContext::TickEffect, &HashSet::new());
         assert!(!result.is_valid());
@@ -968,7 +968,7 @@ mod tests {
             SExpression::String(("@entity.output".to_string()).into()),
             SExpression::Number(0.0),
             SExpression::Number(1.0),
-        ]);
+        ].into());
 
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
@@ -981,7 +981,7 @@ mod tests {
             SExpression::String(("math/pow".to_string()).into()),
             SExpression::String(("@entity.base".to_string()).into()),
             // Missing second argument
-        ]);
+        ].into());
 
         let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
         assert!(!result.is_valid());

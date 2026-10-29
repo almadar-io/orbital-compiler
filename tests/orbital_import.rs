@@ -1690,9 +1690,9 @@ fn g3_fields_rename_reaches_bare_config_defaults_item_sigil_and_object_get_polic
                 orbital_core_base::schema::SExpression::String(("object/get".to_string()).into()),
                 orbital_core_base::schema::SExpression::String(("@entity".to_string()).into()),
                 orbital_core_base::schema::SExpression::String(("company".to_string()).into()),
-            ]),
+            ].into()),
             orbital_core_base::schema::SExpression::String(("@user.id".to_string()).into()),
-        ]),
+        ].into()),
         "`(object/get @entity title)` in the entity's OWN read_policy must \
          follow the rename to `company`, not stay pinned to 'title'"
     );
@@ -1706,7 +1706,7 @@ fn g3_fields_rename_reaches_bare_config_defaults_item_sigil_and_object_get_polic
         Some(orbital_core_base::schema::SExpression::Array(vec![
             orbital_core_base::schema::SExpression::String(("company".to_string()).into()),
             orbital_core_base::schema::SExpression::String(("value".to_string()).into()),
-        ])),
+        ].into())),
         "a bare `[string]` field-name list must be rewritten element-by-element"
     );
 

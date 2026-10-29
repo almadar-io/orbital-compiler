@@ -138,6 +138,8 @@ pub(crate) struct InlineContext {
     /// with the upstream declaration as this context holds it.
     pub(crate) collect_references: bool,
     pub(crate) reference_pairs: std::cell::RefCell<Vec<super::ReferencePair>>,
+    /// Type names a reference-form orbital took from its upstream, with the file that declares them.
+    pub(crate) pulled_type_files: std::cell::RefCell<Vec<(String, std::path::PathBuf)>>,
 }
 
 impl InlineContext {
@@ -149,6 +151,7 @@ impl InlineContext {
             defer_config_subst: false,
             collect_references: false,
             reference_pairs: Default::default(),
+            pulled_type_files: Default::default(),
         }
     }
 

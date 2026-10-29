@@ -6,14 +6,11 @@ use orbital_core_base::schema::{
     EntityDefinition, EntityRef, Orbital, OrbitalSchema, PageRef, TraitDefinition, TraitReference,
 };
 use std::sync::Arc;
-use orbital_core_base::str_utils::to_snake_case;
 use std::collections::HashMap;
 
 /// Enrichment configuration
 #[derive(Debug, Clone, Default)]
 pub struct EnrichmentConfig {
-    /// Add default collection names for entities
-    pub add_default_collections: bool,
     /// Add id field if missing
     pub add_id_field: bool,
     /// Add timestamp fields (createdAt, updatedAt)
@@ -26,7 +23,6 @@ impl EnrichmentConfig {
     /// Create config with all enrichments enabled
     pub fn all() -> Self {
         Self {
-            add_default_collections: true,
             add_id_field: true,
             add_timestamps: true,
             infer_initial_state: true,
@@ -84,13 +80,8 @@ fn enrich_orbital(orbital: &mut Orbital, config: &EnrichmentConfig) {
 }
 
 fn enrich_entity(entity: &mut EntityDefinition, config: &EnrichmentConfig) {
-    // Add default collection name
-    if config.add_default_collections && entity.collection.is_none() {
-        entity.collection = Some(to_snake_case(&entity.name));
-    }
-
-    // Note: Adding fields would require knowing the FieldDefinition structure
-    // which uses FieldType enum. For now, we just set collection names.
+    // Adding fields would require knowing the FieldDefinition structure
+    // which uses FieldType enum.
 }
 
 fn enrich_trait(trait_def: &mut TraitDefinition, config: &EnrichmentConfig) {
@@ -251,12 +242,5 @@ mod tests {
             parse_call(&schema),
             serde_json::json!(["xml/parse", "@payload.body", "Row"])
         );
-    }
-
-    #[test]
-    fn test_to_snake_case() {
-        assert_eq!(to_snake_case("Task"), "task");
-        assert_eq!(to_snake_case("TaskItem"), "task_item");
-        assert_eq!(to_snake_case("HTTPServer"), "h_t_t_p_server");
     }
 }

@@ -155,7 +155,7 @@ fn walk_expr(
                                 // names first (permissive). lolo lowers `let` to
                                 // the ordered array form above.
                                 for name in bindings.keys() {
-                                    extended.insert(name.clone());
+                                    extended.insert(name.to_string());
                                 }
                                 for (name, value_expr) in bindings.iter() {
                                     walk_expr(
@@ -458,9 +458,9 @@ mod tests {
             SExpression::Array(vec![SExpression::Array(vec![
                 SExpression::String(("nextWaypoint".to_string()).into()),
                 SExpression::String(("@entity.path".to_string()).into()),
-            ])]),
+            ].into())].into()),
             SExpression::String(("@nextWaypoint.x".to_string()).into()),
-        ]);
+        ].into());
         let mut result = ValidationResult::new();
         walk_expr(
             &expr,
@@ -486,14 +486,14 @@ mod tests {
                 SExpression::Array(vec![
                     SExpression::String(("a".to_string()).into()),
                     SExpression::String(("@entity.n".to_string()).into()),
-                ]),
+                ].into()),
                 SExpression::Array(vec![
                     SExpression::String(("b".to_string()).into()),
                     SExpression::String(("@a".to_string()).into()),
-                ]),
-            ]),
+                ].into()),
+            ].into()),
             SExpression::String(("@b".to_string()).into()),
-        ]);
+        ].into());
         let mut r_ok = ValidationResult::new();
         walk_expr(&ok, "test", SigilContext::Tick, &HashSet::new(), &mut r_ok);
         assert!(
@@ -509,9 +509,9 @@ mod tests {
             SExpression::Array(vec![SExpression::Array(vec![
                 SExpression::String(("x".to_string()).into()),
                 SExpression::String(("@bogus.field".to_string()).into()),
-            ])]),
+            ].into())].into()),
             SExpression::String(("@x".to_string()).into()),
-        ]);
+        ].into());
         let mut r_bad = ValidationResult::new();
         walk_expr(
             &bad,

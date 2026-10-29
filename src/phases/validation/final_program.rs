@@ -230,7 +230,7 @@ fn collect_controls(expr: &SExpression, out: &mut Controls) {
             if let Some(SExpression::String(pattern_type)) = obj.get("type") {
                 if let Some(pattern) = patterns().get(pattern_type.as_str()) {
                     for (key, value) in obj.iter() {
-                        if let Some(prop) = pattern.props_schema.get(key) {
+                        if let Some(prop) = pattern.props_schema.get(key.as_str()) {
                             let mut events = HashSet::new();
                             control_events(prop, value, &mut events);
                             for event in events {

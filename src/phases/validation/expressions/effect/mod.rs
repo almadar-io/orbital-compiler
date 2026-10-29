@@ -108,13 +108,13 @@ impl TraitScopes {
     pub(crate) fn new(
         schema: &OrbitalSchema,
         trait_def: &TraitDefinition,
-        entity_definitions: &HashMap<String, EntityDefinition>,
+        entity_definitions: &HashMap<String, impl std::borrow::Borrow<EntityDefinition>>,
     ) -> Self {
         let entity_field_types = trait_def
             .linked_entity
             .as_ref()
             .and_then(|e| entity_definitions.get(e))
-            .map(entity_field_type_map)
+            .map(|entity| entity_field_type_map(entity.borrow()))
             .unwrap_or_default();
         let per_event_payloads = collect_per_event_payload_field_types(trait_def);
         let payload_field_types = collect_payload_field_types(trait_def);

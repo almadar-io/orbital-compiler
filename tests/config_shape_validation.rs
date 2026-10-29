@@ -334,12 +334,12 @@ fn good_array_of_metricspec_passes() {
     let mut config = IndexMap::new();
     let mut good_metric: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     good_metric.insert(
-        "label".to_string(),
+        "label".into(),
         SExpression::String(("Revenue".to_string()).into()),
     );
-    good_metric.insert("value".to_string(), SExpression::Number(142000.0));
+    good_metric.insert("value".into(), SExpression::Number(142000.0));
     good_metric.insert(
-        "format".to_string(),
+        "format".into(),
         SExpression::String(("currency".to_string()).into()),
     );
     config.insert(
@@ -348,7 +348,7 @@ fn good_array_of_metricspec_passes() {
             nullable: None,
             additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
-            default: Some(SExpression::Array(vec![SExpression::object(good_metric)])),
+            default: Some(SExpression::Array(vec![SExpression::object(good_metric)].into())),
             label: None,
             description: None,
             synonyms: None,
@@ -376,19 +376,19 @@ fn string_value_where_number_expected_fails() {
     let mut config = IndexMap::new();
     let mut bad_metric: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     bad_metric.insert(
-        "label".to_string(),
+        "label".into(),
         SExpression::String(("Retention".to_string()).into()),
     );
     // LLM emitted "85%" as a string for a numeric value slot — the exact
     // bug pattern we saw in the workspace failure.
-    bad_metric.insert("value".to_string(), SExpression::String(("85%".to_string()).into()));
+    bad_metric.insert("value".into(), SExpression::String(("85%".to_string()).into()));
     config.insert(
         "metrics".to_string(),
         ConfigField {
             nullable: None,
             additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
-            default: Some(SExpression::Array(vec![SExpression::object(bad_metric)])),
+            default: Some(SExpression::Array(vec![SExpression::object(bad_metric)].into())),
             label: None,
             description: None,
             synonyms: None,
@@ -486,7 +486,7 @@ fn bare_string_in_array_of_objects_fails() {
             default: Some(SExpression::Array(vec![
                 SExpression::String(("csv".to_string()).into()),
                 SExpression::String(("pdf".to_string()).into()),
-            ])),
+            ].into())),
             label: None,
             description: None,
             synonyms: None,
@@ -519,14 +519,14 @@ fn missing_required_field_fails() {
     let mut config = IndexMap::new();
     // `label` is required on MetricSpec; omit it.
     let mut no_label: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
-    no_label.insert("value".to_string(), SExpression::Number(10.0));
+    no_label.insert("value".into(), SExpression::Number(10.0));
     config.insert(
         "metrics".to_string(),
         ConfigField {
             nullable: None,
             additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
-            default: Some(SExpression::Array(vec![SExpression::object(no_label)])),
+            default: Some(SExpression::Array(vec![SExpression::object(no_label)].into())),
             label: None,
             description: None,
             synonyms: None,
@@ -559,14 +559,14 @@ fn enum_value_outside_allowed_set_fails() {
     let mut config = IndexMap::new();
     let mut bad_enum: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     bad_enum.insert(
-        "label".to_string(),
+        "label".into(),
         SExpression::String(("Revenue".to_string()).into()),
     );
-    bad_enum.insert("value".to_string(), SExpression::Number(100.0));
+    bad_enum.insert("value".into(), SExpression::Number(100.0));
     // `format` is closed to ["number","currency","percent"] — anything
     // else trips the enum membership check.
     bad_enum.insert(
-        "format".to_string(),
+        "format".into(),
         SExpression::String(("dollars".to_string()).into()),
     );
     config.insert(
@@ -575,7 +575,7 @@ fn enum_value_outside_allowed_set_fails() {
             nullable: None,
             additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
-            default: Some(SExpression::Array(vec![SExpression::object(bad_enum)])),
+            default: Some(SExpression::Array(vec![SExpression::object(bad_enum)].into())),
             label: None,
             description: None,
             synonyms: None,
@@ -609,11 +609,11 @@ fn binding_strings_pass_the_check() {
     let mut config = IndexMap::new();
     let mut binding_metric: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     binding_metric.insert(
-        "label".to_string(),
+        "label".into(),
         SExpression::String(("Revenue".to_string()).into()),
     );
     binding_metric.insert(
-        "value".to_string(),
+        "value".into(),
         SExpression::String(("@entity.revenue".to_string()).into()),
     );
     config.insert(
@@ -624,7 +624,7 @@ fn binding_strings_pass_the_check() {
             field_type: "[MetricSpec]".to_string(),
             default: Some(SExpression::Array(vec![SExpression::object(
                 binding_metric,
-            )])),
+            )].into())),
             label: None,
             description: None,
             synonyms: None,
@@ -665,10 +665,10 @@ fn computed_sexpr_call_for_array_items_defers() {
         SExpression::String(("@entity.tiles".to_string()).into()),
         SExpression::Array(vec![
             SExpression::String(("fn".to_string()).into()),
-            SExpression::Array(vec![SExpression::String(("t".to_string()).into())]),
+            SExpression::Array(vec![SExpression::String(("t".to_string()).into())].into()),
             SExpression::object(orbital_core_base::schema::SObject::new()),
-        ]),
-    ]);
+        ].into()),
+    ].into());
     config.insert(
         "metrics".to_string(),
         ConfigField {
@@ -711,15 +711,15 @@ fn computed_sexpr_call_nested_in_object_property_defers() {
     let mut config = IndexMap::new();
     let mut metric: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     metric.insert(
-        "label".to_string(),
+        "label".into(),
         SExpression::String(("Revenue".to_string()).into()),
     );
     metric.insert(
-        "value".to_string(),
+        "value".into(),
         SExpression::Array(vec![
             SExpression::String(("array/sum".to_string()).into()),
             SExpression::String(("@entity.rows".to_string()).into()),
-        ]),
+        ].into()),
     );
     config.insert(
         "metrics".to_string(),
@@ -727,7 +727,7 @@ fn computed_sexpr_call_nested_in_object_property_defers() {
             nullable: None,
             additional_properties: None,
             field_type: "[MetricSpec]".to_string(),
-            default: Some(SExpression::Array(vec![SExpression::object(metric)])),
+            default: Some(SExpression::Array(vec![SExpression::object(metric)].into())),
             label: None,
             description: None,
             synonyms: None,
@@ -818,7 +818,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
             field_type: "[FormatOption]".to_string(),
             default: Some(SExpression::Array(vec![SExpression::String(
                 ("csv".to_string()).into(),
-            )])),
+            )].into())),
             label: None,
             description: None,
             synonyms: None,
@@ -921,6 +921,69 @@ fn number_on_a_name_carrying_scalar_tag_fails() {
             "unexpected message for `{tag}`: {}",
             errs[0]
         );
+    }
+}
+
+fn point_in_time_knob_errors(tag: &str, default: SExpression) -> Vec<String> {
+    let mut config = IndexMap::new();
+    config.insert(
+        "knob".to_string(),
+        ConfigField {
+            nullable: None,
+            additional_properties: None,
+            field_type: tag.to_string(),
+            default: Some(default),
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: None,
+            items: None,
+            properties: None,
+            required: None,
+            ref_id: None,
+            forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
+            wired: false,
+            payload_for: None,
+            projected_from: None,
+            record: None,
+        },
+    );
+    shape_errors(&schema_with_config(config))
+}
+
+#[test]
+fn an_iso_literal_default_fits_a_point_in_time_knob() {
+    let s = |t: &str| SExpression::String(t.to_string().into());
+    for (tag, text) in [
+        ("date", "2026-10-28"),
+        ("datetime", "2026-10-28T10:30:00Z"),
+        ("datetime", "2026-10-28T10:30:00+02:00"),
+        ("instant", "1970-01-01T00:00:00.000Z"),
+    ] {
+        let errs = point_in_time_knob_errors(tag, s(text));
+        assert!(errs.is_empty(), "`{tag}` = {text}: {errs:?}");
+    }
+}
+
+#[test]
+fn a_literal_that_is_not_the_iso_shape_is_refused_on_a_point_in_time_knob() {
+    let s = |t: &str| SExpression::String(t.to_string().into());
+    for (tag, value) in [
+        ("date", s("tomorrow")),
+        ("date", s("2026-13-45")),
+        ("date", s("2026-10-28T10:30:00Z")),
+        ("date", SExpression::Number(0.0)),
+        ("datetime", s("2026-10-28")),
+        ("datetime", s("2026-10-28T10:30:00")),
+        ("instant", s("2026-10-28")),
+        ("instant", s("1970-01-01 00:00:00")),
+        ("instant", SExpression::Number(0.0)),
+    ] {
+        let errs = point_in_time_knob_errors(tag, value.clone());
+        assert_eq!(errs.len(), 1, "`{tag}` = {value:?} must be refused: {errs:?}");
+        assert!(errs[0].contains(&format!("expected {tag}, got")), "{errs:?}");
     }
 }
 
@@ -1063,10 +1126,10 @@ fn map_knob(default: SExpression) -> OrbitalSchema {
 fn map_with_conforming_values_passes() {
     let mut entries: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
     entries.insert(
-        "draft".to_string(),
+        "draft".into(),
         SExpression::String(("Draft".to_string()).into()),
     );
-    entries.insert("sent".to_string(), SExpression::String(("Sent".to_string()).into()));
+    entries.insert("sent".into(), SExpression::String(("Sent".to_string()).into()));
     let schema = map_knob(SExpression::object(entries));
     assert!(shape_errors(&schema).is_empty());
     assert!(
@@ -1083,7 +1146,7 @@ fn map_with_conforming_values_passes() {
 #[test]
 fn map_with_a_wrong_typed_value_is_reported() {
     let mut entries: orbital_core_base::schema::SObject = orbital_core_base::schema::SObject::new();
-    entries.insert("draft".to_string(), SExpression::Number(3.0));
+    entries.insert("draft".into(), SExpression::Number(3.0));
     let schema = map_knob(SExpression::object(entries));
     let warns = shape_errors(&schema);
     assert_eq!(
@@ -1123,7 +1186,7 @@ fn an_array_type_merely_starting_with_map_is_not_treated_as_a_map() {
             nullable: None,
             additional_properties: None,
             field_type: "[MapViewMarkersItem]".to_string(),
-            default: Some(SExpression::Array(vec![])),
+            default: Some(SExpression::Array(vec![].into())),
             label: None,
             description: None,
             synonyms: None,
@@ -1180,7 +1243,7 @@ fn sexpr_args_slot(item_type: FieldType, default: Vec<SExpression>) -> OrbitalSc
             nullable: None,
             additional_properties: None,
             field_type: "[SExpr]".to_string(),
-            default: Some(SExpression::Array(default)),
+            default: Some(SExpression::Array(default.into())),
             label: None,
             description: None,
             synonyms: None,
@@ -1203,7 +1266,7 @@ fn sexpr_args_slot(item_type: FieldType, default: Vec<SExpression>) -> OrbitalSc
 
 fn persist_args() -> Vec<SExpression> {
     let mut opts = orbital_core_base::schema::SObject::new();
-    opts.insert("emit".to_string(), SExpression::String(("SAVED".to_string()).into()));
+    opts.insert("emit".into(), SExpression::String(("SAVED".to_string()).into()));
     vec![
         SExpression::String(("update".to_string()).into()),
         SExpression::String(("Order".to_string()).into()),
@@ -1211,7 +1274,7 @@ fn persist_args() -> Vec<SExpression> {
         SExpression::Number(0.0),
         SExpression::Bool(true),
         SExpression::Null,
-        SExpression::Array(vec![SExpression::String(("object/get".to_string()).into()), SExpression::String(("@entity".to_string()).into()), SExpression::String(("total".to_string()).into())]),
+        SExpression::Array(vec![SExpression::String(("object/get".to_string()).into()), SExpression::String(("@entity".to_string()).into()), SExpression::String(("total".to_string()).into())].into()),
         SExpression::object(opts),
     ]
 }
@@ -1285,7 +1348,7 @@ fn sexpr_member_schema(member_type: FieldType, value: SExpression) -> OrbitalSch
         derived: None,
     };
     let mut literal = orbital_core_base::schema::SObject::new();
-    literal.insert("guard".to_string(), value);
+    literal.insert("guard".into(), value);
     let mut config = IndexMap::new();
     config.insert(
         "rule".to_string(),
@@ -1321,7 +1384,7 @@ fn sexpr_struct_member_accepts_null_string_number_and_list() {
         SExpression::String(("ok".to_string()).into()),
         SExpression::Number(1.0),
         SExpression::Bool(false),
-        SExpression::Array(vec![SExpression::String(("=".to_string()).into()), SExpression::Number(1.0), SExpression::Number(1.0)]),
+        SExpression::Array(vec![SExpression::String(("=".to_string()).into()), SExpression::Number(1.0), SExpression::Number(1.0)].into()),
     ] {
         let errs = shape_errors(&sexpr_member_schema(FieldType::SExpr, value.clone()));
         assert!(errs.is_empty(), "{value:?}: {errs:?}");
@@ -1332,7 +1395,7 @@ fn sexpr_struct_member_accepts_null_string_number_and_list() {
 fn control_a_string_member_still_rejects_a_list() {
     let errs = shape_errors(&sexpr_member_schema(
         FieldType::String,
-        SExpression::Array(vec![SExpression::Number(1.0)]),
+        SExpression::Array(vec![SExpression::Number(1.0)].into()),
     ));
     assert_eq!(errs.len(), 1, "{errs:?}");
 }

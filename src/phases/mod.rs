@@ -628,6 +628,7 @@ mod tests {
         // Discover installed behavior packages from this crate's manifest
         // dir (the monorepo workspace link), not the process cwd — mirrors
         // `CompilerOptions::from_env` rooted at a stable path for tests.
+        crate::loader::register_source_lowerer(|path, _, _| orbital_test_support::lower_lolo_file(path));
         let start = Path::new(env!("CARGO_MANIFEST_DIR"));
         let user_store = orbital_core_base::behavior_packages::user_store_dir()
             .unwrap_or_else(|| start.to_path_buf());

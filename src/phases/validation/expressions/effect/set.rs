@@ -461,8 +461,15 @@ fn operand_kind(operand: &SExpression, ctx: &ExprReturnCtx<'_>) -> Option<&'stat
         }
     };
     match ty {
-        OirType::Number | OirType::Integer | OirType::Instant => Some("number"),
-        OirType::String | OirType::Email | OirType::Url | OirType::Phone | OirType::Uuid => {
+        OirType::Number | OirType::Integer => Some("number"),
+        OirType::String
+        | OirType::Email
+        | OirType::Url
+        | OirType::Phone
+        | OirType::Uuid
+        | OirType::Date
+        | OirType::DateTime
+        | OirType::Instant => {
             Some("string")
         }
         _ => None,
@@ -814,7 +821,7 @@ mod return_type_tests {
         vec![
             SExpression::String("set".into()),
             SExpression::string(format!("@entity.{field}")),
-            SExpression::Array(call),
+            SExpression::Array(call.into()),
         ]
     }
 
@@ -838,9 +845,23 @@ mod return_type_tests {
     #[test]
     fn json_parse_over_a_list_alias_into_a_list_field_is_not_an_error() {
         let schema = typed_schema();
-        let arr = set_call("rows", "json/parse", &["[]", "Points"]);
+        let mut arr = set_call("rows", "json/parse", &["[]", "Points"]);
+        let parsed = arr.pop().unwrap();
+        arr.push(SExpression::Array(vec![
+            SExpression::String("default".into()),
+            parsed,
+            SExpression::Array(vec![].into()),
+        ].into()));
         let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema), None);
         assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    }
+
+    #[test]
+    fn control_json_parse_answers_null_on_a_misfit_so_a_required_list_field_refuses_it() {
+        let schema = typed_schema();
+        let arr = set_call("rows", "json/parse", &["[]", "Points"]);
+        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema), None);
+        assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
     }
 
     #[test]
@@ -1044,7 +1065,7 @@ mod required_field_from_optional_knob_tests {
             SExpression::String("set".into()),
             SExpression::string(format!("@entity.{field}")),
             SExpression::String(value.into()),
-        ])
+        ].into())
     }
 
     #[test]
@@ -1097,7 +1118,7 @@ mod required_field_from_optional_knob_tests {
         let effect = SExpression::Array(vec![
             SExpression::String("emit".into()),
             SExpression::String("DONE".into()),
-        ]);
+        ].into());
         let r = validate_set_required_field_from_optional_knob(
             &effect,
             "p",
@@ -1141,7 +1162,7 @@ mod comparison_operand_tests {
     // ── ORB_X_COMPARISON_OPERAND_TYPE_MISMATCH ───────────────────────────────
 
     fn a(items: Vec<SExpression>) -> SExpression {
-        SExpression::Array(items)
+        SExpression::Array(items.into())
     }
     fn st(v: &str) -> SExpression {
         SExpression::String(v.into())
@@ -1183,6 +1204,14 @@ mod comparison_operand_tests {
             st("b"),
         ]);
         assert_eq!(comparison_errors(expr, field("q", "string")), 1);
+    }
+
+    #[test]
+    fn now_is_text_so_it_never_orders_against_a_number() {
+        let against_number = a(vec![st("<"), st("@now"), SExpression::Number(5.0)]);
+        assert_eq!(comparison_errors(against_number, HashMap::new()), 1);
+        let against_text = a(vec![st("<"), st("@now"), st("2026-01-01T00:00:00Z")]);
+        assert_eq!(comparison_errors(against_text, HashMap::new()), 0, "control: ISO text against text");
     }
 
     #[test]
@@ -1357,7 +1386,7 @@ mod set_value_type_tests {
             SExpression::String("str/concat".into()),
             SExpression::String("search".into()),
             SExpression::String("x".into()),
-        ]);
+        ].into());
         let resolved = crate::phases::resolve::resolve_sexpr_standalone(&concat).expect("resolves");
         struct Empty;
         impl crate::type_infer::TypeCtx for Empty {

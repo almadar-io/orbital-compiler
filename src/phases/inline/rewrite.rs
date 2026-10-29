@@ -1,5 +1,6 @@
 //! SExpression / payload identifier rewriting and config-binding substitution.
 
+use orbital_core_eval::evaluator::{parse_iso, IsoShape};
 use super::InlineError;
 use std::sync::Arc;
 use crate::embedded::get_pattern;
@@ -248,7 +249,16 @@ pub(crate) fn rewrite_identifiers(
     entity_subs: &orbital_core_base::collections::IndexMap<String, String>,
     event_subs: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
-    rewrite_identifiers_inner(expr, entity_subs, event_subs);
+    let names_a_sub = |text: &str| {
+        entity_subs.contains_key(text)
+            || event_subs.contains_key(text)
+            || text.strip_prefix('@').is_some_and(|rest| {
+                entity_subs.contains_key(&rest[..rest.find('.').unwrap_or(rest.len())])
+            })
+    };
+    if expr.any_string(names_a_sub) {
+        rewrite_identifiers_inner(expr, entity_subs, event_subs);
+    }
 }
 
 /// The position rule for "this SExpression node names an entity at exactly
@@ -469,16 +479,16 @@ fn try_rewrite_role_equality(
     let node = if targets.len() == 1 {
         let mut new_items = items.to_vec();
         new_items[literal_idx] = SExpression::string(targets[0].clone());
-        SExpression::Array(new_items)
+        SExpression::Array(new_items.into())
     } else {
         SExpression::Array(vec![
             SExpression::string("array/includes"),
             SExpression::Array(targets.iter().cloned().map(SExpression::string).collect()),
             SExpression::string(format!("@user.{field}")),
-        ])
+        ].into())
     };
     if targets.len() > 1 && is_negated {
-        Some(SExpression::Array(vec![SExpression::string("not"), node]))
+        Some(SExpression::Array(vec![SExpression::string("not"), node].into()))
     } else {
         Some(node)
     }
@@ -537,7 +547,7 @@ fn try_rewrite_role_includes(
         new_haystack.push(SExpression::string("list"));
     }
     new_haystack.extend(expanded);
-    items[1] = SExpression::Array(new_haystack);
+    items[1] = SExpression::Array(new_haystack.into());
     true
 }
 
@@ -751,7 +761,7 @@ fn expand_role_list_in_place(value: &mut SExpression, roles: &orbital_core_base:
     if matches!(items.first(), Some(SExpression::String(s)) if s == "list") {
         expanded.insert(0, SExpression::string("list"));
     }
-    *items = expanded;
+    *items = expanded.into();
 }
 
 fn visit_role_lists_at(
@@ -997,7 +1007,7 @@ fn rewrite_identifiers_inner(
                         SExpression::Object(emit_map) => {
                             let slots = orbital_core_base::language::registry::emit_slots();
                             for (slot, slot_v) in emit_map.iter_mut() {
-                                if slots.contains(slot) {
+                                if slots.contains(slot.as_str()) {
                                     if let SExpression::String(ev) = slot_v {
                                         if let Some(to) = event_subs.get(ev.as_str()) {
                                             *ev = to.clone().into();
@@ -1126,9 +1136,25 @@ pub(crate) fn rewrite_entity_field_paths(
     expr: &mut SExpression,
     field_subs: &orbital_core_base::collections::IndexMap<String, String>,
 ) {
-    if field_subs.is_empty() {
+    if field_subs.is_empty()
+        || !expr.any_string(|text| {
+            field_subs.contains_key(text)
+                || ROW_ALIAS_SIGILS.iter().any(|sigil| {
+                    text.strip_prefix(sigil).is_some_and(|rest| {
+                        field_subs.contains_key(&rest[..rest.find(['.', '[']).unwrap_or(rest.len())])
+                    })
+                })
+        })
+    {
         return;
     }
+    rewrite_entity_field_paths_inner(expr, field_subs);
+}
+
+fn rewrite_entity_field_paths_inner(
+    expr: &mut SExpression,
+    field_subs: &orbital_core_base::collections::IndexMap<String, String>,
+) {
     match expr {
         SExpression::Null | SExpression::Bool(_) | SExpression::Number(_) => {}
         SExpression::String(s) => {
@@ -1157,7 +1183,7 @@ pub(crate) fn rewrite_entity_field_paths(
                 }
             }
             for item in items.iter_mut() {
-                rewrite_entity_field_paths(item, field_subs);
+                rewrite_entity_field_paths_inner(item, field_subs);
             }
         }
         SExpression::Object(map) => {
@@ -1169,7 +1195,7 @@ pub(crate) fn rewrite_entity_field_paths(
                 }
             }
             for v in map.values_mut() {
-                rewrite_entity_field_paths(v, field_subs);
+                rewrite_entity_field_paths_inner(v, field_subs);
             }
         }
     }
@@ -1197,11 +1223,11 @@ pub(crate) fn rewrite_persist_data_keys(
                     if let Some(SExpression::Object(data)) = items.get_mut(entity_index + 1) {
                         let renamed: Vec<(String, String)> = data
                             .keys()
-                            .filter_map(|k| field_subs.get(k).map(|to| (k.clone(), to.clone())))
+                            .filter_map(|k| field_subs.get(k.as_str()).map(|to| (k.to_string(), to.clone())))
                             .collect();
                         for (from, to) in renamed {
-                            if let Some(value) = data.shift_remove(&from) {
-                                data.insert(to, value);
+                            if let Some(value) = data.shift_remove(from.as_str()) {
+                                data.insert(to.into(), value);
                             }
                         }
                     }
@@ -1454,7 +1480,7 @@ pub(crate) fn mark_literal_list_in_place(value: &mut SExpression, field_type: &s
             let mut wrapped = Vec::with_capacity(elems.len() + 1);
             wrapped.push(SExpression::string("list"));
             wrapped.append(elems);
-            *value = SExpression::Array(wrapped);
+            *value = SExpression::Array(wrapped.into());
         }
     }
 }
@@ -1533,7 +1559,7 @@ fn mark_object_members(
     props: &orbital_core_base::collections::IndexMap<String, FieldDefinition>,
 ) {
     for (key, member) in map.iter_mut() {
-        if let Some(member_shape) = props.get(key) {
+        if let Some(member_shape) = props.get(key.as_str()) {
             mark_field_literal_lists(member, member_shape);
         }
     }
@@ -1593,7 +1619,7 @@ pub(crate) fn apply_inline_config_defaults(
         if let Some(default) = field.default.as_ref() {
             let mut v = default.clone();
             mark_config_literal_lists(&mut v, field);
-            effective_config.insert(k.clone(), v);
+            effective_config.insert(k.as_str().into(), v);
         }
     }
     if effective_config.is_empty() {
@@ -1739,9 +1765,25 @@ pub(crate) fn declared_list_types(
         return out;
     };
     for (knob, value) in config_subs.iter() {
-        let Some(field) = declared.get(knob) else {
+        let Some(field) = declared.get(knob.as_str()) else {
             continue;
         };
+        let point_in_time = match (value, field.field_type.as_str()) {
+            (SExpression::String(text), "date") => {
+                parse_iso(text).is_some_and(|(_, shape)| shape == IsoShape::Date)
+            }
+            (SExpression::String(text), "datetime" | "instant") => {
+                parse_iso(text).is_some_and(|(_, shape)| shape == IsoShape::DateTime)
+            }
+            _ => false,
+        };
+        if point_in_time {
+            let ty = crate::phases::resolve::config_field_carried_type(field);
+            if let Ok(text) = serde_json::to_string(&ty) {
+                out.insert(knob.clone(), SExpression::string(text));
+            }
+            continue;
+        }
         let literal = match value {
             SExpression::Array(items) => !items.is_empty(),
             SExpression::Object(_) => true,
@@ -1798,9 +1840,9 @@ fn declared_read(knob: &str, literal: &SExpression, shape: &SExpression) -> SExp
             SExpression::string(local.clone()),
             literal.clone(),
             shape.clone(),
-        ])]),
+        ].into())].into()),
         SExpression::string(format!("@{local}")),
-    ])
+    ].into())
 }
 
 /// [`rewrite_config_bindings`] over every expression a trait carries.
@@ -1858,6 +1900,24 @@ pub(crate) fn rewrite_config_bindings(
     config_subs: &orbital_core_base::schema::SObject,
     declared: &orbital_core_base::schema::SObject,
 ) {
+    if config_subs.is_empty()
+        || !expr.any_string(|text| {
+            text.strip_prefix("@config.").is_some_and(|rest| {
+                config_subs.contains_key(rest)
+                    || config_subs.contains_key(&rest[..rest.find('.').unwrap_or(rest.len())])
+            })
+        })
+    {
+        return;
+    }
+    rewrite_config_bindings_inner(expr, config_subs, declared);
+}
+
+fn rewrite_config_bindings_inner(
+    expr: &mut SExpression,
+    config_subs: &orbital_core_base::schema::SObject,
+    declared: &orbital_core_base::schema::SObject,
+) {
     if config_subs.is_empty() {
         return;
     }
@@ -1907,7 +1967,7 @@ pub(crate) fn rewrite_config_bindings(
                             let still_same =
                                 matches!(expr, SExpression::String(ns) if *ns == *original);
                             if !still_same {
-                                rewrite_config_bindings(expr, config_subs, declared);
+                                rewrite_config_bindings_inner(expr, config_subs, declared);
                             }
                         }
                         Some(path) => {
@@ -1918,7 +1978,7 @@ pub(crate) fn rewrite_config_bindings(
                             if let SExpression::Object(_) = value {
                                 if let Some(leaf) = resolve_object_path(value, path) {
                                     *expr = leaf.clone();
-                                    rewrite_config_bindings(expr, config_subs, declared);
+                                    rewrite_config_bindings_inner(expr, config_subs, declared);
                                 }
                             }
                         }
@@ -1958,12 +2018,12 @@ pub(crate) fn rewrite_config_bindings(
                                 }
                                 for part in parts.iter_mut().skip(1) {
                                     if !is_empty_list_knob(part, config_subs) {
-                                        rewrite_config_bindings(part, config_subs, declared);
+                                        rewrite_config_bindings_inner(part, config_subs, declared);
                                     }
                                 }
                                 continue;
                             }
-                            rewrite_config_bindings(pair, config_subs, declared);
+                            rewrite_config_bindings_inner(pair, config_subs, declared);
                         }
                         continue;
                     }
@@ -1974,12 +2034,12 @@ pub(crate) fn rewrite_config_bindings(
                 {
                     continue;
                 }
-                rewrite_config_bindings(item, config_subs, declared);
+                rewrite_config_bindings_inner(item, config_subs, declared);
             }
         }
         SExpression::Object(map) => {
             for (_k, v) in map.iter_mut() {
-                rewrite_config_bindings(v, config_subs, declared);
+                rewrite_config_bindings_inner(v, config_subs, declared);
             }
         }
     }
@@ -3353,7 +3413,7 @@ mod literal_list_tests {
     use super::*;
 
     fn arr(items: Vec<SExpression>) -> SExpression {
-        SExpression::Array(items)
+        SExpression::Array(items.into())
     }
 
     /// The strip twin must undo exactly what the wrap adds — a literal reader
@@ -3496,7 +3556,7 @@ mod literal_list_tests {
         // reach the runtime as a call, not as inert data.
         let mut food = orbital_core_base::schema::SObject::new();
         food.insert(
-            "x".to_string(),
+            "x".into(),
             arr(vec![
                 SExpression::String(("object/get".to_string()).into()),
                 SExpression::String(("@entity.food".to_string()).into()),
@@ -3505,10 +3565,10 @@ mod literal_list_tests {
         );
         let mut cell = orbital_core_base::schema::SObject::new();
         cell.insert(
-            "type".to_string(),
+            "type".into(),
             SExpression::String(("draw-shape".to_string()).into()),
         );
-        cell.insert("position".to_string(), SExpression::object(food));
+        cell.insert("position".into(), SExpression::object(food));
         let mut v = arr(vec![
             SExpression::String(("array/concat".to_string()).into()),
             arr(vec![SExpression::object(cell)]),
@@ -3833,11 +3893,11 @@ mod conditional_event_list_tests {
     fn descriptor(event: &str) -> SExpression {
         let mut dm = orbital_core_base::schema::SObject::new();
         dm.insert(
-            "name".to_string(),
+            "name".into(),
             SExpression::String(("Edit".to_string()).into()),
         );
         dm.insert(
-            "event".to_string(),
+            "event".into(),
             SExpression::String(event.to_string().into()),
         );
         SExpression::object(dm)
@@ -3846,10 +3906,10 @@ mod conditional_event_list_tests {
     fn data_list_with_item_actions(item_actions: SExpression) -> SExpression {
         let mut node = orbital_core_base::schema::SObject::new();
         node.insert(
-            "type".to_string(),
+            "type".into(),
             SExpression::String(("data-list".to_string()).into()),
         );
-        node.insert("itemActions".to_string(), item_actions);
+        node.insert("itemActions".into(), item_actions);
         SExpression::object(node)
     }
 
@@ -3861,9 +3921,9 @@ mod conditional_event_list_tests {
         let item_actions = SExpression::Array(vec![
             SExpression::String(("if".to_string()).into()),
             SExpression::String(("@user.role".to_string()).into()),
-            SExpression::Array(vec![descriptor("EDIT_ITEM")]),
-            SExpression::Array(vec![descriptor("VIEW_ITEM")]),
-        ]);
+            SExpression::Array(vec![descriptor("EDIT_ITEM")].into()),
+            SExpression::Array(vec![descriptor("VIEW_ITEM")].into()),
+        ].into());
         let mut expr = data_list_with_item_actions(item_actions);
 
         let entity_subs = orbital_core_base::collections::IndexMap::new();
@@ -3908,7 +3968,7 @@ mod conditional_event_list_tests {
     /// path for the common case.
     #[test]
     fn rename_still_reaches_literal_item_actions_list() {
-        let item_actions = SExpression::Array(vec![descriptor("EDIT_ITEM")]);
+        let item_actions = SExpression::Array(vec![descriptor("EDIT_ITEM")].into());
         let mut expr = data_list_with_item_actions(item_actions);
 
         let entity_subs = orbital_core_base::collections::IndexMap::new();
@@ -5431,7 +5491,7 @@ mod event_typed_union_fold_tests {
 
     fn entry(k: &str, v: &str) -> SExpression {
         let mut m = orbital_core_base::schema::SObject::new();
-        m.insert(k.to_string(), SExpression::String(v.to_string().into()));
+        m.insert(k.into(), SExpression::String(v.to_string().into()));
         SExpression::object(m)
     }
 
@@ -5455,7 +5515,7 @@ mod event_typed_union_fold_tests {
             entry("event", "Proposal.PROPOSE"),
             entry("scope", "declared"),
             entry("read", "Task"),
-        ]);
+        ].into());
         let mut calls = 0;
         let touched = map_event_typed_members(&mut value, Some(&items), None, &mut |cur| {
             calls += 1;
@@ -5472,10 +5532,87 @@ mod event_typed_union_fold_tests {
     fn control_an_event_member_of_a_plain_struct_is_still_folded() {
         let items = def(serde_json::json!({ "type": "object", "properties": {
             "event": { "name": "event", "type": "event" } } }));
-        let mut value = SExpression::Array(vec![entry("event", "SAVE")]);
+        let mut value = SExpression::Array(vec![entry("event", "SAVE")].into());
         map_event_typed_members(&mut value, Some(&items), None, &mut |cur| {
             Some(format!("{cur}_X"))
         });
         assert_eq!(get(&value, 0, "event"), "SAVE_X");
+    }
+}
+
+#[cfg(test)]
+mod unchanged_rewrite_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn expr(value: serde_json::Value) -> SExpression {
+        serde_json::from_value(value).expect("expression")
+    }
+
+    fn map(pairs: &[(&str, &str)]) -> orbital_core_base::collections::IndexMap<String, String> {
+        pairs.iter().map(|(from, to)| (from.to_string(), to.to_string())).collect()
+    }
+
+    #[test]
+    fn identifiers_that_name_no_substitution_stay_the_shared_tree() {
+        let original = expr(json!(["do", ["fetch", "Other"], ["set", "@Other.name", "x"], {"entity": "Other"}]));
+        let mut rewritten = original.clone();
+        rewrite_identifiers(&mut rewritten, &map(&[("Old", "New")]), &map(&[("GO", "GONE")]));
+        assert!(rewritten.same_node(&original), "nothing renamed means nothing copied");
+    }
+
+    #[test]
+    fn control_identifiers_that_name_a_substitution_are_rewritten() {
+        let mut rewritten = expr(json!(["do", ["fetch", "Old"], ["set", "@Old.name", "x"], ["emit", "GO"], {"entity": "Old"}]));
+        rewrite_identifiers(&mut rewritten, &map(&[("Old", "New")]), &map(&[("GO", "GONE")]));
+        assert_eq!(
+            rewritten,
+            expr(json!(["do", ["fetch", "New"], ["set", "@New.name", "x"], ["emit", "GONE"], {"entity": "New"}]))
+        );
+    }
+
+    #[test]
+    fn identifiers_edge_a_name_that_only_prefixes_a_substitution_is_left_alone() {
+        let original = expr(json!(["set", "@OldSuffix.name", "x"]));
+        let mut rewritten = original.clone();
+        rewrite_identifiers(&mut rewritten, &map(&[("Old", "New")]), &map(&[]));
+        assert!(rewritten.same_node(&original));
+    }
+
+    #[test]
+    fn field_paths_of_other_fields_stay_the_shared_tree() {
+        let original = expr(json!(["do", ["set", "@entity.title", "@entity.other"], ["object/get", "@entity", "name"]]));
+        let mut rewritten = original.clone();
+        rewrite_entity_field_paths(&mut rewritten, &map(&[("heading", "title2")]));
+        assert!(rewritten.same_node(&original));
+    }
+
+    #[test]
+    fn control_field_paths_of_a_renamed_field_are_rewritten() {
+        let mut rewritten = expr(json!(["do", ["set", "@entity.heading.x", 1], ["object/get", "@entity", "heading"], {"field": "heading"}]));
+        rewrite_entity_field_paths(&mut rewritten, &map(&[("heading", "title")]));
+        assert_eq!(
+            rewritten,
+            expr(json!(["do", ["set", "@entity.title.x", 1], ["object/get", "@entity", "title"], {"field": "title"}]))
+        );
+    }
+
+    #[test]
+    fn config_bindings_of_unset_knobs_stay_the_shared_tree() {
+        let original = expr(json!(["render-ui", "main", {"type": "typography", "content": "@config.missing"}]));
+        let mut rewritten = original.clone();
+        let mut subs = orbital_core_base::schema::SObject::new();
+        subs.insert("title".into(), SExpression::string("Hello"));
+        rewrite_config_bindings(&mut rewritten, &subs, &orbital_core_base::schema::SObject::new());
+        assert!(rewritten.same_node(&original));
+    }
+
+    #[test]
+    fn control_config_bindings_of_set_knobs_are_substituted() {
+        let mut rewritten = expr(json!(["render-ui", "main", {"type": "typography", "content": "@config.title"}]));
+        let mut subs = orbital_core_base::schema::SObject::new();
+        subs.insert("title".into(), SExpression::string("Hello"));
+        rewrite_config_bindings(&mut rewritten, &subs, &orbital_core_base::schema::SObject::new());
+        assert_eq!(rewritten, expr(json!(["render-ui", "main", {"type": "typography", "content": "Hello"}])));
     }
 }

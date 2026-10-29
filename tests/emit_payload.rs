@@ -34,7 +34,7 @@ fn emit_effect(event: &str, literal: Option<SExpression>) -> SExpression {
     if let Some(lit) = literal {
         arr.push(lit);
     }
-    SExpression::Array(arr)
+    SExpression::Array(arr.into())
 }
 
 fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {
@@ -212,7 +212,7 @@ fn missing_required_field_emits_warning() {
     // USER_SAVED declares { id: string! (required), name: string }.
     // Emit omits `id`.
     let mut literal = orbital_core_base::schema::SObject::new();
-    literal.insert("name".to_string(), string_sexpr("Ada"));
+    literal.insert("name".into(), string_sexpr("Ada"));
     let emit = emit_effect("USER_SAVED", Some(SExpression::object(literal)));
     let declared = declared_emit_with_payload(
         "USER_SAVED",
@@ -239,8 +239,8 @@ fn missing_required_field_emits_warning() {
 fn extra_field_emits_warning() {
     // USER_SAVED declares { id: string }. Emit provides `nickname` too.
     let mut literal = orbital_core_base::schema::SObject::new();
-    literal.insert("id".to_string(), string_sexpr("u-1"));
-    literal.insert("nickname".to_string(), string_sexpr("ada"));
+    literal.insert("id".into(), string_sexpr("u-1"));
+    literal.insert("nickname".into(), string_sexpr("ada"));
     let emit = emit_effect("USER_SAVED", Some(SExpression::object(literal)));
     let declared =
         declared_emit_with_payload("USER_SAVED", vec![payload_field("id", "string", false)]);
@@ -262,7 +262,7 @@ fn extra_field_emits_warning() {
 fn primitive_type_mismatch_emits_warning() {
     // USER_SAVED declares { count: number }. Emit provides a string literal.
     let mut literal = orbital_core_base::schema::SObject::new();
-    literal.insert("count".to_string(), string_sexpr("seventeen"));
+    literal.insert("count".into(), string_sexpr("seventeen"));
     let emit = emit_effect("USER_SAVED", Some(SExpression::object(literal)));
     let declared =
         declared_emit_with_payload("USER_SAVED", vec![payload_field("count", "number", false)]);
@@ -284,8 +284,8 @@ fn primitive_type_mismatch_emits_warning() {
 fn valid_emit_passes_without_warnings() {
     // USER_SAVED declares { id: string!, name: string }. Emit satisfies both.
     let mut literal = orbital_core_base::schema::SObject::new();
-    literal.insert("id".to_string(), string_sexpr("u-1"));
-    literal.insert("name".to_string(), string_sexpr("Ada"));
+    literal.insert("id".into(), string_sexpr("u-1"));
+    literal.insert("name".into(), string_sexpr("Ada"));
     let emit = emit_effect("USER_SAVED", Some(SExpression::object(literal)));
     let declared = declared_emit_with_payload(
         "USER_SAVED",
@@ -315,7 +315,7 @@ fn valid_emit_passes_without_warnings() {
 fn number_literal_matches_number_declared_type() {
     // Guard against false positives on numeric literals.
     let mut literal = orbital_core_base::schema::SObject::new();
-    literal.insert("count".to_string(), number_sexpr(42.0));
+    literal.insert("count".into(), number_sexpr(42.0));
     let emit = emit_effect("COUNT_UPDATED", Some(SExpression::object(literal)));
     let declared = declared_emit_with_payload(
         "COUNT_UPDATED",
@@ -336,7 +336,7 @@ fn number_literal_matches_number_declared_type() {
 
 fn list_field_emit(value: SExpression) -> bool {
     let mut literal = orbital_core_base::schema::SObject::new();
-    literal.insert("icons".to_string(), value);
+    literal.insert("icons".into(), value);
     let emit = emit_effect("USER_SAVED", Some(SExpression::object(literal)));
     let declared =
         declared_emit_with_payload("USER_SAVED", vec![payload_field("icons", "[string]", true)]);
@@ -353,7 +353,7 @@ fn emit_schema(emit: SExpression, declared: EmitDefinition) -> OrbitalSchema {
 
 #[test]
 fn an_empty_list_takes_the_declared_list_type() {
-    assert!(!list_field_emit(SExpression::Array(vec![])));
+    assert!(!list_field_emit(SExpression::Array(vec![].into())));
 }
 
 #[test]
@@ -370,7 +370,7 @@ fn declared_shape_emit_mismatches(
         "object/get", "@entity.out", "value"
     ])).unwrap();
     let mut literal = orbital_core_base::schema::SObject::new();
-    literal.insert("value".to_string(), value);
+    literal.insert("value".into(), value);
     let mut schema = schema_with_emit(
         emit_effect("USER_SAVED", Some(SExpression::object(literal))),
         declared_emit_with_payload("USER_SAVED", vec![serde_json::from_value(declared).unwrap()]),

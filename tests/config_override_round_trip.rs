@@ -275,7 +275,7 @@ fn config_override_substitutes_array_param() {
     let expected = SExpression::Array(vec![
         SExpression::String(("status".to_string()).into()),
         SExpression::String(("category".to_string()).into()),
-    ]);
+    ].into());
     assert_eq!(
         obj.get("filterFields"),
         Some(&expected),
@@ -313,12 +313,12 @@ fn config_override_keeps_an_empty_list_an_operator_reads_a_reference_to_its_knob
         Some(&SExpression::Array(vec![
             SExpression::String(("array/len".to_string()).into()),
             SExpression::String(("@config.filterFields".to_string()).into()),
-        ])),
+        ].into())),
         "an operator's argument stays a reference to the knob that types it"
     );
     assert_eq!(
         obj.get("filterFields"),
-        Some(&SExpression::Array(vec![])),
+        Some(&SExpression::Array(vec![].into())),
         "control: the same empty list as a render prop is the value"
     );
 }
@@ -326,7 +326,7 @@ fn config_override_keeps_an_empty_list_an_operator_reads_a_reference_to_its_knob
 #[test]
 fn config_override_substitutes_a_list_with_elements_and_a_scalar_an_operator_reads() {
     for (default, expected) in [
-        (r#"["status"]"#, SExpression::Array(vec![SExpression::String(("status".to_string()).into())])),
+        (r#"["status"]"#, SExpression::Array(vec![SExpression::String(("status".to_string()).into())].into())),
         (r#""status""#, SExpression::String(("status".to_string()).into())),
     ] {
         let config_fragment = format!(
@@ -339,7 +339,7 @@ fn config_override_substitutes_a_list_with_elements_and_a_scalar_an_operator_rea
         let obj = extract_render_ui_object(&extract_render_ui_payload(&composer_path));
         assert_eq!(
             obj.get("count"),
-            Some(&SExpression::Array(vec![SExpression::String(("array/len".to_string()).into()), expected])),
+            Some(&SExpression::Array(vec![SExpression::String(("array/len".to_string()).into()), expected].into())),
             "control: {default} types itself, so it is substituted"
         );
     }

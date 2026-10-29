@@ -110,7 +110,7 @@ pub(crate) fn extract_payload_fields(arr: &[SExpression]) -> HashSet<String> {
     if arr.len() >= 3 {
         if let SExpression::Object(payload) = &arr[2] {
             for key in payload.keys() {
-                fields.insert(key.clone());
+                fields.insert(key.to_string());
             }
         }
     }
@@ -159,7 +159,7 @@ mod tests {
             SExpression::String(("set".to_string()).into()),
             SExpression::String(("@entity.title".to_string()).into()),
             SExpression::String(("value".to_string()).into()),
-        ]);
+        ].into());
 
         let result = validate_effect(
             &effect,
@@ -182,7 +182,7 @@ mod tests {
             SExpression::String(("set".to_string()).into()),
             SExpression::String(("@payload.title".to_string()).into()),
             SExpression::String(("value".to_string()).into()),
-        ]);
+        ].into());
 
         let result = validate_effect(
             &effect,
@@ -208,7 +208,7 @@ mod tests {
         let effect = SExpression::Array(vec![
             SExpression::String(("fetch".to_string()).into()),
             SExpression::String(("NonExistent".to_string()).into()),
-        ]);
+        ].into());
 
         let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
         let result = validate_effect(
@@ -292,15 +292,15 @@ mod tests {
         let params = SExpression::object(
             [
                 (
-                    "to".to_string(),
+                    "to".into(),
                     SExpression::String(("a@b.c".to_string()).into()),
                 ),
                 (
-                    "subject".to_string(),
+                    "subject".into(),
                     SExpression::String(("s".to_string()).into()),
                 ),
                 (
-                    "body".to_string(),
+                    "body".into(),
                     SExpression::String(("b".to_string()).into()),
                 ),
             ]
@@ -309,17 +309,17 @@ mod tests {
         );
         let emit = SExpression::object(
             keys.iter()
-                .map(|(k, v)| (k.to_string(), SExpression::String(v.to_string().into())))
+                .map(|(k, v)| (k.to_string().into(), SExpression::String(v.to_string().into())))
                 .collect(),
         );
-        let envelope = SExpression::object([("emit".to_string(), emit)].into_iter().collect());
+        let envelope = SExpression::object([("emit".into(), emit)].into_iter().collect());
         SExpression::Array(vec![
             SExpression::String(("call-service".to_string()).into()),
             SExpression::String(("email".to_string()).into()),
             SExpression::String(("send".to_string()).into()),
             params,
             envelope,
-        ])
+        ].into())
     }
 
     #[test]
@@ -367,7 +367,7 @@ mod tests {
         let effect = SExpression::Array(vec![
             SExpression::String(("navigate".to_string()).into()),
             SExpression::String(("/inspection/123".to_string()).into()),
-        ]);
+        ].into());
 
         let result = validate_effect(
             &effect,
@@ -406,13 +406,13 @@ mod tests {
             SExpression::String(("/inspection/123".to_string()).into()),
             SExpression::object(
                 vec![(
-                    "id".to_string(),
+                    "id".into(),
                     SExpression::String(("@entity.id".to_string()).into()),
                 )]
                 .into_iter()
                 .collect(),
             ),
-        ]);
+        ].into());
 
         let result = validate_effect(
             &effect,

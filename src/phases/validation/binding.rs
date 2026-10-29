@@ -238,7 +238,7 @@ fn validate_expr_bindings_with_locals(
                                 // (permissive — never falsely rejects). lolo only
                                 // ever lowers `let` to the ordered array form above.
                                 for name in bindings.keys() {
-                                    extended_locals.insert(name.clone());
+                                    extended_locals.insert(name.to_string());
                                 }
                                 for (name, value_expr) in bindings.iter() {
                                     result.merge(validate_expr_bindings_with_locals(
@@ -557,13 +557,13 @@ mod tests {
         // ["fn", ["item"], ["=", "@item.status", "pending"]]
         let expr = SExpression::Array(vec![
             SExpression::String(("fn".to_string()).into()),
-            SExpression::Array(vec![SExpression::String(("item".to_string()).into())]),
+            SExpression::Array(vec![SExpression::String(("item".to_string()).into())].into()),
             SExpression::Array(vec![
                 SExpression::String(("=".to_string()).into()),
                 SExpression::String(("@item.status".to_string()).into()),
                 SExpression::String(("pending".to_string()).into()),
-            ]),
-        ]);
+            ].into()),
+        ].into());
         let result = validate_expr_bindings(&expr, "test", BindingContext::Effect);
         // @item inside lambda should NOT produce BindingUnknownRoot
         assert!(
@@ -580,9 +580,9 @@ mod tests {
         // ["array/map", "@entity.items", ["fn", "item", { type: badge, label: "@item.name" }]]
         let node = SExpression::object(
             [
-                ("type".to_string(), SExpression::String(("badge".to_string()).into())),
+                ("type".into(), SExpression::String(("badge".to_string()).into())),
                 (
-                    "label".to_string(),
+                    "label".into(),
                     SExpression::String(("@item.name".to_string()).into()),
                 ),
             ]
@@ -596,8 +596,8 @@ mod tests {
                 SExpression::String(("fn".to_string()).into()),
                 SExpression::String(("item".to_string()).into()),
                 node,
-            ]),
-        ]);
+            ].into()),
+        ].into());
         let result = validate_expr_bindings(&expr, "test", BindingContext::Effect);
         assert!(
             !result
@@ -614,9 +614,9 @@ mod tests {
         // A bare `@item.name` with no enclosing map/lambda → unknown root.
         let expr = SExpression::object(
             [
-                ("type".to_string(), SExpression::String(("badge".to_string()).into())),
+                ("type".into(), SExpression::String(("badge".to_string()).into())),
                 (
-                    "label".to_string(),
+                    "label".into(),
                     SExpression::String(("@item.name".to_string()).into()),
                 ),
             ]
@@ -645,8 +645,8 @@ mod tests {
                 SExpression::String(("=".to_string()).into()),
                 SExpression::String(("@h.owner".to_string()).into()),
                 SExpression::String(("player".to_string()).into()),
-            ]),
-        ]);
+            ].into()),
+        ].into());
         let result = validate_expr_bindings(&expr, "test", BindingContext::Effect);
         assert!(
             !result
@@ -726,6 +726,6 @@ mod tests {
         SExpression::String(v.to_string().into())
     }
     fn arr(items: Vec<SExpression>) -> SExpression {
-        SExpression::Array(items)
+        SExpression::Array(items.into())
     }
 }

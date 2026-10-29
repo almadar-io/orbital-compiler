@@ -388,7 +388,7 @@ fn signature_from_payload_literal(
                 SExpression::Bool(_) => ("boolean".to_string(), true),
                 _ => ("string".to_string(), true),
             };
-            (key.clone(), field_type, required)
+            (key.to_string(), field_type, required)
         })
         .collect()
 }

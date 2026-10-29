@@ -317,7 +317,7 @@ mod tests {
     }
 
     fn arr(items: Vec<SExpression>) -> SExpression {
-        SExpression::Array(items)
+        SExpression::Array(items.into())
     }
 
     fn entity(name: &str, shared: bool, persistence: Option<Persistence>) -> EntityDefinition {
@@ -375,7 +375,7 @@ mod tests {
             s("main"),
             SExpression::object({
                 let mut m = orbital_core_base::schema::SObject::new();
-                m.insert("val".to_string(), s(&format!("@entity.{}", field)));
+                m.insert("val".into(), s(&format!("@entity.{}", field)));
                 m
             }),
         ])
@@ -455,7 +455,7 @@ mod tests {
             s(slot),
             SExpression::object({
                 let mut m = orbital_core_base::schema::SObject::new();
-                m.insert("val".to_string(), s(&format!("@entity.{}", field)));
+                m.insert("val".into(), s(&format!("@entity.{}", field)));
                 m
             }),
         ])
@@ -498,9 +498,9 @@ mod tests {
             s("main"),
             SExpression::object({
                 let mut m = orbital_core_base::schema::SObject::new();
-                m.insert("val".to_string(), s(&format!("@entity.{}", field)));
+                m.insert("val".into(), s(&format!("@entity.{}", field)));
                 m.insert(
-                    "children".to_string(),
+                    "children".into(),
                     SExpression::Array(refs.iter().map(|r| s(&format!("@trait.{}", r))).collect()),
                 );
                 m

@@ -13,71 +13,119 @@ use orbital_core_base::schema::{
 };
 use std::collections::{BTreeMap, HashMap};
 
-/// Record the declared list types of `schema`'s operator arguments in place.
+/// What recording rewrote in one trait: the transitions' and ticks' guards and effects.
+struct TraitShapes {
+    orbital: usize,
+    trait_at: usize,
+    transitions: Vec<(usize, Option<SExpression>, Option<Vec<SExpression>>)>,
+    ticks: Vec<(usize, Option<SExpression>, Vec<SExpression>)>,
+}
+
+fn unchanged_list(old: &[SExpression], new: &[SExpression]) -> bool {
+    old.len() == new.len() && old.iter().zip(new).all(|(a, b)| a.same_node(b))
+}
+
+/// Record the declared list types of `schema`'s operator arguments in place. A trait none of whose expressions
+/// changes stays the shared definition.
 pub fn record_declared_shapes(schema: &mut OrbitalSchema) {
-    let view = schema.clone();
-    let mut entities: HashMap<String, EntityDefinition> = HashMap::new();
-    for orbital in &view.orbitals {
-        if let Some(entity) = orbital.entity.as_inline() {
-            entities.insert(entity.name.clone(), entity.clone());
-        }
-        for aux in orbital.auxiliary_entities.iter().flatten() {
-            if let Some(entity) = aux.as_inline() {
-                entities.insert(entity.name.clone(), entity.clone());
+    let recorded = {
+        let view: &OrbitalSchema = schema;
+        let mut entities: HashMap<String, &EntityDefinition> = HashMap::new();
+        for orbital in &view.orbitals {
+            if let Some(entity) = orbital.entity.as_inline() {
+                entities.insert(entity.name.clone(), entity);
             }
-        }
-    }
-    for (i, orbital) in view.orbitals.iter().enumerate() {
-        let mut aliases = view.types.clone().unwrap_or_default();
-        aliases.extend(orbital.types.clone().unwrap_or_default());
-        for (j, trait_ref) in orbital.traits.iter().enumerate() {
-            let TraitReference::Inline(trait_def) = trait_ref else {
-                continue;
-            };
-            let scopes = TraitScopes::new(&view, trait_def, &entities);
-            let TraitReference::Inline(target) = &mut schema.orbitals[i].traits[j] else {
-                continue;
-            };
-            let target = Arc::make_mut(target);
-            for (k, transition) in trait_def.state_machine.transitions.iter().enumerate() {
-                let payload = scopes.payload_for(&transition.event);
-                let types = scopes.types_for(&view, trait_def, &transition.event);
-                let ctx = ExprReturnCtx {
-                    entity: &scopes.entity_field_types,
-                    payload: &payload,
-                    types: Some(&types),
-                    schema: Some(&view),
-                };
-                let out = &mut target.state_machine.transitions[k];
-                if let Some(guard) = &transition.guard {
-                    out.guard = Some(declare(guard, &ctx, &aliases));
-                }
-                if let Some(effects) = &transition.effects {
-                    out.effects =
-                        Some(effects.iter().map(|e| declare(e, &ctx, &aliases)).collect());
+            for aux in orbital.auxiliary_entities.iter().flatten() {
+                if let Some(entity) = aux.as_inline() {
+                    entities.insert(entity.name.clone(), entity);
                 }
             }
-            if let Some(ticks) = &trait_def.ticks {
-                let ctx = ExprReturnCtx {
-                    entity: &scopes.entity_field_types,
-                    payload: &scopes.payload_field_types,
-                    types: Some(&scopes.tick_types),
-                    schema: Some(&view),
-                };
-                let Some(out_ticks) = target.ticks.as_mut() else {
+        }
+        let mut recorded: Vec<TraitShapes> = Vec::new();
+        for (i, orbital) in view.orbitals.iter().enumerate() {
+            let mut aliases = view.types.clone().unwrap_or_default();
+            aliases.extend(orbital.types.clone().unwrap_or_default());
+            for (j, trait_ref) in orbital.traits.iter().enumerate() {
+                let TraitReference::Inline(trait_def) = trait_ref else {
                     continue;
                 };
-                for (k, tick) in ticks.iter().enumerate() {
-                    if let Some(guard) = &tick.guard {
-                        out_ticks[k].guard = Some(declare(guard, &ctx, &aliases));
-                    }
-                    out_ticks[k].effects = tick
+                let scopes = TraitScopes::new(view, trait_def, &entities);
+                let mut out = TraitShapes { orbital: i, trait_at: j, transitions: Vec::new(), ticks: Vec::new() };
+                for (k, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+                    let payload = scopes.payload_for(&transition.event);
+                    let types = scopes.types_for(view, trait_def, &transition.event);
+                    let ctx = ExprReturnCtx {
+                        entity: &scopes.entity_field_types,
+                        payload: &payload,
+                        types: Some(&types),
+                        schema: Some(view),
+                    };
+                    let guard = transition.guard.as_ref().map(|guard| declare(guard, &ctx, &aliases));
+                    let effects = transition
                         .effects
-                        .iter()
-                        .map(|e| declare(e, &ctx, &aliases))
-                        .collect();
+                        .as_ref()
+                        .map(|effects| effects.iter().map(|e| declare(e, &ctx, &aliases)).collect::<Vec<_>>());
+                    let guard_kept = match (&transition.guard, &guard) {
+                        (Some(old), Some(new)) => old.same_node(new),
+                        _ => true,
+                    };
+                    let effects_kept = match (&transition.effects, &effects) {
+                        (Some(old), Some(new)) => unchanged_list(old, new),
+                        _ => true,
+                    };
+                    if !(guard_kept && effects_kept) {
+                        out.transitions.push((k, guard, effects));
+                    }
+                }
+                if let Some(ticks) = &trait_def.ticks {
+                    let ctx = ExprReturnCtx {
+                        entity: &scopes.entity_field_types,
+                        payload: &scopes.payload_field_types,
+                        types: Some(&scopes.tick_types),
+                        schema: Some(view),
+                    };
+                    for (k, tick) in ticks.iter().enumerate() {
+                        let guard = tick.guard.as_ref().map(|guard| declare(guard, &ctx, &aliases));
+                        let effects: Vec<SExpression> =
+                            tick.effects.iter().map(|e| declare(e, &ctx, &aliases)).collect();
+                        let guard_kept = match (&tick.guard, &guard) {
+                            (Some(old), Some(new)) => old.same_node(new),
+                            _ => true,
+                        };
+                        if !(guard_kept && unchanged_list(&tick.effects, &effects)) {
+                            out.ticks.push((k, guard, effects));
+                        }
+                    }
+                }
+                if !out.transitions.is_empty() || !out.ticks.is_empty() {
+                    recorded.push(out);
                 }
             }
+        }
+        recorded
+    };
+    for shapes in recorded {
+        let TraitReference::Inline(target) = &mut schema.orbitals[shapes.orbital].traits[shapes.trait_at] else {
+            continue;
+        };
+        let target = Arc::make_mut(target);
+        for (k, guard, effects) in shapes.transitions {
+            let out = &mut target.state_machine.transitions[k];
+            if guard.is_some() {
+                out.guard = guard;
+            }
+            if effects.is_some() {
+                out.effects = effects;
+            }
+        }
+        for (k, guard, effects) in shapes.ticks {
+            let Some(out_ticks) = target.ticks.as_mut() else {
+                continue;
+            };
+            if guard.is_some() {
+                out_ticks[k].guard = guard;
+            }
+            out_ticks[k].effects = effects;
         }
     }
 }
@@ -269,6 +317,31 @@ mod tests {
         let mut schema = program(via, effect.clone());
         record_declared_shapes(&mut schema);
         assert_eq!(effect_of(&schema), effect);
+    }
+
+    #[test]
+    fn recording_nothing_keeps_the_shared_trait_definition() {
+        let mut schema = program(
+            json!({ "name": "via", "type": "string" }),
+            json!(["set", "@entity.count", 1]),
+        );
+        let TraitReference::Inline(before) = &schema.orbitals[0].traits[0] else { panic!("inline trait") };
+        let before = Arc::clone(before);
+        record_declared_shapes(&mut schema);
+        let TraitReference::Inline(after) = &schema.orbitals[0].traits[0] else { panic!("inline trait") };
+        assert!(Arc::ptr_eq(&before, after), "a trait with no shape to record is not copied");
+    }
+
+    #[test]
+    fn control_recording_a_declared_shape_gives_the_trait_its_own_copy() {
+        let effect = json!(["set", "@entity.count", ["json/parse", "@payload.via", "Point"]]);
+        let mut schema = with_row_types(program(json!({ "name": "via", "type": "string" }), effect));
+        let TraitReference::Inline(before) = &schema.orbitals[0].traits[0] else { panic!("inline trait") };
+        let before = Arc::clone(before);
+        record_declared_shapes(&mut schema);
+        let TraitReference::Inline(after) = &schema.orbitals[0].traits[0] else { panic!("inline trait") };
+        assert_ne!(effect_of(&schema)[2][2], json!("Point"), "the alias's type is recorded");
+        assert!(!Arc::ptr_eq(&before, after), "the changed trait is its own copy; the shared one is untouched");
     }
 
     fn with_row_types(mut schema: OrbitalSchema) -> OrbitalSchema {

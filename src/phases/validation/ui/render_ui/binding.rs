@@ -804,7 +804,7 @@ fn node_leaf_values<'a>(
         (FieldType::Array, SExpression::Array(items)) => items.iter().collect(),
         (FieldType::Object, SExpression::Object(map)) => {
             // Deterministic order — diagnostics must not depend on hash order.
-            let mut keys: Vec<&String> = map.keys().collect();
+            let mut keys: Vec<&orbital_core_base::value::Shared<String>> = map.keys().collect();
             keys.sort();
             keys.into_iter().filter_map(|k| map.get(k)).collect()
         }
@@ -1158,8 +1158,8 @@ mod array_into_record_tests {
     fn pattern(ty: &str, prop: &str, value: &str) -> SExpression {
         SExpression::object(
             [
-                ("type".to_string(), SExpression::String(ty.to_string().into())),
-                (prop.to_string(), SExpression::String(value.to_string().into())),
+                ("type".into(), SExpression::String(ty.to_string().into())),
+                (prop.into(), SExpression::String(value.to_string().into())),
             ]
             .into_iter()
             .collect(),
@@ -1352,8 +1352,8 @@ mod array_element_kind_tests {
         };
         let pat = SExpression::object(
             [
-                ("type".to_string(), SExpression::String(ty.to_string().into())),
-                (prop.to_string(), SExpression::String(value.to_string().into())),
+                ("type".into(), SExpression::String(ty.to_string().into())),
+                (prop.into(), SExpression::String(value.to_string().into())),
             ]
             .into_iter()
             .collect(),

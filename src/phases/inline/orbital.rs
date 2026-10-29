@@ -1969,8 +1969,14 @@ pub(crate) fn resolve_orbital_reference(
     // orbital knows the same names; one it declares itself wins.
     if let Some(upstream_types) = upstream.types.as_ref() {
         let own = orbital.types.get_or_insert_with(Default::default);
+        let declaring_file = ctx.aliases.get(&alias).and_then(|entry| entry.source_path.clone());
         for (name, fields) in upstream_types {
-            own.entry(name.clone()).or_insert_with(|| fields.clone());
+            if let std::collections::btree_map::Entry::Vacant(slot) = own.entry(name.clone()) {
+                slot.insert(fields.clone());
+                if let Some(file) = &declaring_file {
+                    ctx.pulled_type_files.borrow_mut().push((name.clone(), file.clone()));
+                }
+            }
         }
     }
     // Orbital-level `emits`/`listens`/`exposes` name UPSTREAM's pre-rename
@@ -5125,7 +5131,7 @@ mod tests {
             "navItems".to_string(),
             field(SExpression::Array(vec![SExpression::String(
                 "/tasks".into(),
-            )])),
+            )].into())),
         )]);
         forward_consumer_app_knobs(&mut folded, Some(&consumer));
         let nav = &folded["navItems"];
@@ -5536,7 +5542,7 @@ mod tests {
                 SExpression::String(("=".to_string()).into()),
                 SExpression::String(("@user.role".to_string()).into()),
                 SExpression::String(("owner".to_string()).into()),
-            ])),
+            ].into())),
             "the primary entity's read_policy role literal must be remapped"
         );
         assert_eq!(diagnostics.len(), 1);
