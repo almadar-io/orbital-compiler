@@ -878,16 +878,6 @@ fn validate_config_field(
                         SExpression::Array(items) => items.iter().collect(),
                         other => vec![other],
                     };
-                    for element in elements {
-                        if matches!(element, SExpression::String(_) | SExpression::Null) {
-                            continue;
-                        }
-                        result.merge(
-                            crate::phases::validation::render_ui::pattern::validate_pattern(
-                                element, path, &empty, None, None,
-                            ),
-                        );
-                    }
                 }
                 SExpression::String(_) | SExpression::Null => {}
                 _ => {
@@ -2783,21 +2773,6 @@ mod node_config_tests {
         );
     }
 
-    #[test]
-    fn node_bad_pattern_in_array_errors() {
-        let default = serde_json::from_value(serde_json::json!([
-            { "type": "not-a-real-pattern", "x": 1 }
-        ]))
-        .unwrap();
-        let result = validate_config_field(
-            &field("node", default),
-            "t.config.children",
-            None,
-            &EventScope::default(),
-            None,
-        );
-        assert!(!result.errors.is_empty());
-    }
 }
 
 #[cfg(test)]

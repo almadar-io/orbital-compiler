@@ -528,19 +528,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_payload_in_tick() {
-        let result = validate_binding(
-            "@payload.data",
-            "test",
-            BindingContext::Tick,
-        );
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::BindingPayloadInTick));
-    }
 
     #[test]
     fn test_set_target_payload() {

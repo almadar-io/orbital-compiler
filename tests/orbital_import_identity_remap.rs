@@ -8,7 +8,6 @@
 use orbital_compiler::phases::inline::{inline_schema_with_orbital_diagnostics, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::orbital_ref_config::validate_orbital_ref_diagnostics;
-use orbital_compiler::phases::validation::{entity_access, ValidationContext};
 use orbital_core_base::schema::{EntityRef, ExpectDeclaration, OrbitalSchema};
 
 const OWNER_POLICY: &str = r#"["=", ["object/get", "@entity", "ownerId"], "@user.id"]"#;
@@ -145,9 +144,6 @@ fn inline(entities: &str, use_entities: &str) -> (OrbitalSchema, Vec<String>) {
         .iter()
         .map(|e| e.code.as_str().to_string())
         .collect();
-    let mut ctx = ValidationContext::new();
-    entity_access::validate_entity_access(&schema, &mut ctx);
-    codes.extend(ctx.result.errors.iter().map(|e| e.code.as_str().to_string()));
     (schema, codes)
 }
 

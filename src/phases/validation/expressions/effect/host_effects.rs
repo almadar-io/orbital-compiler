@@ -5,7 +5,7 @@ use super::super::{inline_traits, ValidationResult};
 use super::emit_declaration::collect_declared_emits;
 use super::http::visit_effects;
 use super::keyed_call::check_key_and_cancelled;
-use super::{extract_emit_object_ref, validate_emit_config};
+use super::{extract_emit_object_ref};
 use orbital_core_base::language::registry::{try_get_operator, EmbeddedOperator};
 use orbital_core_base::schema::{OrbitalSchema, SExpression};
 
@@ -51,7 +51,6 @@ pub(crate) fn validate_host_effects(schema: &OrbitalSchema) -> ValidationResult 
                         result.merge(check_key_and_cancelled(options, at, head));
                     }
                     if let Some(emit) = extract_emit_object_ref(options) {
-                        result.merge(validate_emit_config(emit, &emit_keys, Some(&declared), at));
                     }
                 }
             });

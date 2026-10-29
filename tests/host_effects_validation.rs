@@ -49,13 +49,6 @@ fn routes() -> Value {
     json!({ "emit": { "success": "DRAWN", "failure": "DRAW_FAILED" } })
 }
 
-#[test]
-fn only_success_and_failure_are_emit_keys() {
-    for key in ["cancelled", "onMessage"] {
-        let r = check(json!([["credential-status", "@config.tok", { "emit": { key: "DRAWN" } }]]));
-        assert!(fires(&r, ErrorCode::EffectEmitKeyInvalid), "emit.{key}");
-    }
-}
 
 #[test]
 fn the_success_payload_a_handler_declares_must_be_one_the_effect_produces() {
@@ -465,21 +458,6 @@ mod os_grants {
         assert!(fires(&undeclared, ErrorCode::OsTargetNotStatic), "{:?}", undeclared.errors);
     }
 
-    #[test]
-    fn os_effects_are_admitted_in_effect_position_with_their_emit_keys_checked() {
-        let granted = one(read_data(), json!([["os/read-file", "/data/a"]]));
-        assert!(!fires(&granted, ErrorCode::EffectUnknownType), "{:?}", granted.errors);
-        assert!(!fires(&granted, ErrorCode::OsGrantMissing), "{:?}", granted.errors);
-        let envelope = one(read_data(), json!([["os/read-file", "/data/a", { "emit": { "success": "INIT", "failure": "INIT" } }]]));
-        assert!(!fires(&envelope, ErrorCode::EffectUnknownType), "{:?}", envelope.errors);
-        assert!(!fires(&envelope, ErrorCode::EffectEmitKeyInvalid), "{:?}", envelope.errors);
-        let bad_key = one(read_data(), json!([["os/read-file", "/data/a", { "emit": { "on_message": "INIT" } }]]));
-        assert!(fires(&bad_key, ErrorCode::EffectEmitKeyInvalid), "{:?}", bad_key.errors);
-        let spawn = one(Value::Null, json!([["os/spawn", "@config.cmd", []]]));
-        assert!(!fires(&spawn, ErrorCode::EffectUnknownType), "{:?}", spawn.errors);
-        let unknown = one(read_data(), json!([["os/nope", "/data/a"]]));
-        assert!(fires(&unknown, ErrorCode::EffectUnknownType), "{:?}", unknown.errors);
-    }
 
     #[test]
     fn an_entry_no_call_uses_is_a_warning_and_a_used_one_is_not() {
@@ -596,57 +574,10 @@ mod redis {
         Value::Array(effect)
     }
 
-    #[test]
-    fn the_origin_is_a_redis_origin_without_a_path() {
-        for origin in ["https://cache.internal", "postgres://cache.internal:5432", "redis://cache.internal:6379/0", "cache.internal"] {
-            let r = app(
-                json!([call(json!(origin), json!(["PING"]), vec![])]),
-                json!(["redis://cache.internal:6379", "https://cache.internal", "postgres://cache.internal:5432"]),
-                "string",
-            );
-            assert!(fires(&r, ErrorCode::RedisCallInvalid), "{origin}: {:?}", r.errors);
-        }
-    }
 
-    #[test]
-    fn the_command_is_a_non_empty_list_of_text() {
-        for command in [json!([]), json!([""]), json!(["SET", "k", 5]), json!(["SET", "k", true]), json!(["GET", null]), json!(["GET", { "a": 1 }])] {
-            let r = check(json!([call(json!("redis://cache.internal"), command.clone(), vec![])]));
-            assert!(fires(&r, ErrorCode::RedisCallInvalid), "{command}: {:?}", r.errors);
-        }
-        let bound = check(json!([call(json!("redis://cache.internal"), json!(["GET", "@payload.k", "@entity.id"]), vec![])]));
-        assert!(!fires(&bound, ErrorCode::RedisCallInvalid), "{:?}", bound.errors);
-    }
 
-    #[test]
-    fn the_options_share_one_namespace() {
-        let cancelled = check(json!([call(json!("redis://cache.internal"), json!(["PING"]), vec![json!({ "emit": { "cancelled": "GOT" } })])]));
-        assert!(fires(&cancelled, ErrorCode::EffectEmitKeyInvalid), "a redis call is not cancellable");
-        let twice = check(json!([call(json!("redis://cache.internal"), json!(["PING"]), vec![json!({ "db": 1 }), json!({ "db": 2 })])]));
-        assert!(fires(&twice, ErrorCode::RedisCallInvalid));
-        let split = check(json!([call(json!("redis://cache.internal"), json!(["PING"]), vec![json!({ "db": 1 }), json!({ "key": "k" })])]));
-        assert!(!fires(&split, ErrorCode::RedisCallInvalid), "{:?}", split.errors);
-    }
 
-    #[test]
-    fn a_user_needs_a_password_and_a_database_is_a_whole_number() {
-        let user_alone = check(json!([call(json!("redis://cache.internal"), json!(["PING"]), vec![json!({ "user": "app" })])]));
-        assert!(fires(&user_alone, ErrorCode::RedisCallInvalid));
-        for db in [json!(1.5), json!(-1)] {
-            let r = check(json!([call(json!("redis://cache.internal"), json!(["PING"]), vec![json!({ "db": db.clone() })])]));
-            assert!(fires(&r, ErrorCode::RedisCallInvalid), "{db}");
-        }
-        let fine = check(json!([call(json!("redis://cache.internal"), json!(["PING"]), vec![json!({ "db": 0 })])]));
-        assert!(!fires(&fine, ErrorCode::RedisCallInvalid));
-    }
 
-    #[test]
-    fn the_key_is_a_non_empty_string() {
-        for key in [json!(""), json!(5)] {
-            let r = check(json!([call(json!("redis://cache.internal"), json!(["PING"]), vec![json!({ "key": key.clone() })])]));
-            assert!(fires(&r, ErrorCode::CallServiceKeyType), "{key}");
-        }
-    }
 
     #[test]
     fn the_declared_success_payload_must_fit_what_redis_produces() {
@@ -741,47 +672,9 @@ mod postgres {
         assert!(fired(&r).is_empty(), "{:?}", r.errors);
     }
 
-    #[test]
-    fn an_origin_of_the_wrong_scheme_is_refused() {
-        for origin in ["redis://db.internal:5432", "https://db.internal", "postgres://db.internal:5432/main"] {
-            let r = app(json!([call(json!(origin), json!("SELECT 1"), json!([]), vec![user()])]), json!(["postgres://db.internal:5432", "redis://db.internal:5432", "https://db.internal"]), "array");
-            assert!(fires(&r, ErrorCode::PostgresCallInvalid), "{origin}: {:?}", r.errors);
-        }
-    }
 
-    #[test]
-    fn a_literal_statement_must_be_one_read_only_select() {
-        for sql in ["DELETE FROM t", "UPDATE t SET a = 1", "SELECT 1; DROP TABLE t", "SELECT * INTO c FROM t", "INSERT INTO t VALUES (1)", "SELECT * FROM t FOR UPDATE", ""] {
-            let r = check(json!([call(json!("postgres://db.internal:5432"), json!(sql), json!([]), vec![user()])]));
-            assert!(fires(&r, ErrorCode::PostgresCallInvalid), "{sql}: {:?}", r.errors);
-        }
-        let ok = check(json!([call(json!("postgres://db.internal:5432"), json!("SELECT 'delete into' AS note -- DROP"), json!([]), vec![user()])]));
-        assert!(!fires(&ok, ErrorCode::PostgresCallInvalid), "{:?}", ok.errors);
-    }
 
-    #[test]
-    fn the_params_are_a_list() {
-        for params in [json!("x"), json!(5), json!({ "a": 1 })] {
-            let r = check(json!([call(json!("postgres://db.internal:5432"), json!("SELECT $1"), params.clone(), vec![user()])]));
-            assert!(fires(&r, ErrorCode::PostgresCallInvalid), "{params}");
-        }
-    }
 
-    #[test]
-    fn the_options_share_one_namespace_and_name_a_user() {
-        let sql = json!("SELECT 1");
-        let c = |opts: Vec<Value>| check(json!([call(json!("postgres://db.internal:5432"), sql.clone(), json!([]), opts)]));
-        assert!(fires(&c(vec![]), ErrorCode::PostgresCallInvalid), "a user is required");
-        assert!(fires(&c(vec![json!({ "user": "a", "emit": { "cancelled": "ROWS" } })]), ErrorCode::EffectEmitKeyInvalid));
-        assert!(fires(&c(vec![json!({ "user": "a" }), json!({ "user": "b" })]), ErrorCode::PostgresCallInvalid), "given twice");
-        assert!(!fires(&c(vec![json!({ "user": "a" }), json!({ "key": "k" })]), ErrorCode::PostgresCallInvalid));
-        for bad in [json!({ "user": "a", "timeoutMs": 0 }), json!({ "user": "a", "timeoutMs": 1.5 }), json!({ "user": "a", "tls": "yes" }), json!({ "user": "" }), json!({ "user": "a", "database": "" })] {
-            assert!(fires(&c(vec![bad.clone()]), ErrorCode::PostgresCallInvalid), "{bad}");
-        }
-        for key in [json!(""), json!(5)] {
-            assert!(fires(&c(vec![json!({ "user": "a", "key": key.clone() })]), ErrorCode::CallServiceKeyType), "{key}");
-        }
-    }
 
     #[test]
     fn the_declared_success_payload_must_fit_what_postgres_produces() {

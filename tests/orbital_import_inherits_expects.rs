@@ -219,11 +219,9 @@ fn validate_reconciled_contracts(
     schema: &orbital_core_base::schema::OrbitalSchema,
 ) -> orbital_compiler::phases::validation::ValidationResult {
     use orbital_compiler::phases::validation::{
-        entity_access, expectations, user_identity, ValidationContext,
+        expectations, ValidationContext,
     };
     let mut context = ValidationContext::new();
-    user_identity::validate_user_identity(schema, &mut context);
-    entity_access::validate_entity_access(schema, &mut context);
     expectations::validate_expectations(schema, &mut context);
     context.result
 }

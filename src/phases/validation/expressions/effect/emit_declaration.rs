@@ -1,13 +1,10 @@
 //! Emit declaration collection + effect dispatch.
 
 use super::super::{ErrorCode, PageInitPayload, ValidationError, ValidationResult};
-use super::call_service::walk_nested_call_services;
 use super::fetch::validate_fetch_stream;
-use super::validate_send_server;
 use super::{
-    effect_operators, extract_emit_object_ref, validate_call_service,
-    validate_emit, validate_emit_config, validate_fetch, validate_navigate,
-    validate_os_effect, validate_persist, validate_program_eval,
+    effect_operators, extract_emit_object_ref, validate_fetch,
+    validate_os_effect, validate_program_eval,
     validate_set, validate_set_return_type, validate_set_value_type,
     DeclaredEmit, EntityFieldMeta, ExprReturnCtx, RowSite,
 };
@@ -265,7 +262,6 @@ pub(crate) fn validate_effect_in(
     };
 
     let value = |expr: &SExpression, result: &mut ValidationResult| {
-        result.merge(walk_nested_call_services(expr, path, service_registry));
     };
     let mut scoped = None;
     match head {
@@ -343,12 +339,6 @@ fn validate_leaf_effect(
 
                 match operator.as_str() {
                     "call-service" => {
-                        result.merge(validate_call_service(
-                            arr,
-                            path,
-                            service_registry,
-                            declared_emits,
-                        ));
                     }
                     "set" => {
                         result.merge(validate_set(arr, path, declared_emits));
@@ -381,22 +371,13 @@ fn validate_leaf_effect(
                         ));
                     }
                     "persist" => {
-                        result.merge(validate_persist(
-                            arr,
-                            path,
-                            known_entities,
-                            declared_emits,
-                            Some(&rows),
-                        ));
                     }
                     "emit" => {
-                        result.merge(validate_emit(arr, path));
                     }
                     "render-ui" => {
                         // render_ui is validated separately in render_ui.rs
                     }
                     "navigate" => {
-                        result.merge(validate_navigate(arr, path, page_init_payloads));
                     }
                     "notify" => {
                         // `notify` is `.lolo`-only sugar for `render-ui toast`
@@ -413,7 +394,6 @@ fn validate_leaf_effect(
                         );
                     }
                     "send-server" => {
-                        result.merge(validate_send_server(arr, path));
                     }
                     "program/eval" => {
                         result.merge(validate_program_eval(arr, path, declared_emits));
@@ -442,12 +422,6 @@ fn validate_leaf_effect(
                                     } else {
                                         &["success", "failure"]
                                     };
-                                    result.merge(validate_emit_config(
-                                        emit_obj,
-                                        keys,
-                                        declared_emits,
-                                        path,
-                                    ));
                                 }
                             }
                         }
@@ -480,7 +454,6 @@ fn validate_leaf_effect(
     // BELOW the top form so the arms above stay the single validators for it.
     if let SExpression::Array(arr) = effect {
         for arg in arr.iter().skip(1) {
-            result.merge(walk_nested_call_services(arg, path, service_registry));
         }
     }
 

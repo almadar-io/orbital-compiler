@@ -8,54 +8,38 @@ use crate::embedded::ServiceRegistryData;
 use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, TraitDefinition};
 use std::collections::{HashMap, HashSet};
 
-mod call_service;
-mod emit;
 mod emit_declaration;
 mod fetch;
 mod host_effects;
 mod http;
-mod http_site;
-mod inbound;
 mod keyed_call;
-mod navigate;
 mod oauth;
 mod cast;
 mod operator_args;
 mod os_grants;
 mod os_watch;
-mod persist;
-mod postgres;
 mod program_eval;
-mod redis;
 mod row_literal;
 mod set;
 mod typed_args;
 mod utils;
 
-pub(crate) use call_service::validate_call_service;
 pub(crate) use host_effects::validate_host_effects;
 pub(crate) use oauth::validate_oauth_effects;
 pub(crate) use http::validate_http_effects;
-pub(crate) use inbound::validate_inbound;
-pub(crate) use http_site::validate_http_auth_placement;
-pub(crate) use emit::{extract_emit_object_ref, validate_emit, validate_emit_config};
 pub(crate) use emit_declaration::{collect_declared_emits, nested_effects, scope_let_locals};
 #[cfg(test)]
 pub(crate) use emit_declaration::validate_effect;
 pub(crate) use fetch::{
     parse_fetch_include_literals, resolve_fetch_include_field, validate_fetch,
 };
-pub(crate) use navigate::{validate_navigate, validate_send_server};
 pub(crate) use keyed_call::validate_call_key_literals_are_used;
 use keyed_call::CallKeyFacts;
 pub(crate) use operator_args::{validate_operator_arg_types, validate_operator_arg_types_under};
 pub(crate) use os_grants::{validate_final_os_targets, validate_os_grants};
 pub(crate) use os_watch::validate_os_effect;
-pub(crate) use persist::{persist_entity_index, validate_persist};
 pub(crate) use row_literal::RowSite;
 pub(crate) use program_eval::validate_program_eval;
-pub(crate) use postgres::validate_postgres_effects;
-pub(crate) use redis::validate_redis_effects;
 pub(crate) use set::{
     entity_field_type_map, expr_return_incompatible_given, expr_return_incompatible_in_ctx, validate_set,
     validate_set_required_field_from_optional_knob, validate_set_return_type,
@@ -64,7 +48,9 @@ pub(crate) use set::{
 pub use typed_args::record_declared_shapes;
 pub(crate) use typed_args::needs_declaration;
 pub use utils::effect_operators;
-pub(crate) use utils::{extract_payload_fields, is_valid_event_identifier};
+pub(crate) use utils::{
+    extract_emit_object_ref, extract_payload_fields, is_valid_event_identifier, persist_entity_index,
+};
 
 /// Validate all effects in a schema
 pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
@@ -85,11 +71,7 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
     }
     ctx.merge(validate_call_key_literals_are_used(schema));
     ctx.merge(validate_http_effects(schema));
-    ctx.merge(validate_inbound(schema));
-    validate_http_auth_placement(schema, ctx);
     ctx.merge(validate_host_effects(schema));
-    ctx.merge(validate_redis_effects(schema));
-    ctx.merge(validate_postgres_effects(schema));
     ctx.merge(validate_oauth_effects(schema));
     ctx.merge(validate_os_grants(schema));
 }

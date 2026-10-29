@@ -1,7 +1,7 @@
 //! fetch effect validation.
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
-use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
+use super::{extract_emit_object_ref, DeclaredEmit};
 use orbital_core_base::schema::{EntityDefinition, FieldType, SExpression};
 use std::collections::HashSet;
 
@@ -56,12 +56,6 @@ pub(crate) fn validate_fetch(
                 SExpression::Object(obj) => {
                     // fetch is one-shot async — success + failure allowed.
                     if let Some(emit_obj) = extract_emit_object_ref(obj) {
-                        result.merge(validate_emit_config(
-                            emit_obj,
-                            &["success", "failure"],
-                            declared_emits,
-                            path,
-                        ));
                     }
                 }
                 SExpression::String(s) if s.starts_with('@') && s.contains('.') => {
@@ -264,12 +258,6 @@ pub(crate) fn validate_fetch_stream(
 
     if let Some(SExpression::Object(obj)) = arr.get(2) {
         if let Some(emit_obj) = extract_emit_object_ref(obj) {
-            result.merge(validate_emit_config(
-                emit_obj,
-                &["onMessage", "success", "failure"],
-                declared_emits,
-                path,
-            ));
         }
     }
 

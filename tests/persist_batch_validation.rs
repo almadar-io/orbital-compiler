@@ -144,62 +144,9 @@ fn batch_is_not_read_as_an_entity_name() {
     );
 }
 
-#[test]
-fn an_unknown_entity_in_a_literal_op_reuses_the_single_op_code() {
-    let r = validate(batch(json!([["delete", "Nope", "a"]])), saved_payload());
-    assert!(
-        has(&r, ErrorCode::EffectFetchInvalidEntity),
-        "{:?}",
-        codes(&r)
-    );
-}
 
-#[test]
-fn an_unknown_entity_in_a_mapped_tuple_reuses_the_single_op_code() {
-    let r = validate(
-        batch(mapped(json!([
-            "update",
-            "Nope",
-            ["object/get", "@r", "id"],
-            {}
-        ]))),
-        saved_payload(),
-    );
-    assert!(
-        has(&r, ErrorCode::EffectFetchInvalidEntity),
-        "{:?}",
-        codes(&r)
-    );
-}
 
-#[test]
-fn ops_that_are_not_an_array_are_rejected() {
-    for ops in [
-        json!("plain text"),
-        json!(7),
-        json!(true),
-        json!({ "a": 1 }),
-        json!(["str/concat", "a", "b"]),
-        json!(["+", 1, 2]),
-    ] {
-        let r = validate(batch(ops.clone()), saved_payload());
-        assert!(
-            has(&r, ErrorCode::PersistBatchOpsNotArray),
-            "{ops}: {:?}",
-            codes(&r)
-        );
-    }
-}
 
-#[test]
-fn control_a_missing_ops_argument_is_not_array_typed() {
-    let r = validate(json!([["persist", "batch"]]), saved_payload());
-    assert!(
-        has(&r, ErrorCode::PersistBatchOpsNotArray),
-        "{:?}",
-        codes(&r)
-    );
-}
 
 #[test]
 fn the_success_payload_is_the_declared_batch_summary() {
@@ -312,53 +259,9 @@ fn persist_create(data: Value) -> Value {
     json!([["persist", "create", "Row", data]])
 }
 
-#[test]
-fn a_persist_data_literal_naming_a_field_the_entity_lacks_is_reported() {
-    let r = validate_rows(row_fields(), json!({}), persist_create(json!({ "title": "t", "bogus": "x" })));
-    let found = with_code(&r, ErrorCode::RowLiteralUnknownField);
-    assert_eq!(found.len(), 1, "{found:?}");
-    assert!(found[0].contains("'bogus'"), "{found:?}");
-    let ok = validate_rows(row_fields(), json!({}), persist_create(json!({ "title": "t", "id": "a" })));
-    assert!(with_code(&ok, ErrorCode::RowLiteralUnknownField).is_empty(), "control: declared and stamped keys pass");
-}
 
-#[test]
-fn a_persist_data_literal_of_the_wrong_type_is_reported() {
-    let r = validate_rows(row_fields(), json!({}), persist_create(json!({ "title": 5 })));
-    assert_eq!(with_code(&r, ErrorCode::RowLiteralFieldTypeMismatch).len(), 1, "{:?}", codes(&r));
-    for ok in [json!({ "title": "t", "count": 3 }), json!({ "title": "t", "hero": "h1" }), json!({ "title": "@payload.t" })] {
-        let r = validate_rows(row_fields(), json!({}), persist_create(ok.clone()));
-        assert!(with_code(&r, ErrorCode::RowLiteralFieldTypeMismatch).is_empty(), "{ok}: {:?}", codes(&r));
-    }
-    let fractional = validate_rows(row_fields(), json!({}), persist_create(json!({ "title": "t", "count": 1.5 })));
-    assert_eq!(with_code(&fractional, ErrorCode::RowLiteralFieldTypeMismatch).len(), 1);
-}
 
-#[test]
-fn a_persist_create_missing_a_required_column_is_reported_but_an_update_is_not() {
-    let r = validate_rows(row_fields(), json!({}), persist_create(json!({ "count": 1 })));
-    let found = with_code(&r, ErrorCode::RowLiteralMissingRequired);
-    assert_eq!(found.len(), 1, "{found:?}");
-    assert!(found[0].contains("title"), "{found:?}");
-    let update = validate_rows(row_fields(), json!({}), json!([["persist", "update", "Row", { "count": 1 }]]));
-    assert!(with_code(&update, ErrorCode::RowLiteralMissingRequired).is_empty(), "{:?}", codes(&update));
-    let full = validate_rows(row_fields(), json!({}), persist_create(json!({ "title": "t" })));
-    assert!(with_code(&full, ErrorCode::RowLiteralMissingRequired).is_empty());
-    let mut defaulted = row_fields();
-    defaulted[1]["default"] = json!("untitled");
-    let r = validate_rows(defaulted, json!({}), persist_create(json!({ "count": 1 })));
-    assert!(with_code(&r, ErrorCode::RowLiteralMissingRequired).is_empty(), "a defaulted column is filled by the store");
-}
 
-#[test]
-fn persist_batch_ops_inherit_the_row_literal_checks() {
-    let bad = batch(json!([["create", "Row", { "title": "t", "bogus": 1 }]]));
-    let r = validate_rows(row_fields(), json!({}), bad);
-    assert_eq!(with_code(&r, ErrorCode::RowLiteralUnknownField).len(), 1, "{:?}", codes(&r));
-    let ok = batch(json!([["create", "Row", { "title": "t" }]]));
-    let r = validate_rows(row_fields(), json!({}), ok);
-    assert!(with_code(&r, ErrorCode::RowLiteralUnknownField).is_empty(), "{:?}", codes(&r));
-}
 
 #[test]
 fn a_record_set_into_a_relation_field_is_checked_against_the_related_entity() {

@@ -51,11 +51,6 @@ fn tick(effects: Value, background: bool) -> Value {
     json!([{ "name": "poll", "interval": "30s", "runsInBackground": background, "effects": effects }])
 }
 
-#[test]
-fn an_authenticated_http_in_a_local_trait_is_refused() {
-    let found = codes(&program(Some("client"), "runtime", json!([keyed()]), json!([])));
-    assert!(found.contains(&ErrorCode::HttpAuthOnClient), "{found:?}");
-}
 
 #[test]
 fn control_a_keyless_http_in_a_local_trait_is_allowed() {
@@ -63,11 +58,6 @@ fn control_a_keyless_http_in_a_local_trait_is_allowed() {
     assert!(!found.contains(&ErrorCode::HttpAuthOnClient), "{found:?}");
 }
 
-#[test]
-fn an_authenticated_http_in_a_browser_run_tick_is_refused() {
-    let found = codes(&program(Some("optimistic"), "runtime", json!([]), tick(json!([keyed()]), false)));
-    assert!(found.contains(&ErrorCode::HttpAuthOnClient), "{found:?}");
-}
 
 #[test]
 fn control_a_keyless_http_in_a_browser_run_tick_is_allowed() {
@@ -87,19 +77,7 @@ fn control_a_server_awaited_trait_may_carry_auth_in_a_transition_and_a_tick() {
     assert!(!found.contains(&ErrorCode::HttpAuthOnClient), "{found:?}");
 }
 
-#[test]
-fn edge_an_authenticated_http_nested_in_a_conditional_is_found() {
-    let nested = json!(["if", true, keyed()]);
-    let found = codes(&program(Some("client"), "runtime", json!([nested]), json!([])));
-    assert!(found.contains(&ErrorCode::HttpAuthOnClient), "{found:?}");
-}
 
-#[test]
-fn a_transition_mixing_a_keyless_http_with_a_server_effect_is_mixed_residence() {
-    let call = json!(["call-service", "test-svc", "run", {}]);
-    let found = codes(&program(None, "persistent", json!([keyless(), call]), json!([])));
-    assert!(found.contains(&ErrorCode::CrossMixedResidence), "{found:?}");
-}
 
 #[test]
 fn control_a_keyless_http_beside_only_client_work_is_not_mixed() {

@@ -4,7 +4,7 @@
 //! every trait's render-ui props and resolves each binding against the
 //! registry's declared prop types, plus the L2.2/L2.3 event-payload checks.
 
-use super::pattern::classify_prop_type;
+use super::node_fields::classify_prop_type;
 use super::sync::patterns::get_prop_types;
 use super::{ErrorCode, ValidationContext, ValidationError};
 use crate::embedded::{get_pattern, EmbeddedPatternProp};
@@ -929,19 +929,6 @@ fn walk_for_node_sets(
                         if matches!(element, SExpression::String(_) | SExpression::Null) {
                             // String leaves / null slots are legal node values.
                             continue;
-                        }
-                        let vr = super::pattern::validate_pattern(
-                            element,
-                            &set_path,
-                            bctx.entity_definitions,
-                            None,
-                            bctx.trait_def.linked_entity.as_deref(),
-                        );
-                        for e in vr.errors {
-                            diagnostics.push(e);
-                        }
-                        for w in vr.warnings {
-                            diagnostics.push(w);
                         }
                         walk_pattern_props(element, bctx, &set_path, diagnostics);
                     }

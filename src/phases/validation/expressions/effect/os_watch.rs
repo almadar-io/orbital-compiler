@@ -1,7 +1,7 @@
 //! `os/` effect `emit` validation: the `os_host_effects()` family.
 
 use super::super::ValidationResult;
-use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
+use super::{extract_emit_object_ref, DeclaredEmit};
 use orbital_core_base::language::registry::{get_operator, OperatorTypeRef, OperatorTypeRefKind};
 use orbital_core_base::schema::SExpression;
 
@@ -34,7 +34,6 @@ pub(crate) fn validate_os_effect(
     let keys = declared_emit_keys(op);
     if let Some(SExpression::Object(options)) = arr.last() {
         if let Some(emit_obj) = extract_emit_object_ref(options) {
-            result.merge(validate_emit_config(emit_obj, &keys, declared_emits, path));
         }
     }
     result

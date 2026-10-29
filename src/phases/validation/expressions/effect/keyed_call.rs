@@ -5,7 +5,6 @@
 //! `(cancel-call <key>)` aborts it by key.
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
-use super::call_service::literal_kind;
 use super::extract_emit_object_ref;
 use super::set::ExprReturnCtx;
 use orbital_core_base::schema::{OrbitalSchema, SExpression};
@@ -420,4 +419,28 @@ pub(crate) fn validate_call_key_literals_are_used(schema: &OrbitalSchema) -> Val
         );
     }
     result
+}
+
+/// The literal kind of a param value, or None when the value is dynamic
+/// (bindings, computed s-expressions, null) and must not be type-checked.
+pub(super) fn literal_kind(value: &SExpression) -> Option<&'static str> {
+    match value {
+        SExpression::String(s) => {
+            if s.starts_with('@') || s.starts_with('?') || s.starts_with('$') {
+                None
+            } else {
+                Some("string")
+            }
+        }
+        SExpression::Number(_) => Some("number"),
+        SExpression::Bool(_) => Some("boolean"),
+        SExpression::Object(_) => Some("object"),
+        // An array literal is only a literal when it isn't an s-expression
+        // call — a leading string makes it a computed form.
+        SExpression::Array(items) => match items.first() {
+            Some(SExpression::String(_)) => None,
+            _ => Some("array"),
+        },
+        SExpression::Null => None,
+    }
 }

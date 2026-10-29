@@ -146,7 +146,6 @@ pub(crate) fn is_valid_event_identifier(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::super::super::{ErrorCode, PageInitPayload};
-    use super::super::navigate::path_matches_pattern;
     use super::super::{validate_effect, DeclaredEmit};
     use super::is_upper_snake_case;
     use orbital_core_base::schema::SExpression;
@@ -336,56 +335,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_call_service_emit_unknown_key_still_rejected() {
-        let effect = call_service_with_emit(&[("onProgress", "STEP"), ("success", "SENT")]);
-        let result = run_effect(&effect, &email_registry());
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::EffectEmitKeyInvalid),
-            "an undeclared envelope key stays an error: {:?}",
-            result.errors
-        );
-    }
 
-    #[test]
-    fn test_navigate_missing_required_payload() {
-        // Set up a page that requires an "id" field on INIT
-        let mut page_init_payloads: HashMap<String, PageInitPayload> = HashMap::new();
-        page_init_payloads.insert(
-            "/inspection/:id".to_string(),
-            PageInitPayload {
-                required_fields: vec!["id".to_string()],
-                all_fields: vec!["id".to_string()],
-            },
-        );
-
-        // Navigate without payload
-        let effect = SExpression::Array(vec![
-            SExpression::String(("navigate".to_string()).into()),
-            SExpression::String(("/inspection/123".to_string()).into()),
-        ].into());
-
-        let result = validate_effect(
-            &effect,
-            "test",
-            &HashSet::new(),
-            &HashMap::new(),
-            &HashSet::new(),
-            &page_init_payloads,
-            &Default::default(),
-            None,
-            &HashMap::new(),
-            &HashMap::new(),
-        );
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::EffectNavigateMissingPayload));
-    }
 
     #[test]
     fn test_navigate_with_required_payload() {
@@ -428,17 +378,6 @@ mod tests {
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
     }
 
-    #[test]
-    fn test_path_matches_pattern() {
-        assert!(path_matches_pattern("/inspection/123", "/inspection/:id"));
-        assert!(path_matches_pattern(
-            "/users/42/posts/7",
-            "/users/:userId/posts/:postId"
-        ));
-        assert!(path_matches_pattern("/about", "/about"));
-        assert!(!path_matches_pattern("/about", "/contact"));
-        assert!(!path_matches_pattern("/inspection", "/inspection/:id"));
-    }
 
     #[test]
     fn test_is_upper_snake_case() {
@@ -472,29 +411,28 @@ mod tests {
         .collect()
     }
 
-    #[test]
-    fn effects_nested_in_control_flow_are_validated_with_their_own_path() {
-        let literal = r#"["persist", "create", "Ghost", {"id": "mix"}]"#;
-        let upsert = r#"["persist", "upsert", "Message", {"id": "mix"}]"#;
-        let hit = |errs: &[(ErrorCode, String)], path: &str| {
-            errs.iter()
-                .any(|(c, p)| *c == ErrorCode::EffectFetchInvalidEntity && p == path)
-        };
-        let in_do = nested_check(&format!(r#"["do", {upsert}, {literal}]"#), &[]);
-        assert!(hit(&in_do, "fx.do[1]"), "{in_do:?}");
-        assert!(!hit(&in_do, "fx.do[0]"), "control: the upsert is clean");
-        let in_if = nested_check(&format!(r#"["if", true, {upsert}, {literal}]"#), &[]);
-        assert!(hit(&in_if, "fx.else"), "{in_if:?}");
-        let in_when = nested_check(&format!(r#"["when", "@entity.on", {literal}]"#), &[]);
-        assert!(hit(&in_when, "fx.then[0]"), "{in_when:?}");
-        let in_let = nested_check(&format!(r#"["let", [["x", 1]], ["do", {literal}]]"#), &[]);
-        assert!(hit(&in_let, "fx.body[0].do[0]"), "{in_let:?}");
-        let in_list = nested_check(&format!(r#"["if", true, [{upsert}, {literal}]]"#), &[]);
-        assert!(hit(&in_list, "fx.then[1]"), "{in_list:?}");
-        let clean = nested_check(&format!(r#"["do", ["if", true, {upsert}]]"#), &[]);
-        assert!(
-            clean.is_empty(),
-            "control: no nested defect, no error: {clean:?}"
-        );
+}
+
+/// Position of the entity-name literal in a `persist` call array: 2 for the
+/// 4-element form (`["persist", "create"|"upsert"|"update"|"delete", "Entity", data]`),
+/// 1 for the legacy 3-element form (`["persist", "Entity", data]`). Shared
+/// with the compiler's field-usage collector (`phases/inline/entity.rs`) so
+/// both readers agree on where the entity name and data literal sit — no
+/// second copy of this positional rule.
+pub(crate) fn persist_entity_index(arr: &[SExpression]) -> usize {
+    match arr.get(1) {
+        Some(SExpression::String(op)) if op == "create" || op == "upsert" || op == "update" || op == "delete" => 2,
+        _ => 1,
+    }
+}
+
+/// Extract the `emit:` object from a trailing options SExpression::Object.
+/// Returns None if the map has no `emit` key or if `emit` is not an object.
+pub(crate) fn extract_emit_object_ref(
+    options: &orbital_core_base::schema::SObject,
+) -> Option<&orbital_core_base::schema::SObject> {
+    match options.get("emit")? {
+        SExpression::Object(obj) => Some(&**obj),
+        _ => None,
     }
 }

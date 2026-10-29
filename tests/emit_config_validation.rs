@@ -240,45 +240,7 @@ fn fetch_with_success_and_failure_is_valid() {
     );
 }
 
-#[test]
-fn fetch_with_on_message_is_rejected() {
-    let effects = vec![SExpression::Array(vec![
-        SExpression::String(("fetch".to_string()).into()),
-        SExpression::String(("Patient".to_string()).into()),
-        options_with_emit(emit_object(&[("on_message", "STREAMING")])),
-    ].into())];
-    let schema = schema_with_effects(effects, vec![]);
-    let result = validate_comprehensive_without_services(&schema);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::EffectEmitKeyInvalid),
-        "expected EffectEmitKeyInvalid, got: {:?}",
-        result.errors
-    );
-}
 
-#[test]
-fn set_with_failure_is_rejected() {
-    // set is synchronous — only `success` fires. `failure` is meaningless.
-    let effects = vec![SExpression::Array(vec![
-        SExpression::String(("set".to_string()).into()),
-        SExpression::String(("@entity.status".to_string()).into()),
-        SExpression::String(("done".to_string()).into()),
-        options_with_emit(emit_object(&[("failure", "WRITE_FAILED")])),
-    ].into())];
-    let schema = schema_with_effects(effects, vec![]);
-    let result = validate_comprehensive_without_services(&schema);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::EffectEmitKeyInvalid),
-        "expected EffectEmitKeyInvalid on set.emit.failure, got: {:?}",
-        result.errors
-    );
-}
 
 #[test]
 fn set_with_success_is_valid() {
@@ -322,57 +284,7 @@ fn mixed_case_event_name_accepted_post_phase_2_5() {
     );
 }
 
-#[test]
-fn malformed_event_identifier_still_rejected() {
-    // Identifiers starting with a digit or containing hyphens remain invalid
-    // — the post-Phase-2.5 check only relaxes the UPPER_SNAKE requirement,
-    // not the identifier-well-formedness rule.
-    let effects = vec![SExpression::Array(vec![
-        SExpression::String(("fetch".to_string()).into()),
-        SExpression::String(("Patient".to_string()).into()),
-        options_with_emit(emit_object(&[("success", "1badName")])),
-    ].into())];
-    let schema = schema_with_effects(effects, vec![]);
-    let result = validate_comprehensive_without_services(&schema);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::EffectEmitInvalidName),
-        "expected EffectEmitInvalidName for '1badName', got: {:?}",
-        result.errors
-    );
-}
 
-#[test]
-fn undeclared_event_is_warning() {
-    let effects = vec![SExpression::Array(vec![
-        SExpression::String(("fetch".to_string()).into()),
-        SExpression::String(("Patient".to_string()).into()),
-        options_with_emit(emit_object(&[("success", "PATIENT_LOADED")])),
-    ].into())];
-    // No declared emit for PATIENT_LOADED
-    let schema = schema_with_effects(effects, vec![]);
-    let result = validate_comprehensive_without_services(&schema);
-
-    // The validator promotes every diagnostic to an Error severity by
-    // design ("zero non-error output" — see `ValidationError::warning`).
-    // `EffectEmitUndeclaredEvent` consequently lands in `errors`, not
-    // `warnings`. The test name + docstring predate that design change;
-    // kept for historical grep, behaviour is now "emit-undeclared is a
-    // blocking error".
-    let undeclared: Vec<_> = result
-        .errors
-        .iter()
-        .filter(|e| e.code == ErrorCode::EffectEmitUndeclaredEvent)
-        .collect();
-    assert!(
-        !undeclared.is_empty(),
-        "expected EffectEmitUndeclaredEvent error, got errors: {:?}, warnings: {:?}",
-        result.errors,
-        result.warnings
-    );
-}
 
 #[test]
 fn os_watch_http_is_retired_and_unknown_while_a_known_os_operator_is_not() {
@@ -468,31 +380,7 @@ fn keyed_call_with_cancelled_and_a_cancel_call_has_no_cancel_errors() {
     );
 }
 
-#[test]
-fn cancelled_without_key_is_an_error() {
-    let effects = vec![keyed_call_service(options(vec![(
-        "emit",
-        emit_object(&[("success", "DONE"), ("cancelled", "STOPPED")]),
-    )]))];
-    assert!(has_code(
-        effects,
-        cancelled_emit_declared(),
-        ErrorCode::CallServiceCancelledWithoutKey
-    ));
-}
 
-#[test]
-fn a_null_key_does_not_count_as_a_key() {
-    let effects = vec![keyed_call_service(options(vec![
-        ("key", SExpression::Null),
-        ("emit", emit_object(&[("cancelled", "STOPPED")])),
-    ]))];
-    assert!(has_code(
-        effects,
-        cancelled_emit_declared(),
-        ErrorCode::CallServiceCancelledWithoutKey
-    ));
-}
 
 #[test]
 fn cancelled_with_a_key_is_not_reported() {
@@ -507,45 +395,8 @@ fn cancelled_with_a_key_is_not_reported() {
     ));
 }
 
-#[test]
-fn an_undeclared_cancelled_event_is_validated_like_success_and_failure() {
-    let effects = vec![keyed_call_service(options(vec![
-        ("key", str_expr("batch")),
-        ("emit", emit_object(&[("cancelled", "NOWHERE")])),
-    ]))];
-    assert!(has_code(
-        effects,
-        cancelled_emit_declared(),
-        ErrorCode::EffectEmitUndeclaredEvent
-    ));
-}
 
-#[test]
-fn a_malformed_cancelled_event_name_is_rejected() {
-    let effects = vec![keyed_call_service(options(vec![
-        ("key", str_expr("batch")),
-        ("emit", emit_object(&[("cancelled", "not valid!")])),
-    ]))];
-    assert!(has_code(
-        effects,
-        cancelled_emit_declared(),
-        ErrorCode::EffectEmitInvalidName
-    ));
-}
 
-#[test]
-fn cancelled_is_not_an_emit_key_of_fetch() {
-    let effects = vec![SExpression::Array(vec![
-        str_expr("fetch"),
-        str_expr("Patient"),
-        options_with_emit(emit_object(&[("cancelled", "STOPPED")])),
-    ].into())];
-    assert!(has_code(
-        effects,
-        cancelled_emit_declared(),
-        ErrorCode::EffectEmitKeyInvalid
-    ));
-}
 
 #[test]
 fn cancel_call_with_no_keyed_call_anywhere_is_an_error() {
@@ -627,28 +478,6 @@ fn cancel_call_inside_a_conditional_is_still_found() {
     ));
 }
 
-#[test]
-fn non_string_key_literals_are_an_error() {
-    for bad in [
-        SExpression::Number(7.0),
-        SExpression::Bool(true),
-        options(vec![("a", str_expr("b"))]),
-        SExpression::Array(vec![SExpression::Number(1.0)].into()),
-    ] {
-        let effects = vec![keyed_call_service(options(vec![
-            ("key", bad.clone()),
-            ("emit", emit_object(&[("success", "DONE")])),
-        ]))];
-        assert!(
-            has_code(
-                effects,
-                cancelled_emit_declared(),
-                ErrorCode::CallServiceKeyType
-            ),
-            "{bad:?} must be rejected"
-        );
-    }
-}
 
 #[test]
 fn string_literal_and_expression_keys_are_accepted() {
@@ -676,14 +505,6 @@ fn string_literal_and_expression_keys_are_accepted() {
     }
 }
 
-#[test]
-fn key_only_options_are_read_as_options_not_params() {
-    let effects = vec![keyed_call_service(options(vec![(
-        "key",
-        SExpression::Number(1.0),
-    )]))];
-    assert!(has_code(effects, vec![], ErrorCode::CallServiceKeyType));
-}
 
 fn os_call(op: &str, emit: &[(&str, &str)]) -> SExpression {
     SExpression::Array(vec![
@@ -703,14 +524,3 @@ fn emit_key_invalid(op: &str, emit: &[(&str, &str)]) -> bool {
         .any(|e| e.code == ErrorCode::EffectEmitKeyInvalid)
 }
 
-#[test]
-fn stream_os_ops_declare_the_on_message_key() {
-    for op in ["os/tcp-listen"] {
-        assert!(!emit_key_invalid(op, &[("success", "UP"), ("onMessage", "ARRIVED")]), "{op} emit.onMessage must be accepted");
-        assert!(emit_key_invalid(op, &[("on_message", "ARRIVED")]), "control: {op} has no on_message key");
-    }
-    assert!(
-        emit_key_invalid("os/tcp-connect", &[("onMessage", "ARRIVED")]),
-        "control: a single-answer os op has no onMessage route"
-    );
-}

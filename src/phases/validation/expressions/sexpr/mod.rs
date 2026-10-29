@@ -4,7 +4,6 @@
 //! Ported from `builder/packages/shared/src/orbitals/validation/sexpr-validator.ts`.
 
 mod arity;
-mod binding;
 pub(crate) mod operators;
 mod validate;
 

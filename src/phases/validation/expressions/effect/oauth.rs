@@ -5,7 +5,7 @@ use super::super::{inline_traits, ValidationResult};
 use super::emit_declaration::collect_declared_emits;
 use super::http::{each_call_of, visit_effects};
 use super::keyed_call::check_key_and_cancelled;
-use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
+use super::{extract_emit_object_ref, DeclaredEmit};
 use orbital_core_base::schema::{OrbitalSchema, SExpression};
 
 const EMIT_KEYS: [&str; 2] = ["success", "failure"];
@@ -16,7 +16,6 @@ fn check_options(options: Option<&SExpression>, head: &str, declared: &[Declared
             result.merge(check_key_and_cancelled(options, at, head));
         }
         if let Some(emit) = extract_emit_object_ref(options) {
-            result.merge(validate_emit_config(emit, &EMIT_KEYS, Some(declared), at));
         }
     }
 }

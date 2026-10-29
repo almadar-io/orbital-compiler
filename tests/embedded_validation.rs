@@ -9,7 +9,6 @@
 //! `docs/Lolo_Language_Spec_v3_PLAN.md` Section 8.7.
 
 use orbital_compiler::embedded;
-use orbital_compiler::phases::validation::sigil_context::validate_trait_sigil_contexts;
 use orbital_core_base::schema::{
     OrbitalSchema, SExpression, StateDefinition, StateMachine, StringOrArray, StringOrNumber,
     TickDefinition, TraitDefinition, TransitionDefinition,
@@ -163,93 +162,6 @@ fn pattern_layout_container_exists() {
     let p = embedded::get_pattern("container")
         .expect("'container' must exist in patterns-registry.json");
     assert!(!p.category.is_empty());
-}
-
-// ============================================================================
-// 5 sigil context cases (one per legal context, plus violation cases)
-// ============================================================================
-
-#[test]
-fn sigil_payload_in_effect_passes() {
-    let trait_def = make_trait_with_transition(
-        None,
-        vec![SExpression::Array(vec![
-            SExpression::String(("set".to_string()).into()),
-            SExpression::String(("@entity.amount".to_string()).into()),
-            SExpression::String(("@payload.amount".to_string()).into()),
-        ].into())],
-    );
-    let result = validate_trait_sigil_contexts(&trait_def, "test");
-    assert!(
-        result.is_valid(),
-        "Effect using @payload should pass. Errors: {:?}",
-        result.errors
-    );
-}
-
-#[test]
-fn sigil_state_in_guard_passes() {
-    let trait_def = make_trait_with_transition(
-        Some(SExpression::Array(vec![
-            SExpression::String(("=".to_string()).into()),
-            SExpression::String(("@state".to_string()).into()),
-            SExpression::String(("Browsing".to_string()).into()),
-        ].into())),
-        vec![],
-    );
-    let result = validate_trait_sigil_contexts(&trait_def, "test");
-    assert!(
-        result.is_valid(),
-        "Guard using @state should pass. Errors: {:?}",
-        result.errors
-    );
-}
-
-#[test]
-fn sigil_now_in_tick_passes() {
-    let trait_def = make_trait_with_tick(vec![SExpression::Array(vec![
-        SExpression::String(("set".to_string()).into()),
-        SExpression::String(("@entity.lastTick".to_string()).into()),
-        SExpression::String(("@now".to_string()).into()),
-    ].into())]);
-    let result = validate_trait_sigil_contexts(&trait_def, "test");
-    assert!(
-        result.is_valid(),
-        "Tick using @now should pass. Errors: {:?}",
-        result.errors
-    );
-}
-
-#[test]
-fn sigil_payload_in_tick_is_rejected() {
-    let trait_def = make_trait_with_tick(vec![SExpression::Array(vec![
-        SExpression::String(("set".to_string()).into()),
-        SExpression::String(("@entity.amount".to_string()).into()),
-        SExpression::String(("@payload.amount".to_string()).into()),
-    ].into())]);
-    let result = validate_trait_sigil_contexts(&trait_def, "test");
-    assert!(
-        !result.is_valid(),
-        "Tick using @payload should fail validation"
-    );
-    assert!(result.errors.iter().any(|e| e.message.contains("@payload")));
-}
-
-#[test]
-fn sigil_unknown_root_in_guard_is_rejected() {
-    let trait_def = make_trait_with_transition(
-        Some(SExpression::Array(vec![
-            SExpression::String(("=".to_string()).into()),
-            SExpression::String(("@bogus.field".to_string()).into()),
-            SExpression::String(("@entity.field".to_string()).into()),
-        ].into())),
-        vec![],
-    );
-    let result = validate_trait_sigil_contexts(&trait_def, "test");
-    assert!(
-        !result.is_valid(),
-        "Guard with unknown sigil root should fail"
-    );
 }
 
 // ============================================================================

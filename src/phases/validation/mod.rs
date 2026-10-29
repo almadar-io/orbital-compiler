@@ -44,24 +44,16 @@ pub mod final_program;
 pub(crate) mod value_walk;
 
 // entities — entity shape, mutation and the row store
-#[path = "entities/entity_mutation.rs"]
-pub mod entity_mutation;
 #[path = "entities/fetch_deliver.rs"]
 mod fetch_deliver;
 
 // identity — identity and access
-#[path = "identity/entity_access.rs"]
-pub mod entity_access;
-#[path = "identity/user_identity.rs"]
-pub mod user_identity;
 
 // traits
+#[path = "identity/user_identity.rs"]
+pub mod user_identity;
 #[path = "traits/mounts.rs"]
 pub(crate) mod mounts;
-#[path = "traits/sigil_context.rs"]
-pub mod sigil_context;
-#[path = "traits/trait_validator.rs"]
-pub mod trait_validator;
 
 // circuit — Event → Guard → Transition → Effects → UI → Event, and the payloads it carries
 #[path = "circuit/closed_circuit.rs"]
@@ -80,8 +72,6 @@ pub mod produced_shape;
 // expressions — expressions and effects
 #[path = "expressions/effect/mod.rs"]
 pub mod effect;
-#[path = "expressions/service.rs"]
-pub mod service;
 #[path = "expressions/sexpr/mod.rs"]
 pub mod sexpr;
 
@@ -92,8 +82,6 @@ pub mod config_type;
 pub mod generic_types;
 
 // ui — render-ui, patterns, slots, pages
-#[path = "ui/icon.rs"]
-pub mod icon;
 #[path = "ui/page.rs"]
 pub mod page;
 #[path = "ui/render_ui/mod.rs"]
@@ -104,14 +92,10 @@ pub mod render_ui_binding;
 pub mod slot;
 #[path = "ui/sync/mod.rs"]
 pub mod sync;
-#[path = "ui/theme.rs"]
-pub mod theme;
 
 // composition — call sites, config knobs and cross-program contracts
 #[path = "composition/composed_wiring.rs"]
 pub mod composed_wiring;
-#[path = "composition/cross_registry.rs"]
-pub mod cross_registry;
 #[path = "composition/embed_bridge.rs"]
 pub mod embed_bridge;
 #[path = "composition/expectations.rs"]
@@ -468,7 +452,6 @@ pub fn validate_comprehensive_full(
     // Phase 2: Entity validation
 
     // Phase 3: Trait validation
-    trait_validator::validate_all_traits(schema, &mut ctx);
 
     // Phase 3b: Config type validation (slot/pattern defaults)
     config_type::validate_all_config_types(schema, &mut ctx);
@@ -513,30 +496,24 @@ pub fn validate_comprehensive_full(
     sexpr::validate_all_sexprs(schema, &mut ctx);
 
     // Phase 9: Service validation
-    service::validate_all_services(schema, &mut ctx);
 
     // Phase 9b: Theme validation
-    theme::validate_all_themes(schema, &mut ctx);
 
     // Phase 11: Binding validation
     binding::validate_all_bindings(schema, &mut ctx);
 
     // Phase 11b: Sigil context validation (Phase 3.4 of Lolo v3 plan)
-    sigil_context::validate_all_sigil_contexts(schema, &mut ctx);
 
     // Phase 11c: Cross-registry consistency (Phase 3.5 of Lolo v3 plan)
-    cross_registry::validate_cross_registry(schema, &mut ctx);
 
     // Phase 11c2: `[identity]` entity rules — the declared shape of `@user`.
     // No-ops entirely when the program declares no identity entity. Runs
     // post-inline so config knob defaults carry their call-site values.
-    user_identity::validate_user_identity(schema, &mut ctx);
 
     // Phase 11c3: entity access directives (`@read`/`@create`/`@update`/
     // `@delete`) — field/binding checks on the four per-row authorization
     // predicates. Runs immediately after identity for the same reason (needs
     // the resolved `[identity]` entity, post-inline).
-    entity_access::validate_entity_access(schema, &mut ctx);
 
     // Phase 11c4: `expects` consumer-side requirement declarations —
     // persist-payload self-consistency against the consumer's own declared
@@ -548,8 +525,6 @@ pub fn validate_comprehensive_full(
     // SharedEntityFieldConflict / SharedEntityRenderAuthority). Runs
     // post-inline so the fully `uses`-composed trait set and each entity's
     // `shared`/`persistence` flags are visible.
-    entity_mutation::validate_all_entity_mutations(schema, &mut ctx);
-    entity_mutation::validate_all_mixed_residence(schema, &mut ctx);
 
     // Phase 12: Closed circuit validation
     closed_circuit::validate_all_circuits(schema, &mut ctx);
@@ -561,7 +536,6 @@ pub fn validate_comprehensive_full(
     composed_wiring::validate_composed_wiring(schema, &mut ctx);
 
     // Phase 13: Icon validation
-    icon::validate_all_icons(schema, &mut ctx);
 
     // Phase 14: Rabit V4 dual-carry id integrity (ORB_ID_*). No-op on legacy
     // id-free `.orb`; errors on dangling/kind-mismatched/name-drifted id edges,

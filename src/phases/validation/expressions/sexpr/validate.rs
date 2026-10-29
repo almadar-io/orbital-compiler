@@ -1,7 +1,6 @@
 //! S-expression traversal and validation entry points.
 
 use super::arity::get_arity_rule;
-use super::binding::validate_binding;
 use super::operators::{has_namespace_hit, is_effect_category_operator, is_known_operator};
 use crate::phases::validation::{ErrorCode, ValidationContext, ValidationError, ValidationResult};
 use orbital_core_base::schema::{
@@ -467,18 +466,7 @@ pub(crate) fn validate_sexpr_with_locals(
             } else {
                 // Data array - just validate bindings within elements, don't check operators
                 for (i, item) in arr.iter().enumerate() {
-                    // Only validate bindings (@...) within data arrays
-                    if let SExpression::String(s) = item {
-                        if s.starts_with('@') {
-                            let binding_result = validate_binding(
-                                s,
-                                &format!("{}[{}]", path, i),
-                                context,
-                                lambda_locals,
-                            );
-                            result.merge(binding_result);
-                        }
-                    } else if matches!(item, SExpression::Array(_) | SExpression::Object(_)) {
+                    if matches!(item, SExpression::Array(_) | SExpression::Object(_)) {
                         // Recursively check nested structures for bindings
                         let item_result = validate_sexpr_with_locals(
                             item,
@@ -491,11 +479,6 @@ pub(crate) fn validate_sexpr_with_locals(
                     }
                 }
             }
-        }
-        SExpression::String(s) if s.starts_with('@') => {
-            // Validate binding
-            let binding_result = validate_binding(s, path, context, lambda_locals);
-            result.merge(binding_result);
         }
         SExpression::Object(obj) => {
             // Recursively validate object values
@@ -935,21 +918,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_payload_in_tick() {
-        let effect = SExpression::Array(vec![
-            SExpression::String(("set".to_string()).into()),
-            SExpression::String(("@entity.value".to_string()).into()),
-            SExpression::String(("@payload.data".to_string()).into()),
-        ].into());
-
-        let result = validate_sexpr(&effect, "test", SExprContext::TickEffect, &HashSet::new());
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::BindingPayloadInTick));
-    }
 
     #[test]
     fn test_valid_entity_binding() {

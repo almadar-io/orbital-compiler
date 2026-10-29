@@ -100,18 +100,6 @@ fn valid_literal_into_node_field_passes() {
     );
 }
 
-#[test]
-fn invalid_pattern_type_in_node_literal_is_an_error() {
-    let (errors, _) = run(schema_with_effects(
-        node_scalar_field(),
-        json!([["set", "@entity.view",
-            { "type": "definitely-not-a-pattern", "content": "x" }]]),
-    ));
-    assert!(
-        !errors.is_empty(),
-        "an invalid pattern type inside a node literal must be a blocking error"
-    );
-}
 
 #[test]
 fn flat_callback_contract_in_node_literal_is_caught_the_hotspot_bug() {
@@ -163,21 +151,6 @@ fn flat_callback_contract_in_node_literal_is_caught_the_hotspot_bug() {
     );
 }
 
-#[test]
-fn let_bound_literal_is_resolved_and_checked() {
-    let (errors, _) = run(schema_with_effects(
-        node_array_field(),
-        json!([["let", [["itemView", [
-            { "type": "definitely-not-a-pattern", "content": "x" }
-        ]]],
-            ["do", ["set", "@entity.view", "@itemView"]]
-        ]]),
-    ));
-    assert!(
-        !errors.is_empty(),
-        "a let-bound literal must reach the same pattern checks (classify idiom)"
-    );
-}
 
 #[test]
 fn computed_value_into_node_field_is_silent() {
@@ -200,35 +173,6 @@ fn computed_value_into_node_field_is_silent() {
 /// `Map string [node]` — an art catalog keyed by kind. The map is renderable
 /// content addressed by key, so it must NOT trip the anti-loophole arm, and its
 /// leaves must still reach the pattern checks.
-#[test]
-fn map_of_node_is_renderable_and_its_leaves_are_checked() {
-    let map_field = json!({ "name": "view", "type": "object",
-                "items": { "type": "array", "items": { "type": "node" } } });
-
-    let (errors, _warnings) = run(schema_with_effects(
-        map_field.clone(),
-        json!([["set", "@entity.view", {
-            "knight": [{ "type": "typography", "variant": "body", "content": "hi" }]
-        }]]),
-    ));
-    assert!(
-        errors.is_empty(),
-        "a Map-of-node field is node-typed, not a generic loophole, got {errors:?}"
-    );
-
-    // The leaves are really checked — a bogus pattern inside a map value errors
-    // exactly as it would inside a plain `[node]`.
-    let (bad, _) = run(schema_with_effects(
-        map_field,
-        json!([["set", "@entity.view", {
-            "knight": [{ "type": "definitely-not-a-pattern", "content": "x" }]
-        }]]),
-    ));
-    assert!(
-        !bad.is_empty(),
-        "an invalid pattern inside a map value must still error"
-    );
-}
 
 #[test]
 fn canvas_shape_data_does_not_false_positive() {

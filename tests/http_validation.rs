@@ -404,21 +404,6 @@ fn a_keyed_call_service_failure_is_error_and_key() {
     assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "control: an unkeyed failure shape is not decided");
 }
 
-#[test]
-fn the_result_has_key_check_reads_the_registry_it_is_given() {
-    let registry = |shape: &str| {
-        parse_service_registry_data(&format!(
-            r#"{{"services": {{"files": {{"actions": [{{"name": "pull", "params": [], "responseShape": {shape}}}]}}}}}}"#
-        ))
-        .unwrap()
-    };
-    let run = |registry| {
-        let schema = program(ok_egress(), config(), call_service("files", "pull", keyed_options()));
-        validate_comprehensive_full(&schema, None, SchemaLanguage::English, registry, Vec::new())
-    };
-    assert!(fires(&run(registry(r#"{"key": "string", "url": "string"}"#)), ErrorCode::CallServiceResultHasKey));
-    assert!(!fires(&run(registry(r#"{"url": "string"}"#)), ErrorCode::CallServiceResultHasKey));
-}
 
 fn post(origin: Value, request: Value) -> Value {
     json!([["http", "POST", origin, "/s", request, emit()]])

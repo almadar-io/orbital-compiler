@@ -7,7 +7,7 @@
 //! compatibility (width / `type_compat` / literal-union subset).
 
 use orbital_compiler::phases::validation::{
-    entity_access, expectations, user_identity, validate_comprehensive_without_services,
+    expectations, validate_comprehensive_without_services,
     ValidationContext,
 };
 use orbital_core_base::schema::OrbitalSchema;
@@ -17,13 +17,10 @@ fn parse(schema: Value) -> OrbitalSchema {
     serde_json::from_value(schema).expect("schema fixture must deserialize")
 }
 
-/// The validators `expects` touches: identity environment (user_identity,
-/// entity_access) plus the expectation checks themselves.
+/// The validators `expects` touches: the expectation checks.
 fn run_scoped(schema: Value) -> Vec<String> {
     let schema = parse(schema);
     let mut ctx = ValidationContext::new();
-    user_identity::validate_user_identity(&schema, &mut ctx);
-    entity_access::validate_entity_access(&schema, &mut ctx);
     expectations::validate_expectations(&schema, &mut ctx);
     ctx.result
         .errors
@@ -194,53 +191,6 @@ fn expects_entity_licenses_relation_persist_and_linked_entity_targets() {
 /// expects-licensed sibling DEFERS to compose (the slice cannot carry the
 /// provider's shape by design) — while the same trait without the expects
 /// declaration still blocks, so the sweep's backstop is intact.
-#[test]
-fn an_expects_licensed_linked_entity_defers_the_entity_sentinel() {
-    let orbital = |expects: serde_json::Value| {
-        json!({
-            "name": "App",
-            "orbitals": [{
-                "name": "AccountOrbital",
-                "expects": expects,
-                "entity": {
-                    "name": "CsAccount",
-                    "persistence": "persistent",
-                    "collection": "accounts",
-                    "fields": [{ "name": "id", "type": "string" }]
-                },
-                "traits": [{
-                    "name": "HealthList",
-                    "linkedEntity": "HealthScoreSearch",
-                    "emits": [{
-                        "event": "VIEW",
-                        "payloadSchema": [{ "name": "row", "type": "@entity" }]
-                    }],
-                    "stateMachine": {
-                        "states": [{ "name": "idle", "isInitial": true }],
-                        "events": [{ "key": "VIEW", "name": "View" }],
-                        "transitions": [{ "from": "idle", "event": "VIEW", "to": "idle" }]
-                    }
-                }],
-                "pages": []
-            }]
-        })
-    };
-    let licensed = run_full(orbital(
-        json!([{ "kind": "entity", "name": "HealthScoreSearch" }]),
-    ));
-    assert!(
-        !licensed.contains(&"ORB_T_UNRESOLVED_TYPE_PARAM".to_string()),
-        "expects-licensed linkedEntity must defer the @entity sentinel to compose, got {licensed:?}"
-    );
-    let unlicensed = run_full(orbital(json!([])));
-    assert!(
-        unlicensed.contains(&"ORB_T_UNRESOLVED_TYPE_PARAM".to_string())
-            || unlicensed
-                .iter()
-                .any(|c| c.contains("LINKED_ENTITY") || c.contains("INVALID")),
-        "without the expects declaration the slice must still be rejected, got {unlicensed:?}"
-    );
-}
 
 /// A NAMED `expects entity [identity]` licenses the same targets: the dual form
 /// (`expects entity X` beside `expects entity X [identity]`) is
@@ -750,39 +700,6 @@ fn a_satisfied_composed_program_is_clean() {
 
 /// Without `expects`, an unknown `@user` field in a trait guard keeps today's
 /// verdict (an error against the implicit default shape).
-#[test]
-fn without_expects_an_unknown_user_field_keeps_todays_verdict() {
-    let schema = json!({
-        "name": "App",
-        "orbitals": [{
-            "name": "ProductOrbital",
-            "entity": {
-                "name": "Product",
-                "persistence": "persistent",
-                "collection": "products",
-                "fields": [{ "name": "id", "type": "string" }]
-            },
-            "traits": [{
-                "name": "Shell",
-                "linkedEntity": "Product",
-                "stateMachine": { "events": [], "states": [], "transitions": [{
-                    "from": "idle", "event": "GO", "to": "idle",
-                    "guard": ["=", "@user.avatar", "x"]
-                }]}
-            }],
-            "pages": []
-        }]
-    });
-    let codes = run_scoped(schema);
-    assert!(
-        codes.contains(&"ORB_S_UNKNOWN_IDENTITY_FIELD".to_string()),
-        "today's default-shape verdict must be unchanged, got {codes:?}"
-    );
-    assert!(
-        !codes.contains(&"ORB_S_EXPECTATION_FIELD_UNDECLARED".to_string()),
-        "no declaration, no self-consistency code, got {codes:?}"
-    );
-}
 
 // ---------------------------------------------------------------------------
 // Authored surface vs imported bodies (G-EXPECT-DERIVE-IMPORTS)

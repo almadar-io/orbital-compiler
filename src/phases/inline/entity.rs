@@ -487,7 +487,7 @@ fn collect_fetch_persist_fields(
     if let SExpression::Object(obj) = expr {
         if let Some(SExpression::String(pattern_type)) = obj.get("type") {
             let fields =
-                crate::phases::validation::render_ui::pattern::required_entity_fields_for_node(
+                crate::phases::validation::render_ui::node_fields::required_entity_fields_for_node(
                     pattern_type,
                     obj,
                     &entity_def.name,

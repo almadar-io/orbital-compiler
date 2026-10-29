@@ -2809,4 +2809,110 @@ mod tests {
         assert_eq!(result.warning_count(), 0);
         assert_eq!(result.error_count(), 2);
     }
+
+    /// Variants a std lint atom also owns that Rust still references outside . Each retirement
+    /// removes its entry; the test fails if a new double owner appears or a listed one is already retired.
+    const STILL_DOUBLE_OWNED: &[&str] = &[
+        "CallKeyUnused",
+        "CallServiceCancelledWithoutKey",
+        "CallServiceKeyType",
+        "CircuitOrphanEvent",
+        "ConfigDanglingRef",
+        "CrossEmitterDeclaredPayloadMismatch",
+        "EffectFetchInvalidEntity",
+        "EffectSetPayloadNotAllowed",
+        "EnumValueNotMember",
+        "GenericTypeDeprecated",
+        "HttpAuthInvalid",
+        "RenderUIInvalidSlot",
+        "SExprInvalidOperator",
+        "SchemaExpectationUnsatisfied",
+        "SchemaExpectedFieldTypeMismatch",
+        "SchemaOwnerFieldNotIdentityTyped",
+        "TabRequestInvalid",
+        "TraitInvalidEventDefault",
+    ];
+
+    fn double_owned(
+        rust_refs: &std::collections::BTreeSet<String>,
+        std_codes: &std::collections::BTreeSet<String>,
+    ) -> Vec<String> {
+        ErrorCode::ALL
+            .iter()
+            .filter(|c| std_codes.contains(c.as_str()))
+            .map(|c| format!("{c:?}"))
+            .filter(|name| rust_refs.contains(name))
+            .collect()
+    }
+
+    fn rust_refs_outside_tests(dir: &std::path::Path, out: &mut std::collections::BTreeSet<String>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                rust_refs_outside_tests(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs")
+                && !path.ends_with("phases/validation/error.rs")
+            {
+                let text = std::fs::read_to_string(&path).unwrap();
+                let live = text.split("#[cfg(test)]").next().unwrap();
+                for part in live.split("ErrorCode::").skip(1) {
+                    let name: String = part
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric())
+                        .collect();
+                    out.insert(name);
+                }
+            }
+        }
+    }
+
+    fn std_atom_codes(dir: &std::path::Path) -> std::collections::BTreeSet<String> {
+        let mut out = std::collections::BTreeSet::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            if name.starts_with("std-orb-lint-") && name.ends_with(".lolo") {
+                let text = std::fs::read_to_string(&path).unwrap();
+                for part in text.split("code: \"").skip(1) {
+                    let code: String = part
+                        .chars()
+                        .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_')
+                        .collect();
+                    out.insert(code);
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_code_owned_by_a_std_lint_atom_has_no_rust_emitter() {
+        let atoms = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .map(|a| a.join("packages/almadar-std/behaviors/lolo/cli/atoms"))
+            .find(|p| p.is_dir());
+        let Some(atoms) = atoms else {
+            eprintln!("std atoms not beside this checkout: double-owner check skipped");
+            return;
+        };
+        let mut refs = std::collections::BTreeSet::new();
+        rust_refs_outside_tests(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut refs);
+        let found = double_owned(&refs, &std_atom_codes(&atoms));
+        let listed: Vec<String> = STILL_DOUBLE_OWNED.iter().map(|s| s.to_string()).collect();
+        let new: Vec<_> = found.iter().filter(|f| !listed.contains(f)).collect();
+        let retired: Vec<_> = listed.iter().filter(|l| !found.contains(l)).collect();
+        assert!(new.is_empty(), "new double owners (Rust emits what a std lint atom owns): {new:?}");
+        assert!(retired.is_empty(), "retired: drop from STILL_DOUBLE_OWNED: {retired:?}");
+    }
+
+    #[test]
+    fn control_double_owner_needs_both_a_rust_reference_and_a_std_code() {
+        let std_codes: std::collections::BTreeSet<String> =
+            ["ORB_UI_ICON_EMPTY".to_string()].into();
+        let both: std::collections::BTreeSet<String> = ["IconEmpty".to_string()].into();
+        let rust_only: std::collections::BTreeSet<String> = ["EntityNoFields".to_string()].into();
+        assert_eq!(double_owned(&both, &std_codes), vec!["IconEmpty".to_string()]);
+        assert!(double_owned(&rust_only, &std_codes).is_empty());
+        assert!(double_owned(&both, &std::collections::BTreeSet::new()).is_empty());
+    }
 }

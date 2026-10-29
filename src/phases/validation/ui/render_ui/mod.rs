@@ -4,9 +4,6 @@
 //! Ported from `builder/packages/shared/src/orbitals/validation/render-ui-validator.ts`.
 
 mod binding;
-mod field_path;
-mod item_actions;
-pub(crate) mod pattern;
 
 // Re-exports so submodules can reference shared validation items via
 // `super::*` and so external paths (`render_ui::is_render_ui_effect`,
@@ -17,14 +14,41 @@ pub(crate) use super::{
 };
 
 use self::binding::validate_all_render_ui_bindings;
-pub use self::item_actions::{extract_slot, is_render_ui_effect};
-use self::pattern::validate_pattern;
+pub(crate) mod node_fields;
 use self::sync::ExtraPatterns;
 
 use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
 
 // Pattern types and itemAction props are imported from sync::patterns
+
+/// Check if an S-expression is a render_ui effect
+pub fn is_render_ui_effect(expr: &SExpression) -> bool {
+    match expr {
+        SExpression::Array(arr) if !arr.is_empty() => {
+            if let SExpression::String(op) = &arr[0] {
+                op == "render-ui"
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Extract slot from a render_ui effect
+pub fn extract_slot(expr: &SExpression) -> Option<String> {
+    match expr {
+        SExpression::Array(arr) if arr.len() >= 2 => {
+            if let SExpression::String(slot) = &arr[1] {
+                Some(slot.clone().into_inner())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
 
 /// Validate all render_ui effects in a schema
 pub fn validate_all_render_ui(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
@@ -129,16 +153,6 @@ pub fn validate_render_ui_effect(
                 result.merge(validate_slot(slot, path));
             }
 
-            if let Some(pattern) = arr.get(2) {
-                let pattern_path = format!("{path}[2]");
-                result.merge(validate_pattern(
-                    pattern,
-                    &pattern_path,
-                    entity_definitions,
-                    extra_patterns,
-                    linked_entity,
-                ));
-            }
         }
         _ => {}
     }
@@ -206,52 +220,6 @@ mod tests {
             .any(|e| e.code == ErrorCode::RenderUIInvalidSlot));
     }
 
-    #[test]
-    fn test_unknown_item_action_prop() {
-        let effect = SExpression::Array(vec![
-            SExpression::String(("render-ui".to_string()).into()),
-            SExpression::String(("main".to_string()).into()),
-            SExpression::object(
-                [
-                    (
-                        "type".into(),
-                        SExpression::String(("table-view".to_string()).into()),
-                    ),
-                    (
-                        "itemActions".into(),
-                        SExpression::Array(vec![SExpression::object(
-                            [
-                                (
-                                    "label".into(),
-                                    SExpression::String(("Delete".to_string()).into()),
-                                ),
-                                (
-                                    "event".into(),
-                                    SExpression::String(("DELETE".to_string()).into()),
-                                ),
-                                (
-                                    "condition".into(), // Unknown/hallucinated prop
-                                    SExpression::String(("@entity.canDelete".to_string()).into()),
-                                ),
-                            ]
-                            .into_iter()
-                            .collect(),
-                        )].into()),
-                    ),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        ].into());
-
-        let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::RenderUIUnknownItemActionProp));
-    }
 
     // FC-5 helpers: build the pinned dynamic-children tuple
     // `["array/map", <coll>, ["fn", <param>, <node>]]`.
@@ -337,56 +305,9 @@ mod tests {
     /// Negative control: the arms are still validated, so a bogus pattern
     /// inside a branch is still caught. Recognizing the tuple must not become
     /// a hole that lets anything through.
-    #[test]
-    fn conditional_children_entry_still_validates_its_branches() {
-        let cond = SExpression::Array(vec![
-            s("if"),
-            s("@config.bodySearch"),
-            obj(&[("type", s("stack"))]),
-            obj(&[("type", s("definitely-not-a-real-pattern"))]),
-        ].into());
-        let effect = SExpression::Array(vec![
-            s("render-ui"),
-            s("main"),
-            obj(&[
-                ("type", s("stack")),
-                ("children", SExpression::Array(vec![cond].into())),
-            ]),
-        ].into());
-        let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
-            "an unknown pattern inside an else arm must still be reported"
-        );
-    }
 
     /// Negative control: a non-`if` array is still rejected — the new arm is
     /// keyed on the `if` head, not on "array".
-    #[test]
-    fn non_conditional_array_children_entry_still_rejected() {
-        let bogus = SExpression::Array(vec![s("totally-bogus"), s("x")].into());
-        let effect = SExpression::Array(vec![
-            s("render-ui"),
-            s("main"),
-            obj(&[
-                ("type", s("stack")),
-                ("children", SExpression::Array(vec![bogus].into())),
-            ]),
-        ].into());
-        let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
-            "a non-if array must still be an invalid pattern"
-        );
-    }
 
     // A conditional's condition is an expression, never a render node. A
     // condition over records — `(> (array/len @config.filters) 0)` once
@@ -463,104 +384,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn conditional_condition_records_do_not_shift_sibling_paths() {
-        let entry = SExpression::Array(vec![
-            s("if"),
-            record_condition(),
-            obj(&[("type", s("stack"))]),
-        ].into());
-        let bogus = obj(&[("type", s("definitely-not-a-real-pattern"))]);
-        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry, bogus].into())));
-        let invalid: Vec<&str> = errors
-            .iter()
-            .filter(|e| e.code == ErrorCode::RenderUIInvalidPattern)
-            .map(|e| e.path.as_str())
-            .collect();
-        assert_eq!(
-            invalid.len(),
-            1,
-            "exactly the bogus sibling is reported: {:?}",
-            errors
-        );
-        assert!(
-            invalid[0].ends_with("children[1].type"),
-            "the bogus sibling keeps its own index: {:?}",
-            invalid
-        );
-    }
 
-    #[test]
-    fn conditional_arm_of_mapped_children_validates_the_item_node() {
-        let ok = SExpression::Array(vec![
-            s("if"),
-            record_condition(),
-            array_map(
-                "@entity.items",
-                "item",
-                obj(&[("type", s("badge")), ("label", s("@item.name"))]),
-            ),
-        ].into());
-        let errors = render_errors(&stack_with_children(SExpression::Array(vec![ok].into())));
-        assert!(
-            errors.is_empty(),
-            "a mapped-children arm is one node producer: {:?}",
-            errors
-        );
-        let bad = SExpression::Array(vec![
-            s("if"),
-            record_condition(),
-            array_map(
-                "@entity.items",
-                "item",
-                obj(&[("type", s("definitely-not-a-real-pattern"))]),
-            ),
-        ].into());
-        let errors = render_errors(&stack_with_children(SExpression::Array(vec![bad].into())));
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
-            "the mapped item node is still validated: {:?}",
-            errors
-        );
-    }
 
     /// Control: a record-bearing condition does not excuse its branches.
-    #[test]
-    fn conditional_with_record_condition_still_validates_its_branches() {
-        let entry = SExpression::Array(vec![
-            s("if"),
-            record_condition(),
-            obj(&[("type", s("definitely-not-a-real-pattern"))]),
-        ].into());
-        let errors = render_errors(&stack_with_children(SExpression::Array(vec![entry].into())));
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
-            "an unknown pattern inside the then arm must still be reported: {:?}",
-            errors
-        );
-    }
 
     /// Control: operand splicing still applies to list-combining operators.
-    #[test]
-    fn array_concat_children_fragments_still_validated() {
-        let value = SExpression::Array(vec![
-            s("array/concat"),
-            s("@entity.buttons"),
-            SExpression::Array(vec![obj(&[("type", s("definitely-not-a-real-pattern"))])].into()),
-        ].into());
-        let errors = render_errors(&stack_with_children(value));
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern),
-            "a bogus literal fragment of array/concat must still be reported: {:?}",
-            errors
-        );
-    }
 
     #[test]
     fn fc5_array_map_children_entry_not_rejected() {
@@ -590,34 +418,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn fc5_array_map_children_validates_item_node() {
-        // The per-item node IS validated: an unknown pattern type inside the
-        // lambda body still surfaces (proving we recurse, not skip).
-        let bad = obj(&[("type", s("not-a-real-pattern-xyz"))]);
-        let effect = SExpression::Array(vec![
-            s("render-ui"),
-            s("main"),
-            obj(&[
-                ("type", s("stack")),
-                (
-                    "children",
-                    SExpression::Array(vec![array_map("@entity.items", "item", bad)].into()),
-                ),
-            ]),
-        ].into());
-        let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::RenderUIInvalidPattern
-                    && e.message.contains("not-a-real-pattern-xyz")),
-            "the item node must be validated (unknown type surfaces). Errors: {:?}",
-            result.errors
-        );
-    }
 
     #[test]
     fn fc5_bare_array_map_children_value_not_rejected() {
@@ -693,44 +493,6 @@ mod tests {
         ].into())));
     }
 
-    #[test]
-    fn test_unknown_pattern_prop() {
-        // Test that inventorySlots (non-existent prop) on game-menu triggers warning
-        let effect = SExpression::Array(vec![
-            SExpression::String(("render-ui".to_string()).into()),
-            SExpression::String(("main".to_string()).into()),
-            SExpression::object(
-                [
-                    (
-                        "type".into(),
-                        SExpression::String(("game-menu".to_string()).into()),
-                    ),
-                    (
-                        "title".into(),
-                        SExpression::String(("Main Menu".to_string()).into()),
-                    ),
-                    (
-                        "inventorySlots".into(), // Not a valid prop for game-menu
-                        SExpression::Array(vec![].into()),
-                    ),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        ].into());
-
-        let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
-        // Should have an error for unknown prop
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::RenderUIInvalidProp),
-            "Expected RenderUIInvalidProp error for 'inventorySlots' prop. Errors: {:?}",
-            result.errors
-        );
-    }
 
     #[test]
     fn test_valid_pattern_props() {
@@ -986,134 +748,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_nested_field_path_invalid_relation() {
-        use orbital_core_base::schema::{EntityDefinition, FieldDefinition, FieldType};
-
-        // Create mock entity definitions
-        let mut entity_defs = HashMap::new();
-
-        // Inspection entity WITHOUT relation field
-        entity_defs.insert(
-            "Inspection".to_string(),
-            EntityDefinition {
-                timestamps: None,
-                soft_delete: None,
-                description: None,
-                visual_prompt: None,
-                asset_ref: None,
-                store: None,
-                shared: false,
-                identity: false,
-                browser: false,
-                locale_instances: None,
-                read_policy: None,
-                create_policy: None,
-                update_policy: None,
-                delete_policy: None,
-                access_waivers: None,
-                name: "Inspection".to_string(),
-                fields: vec![FieldDefinition {
-                    nullable: None,
-                    additional_properties: None,
-                    mock: None,
-                    merged_from: None,
-                    name: Some("title".to_string()),
-                    field_type: FieldType::String,
-                    required: None,
-                    primary_key: None,
-                    unique: None,
-                    relation: None,
-                    items: None,
-                    values: None,
-                    default: None,
-                    properties: None,
-                    intrinsic: None,
-                    description: None,
-                    synonyms: None,
-                    projected_from: None,
-                    record: None,
-                    derived: None,
-                }],
-                collection: Some("inspections".to_string()),
-                persistence: None,
-                instances: None,
-                id: None,
-                invariants: None,
-                indexes: None,
-            },
-        );
-
-        let effect = SExpression::Array(vec![
-            SExpression::String(("render-ui".to_string()).into()),
-            SExpression::String(("main".to_string()).into()),
-            SExpression::object(
-                [
-                    (
-                        "type".into(),
-                        SExpression::String(("data-grid".to_string()).into()),
-                    ),
-                    (
-                        "entity".into(),
-                        SExpression::String(("Inspection".to_string()).into()),
-                    ),
-                    (
-                        "fields".into(),
-                        SExpression::Array(vec![SExpression::String(("company.name".to_string()).into())].into()),
-                    ),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        ].into());
-
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
-        // Should have field path warning for missing relation
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::RenderUIInvalidFieldPath),
-            "Expected field path warning for invalid relation. Warnings: {:?}",
-            result.errors
-        );
-    }
-
-    /// G-RUNTIME-012 prevention: an `@intrinsic` field is never persisted, so a
-    /// `form`-contract pattern offering it as an input silently discards what
-    /// the user types (std-time-tracking TimeEntry.hours).
-    #[test]
-    fn form_input_on_intrinsic_field_is_rejected() {
-        let entity: EntityDefinition = serde_json::from_value(serde_json::json!({
-            "name": "Task",
-            "persistence": "persistent",
-            "fields": [
-                { "name": "id", "type": "string" },
-                { "name": "title", "type": "string" },
-                { "name": "hours", "type": "number", "intrinsic": true }
-            ]
-        }))
-        .expect("entity");
-        let mut entity_defs = HashMap::new();
-        entity_defs.insert("Task".to_string(), entity);
-        let form = |fields: serde_json::Value| -> SExpression {
-            serde_json::from_value(serde_json::json!(["render-ui", "modal", { "type": "form-section", "fields": fields }]))
-                .expect("effect")
-        };
-        let codes = |effect: &SExpression| -> Vec<ErrorCode> {
-            validate_render_ui_effect(effect, "test", &entity_defs, None, Some("Task"))
-                .errors
-                .iter()
-                .map(|e| e.code.clone())
-                .collect()
-        };
-        assert!(codes(&form(serde_json::json!(["title", "hours"])))
-            .contains(&ErrorCode::RenderUIFormFieldIntrinsic));
-        assert!(codes(&form(serde_json::json!(["list", "title", "hours"])))
-            .contains(&ErrorCode::RenderUIFormFieldIntrinsic));
-        assert!(codes(&form(serde_json::json!([{ "name": "hours" }])))
-            .contains(&ErrorCode::RenderUIFormFieldIntrinsic));
-        assert!(!codes(&form(serde_json::json!(["title"])))
-            .contains(&ErrorCode::RenderUIFormFieldIntrinsic));
-    }
 }

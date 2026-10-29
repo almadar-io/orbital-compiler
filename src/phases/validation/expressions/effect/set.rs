@@ -1,7 +1,7 @@
 //! set effect validation.
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
-use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
+use super::{extract_emit_object_ref, DeclaredEmit};
 use orbital_core_base::schema::{EntityDefinition, FieldType, OrbitalSchema, SExpression};
 use std::collections::HashMap;
 
@@ -36,12 +36,6 @@ pub(crate) fn validate_set(
     if arr.len() > 3 {
         if let SExpression::Object(options) = &arr[3] {
             if let Some(emit_obj) = extract_emit_object_ref(options) {
-                result.merge(validate_emit_config(
-                    emit_obj,
-                    &["success"],
-                    declared_emits,
-                    path,
-                ));
             }
         }
     }

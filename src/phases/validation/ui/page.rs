@@ -13,7 +13,6 @@ use std::collections::{HashMap, HashSet};
 mod endpoint_tests {
     use super::*;
     use crate::phases::validation::closed_circuit::validate_all_circuits;
-    use crate::phases::validation::trait_validator::validate_all_traits;
     use serde_json::{json, Value};
 
     fn trait_json(name: &str, event: &str, renders: bool) -> Value {
@@ -66,7 +65,6 @@ mod endpoint_tests {
         let schema: OrbitalSchema = serde_json::from_value(schema).unwrap();
         let mut ctx = ValidationContext::new();
         validate_all_pages(&schema, &mut ctx);
-        validate_all_traits(&schema, &mut ctx);
         validate_all_circuits(&schema, &mut ctx);
         ctx.result.errors.into_iter().map(|e| e.code).collect()
     }

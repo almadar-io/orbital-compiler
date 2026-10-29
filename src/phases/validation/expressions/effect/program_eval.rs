@@ -1,7 +1,7 @@
 //! `program/eval` effect validation: its `emit` config block.
 
 use super::super::ValidationResult;
-use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
+use super::{extract_emit_object_ref, DeclaredEmit};
 use orbital_core_base::schema::SExpression;
 
 pub(crate) fn validate_program_eval(
@@ -18,12 +18,6 @@ pub(crate) fn validate_program_eval(
         let Some(emit_obj) = extract_emit_object_ref(options) else {
             continue;
         };
-        result.merge(validate_emit_config(
-            emit_obj,
-            &["success", "failure"],
-            declared_emits,
-            path,
-        ));
     }
 
     result
