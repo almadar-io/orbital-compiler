@@ -1,11 +1,10 @@
 //! Emit declaration collection + effect dispatch.
 
 use super::super::{ErrorCode, PageInitPayload, ValidationError, ValidationResult};
-use super::fetch::validate_fetch_stream;
 use super::{
-    effect_operators, extract_emit_object_ref, validate_fetch,
+    effect_operators, extract_emit_object_ref,
     validate_os_effect, validate_program_eval,
-    validate_set, validate_set_return_type, validate_set_value_type,
+    validate_set_return_type, validate_set_value_type,
     DeclaredEmit, EntityFieldMeta, ExprReturnCtx, RowSite,
 };
 use super::set::validate_set_relation_literal;
@@ -341,7 +340,6 @@ fn validate_leaf_effect(
                     "call-service" => {
                     }
                     "set" => {
-                        result.merge(validate_set(arr, path, declared_emits));
                         result.merge(validate_set_value_type(
                             arr,
                             path,
@@ -358,17 +356,6 @@ fn validate_leaf_effect(
                             types,
                         ));
                         result.merge(validate_set_relation_literal(arr, path, entity_field_types, &rows));
-                    }
-                    "fetch" => {
-                        result.merge(validate_fetch(arr, path, known_entities, declared_emits));
-                    }
-                    "fetch-stream" => {
-                        result.merge(validate_fetch_stream(
-                            arr,
-                            path,
-                            known_entities,
-                            declared_emits,
-                        ));
                     }
                     "persist" => {
                     }

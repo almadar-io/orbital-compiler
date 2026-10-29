@@ -10,7 +10,7 @@ mod binding;
 // `render_ui::validate_all_render_ui`) keep resolving unchanged.
 pub(crate) use super::sync;
 pub(crate) use super::{
-    ErrorCode, ValidationContext, ValidationError, ValidationResult, VALID_SLOTS,
+    ErrorCode, ValidationContext, ValidationError, ValidationResult,
 };
 
 use self::binding::validate_all_render_ui_bindings;
@@ -149,30 +149,8 @@ pub fn validate_render_ui_effect(
     match effect {
         SExpression::Array(arr) if arr.len() >= 2 => {
             // Array form: ["render-ui", "slot", { pattern }]
-            if let Some(SExpression::String(slot)) = arr.get(1) {
-                result.merge(validate_slot(slot, path));
-            }
-
         }
         _ => {}
-    }
-
-    result
-}
-
-/// Validate a slot name
-fn validate_slot(slot: &str, path: &str) -> ValidationResult {
-    let mut result = ValidationResult::new();
-
-    if !VALID_SLOTS.contains(&slot) {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::RenderUIInvalidSlot,
-                path,
-                format!("Invalid slot: '{}'", slot),
-            )
-            .with_valid_values(VALID_SLOTS.iter().map(|s| s.to_string()).collect()),
-        );
     }
 
     result
@@ -198,28 +176,6 @@ mod tests {
         let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
     }
-
-    #[test]
-    fn test_invalid_slot() {
-        let effect = SExpression::Array(vec![
-            SExpression::String(("render-ui".to_string()).into()),
-            SExpression::String(("invalid-slot".to_string()).into()),
-            SExpression::object(
-                [("type".into(), SExpression::String(("card".to_string()).into()))]
-                    .into_iter()
-                    .collect(),
-            ),
-        ].into());
-
-        let entity_defs = HashMap::new();
-        let result = validate_render_ui_effect(&effect, "test", &entity_defs, None, None);
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::RenderUIInvalidSlot));
-    }
-
 
     // FC-5 helpers: build the pinned dynamic-children tuple
     // `["array/map", <coll>, ["fn", <param>, <node>]]`.

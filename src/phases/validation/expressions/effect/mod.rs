@@ -11,7 +11,6 @@ use std::collections::{HashMap, HashSet};
 mod browser_calls;
 mod emit_declaration;
 mod fetch;
-mod host_effects;
 mod keyed_call;
 mod cast;
 mod operator_args;
@@ -23,21 +22,19 @@ mod typed_args;
 mod utils;
 
 pub(crate) use browser_calls::validate_browser_calls;
-pub(crate) use host_effects::validate_host_effects;
 pub(crate) use emit_declaration::{collect_declared_emits, nested_effects, scope_let_locals};
 #[cfg(test)]
 pub(crate) use emit_declaration::validate_effect;
 pub(crate) use fetch::{
-    parse_fetch_include_literals, resolve_fetch_include_field, validate_fetch,
+    parse_fetch_include_literals, resolve_fetch_include_field,
 };
-pub(crate) use keyed_call::validate_call_key_literals_are_used;
 use keyed_call::CallKeyFacts;
 pub(crate) use operator_args::{validate_operator_arg_types, validate_operator_arg_types_under};
 pub(crate) use os_watch::validate_os_effect;
 pub(crate) use row_literal::RowSite;
 pub(crate) use program_eval::validate_program_eval;
 pub(crate) use set::{
-    entity_field_type_map, expr_return_incompatible_given, expr_return_incompatible_in_ctx, validate_set,
+    entity_field_type_map, expr_return_incompatible_given, expr_return_incompatible_in_ctx,
     validate_set_required_field_from_optional_knob, validate_set_return_type,
     validate_set_value_type, BindingTypes, EntityFieldMeta, ExprReturnCtx,
 };
@@ -65,9 +62,7 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
         );
         ctx.merge(result);
     }
-    ctx.merge(validate_call_key_literals_are_used(schema));
     ctx.merge(validate_browser_calls(schema));
-    ctx.merge(validate_host_effects(schema));
 }
 
 /// The binding types one trait's effects are checked against: the linked entity's fields, and the payload of each

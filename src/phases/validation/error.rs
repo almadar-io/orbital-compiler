@@ -31,10 +31,6 @@ pub enum ErrorCode {
     // =========================================================================
     /// Entity is missing a name
     EntityMissingName,
-    /// Relation target entity doesn't exist
-    EntityInvalidRelation,
-    /// State machine has no initial state
-    TraitNoInitialState,
     /// Interaction trait missing render_ui effects
     TraitMissingRenderUI,
     /// A program trait is listed on no page
@@ -47,11 +43,6 @@ pub enum ErrorCode {
     TraitBehaviorRefNotLiteral,
     /// An `["unquote", …]` call outside a quasiquote body in an `.orb` input.
     TraitUnquoteOutsideQuasiquote,
-    /// Config field typed `event` holds a value that is not a member of the
-    /// trait's post-rename event set (SCAN-EVENT-KNOB-1). Definer-position
-    /// knobs (A-UNIFY) skip this membership check — their value CREATES the
-    /// event name — but still land here if the default isn't a plain string.
-    TraitInvalidEventDefault,
     /// An event-typed config value addresses a trait the program does not have.
     TraitEventRefUnresolved,
     /// An event-typed config value addresses an event its trait does not declare as an external input.
@@ -61,15 +52,6 @@ pub enum ErrorCode {
     /// Fires after the typed-config carriers (`items` / `properties` /
     /// `values`) make the declared shape concrete enough to check against.
     TraitConfigShapeMismatch,
-    /// A declaration uses a generic type — bare `json`, `object` (without
-    /// declared `properties`), or `any` — in an entity field, config knob,
-    /// type-alias member, or event payload field. Generic types are being
-    /// eliminated from the language: renderable content belongs in `node`,
-    /// structured data in inline `{ k: T }` shapes / named aliases /
-    /// `Map K V`, and genuinely polymorphic atoms in declared type
-    /// parameters. Hard error since 2026-09-01 (both behavior packages
-    /// report zero occurrences).
-    GenericTypeDeprecated,
     /// A type reference names no declared type, entity or primitive
     TypeUnknown,
     /// A type composition chain refers back to itself
@@ -86,8 +68,6 @@ pub enum ErrorCode {
     TypeWrongArgCount,
     /// An `emits` entry names a declared type that is not an Event type
     EventTypeWrongKind,
-    /// Page is missing a path
-    PageMissingPath,
     /// A page names a protocol that is no row of the protocol table
     PageUnknownProtocol,
     /// An `http` endpoint has no covering `net` listen grant
@@ -135,31 +115,18 @@ pub enum ErrorCode {
     // =========================================================================
     // Slot Errors (ORB_SLOT_*)
     // =========================================================================
-    /// Main slot not covered by any trait
-    SlotMainNotCovered,
 
     // =========================================================================
     // Render-UI Errors (ORB_RUI_*)
     // =========================================================================
-    /// Invalid slot in render_ui effect
-    RenderUIInvalidSlot,
     /// Invalid pattern type
     RenderUIInvalidPattern,
     /// Invalid prop for pattern
     RenderUIInvalidProp,
-    /// A non-drawable child composed under a canvas draw-host. A draw-host paints
-    /// only neutral drawable descriptors (draw-sprite / draw-shape / draw-text /
-    /// draw-*-layer); DOM chrome belongs in a `hud`/`overlay` slot.
-    RenderUIChildNotDrawable,
-    /// Invalid itemAction configuration
-    RenderUIInvalidItemAction,
     /// Unknown itemAction prop (e.g., hallucinated 'condition')
     RenderUIUnknownItemActionProp,
     /// Nested field path references invalid relation or field
     RenderUIInvalidFieldPath,
-    /// A `form`-contract pattern offers an input for an `@intrinsic` entity
-    /// field — intrinsic fields are never persisted, so the input is discarded.
-    RenderUIFormFieldIntrinsic,
     /// L2.1 keystone: render-ui prop bound to a `@payload.X` / `@entity.X`
     /// / `@config.X` / SExpression operator whose resolved type doesn't
     /// match any of the prop's declared `types` in the patterns registry.
@@ -176,22 +143,13 @@ pub enum ErrorCode {
     /// event-ref props; `callbackArgs` for callback props). Gap #32 in
     /// `docs/Almadar_Std_Verification.md`.
     RenderUIEventBindingPayloadMismatch,
-    /// call-service declares `emit.cancelled` but no `key` — nothing can
-    /// cancel an unkeyed call
-    CallServiceCancelledWithoutKey,
-    /// call-service `key` is a non-string literal (number/bool/object/array)
-    CallServiceKeyType,
     /// the app runs `cancel-call` but no `call-service` anywhere carries a `key`
     CancelCallNoKeyedCall,
-    /// a literal `(as "k" CallKey)` in a program whose keyed calls are all keyed by literals, none of them `"k"`
-    CallKeyUnused,
     /// `--final`: a `cancel-call` on a `CallKey` (or a list of them) in a finished program where no keyed call has a
     /// `CallKey`-typed `key:`, so nothing the program runs is named by a key made with `as`
     CancelCallKeyNeverCalled,
     /// a keyed call-service whose registry responseShape already has a `key` field
     CallServiceResultHasKey,
-    /// a trait other than an inbound handler emits the handler's answer event and the handler does not relay it: only the handler's own emit answers
-    InboundAnswerForeign,
     /// an `os/` call needs something the calling orbital's grants do not cover
     OsGrantMissing,
     /// an `os/` call's target (path, command, host, port, variable, flags) is not a literal
@@ -202,12 +160,8 @@ pub enum ErrorCode {
     OsGrantEntryInvalid,
     /// an event reads a page fact the `browser/page-facts` call did not request
     PageFactsUnrequestedRead,
-    /// a `browser/tab-*` request that is not an object of the op's closed keys, or whose literal values the kernel refuses
-    TabRequestInvalid,
-    /// set effect using @payload (should use @entity)
-    EffectSetPayloadNotAllowed,
-    /// fetch effect referencing invalid entity
-    EffectFetchInvalidEntity,
+    /// a literal `browser/tab-*` request whose keys the op declares but whose values the kernel's tab-call parser refuses
+    TabRequestRefused,
     /// `persist batch` ops expression is not array-typed
     PersistBatchOpsNotArray,
     /// Multiple render_ui effects targeting same slot
@@ -219,8 +173,6 @@ pub enum ErrorCode {
     /// carries a `notify` effect kind. A `notify` tuple reaching L2 means a
     /// hand-authored `.orb` or a registry not yet re-emitted.
     EffectNotifyRetired,
-    /// Navigate effect missing required payload for target page
-    EffectNavigateMissingPayload,
     /// Trait declares an event in its `emits[]` block but no transition
     /// fires it via `(emit X)` or operator emit-config success/failure.
     /// Usually a copy-paste leftover or a stale declaration after a
@@ -250,8 +202,6 @@ pub enum ErrorCode {
     // =========================================================================
     // S-Expression Errors (SEXPR_*)
     // =========================================================================
-    /// Unknown operator in S-expression
-    SExprInvalidOperator,
     /// Wrong number of arguments for operator
     SExprArityMismatch,
     /// A `(fn …)` form in an argument position the operator does not take its
@@ -259,13 +209,6 @@ pub enum ErrorCode {
     SExprLambdaArgPosition,
     /// Effect operator used in guard context
     SExprEffectInGuard,
-    /// One transition's data effects touch both browser-stored and server-stored entities (ORB_X_MIXED_RESIDENCE)
-    CrossMixedResidence,
-    /// A `type: 'relation'` field's `relation.entity` does not resolve to any
-    /// entity declared in the same schema. Error severity; the entity-scope
-    /// validator also emits `ORB_E_INVALID_RELATION` for the same condition.
-    /// See COMP-9 in docs/Almadar_Agent_Behaviors_Plan.md.
-    UnresolvedRelationTarget,
     /// A pattern prop tagged `kind: 'field-ref'` (scalar) or `itemKind: 'field-ref'`
     /// (array element) carries a value that does not resolve to any field on the
     /// linked entity. Error severity. See Phase 3.2/3.3 in
@@ -273,8 +216,6 @@ pub enum ErrorCode {
     UnresolvedPatternFieldRef,
     /// Unknown binding root
     BindingUnknownRoot,
-    /// `@config.<key>` literal whose key no reachable config schema declares
-    ConfigDanglingRef,
     /// A `field @entity` config knob names something that is not a field of the trait's bound entity
     ConfigFieldRefUnknown,
     /// A `field @entity T` config knob names a field whose type is not `T`
@@ -289,12 +230,6 @@ pub enum ErrorCode {
     /// defense-in-depth backstop. Payload field types are sourced from the
     /// trait's `emits[].payload_schema` and `listens` payload metadata.
     SetValueTypeMismatch,
-    /// `(set @entity.X literal)` assigns a string literal that is not a member
-    /// of the target field's declared enum (`values: [...]`). The declared union
-    /// was previously validated + emitted but never enforced — an out-of-set
-    /// value passed silently. The lolo crate catches this at author time for
-    /// `.lolo`; this is the raw-`.orb` defense-in-depth backstop.
-    EnumValueNotMember,
     /// A record literal written into an entity (a `persist` data literal, or a `set` into a relation field) names a
     /// key the entity does not declare.
     RowLiteralUnknownField,
@@ -352,8 +287,6 @@ pub enum ErrorCode {
     EmitPayloadFieldTypeMismatch,
     /// An `emit` repeats an earlier one of the same transition identically: the dispatch loop collapses the second.
     EmitRepeatsIdentically,
-    /// An array field (entity or payload-schema) declares no element type.
-    UntypedArrayField,
     /// A render-ui pattern prop typed `EntityWith<K>` declares required entity
     /// fields (`requiredFields` in the registry), but the bound entity does not
     /// provide them and no remap/field-map supplies them. The component would
@@ -371,11 +304,6 @@ pub enum ErrorCode {
     /// `EmitSuccessPayloadReturnMismatch` (empty-payload-only) checks.
     /// Error severity.
     EmitPayloadNotProduced,
-    /// Phase F.2: two or more traits declare the same external event name in
-    /// their `emits` arrays but disagree on the declared payload field list.
-    /// Consumers that listen on the event will see one shape from one
-    /// emitter and a different shape from another. Error severity.
-    CrossEmitterDeclaredPayloadMismatch,
     /// An effect (`emit`, `persist`, `set`, `notify`, …) inside the `fn` body of a collection operator: a lambda is
     /// evaluated for its value, an effect there never runs. Error severity.
     EffectInLambda,
@@ -387,16 +315,8 @@ pub enum ErrorCode {
     // =========================================================================
     // Closed Circuit Errors (CIRCUIT_*)
     // =========================================================================
-    /// Action emits event with no transition handler
-    CircuitOrphanEvent,
     /// Interactive component missing itemActions
     CircuitDeadEndComponent,
-    /// State has no incoming transitions
-    CircuitUnreachableState,
-    /// State has no outgoing transitions
-    CircuitDeadEndState,
-    /// Action-component mismatch
-    CircuitActionComponentMismatch,
     /// The trait that OWNS a page's content region (`page_content_owner`'s
     /// `channel`/`sole-writer`) has a user-triggered arm that repaints its
     /// own main-slot body with something offering no way on: no content-body
@@ -417,40 +337,6 @@ pub enum ErrorCode {
     // =========================================================================
     // Icon Errors (ORB_UI_ICON_*)
     // =========================================================================
-    /// Icon name has invalid format
-    IconInvalidFormat,
-    /// Icon name is empty
-    IconEmpty,
-    /// Event name not UPPER_SNAKE_CASE
-    TraitEventInvalidName,
-    /// A literal compared against an `@user.<field>` whose declared type is a
-    /// closed vocabulary is not one of that vocabulary's members — a branch that
-    /// can never be taken. The bug class that let std-healthcare's `"patient"`
-    /// and std-lms's `"student"` ship green.
-    SchemaRoleLiteralNotMember,
-    /// `@user.<field>` names a field the declared `[identity]` entity does not
-    /// have. Resolves to null at runtime, so the guard silently takes its
-    /// negative branch.
-    SchemaUnknownIdentityField,
-    /// An access directive compares an `@entity.<field>` against `@user.id`,
-    /// but `<field>` is not a relation to the `[identity]` entity. The
-    /// comparison is then between a free-text scalar and a roster id — it
-    /// type-checks, reads like ownership, and matches nothing, because the
-    /// seeder only stamps viewer ids onto DECLARED relations. This is the
-    /// `customerEmail` trap: a policy that silently denies everyone while
-    /// looking correct.
-    SchemaOwnerFieldNotIdentityTyped,
-    /// A `data-theme` resolves to a literal theme the program does not declare (app or
-    /// orbital `theme`, or the app's `themes`), so the compiled client ships no stylesheet for it (G-UI-106).
-    ThemeUndeclared,
-    /// Compose link-check: an orbital's `expects entity X` / `expects entity X [identity]`
-    /// names a requirement no orbital in the program provides. The message
-    /// names WHO ASKED — the consumer orbital — so the repair is attributable.
-    SchemaExpectationUnsatisfied,
-    /// Compose link-check: the provider has the expected field but with an
-    /// incompatible type (per orbital-core's `type_compat`; literal unions use
-    /// subset semantics — every expected member must be a provider member).
-    SchemaExpectedFieldTypeMismatch,
     /// A spec proposition (`@invariant` on `expects entity`, `@holds` on an `expects trait` state) is broken: a
     /// write or transition of the program falsifies it on a counterexample the evaluator confirms.
     SchemaInvariantViolated,
@@ -465,8 +351,6 @@ pub enum ErrorCode {
     // =========================================================================
     // Generic Errors (ORB_GEN_*)
     // =========================================================================
-    /// Generic invalid value
-    InvalidValue,
     /// Generic invalid reference format
     InvalidReference,
     /// Generic missing required field
@@ -483,20 +367,16 @@ impl ErrorCode {
         match self {
             // Entity
             ErrorCode::EntityMissingName => "ORB_E_MISSING_NAME",
-            ErrorCode::EntityInvalidRelation => "ORB_E_INVALID_RELATION",
 
             // Trait
-            ErrorCode::TraitNoInitialState => "ORB_T_NO_INITIAL_STATE",
             ErrorCode::TraitMissingRenderUI => "ORB_T_MISSING_RENDER_UI",
             ErrorCode::TraitUnmounted => "ORB_T_TRAIT_UNMOUNTED",
             ErrorCode::TraitBehaviorRefUnresolved => "ORB_T_BEHAVIOR_REF_UNRESOLVED",
             ErrorCode::TraitBehaviorRefNotLiteral => "ORB_T_BEHAVIOR_REF_NOT_LITERAL",
             ErrorCode::TraitUnquoteOutsideQuasiquote => "ORB_T_UNQUOTE_OUTSIDE_QUASIQUOTE",
-            ErrorCode::TraitInvalidEventDefault => "ORB_T_INVALID_EVENT_DEFAULT",
             ErrorCode::TraitEventRefUnresolved => "ORB_T_EVENT_REF_UNRESOLVED",
             ErrorCode::TraitEventRefNotExternalInput => "ORB_T_EVENT_REF_NOT_EXTERNAL_INPUT",
             ErrorCode::TraitConfigShapeMismatch => "ORB_T_CONFIG_SHAPE_MISMATCH",
-            ErrorCode::GenericTypeDeprecated => "ORB_T_GENERIC_TYPE_DEPRECATED",
             ErrorCode::TypeUnknown => "ORB_T_TYPE_UNKNOWN",
             ErrorCode::TypeCycle => "ORB_T_TYPE_CYCLE",
             ErrorCode::TypeKindMismatch => "ORB_T_TYPE_KIND_MISMATCH",
@@ -507,7 +387,6 @@ impl ErrorCode {
             ErrorCode::EventTypeWrongKind => "ORB_T_EVENT_TYPE_WRONG_KIND",
 
             // Page
-            ErrorCode::PageMissingPath => "ORB_P_MISSING_PATH",
             ErrorCode::PageUnknownProtocol => "ORB_P_UNKNOWN_PROTOCOL",
             ErrorCode::PageEndpointGrantMissing => "ORB_P_ENDPOINT_GRANT_MISSING",
             ErrorCode::PageAddressInvalid => "ORB_P_ADDRESS_INVALID",
@@ -522,43 +401,31 @@ impl ErrorCode {
             ErrorCode::ControlValueDiscarded => "ORB_CONTROL_VALUE_DISCARDED",
 
             // Slot
-            ErrorCode::SlotMainNotCovered => "ORB_SLOT_MAIN_NOT_COVERED",
 
             // Render-UI
-            ErrorCode::RenderUIInvalidSlot => "ORB_RUI_INVALID_SLOT",
             ErrorCode::RenderUIInvalidPattern => "ORB_RUI_INVALID_PATTERN",
             ErrorCode::RenderUIInvalidProp => "ORB_RUI_INVALID_PROP",
-            ErrorCode::RenderUIChildNotDrawable => "ORB_RUI_CHILD_NOT_DRAWABLE",
-            ErrorCode::RenderUIInvalidItemAction => "ORB_RUI_INVALID_ITEM_ACTION",
             ErrorCode::RenderUIUnknownItemActionProp => "ORB_RUI_UNKNOWN_ITEM_ACTION_PROP",
             ErrorCode::RenderUIInvalidFieldPath => "ORB_RUI_INVALID_FIELD_PATH",
-            ErrorCode::RenderUIFormFieldIntrinsic => "ORB_RUI_FORM_FIELD_INTRINSIC",
             ErrorCode::RenderUIBindingTypeMismatch => "ORB_RUI_BINDING_TYPE_MISMATCH",
             ErrorCode::RenderUIEventBindingPayloadMismatch => {
                 "ORB_RUI_EVENT_BINDING_PAYLOAD_MISMATCH"
             }
 
             // Effect
-            ErrorCode::CallServiceCancelledWithoutKey => "ORB_CALL_SERVICE_CANCELLED_WITHOUT_KEY",
-            ErrorCode::CallServiceKeyType => "ORB_CALL_SERVICE_KEY_TYPE",
             ErrorCode::CancelCallNoKeyedCall => "ORB_CANCEL_CALL_NO_KEYED_CALL",
-            ErrorCode::CallKeyUnused => "ORB_CALL_KEY_UNUSED",
             ErrorCode::CancelCallKeyNeverCalled => "ORB_CANCEL_CALL_KEY_NEVER_CALLED",
             ErrorCode::CallServiceResultHasKey => "ORB_CALL_SERVICE_RESULT_HAS_KEY",
-            ErrorCode::InboundAnswerForeign => "ORB_INBOUND_ANSWER_FOREIGN",
             ErrorCode::OsGrantMissing => "ORB_OS_GRANT_MISSING",
             ErrorCode::OsTargetNotStatic => "ORB_OS_TARGET_NOT_STATIC",
             ErrorCode::OsGrantUnused => "ORB_OS_GRANT_UNUSED",
             ErrorCode::OsGrantEntryInvalid => "ORB_OS_GRANT_ENTRY_INVALID",
             ErrorCode::PageFactsUnrequestedRead => "ORB_PAGE_FACTS_UNREQUESTED_READ",
-            ErrorCode::TabRequestInvalid => "ORB_TAB_REQUEST_INVALID",
-            ErrorCode::EffectSetPayloadNotAllowed => "ORB_EFF_SET_PAYLOAD_NOT_ALLOWED",
-            ErrorCode::EffectFetchInvalidEntity => "ORB_EFF_FETCH_INVALID_ENTITY",
+            ErrorCode::TabRequestRefused => "ORB_TAB_REQUEST_REFUSED",
             ErrorCode::PersistBatchOpsNotArray => "ORB_PERSIST_BATCH_OPS_NOT_ARRAY",
             ErrorCode::EffectSlotConflict => "ORB_EFF_SLOT_CONFLICT",
             ErrorCode::EffectUnknownType => "ORB_EFF_UNKNOWN_TYPE",
             ErrorCode::EffectNotifyRetired => "ORB_EFF_NOTIFY_RETIRED",
-            ErrorCode::EffectNavigateMissingPayload => "ORB_EFF_NAVIGATE_MISSING_PAYLOAD",
             ErrorCode::EmitDeclaredButUnfired => "ORB_EMIT_DECLARED_BUT_UNFIRED",
             ErrorCode::EmitControlUnhandled => "ORB_EMIT_CONTROL_UNHANDLED",
             ErrorCode::EffectEmitKeyInvalid => "ORB_EFF_EMIT_KEY_INVALID",
@@ -569,25 +436,20 @@ impl ErrorCode {
             ErrorCode::FetchTotalNoneRead => "ORB_FETCH_TOTAL_NONE_READ",
 
             // S-Expression
-            ErrorCode::SExprInvalidOperator => "SEXPR_INVALID_OPERATOR",
             ErrorCode::SExprArityMismatch => "SEXPR_ARITY_MISMATCH",
             ErrorCode::SExprLambdaArgPosition => "SEXPR_LAMBDA_ARG_POSITION",
             ErrorCode::SExprEffectInGuard => "SEXPR_EFFECT_IN_GUARD",
 
             // Cross-Orbital
-            ErrorCode::CrossMixedResidence => "ORB_X_MIXED_RESIDENCE",
-            ErrorCode::UnresolvedRelationTarget => "ORB_X_UNRESOLVED_RELATION_TARGET",
             ErrorCode::UnresolvedPatternFieldRef => "ORB_X_UNRESOLVED_PATTERN_FIELD_REF",
 
             // Binding
             ErrorCode::BindingUnknownRoot => "ORB_BINDING_UNKNOWN_ROOT",
-            ErrorCode::ConfigDanglingRef => "ORB_CONFIG_DANGLING_REF",
             ErrorCode::ConfigFieldRefUnknown => "ORB_CONFIG_FIELD_REF_UNKNOWN",
             ErrorCode::ConfigFieldRefTypeMismatch => "ORB_CONFIG_FIELD_REF_TYPE_MISMATCH",
             ErrorCode::BindingInvalidPath => "ORB_BINDING_INVALID_PATH",
             ErrorCode::BindingPayloadInTick => "ORB_BINDING_PAYLOAD_IN_TICK",
             ErrorCode::SetValueTypeMismatch => "ORB_X_SET_VALUE_TYPE_MISMATCH",
-            ErrorCode::EnumValueNotMember => "ORB_X_ENUM_VALUE_NOT_MEMBER",
             ErrorCode::RowLiteralUnknownField => "ORB_X_ROW_LITERAL_UNKNOWN_FIELD",
             ErrorCode::RowLiteralFieldTypeMismatch => "ORB_X_ROW_LITERAL_FIELD_TYPE_MISMATCH",
             ErrorCode::RowLiteralMissingRequired => "ORB_X_ROW_LITERAL_MISSING_REQUIRED",
@@ -604,41 +466,24 @@ impl ErrorCode {
             ErrorCode::EmitPayloadExtraField => "ORB_EMIT_PAYLOAD_EXTRA_FIELD",
             ErrorCode::EmitPayloadFieldTypeMismatch => "ORB_EMIT_PAYLOAD_FIELD_TYPE_MISMATCH",
             ErrorCode::EmitRepeatsIdentically => "ORB_EMIT_REPEATS_IDENTICALLY",
-            ErrorCode::UntypedArrayField => "ORB_X_UNTYPED_ARRAY",
             ErrorCode::EntityPropContract => "ORB_X_ENTITY_PROP_CONTRACT",
             ErrorCode::EmitPayloadNotProduced => "ORB_EMIT_PAYLOAD_NOT_PRODUCED",
-            ErrorCode::CrossEmitterDeclaredPayloadMismatch => {
-                "ORB_X_CROSS_EMITTER_DECLARED_PAYLOAD_MISMATCH"
-            }
             ErrorCode::EffectInLambda => "ORB_EFFECT_IN_LAMBDA",
 
             // Entity Mutation / Tick
             ErrorCode::SharedEntityRenderAuthority => "ORB_SHARED_ENTITY_RENDER_AUTHORITY",
 
             // Closed Circuit
-            ErrorCode::CircuitOrphanEvent => "CIRCUIT_ORPHAN_EVENT",
             ErrorCode::CircuitDeadEndComponent => "CIRCUIT_DEAD_END_COMPONENT",
-            ErrorCode::CircuitUnreachableState => "CIRCUIT_UNREACHABLE_STATE",
-            ErrorCode::CircuitDeadEndState => "CIRCUIT_DEAD_END_STATE",
-            ErrorCode::CircuitActionComponentMismatch => "CIRCUIT_ACTION_COMPONENT_MISMATCH",
             ErrorCode::CircuitViewerStranded => "ORB_CIRCUIT_VIEWER_STRANDED",
 
             // Icon
-            ErrorCode::IconInvalidFormat => "ORB_UI_ICON_INVALID_FORMAT",
-            ErrorCode::IconEmpty => "ORB_UI_ICON_EMPTY",
 
             // Query Singleton
 
             // Trait Event
-            ErrorCode::TraitEventInvalidName => "ORB_T_EVT_INVALID_NAME",
 
             // Schema
-            ErrorCode::SchemaRoleLiteralNotMember => "ORB_S_ROLE_LITERAL_NOT_MEMBER",
-            ErrorCode::SchemaUnknownIdentityField => "ORB_S_UNKNOWN_IDENTITY_FIELD",
-            ErrorCode::SchemaOwnerFieldNotIdentityTyped => "ORB_S_OWNER_FIELD_NOT_IDENTITY_TYPED",
-            ErrorCode::ThemeUndeclared => "ORB_THEME_UNDECLARED",
-            ErrorCode::SchemaExpectationUnsatisfied => "ORB_S_EXPECTATION_UNSATISFIED",
-            ErrorCode::SchemaExpectedFieldTypeMismatch => "ORB_S_EXPECTED_FIELD_TYPE_MISMATCH",
             ErrorCode::SchemaInvariantViolated => "ORB_S_INVARIANT_VIOLATED",
             ErrorCode::SchemaInvariantUnproved => "ORB_S_INVARIANT_UNPROVED",
             ErrorCode::UsesConfigUnknownKey => "ORB_U_CONFIG_UNKNOWN_KEY",
@@ -648,7 +493,6 @@ impl ErrorCode {
             // Behavior Package
 
             // Generic
-            ErrorCode::InvalidValue => "ORB_GEN_INVALID_VALUE",
             ErrorCode::InvalidReference => "ORB_GEN_INVALID_REFERENCE",
             ErrorCode::MissingField => "ORB_GEN_MISSING_FIELD",
             ErrorCode::DuplicateEntity => "ORB_GEN_DUPLICATE",
@@ -658,19 +502,14 @@ impl ErrorCode {
     /// Get the category for this error code
     pub fn category(&self) -> &'static str {
         match self {
-            ErrorCode::EntityMissingName
-            | ErrorCode::EntityInvalidRelation
-            | ErrorCode::UntypedArrayField => "entity",
+            ErrorCode::EntityMissingName => "entity",
 
             // A generic type in a declaration position — a TYPE-system rejection
-            // since the burndown reached zero (2026-09-01).
             ErrorCode::TraitUnmounted
-            | ErrorCode::TraitNoInitialState
             | ErrorCode::TraitMissingRenderUI
             | ErrorCode::TraitBehaviorRefUnresolved
             | ErrorCode::TraitBehaviorRefNotLiteral
             | ErrorCode::TraitUnquoteOutsideQuasiquote
-            | ErrorCode::TraitInvalidEventDefault
             | ErrorCode::TraitEventRefUnresolved
             | ErrorCode::TraitEventRefNotExternalInput
             | ErrorCode::TraitConfigShapeMismatch
@@ -681,11 +520,9 @@ impl ErrorCode {
             | ErrorCode::TypeAnnotationMismatch
             | ErrorCode::TypeUnknownParam
             | ErrorCode::TypeWrongArgCount
-            | ErrorCode::EventTypeWrongKind
-            | ErrorCode::GenericTypeDeprecated => "trait",
+            | ErrorCode::EventTypeWrongKind => "trait",
 
-            ErrorCode::PageMissingPath
-            | ErrorCode::PageUnknownProtocol
+            ErrorCode::PageUnknownProtocol
             | ErrorCode::PageEndpointGrantMissing
             | ErrorCode::PageAddressInvalid
             | ErrorCode::OrbitalRefRoleTargetNotMember
@@ -697,40 +534,27 @@ impl ErrorCode {
             | ErrorCode::OrbitalRefFieldRenameUnapplied
             | ErrorCode::PageControlOutsideShell => "page",
 
-            ErrorCode::SlotMainNotCovered => "slot",
-
-            ErrorCode::RenderUIInvalidSlot
-            | ErrorCode::RenderUIInvalidPattern
+            ErrorCode::RenderUIInvalidPattern
             | ErrorCode::RenderUIInvalidProp
-            | ErrorCode::RenderUIChildNotDrawable
-            | ErrorCode::RenderUIInvalidItemAction
             | ErrorCode::RenderUIUnknownItemActionProp
             | ErrorCode::RenderUIInvalidFieldPath
-            | ErrorCode::RenderUIFormFieldIntrinsic
             | ErrorCode::RenderUIBindingTypeMismatch
             | ErrorCode::RenderUIEventBindingPayloadMismatch
             | ErrorCode::EntityPropContract => "render_ui",
 
-            ErrorCode::CallServiceCancelledWithoutKey
-            | ErrorCode::CallServiceKeyType
-            | ErrorCode::CancelCallNoKeyedCall
-            | ErrorCode::CallKeyUnused
+            ErrorCode::CancelCallNoKeyedCall
             | ErrorCode::CancelCallKeyNeverCalled
             | ErrorCode::CallServiceResultHasKey
-            | ErrorCode::InboundAnswerForeign
             | ErrorCode::OsGrantMissing
             | ErrorCode::OsTargetNotStatic
             | ErrorCode::OsGrantUnused
             | ErrorCode::OsGrantEntryInvalid
             | ErrorCode::PageFactsUnrequestedRead
-            | ErrorCode::TabRequestInvalid
+            | ErrorCode::TabRequestRefused
             | ErrorCode::EffectNotifyRetired
-            | ErrorCode::EffectSetPayloadNotAllowed
-            | ErrorCode::EffectFetchInvalidEntity
             | ErrorCode::PersistBatchOpsNotArray
             | ErrorCode::EffectSlotConflict
             | ErrorCode::EffectUnknownType
-            | ErrorCode::EffectNavigateMissingPayload
             | ErrorCode::EffectEmitKeyInvalid
             | ErrorCode::EffectEmitInvalidName
             | ErrorCode::EffectEmitUndeclaredEvent
@@ -738,7 +562,6 @@ impl ErrorCode {
             | ErrorCode::FetchDeliverIdsRowsRead
             | ErrorCode::FetchTotalNoneRead
             | ErrorCode::SetValueTypeMismatch
-            | ErrorCode::EnumValueNotMember
             | ErrorCode::RowLiteralUnknownField
             | ErrorCode::RowLiteralFieldTypeMismatch
             | ErrorCode::RowLiteralMissingRequired
@@ -752,18 +575,13 @@ impl ErrorCode {
             | ErrorCode::EmitDeclaredButUnfired
             | ErrorCode::EmitControlUnhandled => "effect",
 
-            ErrorCode::SExprInvalidOperator
-            | ErrorCode::SExprArityMismatch
+            ErrorCode::SExprArityMismatch
             | ErrorCode::SExprLambdaArgPosition
             | ErrorCode::SExprEffectInGuard => "sexpr",
 
-            ErrorCode::CrossMixedResidence
-            | ErrorCode::UnresolvedRelationTarget
-            | ErrorCode::UnresolvedPatternFieldRef
-            | ErrorCode::CrossEmitterDeclaredPayloadMismatch => "cross",
+            ErrorCode::UnresolvedPatternFieldRef => "cross",
 
             ErrorCode::BindingUnknownRoot
-            | ErrorCode::ConfigDanglingRef
             | ErrorCode::ConfigFieldRefUnknown
             | ErrorCode::ConfigFieldRefTypeMismatch
             | ErrorCode::BindingInvalidPath
@@ -777,34 +595,17 @@ impl ErrorCode {
 
             ErrorCode::SharedEntityRenderAuthority => "entity_mutation",
 
-            ErrorCode::CircuitOrphanEvent
-            | ErrorCode::CircuitDeadEndComponent
-            | ErrorCode::CircuitUnreachableState
-            | ErrorCode::CircuitDeadEndState
-            | ErrorCode::CircuitActionComponentMismatch
+            ErrorCode::CircuitDeadEndComponent
             | ErrorCode::CircuitViewerStranded
             | ErrorCode::ControlValueDiscarded => "circuit",
 
-            ErrorCode::IconInvalidFormat
-            | ErrorCode::IconEmpty => "icon",
-
-            ErrorCode::TraitEventInvalidName => "trait_event",
-
-            ErrorCode::SchemaRoleLiteralNotMember
-            | ErrorCode::SchemaUnknownIdentityField
-            | ErrorCode::SchemaOwnerFieldNotIdentityTyped
-            | ErrorCode::SchemaExpectationUnsatisfied
-            | ErrorCode::SchemaExpectedFieldTypeMismatch
-            | ErrorCode::SchemaInvariantViolated
+            ErrorCode::SchemaInvariantViolated
             | ErrorCode::SchemaInvariantUnproved
             | ErrorCode::UsesConfigUnknownKey => "schema",
 
-            ErrorCode::InvalidValue
-            | ErrorCode::InvalidReference
-            | ErrorCode::MissingField
-            | ErrorCode::DuplicateEntity => "generic",
-
-            ErrorCode::ThemeUndeclared => "schema",
+            ErrorCode::InvalidReference | ErrorCode::MissingField | ErrorCode::DuplicateEntity => {
+                "generic"
+            }
         }
     }
 }
@@ -880,22 +681,6 @@ pub fn out_of_scope_collection_local(code: ErrorCode, path: &str, root: &str) ->
          `(array/map <collection> { … })` is not recognised there, so its body is not \
          treated as a lambda and @item never comes into scope. Both a raw `type:` object \
          and a JSX element are valid as <node>.",
-    )
-}
-
-/// The one `ORB_X_UNTYPED_ARRAY` diagnostic, shared by the entity-field and
-/// payload-field checks so the wording can't drift between them.
-pub fn untyped_array_field(path: &str, field_name: &str) -> ValidationError {
-    ValidationError::error(
-        ErrorCode::UntypedArrayField,
-        path,
-        format!(
-            "Field '{}' is typed `array` but its element type is undeclared.",
-            field_name
-        ),
-    )
-    .with_suggestion(
-        "Declare the element type as `[T]` (e.g. `[string]`) instead of the bare `array`.",
     )
 }
 
@@ -1072,12 +857,12 @@ mod tests {
     #[test]
     fn a_code_s_description_is_its_doc_comment() {
         assert_eq!(
-            ErrorCode::CircuitDeadEndState.description(),
-            "State has no outgoing transitions"
+            ErrorCode::EntityMissingName.description(),
+            "Entity is missing a name"
         );
         assert_ne!(
-            ErrorCode::CircuitUnreachableState.description(),
-            ErrorCode::CircuitDeadEndState.description()
+            ErrorCode::TraitUnmounted.description(),
+            ErrorCode::EntityMissingName.description()
         );
     }
     use super::*;
@@ -1085,11 +870,7 @@ mod tests {
     #[test]
     fn test_error_code_str() {
         assert_eq!(ErrorCode::EntityMissingName.as_str(), "ORB_E_MISSING_NAME");
-        assert_eq!(
-            ErrorCode::TraitNoInitialState.as_str(),
-            "ORB_T_NO_INITIAL_STATE"
-        );
-        assert_eq!(ErrorCode::PageMissingPath.as_str(), "ORB_P_MISSING_PATH");
+        assert_eq!(ErrorCode::TraitUnmounted.as_str(), "ORB_T_TRAIT_UNMOUNTED");
     }
 
     #[test]
@@ -1104,7 +885,6 @@ mod tests {
             "ORB_T_TYPE_UNKNOWN_PARAM",
             "ORB_T_TYPE_WRONG_ARG_COUNT",
             "ORB_T_EVENT_TYPE_WRONG_KIND",
-            "ORB_T_GENERIC_TYPE_DEPRECATED",
         ] {
             assert!(known(code), "{code} is not in ErrorCode::ALL");
         }
@@ -1116,9 +896,8 @@ mod tests {
     #[test]
     fn test_error_code_category() {
         assert_eq!(ErrorCode::EntityMissingName.category(), "entity");
-        assert_eq!(ErrorCode::TraitNoInitialState.category(), "trait");
-        assert_eq!(ErrorCode::PageMissingPath.category(), "page");
-        assert_eq!(ErrorCode::SlotMainNotCovered.category(), "slot");
+        assert_eq!(ErrorCode::TraitUnmounted.category(), "trait");
+        assert_eq!(ErrorCode::PageUnknownProtocol.category(), "page");
     }
 
     #[test]
@@ -1162,27 +941,10 @@ mod tests {
         assert_eq!(result.error_count(), 2);
     }
 
-    /// Variants a std lint atom also owns that Rust still references outside . Each retirement
-    /// removes its entry; the test fails if a new double owner appears or a listed one is already retired.
-    const STILL_DOUBLE_OWNED: &[&str] = &[
-        "CallKeyUnused",
-        "CallServiceCancelledWithoutKey",
-        "CallServiceKeyType",
-        "CircuitOrphanEvent",
-        "ConfigDanglingRef",
-        "CrossEmitterDeclaredPayloadMismatch",
-        "EffectFetchInvalidEntity",
-        "EffectSetPayloadNotAllowed",
-        "EnumValueNotMember",
-        "GenericTypeDeprecated",
-        "RenderUIInvalidSlot",
-        "SExprInvalidOperator",
-        "SchemaExpectationUnsatisfied",
-        "SchemaExpectedFieldTypeMismatch",
-        "SchemaOwnerFieldNotIdentityTyped",
-        "TabRequestInvalid",
-        "TraitInvalidEventDefault",
-    ];
+    /// Variants a std lint atom (`sigil-context`) also owns that Rust still references: `binding.rs` also walks
+    /// `@ensures`, `@holds` and entity invariants, which the atom does not. Each retirement removes its entry; the test
+    /// fails if a new double owner appears or a listed one is already retired.
+    const STILL_DOUBLE_OWNED: &[&str] = &["BindingPayloadInTick", "BindingUnknownRoot"];
 
     fn double_owned(
         rust_refs: &std::collections::BTreeSet<String>,
@@ -1196,7 +958,10 @@ mod tests {
             .collect()
     }
 
-    fn rust_refs_outside_tests(dir: &std::path::Path, out: &mut std::collections::BTreeSet<String>) {
+    fn rust_refs_outside_tests(
+        dir: &std::path::Path,
+        out: &mut std::collections::BTreeSet<String>,
+    ) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
             if path.is_dir() {
@@ -1247,22 +1012,35 @@ mod tests {
             return;
         };
         let mut refs = std::collections::BTreeSet::new();
-        rust_refs_outside_tests(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut refs);
+        rust_refs_outside_tests(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut refs,
+        );
         let found = double_owned(&refs, &std_atom_codes(&atoms));
         let listed: Vec<String> = STILL_DOUBLE_OWNED.iter().map(|s| s.to_string()).collect();
         let new: Vec<_> = found.iter().filter(|f| !listed.contains(f)).collect();
         let retired: Vec<_> = listed.iter().filter(|l| !found.contains(l)).collect();
-        assert!(new.is_empty(), "new double owners (Rust emits what a std lint atom owns): {new:?}");
-        assert!(retired.is_empty(), "retired: drop from STILL_DOUBLE_OWNED: {retired:?}");
+        assert!(
+            new.is_empty(),
+            "new double owners (Rust emits what a std lint atom owns): {new:?}"
+        );
+        assert!(
+            retired.is_empty(),
+            "retired: drop from STILL_DOUBLE_OWNED: {retired:?}"
+        );
     }
 
     #[test]
     fn control_double_owner_needs_both_a_rust_reference_and_a_std_code() {
         let std_codes: std::collections::BTreeSet<String> =
-            ["ORB_UI_ICON_EMPTY".to_string()].into();
-        let both: std::collections::BTreeSet<String> = ["IconEmpty".to_string()].into();
-        let rust_only: std::collections::BTreeSet<String> = ["EntityNoFields".to_string()].into();
-        assert_eq!(double_owned(&both, &std_codes), vec!["IconEmpty".to_string()]);
+            ["ORB_E_MISSING_NAME".to_string()].into();
+        let both: std::collections::BTreeSet<String> = ["EntityMissingName".to_string()].into();
+        let rust_only: std::collections::BTreeSet<String> =
+            ["TraitUnmounted".to_string()].into();
+        assert_eq!(
+            double_owned(&both, &std_codes),
+            vec!["EntityMissingName".to_string()]
+        );
         assert!(double_owned(&rust_only, &std_codes).is_empty());
         assert!(double_owned(&both, &std::collections::BTreeSet::new()).is_empty());
     }

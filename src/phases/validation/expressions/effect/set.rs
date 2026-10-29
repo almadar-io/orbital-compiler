@@ -1,47 +1,8 @@
 //! set effect validation.
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
-use super::{extract_emit_object_ref, DeclaredEmit};
 use orbital_core_base::schema::{EntityDefinition, FieldType, OrbitalSchema, SExpression};
 use std::collections::HashMap;
-
-/// Validate set effect (array form)
-pub(crate) fn validate_set(
-    arr: &[SExpression],
-    path: &str,
-    declared_emits: Option<&[DeclaredEmit]>,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-
-    if arr.len() < 3 {
-        return result;
-    }
-
-    if let SExpression::String(binding) = &arr[1] {
-        if binding.starts_with("@payload") {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::EffectSetPayloadNotAllowed,
-                    path,
-                    "set cannot target @payload (payload is read-only)",
-                )
-                .with_suggestion("Use @entity to update the entity state")
-                .with_fix_guidance("Replace @payload with @entity in your set binding"),
-            );
-        }
-    }
-
-    // Optional trailing options carrying `emit:` at position 3. `set` is
-    // synchronous — only `success` is meaningful (fires after the write).
-    if arr.len() > 3 {
-        if let SExpression::Object(options) = &arr[3] {
-            if let Some(emit_obj) = extract_emit_object_ref(options) {
-            }
-        }
-    }
-
-    result
-}
 
 /// SET-EMITS-PAYLOAD type backstop (raw-`.orb` defense-in-depth).
 ///

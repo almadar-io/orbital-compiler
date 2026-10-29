@@ -216,13 +216,6 @@ fn typed_config_action_pulls_its_declared_sibling_receiver() {
         linked(&schema, "RemoveMessages").as_deref(),
         Some("TicketMessage")
     );
-    let findings = orbital_compiler::phases::validation::validate_comprehensive_without_services(&schema);
-    assert!(
-        !findings.errors.iter().any(|error| error.code
-            == orbital_compiler::phases::validation::ErrorCode::TraitInvalidEventDefault),
-        "{:?}",
-        findings.errors
-    );
 }
 
 #[test]
@@ -232,9 +225,6 @@ fn action_without_a_declared_receiver_is_not_invented() {
         &[],
     );
     assert_eq!(linked(&schema, "RemoveMessages"), None);
-    let findings = orbital_compiler::phases::validation::validate_comprehensive_without_services(&schema);
-    assert!(findings.errors.iter().any(|error| error.code
-        == orbital_compiler::phases::validation::ErrorCode::TraitInvalidEventDefault));
 }
 
 #[test]

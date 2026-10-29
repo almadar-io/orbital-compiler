@@ -1988,6 +1988,7 @@ pub(crate) fn inline_traits(
                                                 declaration: super::ReferenceDeclaration::Trait(
                                                     Arc::new(trait_def.clone()),
                                                 ),
+                                                alias_orbitals: Vec::new(),
                                             },
                                         );
                                     }

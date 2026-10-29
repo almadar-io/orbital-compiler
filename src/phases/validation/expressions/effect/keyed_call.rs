@@ -5,7 +5,6 @@
 //! `(cancel-call <key>)` aborts it by key.
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
-use super::extract_emit_object_ref;
 use super::set::ExprReturnCtx;
 use orbital_core_base::schema::{OrbitalSchema, SExpression};
 
@@ -68,96 +67,6 @@ pub(super) fn substrate_key<'a>(head: &str, arr: &'a [SExpression]) -> Option<&'
 
 pub(super) fn declared_key(options: &orbital_core_base::schema::SObject) -> Option<&SExpression> {
     options.get("key")
-}
-
-/// `key` must be string-typed: a non-string literal can never name a call;
-/// expressions (bindings, calls) are not decidable here and pass.
-pub(super) fn check_key_and_cancelled(
-    options: &orbital_core_base::schema::SObject,
-    path: &str,
-    operator: &str,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-    let key = declared_key(options);
-    if matches!(key, Some(SExpression::Null))
-        || matches!(key, Some(SExpression::String(text)) if text.is_empty())
-    {
-        result.add_error(ValidationError::error(
-            ErrorCode::CallServiceKeyType,
-            path,
-            format!("{operator} `key` must be a non-empty string"),
-        ));
-    }
-    if let Some(kind) = key.and_then(literal_kind) {
-        if kind != "string" {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::CallServiceKeyType,
-                    path,
-                    format!("{operator} `key` must be a string, got a {kind} literal"),
-                )
-                .with_suggestion(
-                    "Use a string literal or a string-typed expression such as @entity.batchId",
-                ),
-            );
-        }
-    }
-    let declares_cancelled = matches!(
-        extract_emit_object_ref(options).and_then(|e| e.get("cancelled")),
-        Some(v) if !matches!(v, SExpression::Null)
-    );
-    if declares_cancelled && matches!(key, None | Some(SExpression::Null)) {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::CallServiceCancelledWithoutKey,
-                path,
-                "emit.cancelled is declared but the call has no `key` — nothing can cancel an unkeyed call",
-            )
-            .with_suggestion(format!(
-                "Add `key: <string expression>` to the {operator} options, and cancel it with (cancel-call <key>)"
-            )),
-        );
-    }
-    result
-}
-
-pub(super) fn check_key_expression_type(
-    arr: &[SExpression],
-    path: &str,
-    ctx: &ExprReturnCtx<'_>,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-    let Some(operator) = arr.first().and_then(SExpression::as_str) else {
-        return result;
-    };
-    if !KEYED_CALL_OPERATORS.contains(&operator) {
-        return result;
-    }
-    let Some(key) = trailing_options(arr).and_then(declared_key) else {
-        return result;
-    };
-    if literal_kind(key).is_some() || matches!(key, SExpression::Null) {
-        return result;
-    }
-    let Ok(expr) = crate::phases::resolve::resolve_sexpr_standalone(key) else {
-        return result;
-    };
-    if let Some(inferred) = crate::type_infer::infer_oir_expr_type(&expr, ctx) {
-        if !orbital_core_base::type_compat::oir_type_satisfies(
-            &inferred,
-            &orbital_core_base::ir::OirType::String,
-        ) {
-            result.add_error(ValidationError::error(
-                ErrorCode::CallServiceKeyType,
-                path,
-                format!(
-                    "{operator} `key` must evaluate to a string, got {}",
-                    orbital_core_base::type_compat::oir_type_kind(&inferred)
-                ),
-            ));
-        }
-    }
-    result
 }
 
 /// Whether any `call-service`, `http` or on-device call in the program carries a `key`.
@@ -293,130 +202,43 @@ pub(super) fn check_cancel_call_arg(
     result
 }
 
-/// How a keyed call names its key, for the dead-key rule: a literal text, or something only run time knows.
-enum KeyText {
-    Literal(String),
-    Dynamic,
-}
-
-fn key_text(key: &SExpression) -> KeyText {
-    match key {
-        SExpression::String(text) if !text.starts_with('@') && !text.starts_with('?') => {
-            KeyText::Literal(text.clone().into_inner())
-        }
-        SExpression::Array(items) => match (
-            items.first().and_then(SExpression::as_str),
-            items.get(1),
-            items.get(2),
-        ) {
-            (Some("as"), Some(SExpression::String(text)), Some(target))
-                if target.as_str() == Some("CallKey")
-                    && !text.starts_with('@')
-                    && !text.starts_with('?') =>
-            {
-                KeyText::Literal(text.clone().into_inner())
-            }
-            _ => KeyText::Dynamic,
-        },
-        _ => KeyText::Dynamic,
-    }
-}
-
-/// `ORB_CALL_KEY_UNUSED`: a literal `(as "k" CallKey)` in a program whose every keyed call is keyed by a literal,
-/// none of them `"k"`, names a key nothing runs under. A call keyed by a computed value could carry any text,
-/// so the rule stays silent then.
-pub(crate) fn validate_call_key_literals_are_used(schema: &OrbitalSchema) -> ValidationResult {
-    struct Scan {
-        casts: Vec<(String, String)>,
-        keys: Vec<KeyText>,
-    }
-    fn scan(expr: &SExpression, path: &str, out: &mut Scan) {
-        match expr {
-            SExpression::Array(arr) => {
-                if let Some(SExpression::String(head)) = arr.first() {
-                    if head == "as" {
-                        if let (Some(SExpression::String(text)), Some(target)) =
-                            (arr.get(1), arr.get(2))
-                        {
-                            if target.as_str() == Some("CallKey")
-                                && !text.starts_with('@')
-                                && !text.starts_with('?')
-                            {
-                                out.casts.push((path.to_string(), text.clone().into_inner()));
-                            }
-                        }
-                    }
-                    let keyed = if KEYED_CALL_OPERATORS.contains(&head.as_str()) {
-                        trailing_options(arr).and_then(declared_key)
-                    } else {
-                        on_device_or_tab_key(head, arr).or_else(|| substrate_key(head, arr))
-                    };
-                    if let Some(key) = keyed {
-                        out.keys.push(key_text(key));
-                    }
-                }
-                for item in arr {
-                    scan(item, path, out);
-                }
-            }
-            SExpression::Object(obj) => {
-                for v in obj.values() {
-                    scan(v, path, out);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let mut out = Scan {
-        casts: Vec::new(),
-        keys: Vec::new(),
-    };
-    for (trait_def, path) in super::super::inline_traits(schema) {
-        for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
-            if let Some(guard) = &transition.guard {
-                scan(
-                    guard,
-                    &format!("{path}.stateMachine.transitions[{i}].guard"),
-                    &mut out,
-                );
-            }
-            for (j, effect) in transition.effects.iter().flatten().enumerate() {
-                scan(
-                    effect,
-                    &format!("{path}.stateMachine.transitions[{i}].effects[{j}]"),
-                    &mut out,
-                );
-            }
-        }
-        for (i, tick) in trait_def.ticks.iter().flatten().enumerate() {
-            for (j, effect) in tick.effects.iter().enumerate() {
-                scan(effect, &format!("{path}.ticks[{i}].effects[{j}]"), &mut out);
-            }
-        }
-    }
+/// The `key` of a keyed call that is a typed expression (not a literal) must evaluate to a string; the literal keys
+/// (null, empty, non-string) are the std lint `keyed-call-keys`.
+pub(super) fn check_key_expression_type(
+    arr: &[SExpression],
+    path: &str,
+    ctx: &ExprReturnCtx<'_>,
+) -> ValidationResult {
     let mut result = ValidationResult::new();
-    if out.keys.iter().any(|k| matches!(k, KeyText::Dynamic)) {
+    let Some(operator) = arr.first().and_then(SExpression::as_str) else {
+        return result;
+    };
+    if !KEYED_CALL_OPERATORS.contains(&operator) {
         return result;
     }
-    for (path, text) in out.casts {
-        if out
-            .keys
-            .iter()
-            .any(|k| matches!(k, KeyText::Literal(l) if *l == text))
-        {
-            continue;
-        }
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::CallKeyUnused,
+    let Some(key) = trailing_options(arr).and_then(declared_key) else {
+        return result;
+    };
+    if literal_kind(key).is_some() || matches!(key, SExpression::Null) {
+        return result;
+    }
+    let Ok(expr) = crate::phases::resolve::resolve_sexpr_standalone(key) else {
+        return result;
+    };
+    if let Some(inferred) = crate::type_infer::infer_oir_expr_type(&expr, ctx) {
+        if !orbital_core_base::type_compat::oir_type_satisfies(
+            &inferred,
+            &orbital_core_base::ir::OirType::String,
+        ) {
+            result.add_error(ValidationError::error(
+                ErrorCode::OperatorArgTypeMismatch,
                 path,
-                format!("`(as \"{text}\" CallKey)` names a key, but no call in this program runs under \"{text}\""),
-            )
-            .with_suggestion(format!(
-                "Key the call it should reach with `key: (as \"{text}\" CallKey)`, or use the key the call declares"
-            )),
-        );
+                format!(
+                    "{operator} `key` must evaluate to a string, got {}",
+                    orbital_core_base::type_compat::oir_type_kind(&inferred)
+                ),
+            ));
+        }
     }
     result
 }

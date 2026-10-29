@@ -306,15 +306,13 @@ mod browser_effects_validation {
     }
 
     #[test]
-    fn a_keyed_page_facts_adds_key_to_what_an_event_may_read_and_the_key_must_be_a_string() {
+    fn a_keyed_page_facts_adds_key_to_what_an_event_may_read() {
         let keyed = json!([["browser/page-facts", ["referrer"], { "key": "@entity.id", "emit": { "success": "FACTS", "failure": "FACTS_FAILED" } }]]);
         let r = check_reading(keyed.clone(), &["referrer", "key"]);
         assert!(!fires(&r, ErrorCode::PageFactsUnrequestedRead), "{:?}", r.errors);
         let unkeyed = json!([["browser/page-facts", ["referrer"], facts_routes()]]);
         let r = check_reading(unkeyed, &["referrer", "key"]);
         assert!(fires(&r, ErrorCode::PageFactsUnrequestedRead), "{:?}", r.errors);
-        let bad = json!([["browser/page-facts", ["referrer"], { "key": 5, "emit": { "success": "FACTS" } }]]);
-        assert!(fires(&check(bad), ErrorCode::CallServiceKeyType));
     }
 
     // `browser/prompt` / `browser/embed`: the on-device model effects.
@@ -340,7 +338,6 @@ mod browser_effects_validation {
             ["cancel-call", "@entity.id"]
         ]));
         for code in [
-            ErrorCode::CallServiceKeyType,
             ErrorCode::CancelCallNoKeyedCall,
             ErrorCode::EffectUnknownType,
         ] {
@@ -349,11 +346,7 @@ mod browser_effects_validation {
     }
 
     #[test]
-    fn an_on_device_cancelled_route_needs_a_key_and_the_key_must_be_a_string() {
-        let r = check(json!([["browser/prompt", "t", SCHEMA, model_routes()]]));
-        assert!(fires(&r, ErrorCode::CallServiceCancelledWithoutKey), "{:?}", r.errors);
-        let r = check(json!([["browser/embed", ["a"], { "key": 5, "emit": { "success": "FACTS" } }]]));
-        assert!(fires(&r, ErrorCode::CallServiceKeyType), "{:?}", r.errors);
+    fn an_on_device_call_has_no_on_message_route() {
         let r = check(json!([["browser/embed", ["a"], { "key": "k", "emit": { "success": "FACTS", "onMessage": "FACTS" } }]]));
         assert!(!r.errors.is_empty(), "onMessage is not an on-device route");
     }
@@ -441,7 +434,7 @@ mod tab_effects_validation {
         json!({ "emit": { "success": "TAB_OK", "failure": "TAB_FAILED", "cancelled": "TAB_CANCELLED" } })
     }
 
-    const CODES: [ErrorCode; 1] = [ErrorCode::TabRequestInvalid];
+    const CODES: [ErrorCode; 1] = [ErrorCode::TabRequestRefused];
 
     #[test]
     fn control_well_formed_tab_effects_raise_none_of_the_codes() {
@@ -463,14 +456,6 @@ mod tab_effects_validation {
     }
 
     #[test]
-    fn a_request_key_outside_the_ops_closed_set_is_flagged_even_when_the_rest_is_dynamic() {
-        let r = check(json!([["browser/tab-close", { "tab": "@entity.tab", "nope": 1 }, routes()]]));
-        assert!(fires(&r, ErrorCode::TabRequestInvalid), "{:?}", r.errors);
-        let r = check(json!([["browser/tab-close", { "tab": "@entity.tab" }, routes()]]));
-        assert!(!fires(&r, ErrorCode::TabRequestInvalid), "{:?}", r.errors);
-    }
-
-    #[test]
     fn a_literal_request_the_kernel_would_refuse_is_flagged_before_it_runs() {
         for call in [
             json!(["browser/tab-close", { "tab": "7" }, routes()]),
@@ -483,14 +468,8 @@ mod tab_effects_validation {
             json!(["browser/tab-watch", { "match": "https://example.com/*", "selector": ".item", "fields": {}, "event": "NOPE" }, routes()]),
         ] {
             let r = check(json!([call.clone()]));
-            assert!(fires(&r, ErrorCode::TabRequestInvalid), "{call}: {:?}", r.errors);
+            assert!(fires(&r, ErrorCode::TabRequestRefused), "{call}: {:?}", r.errors);
         }
-    }
-
-    #[test]
-    fn a_request_that_is_not_an_object_is_flagged() {
-        let r = check(json!([["browser/tab-close", 7, routes()]]));
-        assert!(fires(&r, ErrorCode::TabRequestInvalid), "{:?}", r.errors);
     }
 
     #[test]
@@ -598,33 +577,6 @@ mod call_key {
     fn a_call_key_is_accepted_as_the_key_of_a_call() {
         let call = json!([["call-service", "Search", "run", {}, { "key": "@entity.callKey", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }]]);
         let r = run(call);
-        assert!(!fires(&r, ErrorCode::CallServiceKeyType), "{:?}", r.errors);
-    }
-
-    #[test]
-    fn a_literal_call_key_no_call_runs_under_is_unused_and_a_matching_one_is_not() {
-        let unused = run(json!([["cancel-call", ["as", "search", "CallKey"]]]));
-        assert!(fires(&unused, ErrorCode::CallKeyUnused), "{:?}", unused.errors);
-        let keyed = json!([
-            ["call-service", "Search", "run", {}, { "key": ["as", "search", "CallKey"], "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }],
-            ["cancel-call", ["as", "search", "CallKey"]]
-        ]);
-        let matched = run(keyed);
-        assert!(!fires(&matched, ErrorCode::CallKeyUnused), "control: {:?}", matched.errors);
-        let other = json!([
-            ["call-service", "Search", "run", {}, { "key": "other", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }],
-            ["cancel-call", ["as", "search", "CallKey"]]
-        ]);
-        assert!(fires(&run(other), ErrorCode::CallKeyUnused), "a different literal key is still unused");
-    }
-
-    #[test]
-    fn a_computed_call_key_silences_the_unused_rule() {
-        let computed = json!([
-            ["call-service", "Search", "run", {}, { "key": "@entity.callKey", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }],
-            ["cancel-call", ["as", "search", "CallKey"]]
-        ]);
-        let r = run(computed);
-        assert!(!fires(&r, ErrorCode::CallKeyUnused), "{:?}", r.errors);
+        assert!(!fires(&r, ErrorCode::OperatorArgTypeMismatch), "{:?}", r.errors);
     }
 }

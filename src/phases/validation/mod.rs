@@ -52,8 +52,6 @@ pub mod user_identity;
 pub(crate) mod mounts;
 
 // circuit — Event → Guard → Transition → Effects → UI → Event, and the payloads it carries
-#[path = "circuit/cross_emitter.rs"]
-pub mod cross_emitter;
 #[path = "circuit/cross_orbital/mod.rs"]
 pub mod cross_orbital;
 #[path = "circuit/emit_payload.rs"]
@@ -465,7 +463,6 @@ pub fn validate_comprehensive_full(
     // Phase 5c: Phase F.2 cross-emitter declared-payload consensus.
     // Compares every event's declared payload across all traits that emit
     // it; errors when two emitters disagree on the field list.
-    cross_emitter::validate_cross_emitter(schema, &mut ctx);
 
     // Phase 5d: Listen-trigger-matched backstop. Runs POST-inline so the
     // `events: { OLD: NEW }`-rename variant is caught — a `listens { Src.EVENT

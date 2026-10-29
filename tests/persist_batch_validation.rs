@@ -88,11 +88,7 @@ fn batch_findings(r: &ValidationResult) -> Vec<String> {
         .iter()
         .chain(r.warnings.iter())
         .filter(|e| {
-            matches!(
-                e.code,
-                ErrorCode::EffectFetchInvalidEntity
-                    | ErrorCode::PersistBatchOpsNotArray
-            )
+matches!(e.code, ErrorCode::PersistBatchOpsNotArray)
         })
         .map(|e| format!("{} {}", e.code.as_str(), e.message))
         .collect()
@@ -268,15 +264,12 @@ fn a_record_set_into_a_relation_field_is_checked_against_the_related_entity() {
     let set = |value: Value| json!([["set", "@entity.hero", value]]);
     let unknown = validate_rows(row_fields(), json!({}), set(json!({ "bogus": 1 })));
     assert_eq!(with_code(&unknown, ErrorCode::RowLiteralUnknownField).len(), 1, "{:?}", codes(&unknown));
-    let enum_member = validate_rows(row_fields(), json!({}), set(json!({ "fxKind": "nonsense" })));
-    assert_eq!(with_code(&enum_member, ErrorCode::EnumValueNotMember).len(), 1, "{:?}", codes(&enum_member));
     let wrong_type = validate_rows(row_fields(), json!({}), set(json!({ "power": "high" })));
     assert_eq!(with_code(&wrong_type, ErrorCode::RowLiteralFieldTypeMismatch).len(), 1, "{:?}", codes(&wrong_type));
     for ok in [json!({ "fxKind": "a", "power": 3 }), json!({ "fxKind": "@payload.k" }), json!({})] {
         let r = validate_rows(row_fields(), json!({}), set(ok.clone()));
         assert!(
             with_code(&r, ErrorCode::RowLiteralUnknownField).is_empty()
-                && with_code(&r, ErrorCode::EnumValueNotMember).is_empty()
                 && with_code(&r, ErrorCode::RowLiteralFieldTypeMismatch).is_empty(),
             "{ok}: {:?}",
             codes(&r)

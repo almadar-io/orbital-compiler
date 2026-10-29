@@ -472,6 +472,28 @@ mod tests {
         assert_eq!(stdin.len(), 1, "{stdin:?}");
     }
 
+    fn spawn_undetermined(env: &str) -> Vec<String> {
+        let config = SPAWN_OK.replace(r#""env": null"#, &format!(r#""env": {env}"#));
+        undetermined(
+            &format!(r#"["os/spawn", "git", ["status"], {config}, {{"emit": {{"success": "S", "failure": "F"}}}}]"#),
+            HashMap::new(),
+        )
+    }
+
+    #[test]
+    fn a_null_value_in_a_map_literal_fits_a_map_whose_value_type_admits_null() {
+        assert!(spawn_undetermined(r#"{"PATH": null}"#).is_empty(), "{:?}", spawn_undetermined(r#"{"PATH": null}"#));
+        assert!(spawn_undetermined(r#"{"PATH": null, "HOME": null}"#).is_empty());
+        assert!(spawn_undetermined(r#"{"PATH": "x", "HOME": null}"#).is_empty(), "control: mixed");
+        assert!(spawn_undetermined(r#"{}"#).is_empty(), "control: empty");
+        assert!(spawn_undetermined(r#"{"PATH": "x"}"#).is_empty(), "control: all strings");
+        assert!(spawn_undetermined("null").is_empty(), "control: the nullable map itself null");
+        let wrong = spawn_with(&SPAWN_OK.replace(r#""env": null"#, r#""env": {"PATH": 5, "HOME": null}"#));
+        let baseline = spawn_with(&SPAWN_OK.replace(r#""env": null"#, r#""env": {"PATH": 5}"#));
+        assert_eq!(baseline.len(), 1, "baseline: {baseline:?}");
+        assert_eq!(wrong.len(), 1, "control: a present value of the wrong type is still refused: {wrong:?}");
+    }
+
     #[test]
     fn a_closed_shape_argument_names_a_missing_field_and_an_unknown_one() {
         let missing = spawn_with(&SPAWN_OK.replace(r#", "detached": false"#, ""));

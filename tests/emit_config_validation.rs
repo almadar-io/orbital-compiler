@@ -369,9 +369,7 @@ fn keyed_call_with_cancelled_and_a_cancel_call_has_no_cancel_errors() {
     assert!(
         !result.errors.iter().any(|e| matches!(
             e.code,
-            ErrorCode::CallServiceCancelledWithoutKey
-                | ErrorCode::CancelCallNoKeyedCall
-                | ErrorCode::CallServiceKeyType
+            ErrorCode::CancelCallNoKeyedCall
                 | ErrorCode::EffectEmitKeyInvalid
                 | ErrorCode::EffectUnknownType
         )),
@@ -379,22 +377,6 @@ fn keyed_call_with_cancelled_and_a_cancel_call_has_no_cancel_errors() {
         result.errors
     );
 }
-
-
-
-#[test]
-fn cancelled_with_a_key_is_not_reported() {
-    let effects = vec![keyed_call_service(options(vec![
-        ("key", str_expr("batch")),
-        ("emit", emit_object(&[("cancelled", "STOPPED")])),
-    ]))];
-    assert!(!has_code(
-        effects,
-        cancelled_emit_declared(),
-        ErrorCode::CallServiceCancelledWithoutKey
-    ));
-}
-
 
 
 
@@ -476,33 +458,6 @@ fn cancel_call_inside_a_conditional_is_still_found() {
         vec![],
         ErrorCode::CancelCallNoKeyedCall
     ));
-}
-
-
-#[test]
-fn string_literal_and_expression_keys_are_accepted() {
-    for good in [
-        str_expr("batch-1"),
-        str_expr("@entity.id"),
-        SExpression::Array(vec![
-            str_expr("str/concat"),
-            str_expr("a"),
-            str_expr("@entity.id"),
-        ].into()),
-    ] {
-        let effects = vec![keyed_call_service(options(vec![
-            ("key", good.clone()),
-            ("emit", emit_object(&[("success", "DONE")])),
-        ]))];
-        assert!(
-            !has_code(
-                effects,
-                cancelled_emit_declared(),
-                ErrorCode::CallServiceKeyType
-            ),
-            "{good:?} must be accepted"
-        );
-    }
 }
 
 

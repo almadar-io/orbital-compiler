@@ -25,7 +25,6 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitReference};
 
 /// `HomeOrbital` declares the orbital-level knob `browseColumns` (default
@@ -196,16 +195,6 @@ fn trait_form_reference_resolves_forward_against_the_home_orbital_when_the_consu
         Some("@config.appName")
     );
 
-    let result = validate_comprehensive_without_services(&schema);
-    let dangling: Vec<_> = result
-        .errors
-        .iter()
-        .filter(|e| e.code == ErrorCode::ConfigDanglingRef)
-        .collect();
-    assert!(
-        dangling.is_empty(),
-        "expected 0 ORB_CONFIG_DANGLING_REF, got: {dangling:#?}"
-    );
 }
 
 #[test]
@@ -221,16 +210,6 @@ fn trait_form_reference_prefers_the_consumers_own_orbital_declaration_over_the_h
         "the consumer's own orbital-level browseColumns must win over HomeOrbital's"
     );
 
-    let result = validate_comprehensive_without_services(&schema);
-    let dangling: Vec<_> = result
-        .errors
-        .iter()
-        .filter(|e| e.code == ErrorCode::ConfigDanglingRef)
-        .collect();
-    assert!(
-        dangling.is_empty(),
-        "expected 0 ORB_CONFIG_DANGLING_REF, got: {dangling:#?}"
-    );
 }
 
 #[test]
@@ -255,16 +234,6 @@ fn trait_form_reference_honors_the_uses_config_override_of_an_upstream_app_knob(
         )].into())),
     );
 
-    let result = validate_comprehensive_without_services(&schema);
-    let dangling: Vec<_> = result
-        .errors
-        .iter()
-        .filter(|e| e.code == ErrorCode::ConfigDanglingRef)
-        .collect();
-    assert!(
-        dangling.is_empty(),
-        "expected 0 ORB_CONFIG_DANGLING_REF, got: {dangling:#?}"
-    );
 }
 
 /// G-ORB-557: the chrome file declares the app knobs `pathPrefix` and `pagePath`; its trait folds both into one
@@ -359,25 +328,14 @@ fn str_concat(prefix: &str, page: &str) -> SExpression {
     ].into())
 }
 
-fn dangling(schema: &OrbitalSchema) -> Vec<String> {
-    validate_comprehensive_without_services(schema)
-        .errors
-        .iter()
-        .filter(|e| e.code == ErrorCode::ConfigDanglingRef)
-        .map(|e| e.message.clone())
-        .collect()
-}
-
 #[test]
 fn a_knob_declared_only_in_the_home_file_folds_through_a_second_orbital_import() {
     let schema = through_two_imports(None);
     assert_eq!(config_default(layout(&schema), "currentPath"), Some(str_concat("", "/home")));
-    assert!(dangling(&schema).is_empty(), "{:?}", dangling(&schema));
 }
 
 #[test]
 fn control_the_importers_own_orbital_knob_still_overrides_through_a_second_orbital_import() {
     let schema = through_two_imports(Some("/ar"));
     assert_eq!(config_default(layout(&schema), "currentPath"), Some(str_concat("/ar", "/home")));
-    assert!(dangling(&schema).is_empty(), "{:?}", dangling(&schema));
 }

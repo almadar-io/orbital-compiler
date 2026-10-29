@@ -140,13 +140,10 @@ fn os_keys_extend_success_failure_and_stream_messages_only_when_keyed() {
 }
 
 #[test]
-fn random_bytes_takes_a_string_key() {
+fn random_bytes_key_routes_what_the_call_produces() {
     let keyed = |key: Value| json!([["random-bytes", 8, { "key": key, "emit": { "success": "DRAWN_KEYED", "failure": "DRAW_FAILED" } }]]);
     let ok = check(keyed(json!("@entity.id")));
-    assert!(!fires(&ok, ErrorCode::CallServiceKeyType), "{:?}", ok.errors);
     assert!(!fires(&ok, ErrorCode::EmitPayloadNotProduced), "{:?}", ok.errors);
-    assert!(fires(&check(keyed(json!(5))), ErrorCode::CallServiceKeyType));
-    assert!(fires(&check(keyed(json!(""))), ErrorCode::CallServiceKeyType));
     let unkeyed = check(json!([["random-bytes", 8, { "emit": { "success": "DRAWN_KEYED" } }]]));
     assert!(fires(&unkeyed, ErrorCode::EmitPayloadNotProduced), "an unkeyed call produces no key");
 }

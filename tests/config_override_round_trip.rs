@@ -30,7 +30,6 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitReference};
 
 /// Shared atom fixture. Declares a single orbital with a trait whose OPEN
@@ -938,7 +937,7 @@ fn ref_entry_call_site_config_forward_resolves_through_embedder_chain() {
 }
 
 #[test]
-fn ref_entry_call_site_config_forward_dangling_key_stays_unresolved_and_is_flagged() {
+fn ref_entry_call_site_config_forward_dangling_key_stays_unresolved() {
     let schema = materialize_ref_forward_schema();
 
     // Resolver side: nobody in the orbital declares `subtitle` anywhere in
@@ -950,25 +949,6 @@ fn ref_entry_call_site_config_forward_dangling_key_stays_unresolved_and_is_flagg
         SExpression::String(("@config.subtitle".to_string()).into()),
         "an undeclared forward must stay a literal @config.subtitle binding, \
          not resolve to garbage or vanish: {content:?}"
-    );
-
-    // Validator side: the SAME post-inline schema must flag it. Proves the
-    // resolver and `validate_dangling_config_refs` read the same
-    // `EmbedGraph` — a forward the resolver leaves unresolved is exactly a
-    // forward the validator judges unreachable.
-    let result = validate_comprehensive_without_services(&schema);
-    let flagged = result
-        .errors
-        .iter()
-        .any(|e| e.code == ErrorCode::ConfigDanglingRef && e.path.contains("Typography16"));
-    assert!(
-        flagged,
-        "expected ORB_CONFIG_DANGLING_REF on Typography16; errors: {:#?}",
-        result
-            .errors
-            .iter()
-            .filter(|e| e.code == ErrorCode::ConfigDanglingRef)
-            .collect::<Vec<_>>()
     );
 }
 

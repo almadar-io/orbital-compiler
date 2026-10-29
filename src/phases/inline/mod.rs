@@ -467,6 +467,7 @@ struct ReferenceSink {
 pub enum ReferenceKind {
     Trait,
     Orbital,
+    Uses,
 }
 
 /// The reference node as the author wrote it, before any override is applied.
@@ -475,6 +476,7 @@ pub enum ReferenceKind {
 pub enum ReferenceCallSite {
     Trait(TraitReference),
     Orbital(orbital_core_base::schema::OrbitalRefObject),
+    Uses(orbital_core_base::schema::UseDeclaration),
 }
 
 /// The upstream declaration a reference resolves to, as the inliner holds it:
@@ -484,6 +486,8 @@ pub enum ReferenceCallSite {
 pub enum ReferenceDeclaration {
     Trait(Arc<TraitDefinition>),
     Orbital(Orbital),
+    /// A `uses` import: the app-level `config {}` the imported file declares (empty when it declares none).
+    AliasConfig(orbital_core_base::collections::IndexMap<String, ConfigField>),
 }
 
 /// One reference paired with the declaration it resolves to; `path` is the
@@ -497,6 +501,10 @@ pub struct ReferencePair {
     pub path: String,
     pub call_site: ReferenceCallSite,
     pub declaration: ReferenceDeclaration,
+    /// An orbital reference: the other orbitals of the imported file, as the inliner holds them (the out-of-orbital
+    /// universe `entities {}` and `roles {}` resolve against).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub alias_orbitals: Vec<Orbital>,
 }
 
 /// An imported behavior inlined once (keyed by its canonical file): its
@@ -1835,6 +1843,20 @@ fn inline_orbital(
         // is the JS twin's ORB_U_CONFIG_UNKNOWN_KEY (Almadar_Orbital_Import.md
         // §4.5). Collected as a diagnostic (not a hard error) so the rest of
         // this orbital still inlines; W4-R turns it into the validator code.
+        if ctx.collect_references {
+            ctx.reference_pairs.borrow_mut().push(ReferencePair {
+                kind: ReferenceKind::Uses,
+                alias: use_decl.alias.clone(),
+                name: use_decl.alias.clone(),
+                path: match orbital_index {
+                    Some(i) => format!("orbitals[{i}]"),
+                    None => format!("orbitals[name={}]", orbital.name),
+                },
+                call_site: ReferenceCallSite::Uses(use_decl.clone()),
+                declaration: ReferenceDeclaration::AliasConfig(loaded_schema_config.clone().unwrap_or_default()),
+                alias_orbitals: Vec::new(),
+            });
+        }
         if let Some(overrides) = use_decl.config.as_ref() {
             let unknown_keys: Vec<String> = overrides
                 .keys()

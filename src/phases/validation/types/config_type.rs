@@ -688,7 +688,6 @@ fn check_reference_binding_type(
 pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
 
-    result.merge(validate_dangling_config_refs(schema));
 
     let event_refs = EventRefIndex::of(schema);
     validate_call_service_event_addresses(schema, &ctx.service_registry, &event_refs, &mut result);
@@ -897,13 +896,8 @@ fn validate_config_field(
         return result;
     }
 
-    // `event` values are event-name REFERENCES into the owning trait's own
-    // event set (SCAN-EVENT-KNOB-1). Post-inline the merged trait's config
-    // carries the settled (override-folded, rename-folded) value, so
-    // membership here is the declaration-site twin of the render-ui
-    // stale-literal check — same set, three phases earlier. Empty string is
-    // the default-off outlet; `@`-prefixed values are forwards resolved
-    // elsewhere; an empty universe is vacuous (mirrors the stale check).
+    // `event` knob defaults: membership in the trait's event set and the string-ness of the default are the std lint
+    // `config-knob`; only an `Trait.EVENT` address is resolved here.
     if field.field_type == "event" {
         if let Some((ctx, knob_name)) = event_ctx {
             // A-UNIFY: a DEFINER knob (`emits { @config.<k> }` or a
@@ -917,57 +911,13 @@ fn validate_config_field(
             match &field.default {
                 None => {}
                 Some(SExpression::String(s)) if is_event_address(s) => {
-                    if is_definer {
-                        result.add_error(
-                            ValidationError::error(
-                                ErrorCode::TraitInvalidEventDefault,
-                                path,
-                                format!(
-                                    "Config field typed `event` holds the address '{}' but this knob names an event the trait emits — an emitted event is a bare name",
-                                    s
-                                ),
-                            )
-                            .with_suggestion("Use a bare event name here; `Trait.EVENT` addresses another trait's input"),
-                        );
-                    } else if let Some(refs) = orbital_events.refs {
-                        result.add_errors(refs.check(s, orbital_events.orbital, path));
+                    if !is_definer {
+                        if let Some(refs) = orbital_events.refs {
+                            result.add_errors(refs.check(s, orbital_events.orbital, path));
+                        }
                     }
                 }
-                Some(SExpression::String(s)) => {
-                    if !is_definer
-                        && !s.is_empty()
-                        && !s.starts_with('@')
-                        && !ctx.events.is_empty()
-                        && !ctx.events.contains(s.as_str())
-                    {
-                        let mut valid: Vec<String> = ctx.events.iter().cloned().collect();
-                        valid.sort();
-                        result.add_error(
-                            ValidationError::error(
-                                ErrorCode::TraitInvalidEventDefault,
-                                path,
-                                format!(
-                                    "Config field typed `event` holds '{}' but the trait's event set has no such key — must be one of: {}",
-                                    s,
-                                    valid.join(", ")
-                                ),
-                            )
-                            .with_valid_values(valid),
-                        );
-                    }
-                }
-                Some(other) => {
-                    if !is_deferred_computed(other) {
-                        result.add_error(
-                            ValidationError::error(
-                                ErrorCode::TraitInvalidEventDefault,
-                                path,
-                                "Config field typed `event` must hold a string event name",
-                            )
-                            .with_suggestion("Use a string event key, e.g. `event : event = SEARCH`, or \"\" for a default-off outlet"),
-                        );
-                    }
-                }
+                Some(_) => {}
             }
         }
         return result;
@@ -1946,7 +1896,7 @@ pub(crate) fn check_field_def_shape(
                             valid.sort();
                             result.add_error(
                                 ValidationError::error(
-                                    ErrorCode::TraitInvalidEventDefault,
+                                    ErrorCode::TraitConfigShapeMismatch,
                                     path,
                                     format!(
                                         "Struct field typed `event` holds '{}' but the orbital's event set has no such key — must be one of: {}",
@@ -1961,7 +1911,7 @@ pub(crate) fn check_field_def_shape(
                     _ => {
                         result.add_error(
                             ValidationError::error(
-                                ErrorCode::TraitInvalidEventDefault,
+                                ErrorCode::TraitConfigShapeMismatch,
                                 path,
                                 "Struct field typed `event` must hold a string event name",
                             )
@@ -1990,7 +1940,7 @@ pub(crate) fn check_field_def_shape(
                     _ => {
                         result.add_error(
                             ValidationError::error(
-                                ErrorCode::TraitInvalidEventDefault,
+                                ErrorCode::TraitConfigShapeMismatch,
                                 path,
                                 "Struct field typed `EventAddress` must hold a string address",
                             )
@@ -2175,553 +2125,6 @@ define a named type alias — `type Item = { field : T, … }` — then annotate
 knob `name : [Item]`. A bare `[json]` array lowers to unconstrained object \
 elements; `[string]`/scalar element types cannot carry objects.";
 
-/// Config knobs declared at APP level (`schema.config`) or at this
-/// ORBITAL's own level (`orbital.config`) — reachable with no forwarding
-/// trait in between (`Almadar_Orbital_Import.md` §4.5). Shared owner for
-/// `validate_dangling_config_refs`'s reachability check and
-/// `orbital_config::validate_orbital_config_forwarding`'s dead-knob walk —
-/// both used to recompute this union independently.
-pub(crate) fn declared_config_keys<'a>(
-    schema: &'a OrbitalSchema,
-    orbital: &'a Orbital,
-) -> HashSet<&'a str> {
-    schema
-        .config
-        .iter()
-        .chain(orbital.config.iter())
-        .flat_map(|c| c.keys())
-        .map(|k| k.as_str())
-        .collect()
-}
-
-fn validate_dangling_config_refs(schema: &OrbitalSchema) -> ValidationResult {
-    use std::collections::{HashMap, HashSet};
-
-    fn config_key_of(s: &str) -> Option<&str> {
-        let rest = s.strip_prefix("@config.")?;
-        let end = rest.find(['.', '[']).unwrap_or(rest.len());
-        let key = &rest[..end];
-        if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return None;
-        }
-        Some(key)
-    }
-
-    fn collect_config_keys(expr: &SExpression, out: &mut HashSet<String>) {
-        collect_config_keys_inner(expr, None, out);
-    }
-
-    /// `prop_context` is Some((prop_key, pattern_has_prop)) when `expr` is the
-    /// direct value of a prop on a registry-known pattern node. A SELF-NAMED
-    /// token there (`amount: "@config.amount"` on a stat-display) is the
-    /// pattern layer's declaration-form default for an unset prop — enrich
-    /// materializes it and the component resolves/nulls it — not a forward
-    /// that needs a declaring trait. Everything else collects.
-    fn collect_config_keys_inner(
-        expr: &SExpression,
-        prop_context: Option<(&str, bool)>,
-        out: &mut HashSet<String>,
-    ) {
-        match expr {
-            SExpression::String(s) => {
-                if let Some(key) = config_key_of(s) {
-                    let is_declaration_default = matches!(
-                        prop_context,
-                        Some((prop_key, true)) if prop_key == key
-                    );
-                    if !is_declaration_default {
-                        out.insert(key.to_string());
-                    }
-                }
-            }
-            SExpression::Array(items) => {
-                for item in items {
-                    collect_config_keys_inner(item, None, out);
-                }
-            }
-            SExpression::Object(map) => {
-                let pattern_props = match map.get("type") {
-                    Some(SExpression::String(ty)) => {
-                        crate::pattern_registry::get_props_schema(ty.as_str())
-                    }
-                    _ => None,
-                };
-                for (k, v) in map.iter() {
-                    let ctx =
-                        pattern_props.map(|props| (k.as_str(), props.contains_key(k.as_str())));
-                    collect_config_keys_inner(v, ctx, out);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let mut result = ValidationResult::new();
-
-    for (oi, orbital) in schema.orbitals.iter().enumerate() {
-        // App-level `config {}` and this orbital's own `config {}` are both
-        // declaring sources (§4.5) — reachable with no forwarding trait.
-        let declared_keys = declared_config_keys(schema, orbital);
-        // Declared knob keys per trait + child -> referrers adjacency — the
-        // SAME graph `phases::embed_graph::EmbedGraph` builds for the inline
-        // phase's `@config.<knob>` forward resolver, so a forward the
-        // resolver folds to a literal is exactly a forward this check judges
-        // reachable. By validation time every entry is `TraitReference::Inline`
-        // (comprehensive validation runs post-inline/-compose), so only the
-        // `Inline` half of the graph's contract is ever exercised here.
-        let graph = crate::phases::embed_graph::EmbedGraph::build(&orbital.traits);
-        let declared: HashMap<&str, HashSet<&str>> = graph
-            .declared_iter()
-            .map(|(name, cfg)| (name, cfg.keys().map(|k| k.as_str()).collect()))
-            .collect();
-        // Undirected embed adjacency: forwards chain UP through referrers
-        // (`buildResolvedTraitConfigs`), and a parent's effect tree also
-        // inherits its CHILDREN's materialized pattern props whose defaults
-        // are self-forward tokens (`amount: "@config.amount"` declared on the
-        // embedded stat-display) — so a key declared anywhere in the embed
-        // component is reachable; only component-wide undeclared keys dangle.
-        let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
-        for (child, parents) in graph.referrers_iter() {
-            for parent in parents {
-                adjacency.entry(child).or_default().push(parent.as_str());
-                adjacency.entry(parent.as_str()).or_default().push(child);
-            }
-        }
-
-        // `self_forward`: the key is the owner's own knob whose value is `@config.<key>` — that
-        // declaration can't supply itself, so it must be declared outside that knob. `within`, when
-        // set, is the only traits the walk may visit.
-        let key_reachable_within =
-            |owner: &str, key: &str, self_forward: bool, within: Option<&HashSet<&str>>| -> bool {
-                if declared_keys.contains(key) {
-                    return true;
-                }
-                let mut queue = vec![owner];
-                let mut seen: HashSet<&str> = HashSet::new();
-                while let Some(name) = queue.pop() {
-                    if within.is_some_and(|members| !members.contains(name)) || !seen.insert(name) {
-                        continue;
-                    }
-                    let own_forward = self_forward && name == owner;
-                    if !own_forward && declared.get(name).is_some_and(|keys| keys.contains(key)) {
-                        return true;
-                    }
-                    if let Some(neighbors) = adjacency.get(name) {
-                        queue.extend(neighbors.iter().copied());
-                    }
-                }
-                false
-            };
-        let key_reachable = |owner: &str, key: &str, self_forward: bool| -> bool {
-            key_reachable_within(owner, key, self_forward, None)
-        };
-
-        let config_reads = |td: &'_ TraitDefinition| -> (HashSet<String>, HashSet<String>) {
-            let mut used: HashSet<String> = HashSet::new();
-            for cf in td.config.iter().flat_map(|c| c.values()) {
-                if let Some(default) = &cf.default {
-                    collect_config_keys(default, &mut used);
-                }
-            }
-            for transition in &td.state_machine.transitions {
-                for effect in transition.effects.iter().flatten() {
-                    collect_config_keys(effect, &mut used);
-                }
-            }
-            for tick in td.ticks.iter().flatten() {
-                for effect in &tick.effects {
-                    collect_config_keys(effect, &mut used);
-                }
-            }
-            let self_forwards: HashSet<String> = td
-                .config
-                .iter()
-                .flat_map(|c| c.iter())
-                .filter(|(k, cf)| {
-                    matches!(&cf.default, Some(SExpression::String(v)) if config_key_of(v) == Some(k.as_str()))
-                })
-                .map(|(k, _)| k.clone())
-                .collect();
-            (used, self_forwards)
-        };
-
-        for (ti, trait_ref) in orbital.traits.iter().enumerate() {
-            let TraitReference::Inline(td) = trait_ref else {
-                continue;
-            };
-            let (used, self_forwards) = config_reads(td);
-            let mut dangling: Vec<&String> = used
-                .iter()
-                .filter(|key| !key_reachable(&td.name, key, self_forwards.contains(key.as_str())))
-                .collect();
-            dangling.sort();
-            for key in dangling {
-                let path = format!(
-                    "orbitals[{} ({})].traits[{} ({})]",
-                    oi, orbital.name, ti, td.name
-                );
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::ConfigDanglingRef,
-                        path,
-                        format!(
-                            "`@config.{}` — no trait in {}'s referrer chain declares config knob '{}'; \
-                             the forward cannot resolve and renders as the literal string",
-                            key, td.name, key
-                        ),
-                    )
-                    .with_suggestion(format!(
-                        "Declare `{}` on the owning trait (or its embedder) or remove the reference",
-                        key
-                    )),
-                );
-            }
-        }
-
-        // A call site composes a page-mounted trait alone: it carries what that trait embeds, never
-        // its embedders or their other children, so each forward must resolve inside that closure.
-        let children = graph.embedded_children();
-        let mut entries: Vec<String> = crate::phases::embed_graph::page_declared_traits(orbital).into_iter().collect();
-        entries.sort();
-        let mut reported: HashSet<(String, String)> = HashSet::new();
-        for entry in &entries {
-            let mut members: HashSet<&str> = HashSet::new();
-            let mut stack = vec![entry.as_str()];
-            while let Some(name) = stack.pop() {
-                if members.insert(name) {
-                    stack.extend(children.get(name).into_iter().flatten().copied());
-                }
-            }
-            for (ti, trait_ref) in orbital.traits.iter().enumerate() {
-                let TraitReference::Inline(td) = trait_ref else {
-                    continue;
-                };
-                if !members.contains(td.name.as_str()) {
-                    continue;
-                }
-                let (used, self_forwards) = config_reads(td);
-                let mut standalone: Vec<&String> = used
-                    .iter()
-                    .filter(|key| {
-                        let self_forward = self_forwards.contains(key.as_str());
-                        key_reachable(&td.name, key, self_forward)
-                            && !key_reachable_within(&td.name, key, self_forward, Some(&members))
-                    })
-                    .collect();
-                standalone.sort();
-                for key in standalone {
-                    if !reported.insert((td.name.clone(), key.clone())) {
-                        continue;
-                    }
-                    result.add_error(
-                        ValidationError::error(
-                            ErrorCode::ConfigDanglingRef,
-                            format!("orbitals[{} ({})].traits[{} ({})]", oi, orbital.name, ti, td.name),
-                            format!(
-                                "`@config.{key}` — {} declares knob '{key}' only outside what page trait {entry} embeds, so a call site composing {entry} alone has no trait that declares it and the forward renders as the literal string",
-                                td.name
-                            ),
-                        )
-                        .with_suggestion(format!(
-                            "Declare `{key}` on {} or on a trait {entry} embeds",
-                            td.name
-                        )),
-                    );
-                }
-            }
-        }
-    }
-
-    result
-}
-
-#[cfg(test)]
-mod dangling_config_tests {
-    use super::*;
-
-    fn schema_from_json(json: &str) -> OrbitalSchema {
-        serde_json::from_str(json).expect("fixture parses")
-    }
-
-    const TRUE_DANGLE: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [{
-          "name": "Panel",
-          "stateMachine": {
-            "states": [{ "name": "idle", "isInitial": true }],
-            "transitions": [{
-              "from": "idle", "to": "idle", "event": "INIT",
-              "effects": [["render-ui", "main", { "type": "typography", "content": "@config.missingTitle" }]]
-            }]
-          }
-        }]
-      }]
-    }"#;
-
-    const DECLARATION_DEFAULT: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [{
-          "name": "Panel",
-          "stateMachine": {
-            "states": [{ "name": "idle", "isInitial": true }],
-            "transitions": [{
-              "from": "idle", "to": "idle", "event": "INIT",
-              "effects": [["render-ui", "main", { "type": "stat-display", "label": "@config.label" }]]
-            }]
-          }
-        }]
-      }]
-    }"#;
-
-    const REFERRER_DECLARED: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [
-          {
-            "name": "Child",
-            "stateMachine": {
-              "states": [{ "name": "idle", "isInitial": true }],
-              "transitions": [{
-                "from": "idle", "to": "idle", "event": "INIT",
-                "effects": [["render-ui", "main", { "type": "typography", "content": "@config.fields" }]]
-              }]
-            }
-          },
-          {
-            "name": "Parent",
-            "config": { "fields": { "type": "string", "default": "x" } },
-            "stateMachine": {
-              "states": [{ "name": "idle", "isInitial": true }],
-              "transitions": [{
-                "from": "idle", "to": "idle", "event": "INIT",
-                "effects": [["render-ui", "main", { "type": "stack", "children": ["@trait.Child"] }]]
-              }]
-            }
-          }
-        ]
-      }]
-    }"#;
-
-    fn dangles(json: &str) -> usize {
-        validate_dangling_config_refs(&schema_from_json(json))
-            .errors
-            .iter()
-            .filter(|e| e.code == ErrorCode::ConfigDanglingRef)
-            .count()
-    }
-
-    fn with_page_on(json: &str, mounted: &str) -> String {
-        let mut value: serde_json::Value = serde_json::from_str(json).expect("fixture parses");
-        value["orbitals"][0]["pages"] =
-            serde_json::json!([{ "name": "P", "path": "/p", "traits": [{ "ref": mounted }] }]);
-        value.to_string()
-    }
-
-    // G-ORB-533: std-thread's page trait read `@config.pageSize` declared only on a sibling; the atom
-    // validated through the embed component while each call site composing the page trait alone broke.
-    #[test]
-    fn a_page_trait_reading_a_knob_only_its_embedder_declares_dangles_at_the_atom() {
-        assert_eq!(dangles(&with_page_on(REFERRER_DECLARED, "Child")), 1);
-    }
-
-    #[test]
-    fn control_a_page_trait_that_embeds_the_reader_resolves_the_forward() {
-        assert_eq!(dangles(&with_page_on(REFERRER_DECLARED, "Parent")), 0);
-        assert_eq!(dangles(REFERRER_DECLARED), 0);
-    }
-
-    #[test]
-    fn flags_component_wide_undeclared_key() {
-        assert_eq!(dangles(TRUE_DANGLE), 1, "undeclared key must flag");
-    }
-
-    #[test]
-    fn accepts_self_named_pattern_declaration_default() {
-        assert_eq!(
-            dangles(DECLARATION_DEFAULT),
-            0,
-            "self-named pattern-prop declaration default is the enrich idiom, not a dangle"
-        );
-    }
-
-    const ORBITAL_DECLARED: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "config": { "browseColumns": { "type": "json", "default": [] } },
-        "entity": { "name": "W", "fields": [] },
-        "traits": [{
-          "name": "Browse",
-          "config": { "columns": { "type": "json", "default": "@config.browseColumns" } },
-          "stateMachine": {
-            "states": [{ "name": "idle", "isInitial": true }],
-            "transitions": [{
-              "from": "idle", "to": "idle", "event": "INIT",
-              "effects": [["render-ui", "main", { "type": "typography", "content": "@config.browseColumns" }]]
-            }]
-          }
-        }]
-      }]
-    }"#;
-
-    const APP_DECLARED: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "config": { "appName": { "type": "string", "default": "Time Tracking" } },
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [{
-          "name": "Shell",
-          "config": { "title": { "type": "string", "default": "@config.appName" } },
-          "stateMachine": {
-            "states": [{ "name": "idle", "isInitial": true }],
-            "transitions": [{
-              "from": "idle", "to": "idle", "event": "INIT",
-              "effects": [["render-ui", "main", { "type": "typography", "content": "@config.appName" }]]
-            }]
-          }
-        }]
-      }]
-    }"#;
-
-    #[test]
-    fn accepts_key_declared_at_orbital_level() {
-        assert_eq!(
-            dangles(ORBITAL_DECLARED),
-            0,
-            "an orbital `config {{}}` knob is a declaring source"
-        );
-    }
-
-    #[test]
-    fn accepts_key_declared_at_app_level() {
-        assert_eq!(
-            dangles(APP_DECLARED),
-            0,
-            "an app-level `config {{}}` knob is a declaring source"
-        );
-    }
-
-    /// The `app-1789833059828` crash: a knob whose value forwards to its own
-    /// key (`navItems: @config.navItems`) with nothing declaring `navItems`
-    /// outside that knob. The runtime renders the literal string and a
-    /// component calling `.map` on it crashes.
-    const SELF_FORWARD_UNDECLARED: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [{
-          "name": "Layout",
-          "config": { "navItems": { "type": "unknown", "default": "@config.navItems" } },
-          "stateMachine": {
-            "states": [{ "name": "idle", "isInitial": true }],
-            "transitions": [{
-              "from": "idle", "to": "idle", "event": "INIT",
-              "effects": [["render-ui", "main", { "type": "dashboard-layout", "navItems": "@config.navItems" }]]
-            }]
-          }
-        }]
-      }]
-    }"#;
-
-    const SELF_FORWARD_APP_DECLARED: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "config": { "navItems": { "type": "json", "default": [] } },
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [{
-          "name": "Layout",
-          "config": { "navItems": { "type": "unknown", "default": "@config.navItems" } },
-          "stateMachine": {
-            "states": [{ "name": "idle", "isInitial": true }],
-            "transitions": [{
-              "from": "idle", "to": "idle", "event": "INIT",
-              "effects": [["render-ui", "main", { "type": "dashboard-layout", "navItems": "@config.navItems" }]]
-            }]
-          }
-        }]
-      }]
-    }"#;
-
-    const SELF_FORWARD_EMBEDDER_DECLARED: &str = r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [
-          {
-            "name": "Layout",
-            "config": { "navItems": { "type": "unknown", "default": "@config.navItems" } },
-            "stateMachine": {
-              "states": [{ "name": "idle", "isInitial": true }],
-              "transitions": [{
-                "from": "idle", "to": "idle", "event": "INIT",
-                "effects": [["render-ui", "main", { "type": "dashboard-layout", "navItems": "@config.navItems" }]]
-              }]
-            }
-          },
-          {
-            "name": "Page",
-            "config": { "navItems": { "type": "json", "default": [] } },
-            "stateMachine": {
-              "states": [{ "name": "idle", "isInitial": true }],
-              "transitions": [{
-                "from": "idle", "to": "idle", "event": "INIT",
-                "effects": [["render-ui", "main", { "type": "stack", "children": ["@trait.Layout"] }]]
-              }]
-            }
-          }
-        ]
-      }]
-    }"#;
-
-    #[test]
-    fn flags_self_forward_with_no_outer_declaration() {
-        assert_eq!(
-            dangles(SELF_FORWARD_UNDECLARED),
-            1,
-            "a knob forwarding to its own key is not its own declaration"
-        );
-    }
-
-    #[test]
-    fn accepts_self_forward_declared_at_app_level() {
-        assert_eq!(
-            dangles(SELF_FORWARD_APP_DECLARED),
-            0,
-            "app `config {{}}` resolves the forward"
-        );
-    }
-
-    #[test]
-    fn accepts_self_forward_declared_by_another_trait() {
-        assert_eq!(
-            dangles(SELF_FORWARD_EMBEDDER_DECLARED),
-            0,
-            "another trait in the embed component declaring the key resolves the forward"
-        );
-    }
-
-    #[test]
-    fn accepts_key_declared_by_embed_component() {
-        assert_eq!(
-            dangles(REFERRER_DECLARED),
-            0,
-            "a key declared anywhere in the undirected embed component is reachable"
-        );
-    }
-}
-
 #[cfg(test)]
 mod node_config_tests {
     use super::*;
@@ -2779,59 +2182,36 @@ mod node_config_tests {
 mod event_config_tests {
     use super::*;
 
-    fn schema_from_json(json: &str) -> OrbitalSchema {
-        serde_json::from_str(json).expect("fixture parses")
-    }
-
     fn run(schema_json: &str) -> ValidationResult {
-        let schema = schema_from_json(schema_json);
+        let schema: OrbitalSchema = serde_json::from_str(schema_json).expect("fixture parses");
         let mut ctx = ValidationContext::new();
         validate_all_config_types(&schema, &mut ctx);
         ctx.result
     }
 
-    fn event_trait_schema(knob_default: &str, knob_type: &str) -> String {
-        format!(
-            r#"{{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{{
-        "name": "O",
-        "entity": {{ "name": "W", "fields": [] }},
-        "traits": [{{
-          "name": "Picker",
-          "config": {{ "clickEvent": {{ "type": "{knob_type}", "default": "{knob_default}" }} }},
-          "emits": [{{ "event": "PICK", "scope": "internal" }}],
-          "stateMachine": {{
-            "states": [{{ "name": "idle", "isInitial": true }}],
-            "transitions": [
-              {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [] }},
-              {{ "from": "idle", "to": "idle", "event": "PICK", "effects": [] }}
-            ]
-          }}
-        }}]
-      }}]
-    }}"#
-        )
-    }
-
-    fn event_errors(result: &ValidationResult) -> Vec<&ValidationError> {
-        result
-            .errors
-            .iter()
-            .filter(|e| e.code == ErrorCode::TraitInvalidEventDefault)
-            .collect()
-    }
-
-    #[test]
-    fn member_value_passes() {
-        let result = run(&event_trait_schema("PICK", "event"));
-        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
-    }
-
     #[test]
     fn a_dotted_value_is_an_address_not_a_member_name() {
-        let result = run(&event_trait_schema("note.search", "event"));
-        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
+        let result = run(
+            r#"{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{
+        "name": "O",
+        "entity": { "name": "W", "fields": [] },
+        "traits": [{
+          "name": "Picker",
+          "config": { "clickEvent": { "type": "event", "default": "note.search" } },
+          "emits": [{ "event": "PICK", "scope": "internal" }],
+          "stateMachine": {
+            "states": [{ "name": "idle", "isInitial": true }],
+            "transitions": [
+              { "from": "idle", "to": "idle", "event": "INIT", "effects": [] },
+              { "from": "idle", "to": "idle", "event": "PICK", "effects": [] }
+            ]
+          }
+        }]
+      }]
+    }"#,
+        );
         assert!(
             result
                 .errors
@@ -2840,151 +2220,6 @@ mod event_config_tests {
             "{:?}",
             result.errors
         );
-    }
-
-    #[test]
-    fn non_member_value_fails_with_valid_values() {
-        let result = run(&event_trait_schema("NOTE_SEARCH", "event"));
-        let errs = event_errors(&result);
-        assert_eq!(errs.len(), 1, "{:?}", result.errors);
-        assert_eq!(errs[0].code, ErrorCode::TraitInvalidEventDefault);
-        let valid = errs[0].valid_values.as_ref().expect("valid_values");
-        assert!(valid.contains(&"PICK".to_string()));
-    }
-
-    #[test]
-    fn empty_string_is_default_off_outlet() {
-        let result = run(&event_trait_schema("", "event"));
-        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
-    }
-
-    #[test]
-    fn config_forward_value_skips() {
-        let result = run(&event_trait_schema("@config.other", "event"));
-        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
-    }
-
-    #[test]
-    fn string_typed_knob_is_untouched() {
-        let result = run(&event_trait_schema("note.search", "string"));
-        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
-    }
-
-    #[test]
-    fn vacuous_event_set_skips() {
-        let result = run(r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [{
-          "name": "RenderOnly",
-          "config": { "clickEvent": { "type": "event", "default": "ANYTHING" } },
-          "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] }
-        }]
-      }]
-    }"#);
-        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
-    }
-
-    #[test]
-    fn sentinel_resolves_through_knob_default_for_membership() {
-        // The trait transitions on `@config.onPageChange` (dynamic sentinel);
-        // a SIBLING event-typed knob naming the sentinel's resolved value is
-        // a member (the pageChangeEvent edge from the corpus simulation).
-        let result = run(r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [{
-          "name": "Pager",
-          "config": {
-            "onPageChange": { "type": "string", "default": "PAGE_CHANGE" },
-            "pageChangeEvent": { "type": "event", "default": "PAGE_CHANGE" }
-          },
-          "stateMachine": {
-            "states": [{ "name": "idle", "isInitial": true }],
-            "transitions": [
-              { "from": "idle", "to": "idle", "event": "@config.onPageChange", "effects": [] }
-            ]
-          }
-        }]
-      }]
-    }"#);
-        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
-    }
-
-    #[test]
-    fn definer_typed_event_skips_membership() {
-        // A-UNIFY: sentinel position — the knob's value CREATES the event
-        // key, so any name is valid by construction; it must not be checked
-        // against the trait's own event set (which wouldn't even contain a
-        // literal "CLICKED" here, since the trait's only member is the
-        // sentinel form `@config.onEventClick` itself).
-        let result = run(r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [{
-          "name": "Cal",
-          "config": { "onEventClick": { "type": "event", "default": "CLICKED" } },
-          "stateMachine": {
-            "states": [{ "name": "idle", "isInitial": true }],
-            "transitions": [
-              { "from": "idle", "to": "idle", "event": "@config.onEventClick", "effects": [] }
-            ]
-          }
-        }]
-      }]
-    }"#);
-        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
-    }
-
-    #[test]
-    fn definer_typed_event_still_rejects_non_string_default() {
-        // The definer skip only lifts the MEMBERSHIP check — a non-string
-        // default is still decidably wrong regardless of role.
-        let result = run(r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [{
-          "name": "Cal",
-          "config": { "onEventClick": { "type": "event", "default": 42 } },
-          "stateMachine": {
-            "states": [{ "name": "idle", "isInitial": true }],
-            "transitions": [
-              { "from": "idle", "to": "idle", "event": "@config.onEventClick", "effects": [] }
-            ]
-          }
-        }]
-      }]
-    }"#);
-        let errs = event_errors(&result);
-        assert_eq!(errs.len(), 1, "{:?}", result.errors);
-        assert_eq!(errs[0].code, ErrorCode::TraitInvalidEventDefault);
-    }
-
-    #[test]
-    fn reference_arm_skips_membership() {
-        // A pre-inline Reference override has no base-trait vocabulary — the
-        // event membership check must not fire there.
-        let result = run(r#"{
-      "name": "t", "version": "1.0.0",
-      "orbitals": [{
-        "name": "O",
-        "entity": { "name": "W", "fields": [] },
-        "traits": [{
-          "ref": "Atom.traits.Picker",
-          "name": "MyPicker",
-          "config": { "clickEvent": { "type": "event", "default": "WHATEVER" } }
-        }]
-      }]
-    }"#);
-        assert!(event_errors(&result).is_empty(), "{:?}", result.errors);
     }
 }
 
@@ -3007,7 +2242,7 @@ mod struct_event_field_tests {
         result
             .errors
             .iter()
-            .filter(|e| e.code == ErrorCode::TraitInvalidEventDefault)
+            .filter(|e| e.code == ErrorCode::TraitConfigShapeMismatch)
             .collect()
     }
 
@@ -4253,7 +3488,7 @@ mod payload_of_member_tests {
     #[test]
     fn control_an_event_nothing_declares_defers() {
         let result = run("OTHER", r#"{ "bogus": 2 }"#);
-        assert!(mismatches(&result).iter().all(|m| !m.contains("OTHER")), "{:?}", result.errors);
+        assert!(mismatches(&result).iter().all(|m| !m.contains("bogus")), "{:?}", result.errors);
     }
 
     #[test]

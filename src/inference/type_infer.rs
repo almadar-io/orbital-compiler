@@ -211,6 +211,25 @@ impl<'c> Inferer<'c> {
         }
         match expr {
             OirExpr::Null => Some(Known::Absent),
+            OirExpr::Object { fields }
+                if self.ctx.object_literals_are_exact()
+                    && fields.values().any(|value| matches!(value, OirExpr::Null)) =>
+            {
+                let mut present: Vec<OirField> = Vec::new();
+                let mut nulls: Vec<String> = Vec::new();
+                for (name, value) in fields.iter() {
+                    if matches!(value, OirExpr::Null) {
+                        nulls.push(name.clone());
+                    } else {
+                        present.push(OirField::new(name.clone(), self.infer(value)?));
+                    }
+                }
+                present.sort_by(|a, b| a.name.cmp(&b.name));
+                Some(Known::RecordWithNulls {
+                    present: OirType::Struct { additional: None, fields: present.into() },
+                    nulls,
+                })
+            }
             OirExpr::Array { items } if items.is_empty() => Some(Known::EmptyList),
             OirExpr::Effect { effect } => {
                 // An `os/` effect's arguments are checked against the operation's declared parameters.

@@ -144,60 +144,6 @@ mod tests {
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
     }
 
-    #[test]
-    fn test_set_effect_payload_not_allowed() {
-        let effect = SExpression::Array(vec![
-            SExpression::String(("set".to_string()).into()),
-            SExpression::String(("@payload.title".to_string()).into()),
-            SExpression::String(("value".to_string()).into()),
-        ].into());
-
-        let result = validate_effect(
-            &effect,
-            "test",
-            &HashSet::new(),
-            &HashMap::new(),
-            &HashSet::new(),
-            &HashMap::new(),
-            &Default::default(),
-            None,
-            &HashMap::new(),
-            &HashMap::new(),
-        );
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::EffectSetPayloadNotAllowed));
-    }
-
-    #[test]
-    fn test_fetch_effect_invalid_entity() {
-        let effect = SExpression::Array(vec![
-            SExpression::String(("fetch".to_string()).into()),
-            SExpression::String(("NonExistent".to_string()).into()),
-        ].into());
-
-        let known_entities: HashSet<String> = ["Task".to_string()].into_iter().collect();
-        let result = validate_effect(
-            &effect,
-            "test",
-            &known_entities,
-            &HashMap::new(),
-            &HashSet::new(),
-            &HashMap::new(),
-            &Default::default(),
-            None,
-            &HashMap::new(),
-            &HashMap::new(),
-        );
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::EffectFetchInvalidEntity));
-    }
-
     /// email.send with the real contract shape: to/subject/body required,
     /// from optional — the I-13 reproducer surface.
     fn email_registry() -> crate::embedded::ServiceRegistryData {

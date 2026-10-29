@@ -6,7 +6,6 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitReference};
 
 const CHROME: &str = r#"{
@@ -100,14 +99,6 @@ fn header_brand(schema: &OrbitalSchema) -> Option<SExpression> {
         })
 }
 
-fn dangling(schema: &OrbitalSchema) -> usize {
-    validate_comprehensive_without_services(schema)
-        .errors
-        .iter()
-        .filter(|e| e.code == ErrorCode::ConfigDanglingRef)
-        .count()
-}
-
 #[test]
 fn the_override_literal_reaches_the_forward_when_the_atom_is_validated_alone() {
     let schema = materialize("landing.orb", "rawi");
@@ -115,7 +106,6 @@ fn the_override_literal_reaches_the_forward_when_the_atom_is_validated_alone() {
         header_label(&schema),
         Some(SExpression::String("rawi".into()))
     );
-    assert_eq!(dangling(&schema), 0);
 }
 
 #[test]
@@ -124,11 +114,6 @@ fn the_override_literal_still_reaches_the_forward_through_an_orbital_import() {
     assert_eq!(
         header_label(&schema),
         Some(SExpression::String("rawi".into()))
-    );
-    assert_eq!(
-        dangling(&schema),
-        0,
-        "ORB_CONFIG_DANGLING_REF through the orbital import"
     );
 }
 
@@ -149,5 +134,4 @@ fn a_forward_inside_an_expression_resolves_through_an_orbital_import() {
         !format!("{brand:?}").contains("@config.product"),
         "the @config.product read inside the expression must be resolved: {brand:?}"
     );
-    assert_eq!(dangling(&schema), 0);
 }

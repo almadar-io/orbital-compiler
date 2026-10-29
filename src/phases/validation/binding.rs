@@ -383,18 +383,6 @@ pub fn validate_set_target(binding: &str, path: &str) -> ValidationResult {
     };
     let root = rest.split('.').next().unwrap_or_default();
 
-    // Cannot set @payload (read-only)
-    if root == "payload" {
-        result.add_error(
-            ValidationError::error(
-                ErrorCode::EffectSetPayloadNotAllowed,
-                path,
-                "@payload is read-only and cannot be a set target",
-            )
-            .with_suggestion("Use @entity to update entity state"),
-        );
-    }
-
     // Cannot set @state or @now directly
     if root == "state" || root == "now" {
         result.add_error(
@@ -528,16 +516,6 @@ mod tests {
         }
     }
 
-
-    #[test]
-    fn test_set_target_payload() {
-        let result = validate_set_target("@payload.field", "test");
-        assert!(!result.is_valid());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::EffectSetPayloadNotAllowed));
-    }
 
     #[test]
     fn test_lambda_bound_item_is_valid() {

@@ -1,6 +1,5 @@
 //! A record literal written into an entity row: the data of a `persist` and the object `set` into a relation field.
-//! Each key must be a field of the entity, each value must be admitted by that field's declared type (an enum field by
-//! its members), and a `persist create` must carry every column the kernel requires of it.
+//! Each key must be a field of the entity, each value must be admitted by that field's declared type (an enum field's members are checked by the std `effect-forms` lint), and a `persist create` must carry every column the kernel requires of it.
 
 use super::super::{ErrorCode, ValidationError, ValidationResult};
 use super::set::{expr_return_incompatible_in_ctx, ExprReturnCtx};
@@ -57,23 +56,10 @@ pub(crate) fn check_row_literal(
             }
             continue;
         };
-        if let (FieldType::Enum, Some(members), SExpression::String(text)) =
-            (&field.field_type, &field.values, value)
-        {
-            let text = text.as_str();
-            if !text.starts_with(['@', '?']) && !members.iter().any(|m| m == text) {
-                result.add_error(
-                    ValidationError::error(
-                        ErrorCode::EnumValueNotMember,
-                        path,
-                        format!(
-                            "{what}: '{text}' is not a member of the enum '{}.{key}'",
-                            entity.name
-                        ),
-                    )
-                    .with_valid_values(members.clone()),
-                );
-            }
+        if matches!(
+            (&field.field_type, &field.values, value),
+            (FieldType::Enum, Some(_), SExpression::String(_))
+        ) {
             continue;
         }
         let whole_number = matches!((&field.field_type, value), (FieldType::Int, SExpression::Number(n)) if n.fract() == 0.0);

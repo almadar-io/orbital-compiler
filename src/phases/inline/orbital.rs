@@ -572,6 +572,7 @@ pub(crate) fn resolve_orbital_reference(
             path: diag_path.clone(),
             call_site: super::ReferenceCallSite::Orbital(obj.clone()),
             declaration: super::ReferenceDeclaration::Orbital(upstream.clone()),
+            alias_orbitals: ctx.get_entry(&alias)?.orbitals.iter().filter(|o| o.name != upstream.name).cloned().collect(),
         });
     }
     let schema_config = alias_schema_configs.get(&alias);

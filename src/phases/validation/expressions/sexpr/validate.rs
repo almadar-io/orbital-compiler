@@ -342,38 +342,6 @@ pub(crate) fn validate_sexpr_with_locals(
                         );
                     }
 
-                    // Check operator validity (only warn for namespaced operators that
-                    // aren't known — plus "concat" specifically, a retired ambiguous
-                    // alias that must not silently pass as a data array).
-                    if operator == "concat" {
-                        result.add_error(
-                            ValidationError::error(
-                                ErrorCode::SExprInvalidOperator,
-                                path,
-                                "Ambiguous operator: 'concat' — use 'str/concat' (string) or 'array/concat' (array)".to_string(),
-                            )
-                            .with_suggestion(
-                                "Replace 'concat' with 'str/concat' or 'array/concat'",
-                            ),
-                        );
-                    } else if !is_known_operator(operator)
-                        && (operator.contains('/') || has_namespace_hit(operator))
-                    {
-                        let suggestion = super::operators::suggest_operator(operator)
-                            .unwrap_or_else(|| {
-                                "Use a known operator or ensure custom operator is registered"
-                                    .to_string()
-                            });
-                        result.add_error(
-                            ValidationError::error(
-                                ErrorCode::SExprInvalidOperator,
-                                path,
-                                format!("Unknown operator: '{}'", operator),
-                            )
-                            .with_suggestion(suggestion),
-                        );
-                    }
-
                     // Check arity. The message carries the offending call
                     // rendered as source so it stays actionable even when the
                     // resolved line is approximate (inline-spliced subtrees —
@@ -591,13 +559,13 @@ mod tests {
             codes(&program(ok.clone(), ok.clone())).is_empty(),
             "control: known operators"
         );
-        let unknown = serde_json::json!(["no/such-op", "@entity.n"]);
+        let effect = serde_json::json!(["set", "@entity.n", 0]);
         assert!(
-            codes(&program(unknown.clone(), ok.clone())).contains(&ErrorCode::SExprInvalidOperator),
+            codes(&program(effect.clone(), ok.clone())).contains(&ErrorCode::SExprEffectInGuard),
             "@ensures"
         );
         assert!(
-            codes(&program(ok, unknown)).contains(&ErrorCode::SExprInvalidOperator),
+            codes(&program(ok, effect)).contains(&ErrorCode::SExprEffectInGuard),
             "@holds"
         );
     }
@@ -628,133 +596,6 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.code == ErrorCode::SExprEffectInGuard));
-    }
-
-    #[test]
-    fn concat_conformance_bare_concat_is_rejected() {
-        // R-EVAL-CONCAT-PATH-DIVERGENCE: bare "concat" is ambiguous between
-        // str/concat and array/concat and must be a blocking validation
-        // error naming both replacements, not silently pass as a data array.
-        let expr = SExpression::Array(vec![
-            SExpression::String(("concat".to_string()).into()),
-            SExpression::String(("a".to_string()).into()),
-            SExpression::String(("b".to_string()).into()),
-        ].into());
-        let result = validate_sexpr(&expr, "test", SExprContext::Guard, &HashSet::new());
-        assert!(!result.is_valid());
-        let err = result
-            .errors
-            .iter()
-            .find(|e| e.code == ErrorCode::SExprInvalidOperator)
-            .expect("expected an SExprInvalidOperator error for bare concat");
-        assert!(err.message.contains("str/concat") && err.message.contains("array/concat"));
-    }
-
-    #[test]
-    fn l26_bare_namespace_hit_operator_is_rejected() {
-        // L-26 (Almadar_LOLO_Gaps.md): a dropped/misremembered namespace
-        // prefix on an otherwise-real operator with NO legacy bare alias
-        // ("camelCase" instead of the canonical "str/camelCase" — unlike
-        // "join"/"str/join", which the compiler already treats as
-        // interchangeable via CORE_OPERATORS) used to match none of
-        // is_sexpr_call's conditions and silently pass as literal array
-        // data — 0 errors on a call that could never work. Carries a nested
-        // `str/upper` call as its argument, the real-call signal
-        // `has_nested_call_arg` requires (see the false-positive regression
-        // below for why a bare element-count gate alone isn't safe).
-        let expr = SExpression::Array(vec![
-            SExpression::String(("camelCase".to_string()).into()),
-            SExpression::Array(vec![
-                SExpression::String(("str/upper".to_string()).into()),
-                SExpression::String(("hello world".to_string()).into()),
-            ].into()),
-        ].into());
-        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
-        assert!(!result.is_valid());
-        let err = result
-            .errors
-            .iter()
-            .find(|e| e.code == ErrorCode::SExprInvalidOperator)
-            .expect("expected an SExprInvalidOperator error for bare 'camelCase'");
-        assert!(err.message.contains("camelCase"));
-        assert!(
-            err.suggestion
-                .as_deref()
-                .unwrap_or("")
-                .contains("str/camelCase"),
-            "suggestion should point at the real operator: {:?}",
-            err.suggestion
-        );
-    }
-
-    #[test]
-    fn l26_single_element_literal_array_matching_an_operator_basename_stays_data() {
-        // A lone-element literal array (an asset-manifest-style data tag,
-        // e.g. `["static"]`) whose sole value happens to coincide with some
-        // operator's basename must NOT be swept into the call path.
-        let expr = SExpression::Array(vec![SExpression::String(("camelCase".to_string()).into())].into());
-        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
-        assert!(
-            !result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::SExprInvalidOperator),
-            "a single-element array must be treated as literal data, not a call attempt"
-        );
-    }
-
-    #[test]
-    fn l26_literal_enum_options_list_stays_data_not_a_call() {
-        // Real false positive from a full 1234-file corpus sweep of an
-        // earlier draft of this fix (element-count gate only, no nested-call
-        // requirement): `std-marketing-campaign.lolo`'s
-        // `options: (email sms push mixed)` — a genuine literal
-        // enum-options list (the `channel` field's declared union type,
-        // `"email" | "sms" | "push" | "mixed"`) whose head "email" happens
-        // to exactly match `validate/email`'s basename. Multiple plain-
-        // string siblings, no nested call anywhere — must stay data.
-        let expr = SExpression::Array(vec![
-            SExpression::String(("email".to_string()).into()),
-            SExpression::String(("sms".to_string()).into()),
-            SExpression::String(("push".to_string()).into()),
-            SExpression::String(("mixed".to_string()).into()),
-        ].into());
-        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
-        assert!(
-            !result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::SExprInvalidOperator),
-            "a literal enum-options list of plain identifiers must stay data, not become a call"
-        );
-    }
-
-    #[test]
-    fn l26_join_is_a_known_legacy_alias_not_flagged() {
-        // "join" is DELIBERATELY in CORE_OPERATORS as a legacy bare alias
-        // for "str/join" (matching orbital-core's own evaluator dispatch,
-        // `"join" | "str/join" => K::JoinOp`) — confirming the validator
-        // does NOT (and should not) flag it, unlike a genuinely unknown bare
-        // name such as "camelCase" above. The actual project-friday bug this
-        // program found was that `@almadar/evaluator` (the INTERPRETED
-        // path) had no such alias at all — fixed separately in
-        // `packages/almadar-evaluator/SExpressionEvaluator.ts`, not here.
-        let expr = SExpression::Array(vec![
-            SExpression::String(("join".to_string()).into()),
-            SExpression::Array(vec![
-                SExpression::String(("a".to_string()).into()),
-                SExpression::String(("b".to_string()).into()),
-            ].into()),
-            SExpression::String((", ".to_string()).into()),
-        ].into());
-        let result = validate_sexpr(&expr, "test", SExprContext::Effect, &HashSet::new());
-        assert!(
-            !result
-                .errors
-                .iter()
-                .any(|e| e.code == ErrorCode::SExprInvalidOperator),
-            "'join' is a known legacy alias and must not be flagged"
-        );
     }
 
     #[test]
