@@ -57,36 +57,6 @@ const EFFECT_POSITION_EXTRA: &[&str] = &[
     "llm/compact",
     "llm/embed",
     "llm/token-count",
-    // Substrate: workspace (value-position, valid in effects)
-    "workspace/read-orbital",
-    "workspace/write-orbital",
-    "workspace/read-file",
-    "workspace/write-file",
-    "workspace/read-plan",
-    "workspace/write-plan",
-    "workspace/read-schema",
-    "workspace/write-schema",
-    "workspace/exists",
-    "workspace/list-orbitals",
-    "workspace/archive-orbital",
-    // Substrate: session (value-position, valid in effects)
-    "session/read-history",
-    "session/append-history",
-    "session/read-spec",
-    "session/write-spec",
-    "session/read-plan",
-    "session/write-plan",
-    "session/read-memory",
-    "session/write-memory",
-    "session/read-errors",
-    "session/write-errors",
-    "session/read-analysis",
-    // Substrate: memory (value-position, valid in effects)
-    "memory/store",
-    "memory/recall",
-    "memory/list",
-    // Substrate: trace (value-position, valid in effects)
-    "trace/emit",
 ];
 
 /// All operators valid in effect position: the table's `effect` category plus the wrappers above.

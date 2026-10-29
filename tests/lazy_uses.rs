@@ -331,7 +331,7 @@ fn the_split_schema_keeps_the_importers_egress() {
     let artifacts = orbital_compiler::phases::lazy::split_lazy(&mut schema);
     assert_eq!(
         artifacts[0].schema.egress, schema.egress,
-        "a lazy behavior's http and beacon calls reach the importer's declared origins"
+        "a lazy behavior's calls reach the importer's declared origins"
     );
 }
 
@@ -466,7 +466,7 @@ fn the_importer_records_what_the_kernel_stub_needs_of_a_lazy_orbital() {
 
 #[test]
 fn the_importer_records_a_lazy_traits_declared_dispatch_mode_and_where_the_orbital_sat() {
-    let client = POST.replace(r#""category": "interaction","#, r#""category": "interaction", "dispatch": "client","#);
+    let client = POST.replace(r#""linkedEntity": "PostState","#, r#""linkedEntity": "PostState", "dispatch": "client","#);
     let s = site_with(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], Some(&client));
     let (schema, _) = split(&s).expect("split");
     let page = &schema.lazy_pages.as_ref().expect("lazy pages")[0];

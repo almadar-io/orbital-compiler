@@ -15,7 +15,7 @@ pub(super) const KEYED_CALL_EMIT_KEYS: [&str; 4] =
     ["success", "failure", "onMessage", "cancelled"];
 
 /// Operator heads that start a keyed call.
-pub(super) const KEYED_CALL_OPERATORS: [&str; 2] = ["call-service", "http"];
+pub(super) const KEYED_CALL_OPERATORS: [&str; 1] = ["call-service"];
 
 /// The on-device model effects: keyed like a call, with their options as the last argument.
 pub(super) const ON_DEVICE_OPERATORS: [&str; 2] = ["browser/prompt", "browser/embed"];

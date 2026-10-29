@@ -3,7 +3,7 @@
 
 use super::super::{inline_traits, ValidationResult};
 use super::emit_declaration::collect_declared_emits;
-use super::http::visit_effects;
+use super::browser_calls::visit_effects;
 use super::keyed_call::check_key_and_cancelled;
 use super::{extract_emit_object_ref};
 use orbital_core_base::language::registry::{try_get_operator, EmbeddedOperator};

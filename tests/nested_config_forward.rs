@@ -9,7 +9,7 @@ use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::InlineConfig;
 use orbital_core_base::schema::{SExpression, TraitReference};
 
-const ATOM: &str = r#"{
+const ATOM_TEMPLATE: &str = r#"{
   "name": "stats-atom",
   "version": "1.0.0",
   "orbitals": [
@@ -19,7 +19,7 @@ const ATOM: &str = r#"{
       "traits": [
         {
           "name": "StatsRender",
-          "config": { "metrics": { "type": "unknown", "default": [] }, "title": { "type": "string", "default": "Stats" } },
+          "config": { "metrics": METRICS_DECL, "title": { "type": "string", "default": "Stats" } },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],
             "events": [ { "key": "LOAD", "name": "Load" } ],
@@ -31,6 +31,13 @@ const ATOM: &str = r#"{
     }
   ]
 }"#;
+
+const LIST_METRICS: &str = r#"{ "type": "[object]", "items": { "type": "object", "properties": { "label": { "type": "string" }, "target": { "type": "number" } } }, "default": [] }"#;
+const MAP_METRICS: &str = r#"{ "type": "object", "properties": { "w": { "type": "number" }, "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" } }, "default": {} }"#;
+
+fn atom(metrics_decl: &str) -> String {
+    ATOM_TEMPLATE.replace("METRICS_DECL", metrics_decl)
+}
 
 fn composer(metrics: &str) -> String {
     format!(
@@ -54,7 +61,7 @@ fn composer(metrics: &str) -> String {
 
 fn inlined(metrics: &str) -> orbital_core_base::schema::OrbitalSchema {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    std::fs::write(dir.path().join("atom.orb"), ATOM).expect("atom");
+    std::fs::write(dir.path().join("atom.orb"), atom(LIST_METRICS)).expect("atom");
     let path = dir.path().join("composer.orb");
     std::fs::write(&path, composer(metrics)).expect("composer");
     let mut schema = parse_file(&path).expect("parse");
@@ -87,7 +94,7 @@ fn nested_app_knob_folds_and_publishes() {
 
 fn inlined_with_knobs(metrics: &str) -> orbital_core_base::schema::OrbitalSchema {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    std::fs::write(dir.path().join("atom.orb"), ATOM).expect("atom");
+    std::fs::write(dir.path().join("atom.orb"), atom(MAP_METRICS)).expect("atom");
     let path = dir.path().join("composer.orb");
     let body = composer(metrics).replace(
         r#""config": { "weeklyWinTarget": { "type": "number", "default": 2 } }"#,

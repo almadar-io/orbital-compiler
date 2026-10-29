@@ -8,12 +8,11 @@ use crate::embedded::ServiceRegistryData;
 use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, TraitDefinition};
 use std::collections::{HashMap, HashSet};
 
+mod browser_calls;
 mod emit_declaration;
 mod fetch;
 mod host_effects;
-mod http;
 mod keyed_call;
-mod oauth;
 mod cast;
 mod operator_args;
 mod os_grants;
@@ -24,9 +23,8 @@ mod set;
 mod typed_args;
 mod utils;
 
+pub(crate) use browser_calls::validate_browser_calls;
 pub(crate) use host_effects::validate_host_effects;
-pub(crate) use oauth::validate_oauth_effects;
-pub(crate) use http::validate_http_effects;
 pub(crate) use emit_declaration::{collect_declared_emits, nested_effects, scope_let_locals};
 #[cfg(test)]
 pub(crate) use emit_declaration::validate_effect;
@@ -70,9 +68,8 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
         ctx.merge(result);
     }
     ctx.merge(validate_call_key_literals_are_used(schema));
-    ctx.merge(validate_http_effects(schema));
+    ctx.merge(validate_browser_calls(schema));
     ctx.merge(validate_host_effects(schema));
-    ctx.merge(validate_oauth_effects(schema));
     ctx.merge(validate_os_grants(schema));
 }
 

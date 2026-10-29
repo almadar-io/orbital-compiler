@@ -243,26 +243,6 @@ fn produced_to_fields(produced: ProducedPayload) -> Option<Vec<PayloadField>> {
     }
 }
 
-/// True when the `http` call's request object (the fifth array element, head
-/// included) carries a `paginate` entry.
-fn http_variant(args: &[SExpression]) -> CallVariant<'static> {
-    let Some(SExpression::Object(request)) = args.get(4) else { return CallVariant::Plain };
-    if let Some(SExpression::Object(auth)) = request.get("auth") {
-        if matches!(auth.get("scheme"), Some(SExpression::String(scheme)) if scheme == "oauth-client") {
-            if let Some(op) = auth.get("op").and_then(SExpression::as_str).and_then(orbital_core_base::oauth_client::OAuthOp::parse) {
-                return CallVariant::HttpOAuth(op);
-            }
-        }
-    }
-    if !matches!(request.get("presign"), None | Some(SExpression::Null)) {
-        CallVariant::HttpPresign
-    } else if !matches!(request.get("paginate"), None | Some(SExpression::Null)) {
-        CallVariant::HttpPaginate
-    } else {
-        CallVariant::Plain
-    }
-}
-
 /// The `browser/page-facts` payload: `available` plus the facts the call requested; a fact left out is not
 /// readable. An undecidable field list yields no shape (no check).
 fn page_facts_payload(args: &[SExpression]) -> Option<Vec<PayloadField>> {
@@ -320,10 +300,6 @@ pub(crate) fn produced_payload(
         };
         return with_os_key(op_name, args, produced_to_fields(success_payload(op_name, variant)));
     }
-    if op_name == "http" {
-        let variant = http_variant(args);
-        return produced_to_fields(success_payload("http", variant));
-    }
     if orbital_core_base::tab::TabOp::is_tab_effect(op_name) {
         return produced_to_fields(success_payload(op_name, CallVariant::Plain));
     }
@@ -335,14 +311,8 @@ pub(crate) fn produced_payload(
         "credential-status"
             | "credential-forget"
             | "access-check"
-            | "browser/beacon"
             | "browser/prompt"
             | "browser/embed"
-            | "redis"
-            | "postgres"
-            | "oauth-authorize"
-            | "oauth-connection-status"
-            | "oauth-connection-forget"
     ) {
         return produced_to_fields(success_payload(op_name, CallVariant::Plain));
     }

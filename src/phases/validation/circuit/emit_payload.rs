@@ -710,7 +710,6 @@ fn produced_type_accepts(produced: &str, declared: &str) -> bool {
     match produced {
         // Unresolvable produced side, or a genuinely open shape.
         "any" | "json" | "object" | "entity" => true,
-        orbital_core_base::emit_contract::REDIS_REPLY_TYPE => orbital_core_base::emit_contract::redis_reply_accepts(declared),
         // A relation column stores an id; a payload may name the target entity
         // or type it as the id string.
         "relation" => true,

@@ -86,66 +86,6 @@ fn ok_egress() -> Value {
     json!([ORIGIN])
 }
 
-#[test]
-fn user_grants_cannot_escape_into_an_explicit_app_cache() {
-    for mut auth in [
-        json!({"scheme":"token-exchange","tokenUrl":format!("{ORIGIN}/token"),"body":{"form":{"refresh_token":{"credential":"@config.apiKey","scope":"user"}}}}),
-        json!({"scheme":"jwt-bearer","tokenUrl":format!("{ORIGIN}/token"),"key":{"credential":"@config.apiKey","scope":"user"},"alg":"RS256","claims":{}}),
-    ] {
-        assert!(!fires(&check(ok_egress(),config(),call(json!(ORIGIN),json!({"auth":auth}))),ErrorCode::HttpAuthInvalid));
-        for scope in ["app","user"] {
-            auth["storeAs"] = json!({"name":"cache","scope":scope});
-            let r = check(ok_egress(),config(),call(json!(ORIGIN),json!({"auth":auth})));
-            assert_eq!(fires(&r,ErrorCode::HttpAuthInvalid),scope == "app","{r:?}");
-        }
-        auth["storeAs"] = json!({"name":"cache"});
-        assert!(fires(&check(ok_egress(),config(),call(json!(ORIGIN),json!({"auth":auth}))),ErrorCode::HttpAuthInvalid));
-    }
-}
-
-#[test]
-fn sigv4_auth_and_presign_are_closed_typed_contracts() {
-    let auth = json!({"scheme":"aws-sigv4","accessKeyId":"@config.apiKey","secretAccessKey":{"credential":"@config.apiKey","scope":"user"},"region":"us-east-1","service":"s3"});
-    let valid = check(ok_egress(), config(), call(json!(ORIGIN), json!({"auth":auth,"presign":{"expiresSec":900}})));
-    for code in [ErrorCode::HttpAuthInvalid, ErrorCode::OperatorArgTypeMismatch] {
-        assert!(!fires(&valid, code), "{code:?}: {valid:?}");
-    }
-    for options in [json!({"expiresSec":0}),json!({"expiresSec":604801}),json!({"expiresSec":1.5}),json!({})] {
-        let result = check(ok_egress(), config(),call(json!(ORIGIN),json!({"auth":auth,"presign":options})));
-        assert!(fires(&result,ErrorCode::HttpAuthInvalid),"{result:?}");
-    }
-    let missing = check(ok_egress(),config(),call(json!(ORIGIN),json!({"presign":{"expiresSec":900}})));
-    assert!(fires(&missing,ErrorCode::HttpAuthInvalid));
-}
-
-#[test]
-fn webpush_and_vapid_have_closed_typed_options() {
-    let request = json!({"webpush":{"subscription":{"endpoint":format!("{ORIGIN}/search"),"keys":{"p256dh":"public","auth":"auth"}},"payload":"message","ttl":60,"urgency":"high"},
-        "auth":{"scheme":"vapid","privateKey":"@config.apiKey","publicKey":"public","subject":"mailto:owner@example.com"}});
-    let effect = |request: Value| json!([["http","POST",ORIGIN,"/search",request,emit()]]);
-    let r = check(ok_egress(),config(),effect(request.clone()));
-    for code in [ErrorCode::HttpAuthInvalid,ErrorCode::OperatorArgTypeMismatch] {
-        assert!(!fires(&r,code),"{code:?}: {r:?}");
-    }
-    for options in [json!({"ttl":-1}),json!({"urgency":"immediate"})] {
-        let mut bad = request.clone();
-        bad["webpush"].as_object_mut().unwrap().extend(options.as_object().unwrap().clone());
-        let r = check(ok_egress(),config(),effect(bad));
-        assert!(fires(&r,ErrorCode::HttpAuthInvalid),"{r:?}");
-    }
-    let mut mismatch = request.clone();
-    mismatch["webpush"]["subscription"]["endpoint"] = json!("https://other.example.com/search");
-    assert!(fires(&check(ok_egress(),config(),effect(mismatch)),ErrorCode::HttpAuthInvalid));
-}
-
-#[test]
-fn a_stream_with_an_on_message_route_has_a_valid_emit() {
-    let with = json!([["http", "GET", ORIGIN, "/s", { "stream": "sse" },
-        { "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED", "onMessage": "CHUNK" } }]]);
-    let r = check(ok_egress(), config(), with);
-    assert!(!fires(&r, ErrorCode::EffectEmitKeyInvalid));
-}
-
 fn secret_codes(cfg: Value, effects: Value) -> Vec<&'static str> {
     let program = serde_json::to_value(program(ok_egress(), cfg, effects)).unwrap();
     secret_flow_violations(&program).iter().map(|v| v.code()).collect()
@@ -153,71 +93,6 @@ fn secret_codes(cfg: Value, effects: Value) -> Vec<&'static str> {
 
 fn secrets(effects: Value) -> Vec<&'static str> {
     secret_codes(config(), effects)
-}
-
-#[test]
-fn credential_not_secret() {
-    let with = |auth: Value| secrets(call(json!(ORIGIN), json!({ "auth": auth })));
-    for auth in [
-        json!({ "scheme": "bearer", "credential": "@config.plain" }),
-        json!({ "scheme": "bearer", "credential": "LITERAL" }),
-        json!({ "scheme": "bearer", "credential": "@config.missing" }),
-        json!({ "scheme": "basic", "user": "alice", "credential": "@config.apiKey" }),
-        json!({ "scheme": "oauth2-client", "tokenUrl": ORIGIN, "clientId": "@config.apiKey", "clientSecret": "@payload.s" }),
-    ] {
-        assert!(with(auth.clone()).contains(&CREDENTIAL_NOT_SECRET_CODE), "{auth}");
-    }
-    for auth in [
-        json!({ "scheme": "bearer", "credential": "@config.apiKey" }),
-        json!({ "scheme": "basic", "user": "@config.apiKey", "credential": "@config.apiKey" }),
-        json!({ "scheme": "api-key", "credential": "@config.apiKey", "name": "k", "in": "header" }),
-        json!({ "scheme": "hmac-sha256", "credential": "@config.apiKey", "name": "S", "signs": "@payload.m", "encoding": "hex" }),
-    ] {
-        assert!(with(auth.clone()).is_empty(), "{auth}");
-    }
-}
-
-#[test]
-fn hmac_prefix_must_be_text() {
-    let hmac = |prefix: serde_json::Value| {
-        json!({"scheme":"hmac-sha256","credential":"@config.apiKey","name":"X-Sig","signs":"data","encoding":"hex","prefix":prefix})
-    };
-    let r = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":hmac(json!("sha256="))})));
-    assert!(!r.errors.iter().any(|error| error.message.contains("prefix")), "{:?}", r.errors);
-    for bad in [json!(7), json!(true)] {
-        assert!(
-            check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":hmac(bad.clone())})))
-                .errors
-                .iter()
-                .any(|error| error.code == ErrorCode::HttpAuthInvalid && error.message.contains("auth.prefix")),
-            "{bad}"
-        );
-    }
-}
-
-#[test]
-fn secret_outside_auth() {
-    let r = secrets(json!([["set", "@entity.token", "@config.apiKey"]]));
-    assert!(r.contains(&SECRET_OUTSIDE_AUTH_CODE));
-
-    let r = secrets(json!([["http", "GET", ORIGIN, "/s", { "headers": { "X": "@config.apiKey" } }, emit()]]));
-    assert!(r.contains(&SECRET_OUTSIDE_AUTH_CODE));
-
-    let r = secrets(json!([["http", "GET", ORIGIN, "/s",
-        { "auth": { "scheme": "api-key", "credential": "@config.apiKey", "name": "@config.apiKey", "in": "header" } }, emit()]]));
-    assert!(r.contains(&SECRET_OUTSIDE_AUTH_CODE));
-
-    let r = secrets(json!([["set", "@entity.token", "@config.plain"]]));
-    assert!(!r.contains(&SECRET_OUTSIDE_AUTH_CODE));
-}
-
-#[test]
-fn a_secret_in_another_knobs_config_declaration_stays_legal() {
-    let cfg = json!({
-        "apiKey": { "type": "secret", "default": "K" },
-        "alias": { "type": "secret", "default": "@config.apiKey" }
-    });
-    assert!(secret_codes(cfg, json!([])).is_empty());
 }
 
 fn keyed(key: bool, cancelled: bool) -> Value {
@@ -230,70 +105,6 @@ fn keyed(key: bool, cancelled: bool) -> Value {
         options["key"] = json!("@entity.id");
     }
     json!([["http", "GET", ORIGIN, "/s", {}, options]])
-}
-
-#[test]
-fn keyed_http_contract_is_the_call_service_one() {
-    assert!(fires(&check(ok_egress(), config(), keyed(false, true)), ErrorCode::CallServiceCancelledWithoutKey));
-    assert!(!fires(&check(ok_egress(), config(), keyed(true, true)), ErrorCode::CallServiceCancelledWithoutKey));
-
-    let numeric_key = json!([["http", "GET", ORIGIN, "/s", {}, { "key": 7, "emit": { "success": "SEARCHED" } }]]);
-    assert!(fires(&check(ok_egress(), config(), numeric_key), ErrorCode::CallServiceKeyType));
-}
-
-#[test]
-fn keyed_http_rejects_statically_non_string_expressions() {
-    for key in [json!(["+", 1, 2]), json!("@config.limit"), json!(null), json!("")] {
-        let effects = json!([["http", "GET", ORIGIN, "/s", {}, { "key": key }]]);
-        assert!(fires(&check(ok_egress(), config(), effects), ErrorCode::CallServiceKeyType), "{key}");
-    }
-    let effects = json!([["http", "GET", ORIGIN, "/s", {}, { "key": ["str/concat", "request:", "one"] }]]);
-    assert!(!fires(&check(ok_egress(), config(), effects), ErrorCode::CallServiceKeyType));
-}
-
-#[test]
-fn cancel_call_accepts_a_keyed_http_call() {
-    let mut effects = keyed(true, true);
-    effects.as_array_mut().unwrap().push(json!(["cancel-call", "@entity.id"]));
-    assert!(!fires(&check(ok_egress(), config(), effects), ErrorCode::CancelCallNoKeyedCall));
-
-    let mut unkeyed = keyed(false, false);
-    unkeyed.as_array_mut().unwrap().push(json!(["cancel-call", "@entity.id"]));
-    assert!(fires(&check(ok_egress(), config(), unkeyed), ErrorCode::CancelCallNoKeyedCall));
-}
-
-#[test]
-fn the_success_payload_is_the_http_reply() {
-    let reads = |payload: Value| {
-        let mut schema = program(ok_egress(), config(), call(json!(ORIGIN), json!({})));
-        let value = serde_json::to_value(&mut schema).unwrap();
-        let mut value = value;
-        value["orbitals"][0]["traits"][0]["emits"][0]["payloadSchema"] = payload;
-        let schema: OrbitalSchema = serde_json::from_value(value).unwrap();
-        validate_comprehensive_without_services(&schema)
-    };
-    let r = reads(json!([{ "name": "status", "type": "number" }, { "name": "body", "type": "string" }, { "name": "headers", "type": "object" }]));
-    assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
-    let r = reads(json!([{ "name": "key", "type": "string" }]));
-    assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
-    let r = reads(json!([{ "name": "items", "type": "array" }]));
-    assert!(fires(&r, ErrorCode::EmitPayloadNotProduced));
-    let r = reads(json!([{ "name": "status", "type": "string" }]));
-    assert!(fires(&r, ErrorCode::EmitPayloadNotProduced));
-}
-
-#[test]
-fn a_paginated_call_produces_pages_items_last() {
-    let paged = json!([["http", "GET", ORIGIN, "/s",
-        { "paginate": { "style": "cursor", "max": 2 } },
-        { "emit": { "success": "PAGED", "failure": "SEARCH_FAILED" } }]]);
-    let r = check(ok_egress(), config(), paged.clone());
-    assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
-
-    let reply_on_paged = json!([["http", "GET", ORIGIN, "/s",
-        { "paginate": { "style": "cursor", "max": 2 } },
-        { "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }]]);
-    assert!(fires(&check(ok_egress(), config(), reply_on_paged), ErrorCode::EmitPayloadNotProduced));
 }
 
 fn call_service(service: &str, action: &str, options: Value) -> Value {
@@ -359,37 +170,6 @@ fn http_with(extra_request: Value) -> Value {
 }
 
 #[test]
-fn the_http_failure_payload_is_error_kind_key() {
-    let reads = |fields: Value| with_event_payload(http_with(json!({})), "SEARCH_FAILED", fields);
-    let r = reads(json!([field("error", "string"), field("kind", "string"), field("credential", "string"), field("key", "string")]));
-    assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
-    let r = reads(json!([field("status", "number")]));
-    assert!(fires(&r, ErrorCode::EmitPayloadNotProduced), "a failure has no status");
-    let r = reads(json!([field("error", "number")]));
-    assert!(fires(&r, ErrorCode::EmitPayloadNotProduced), "error is a string");
-}
-
-#[test]
-fn a_presigned_success_has_url_and_key_instead_of_reply_fields() {
-    let request = json!({"auth":{"scheme":"aws-sigv4","accessKeyId":"@config.apiKey","secretAccessKey":"@config.apiKey","region":"us-east-1","service":"s3"},"presign":{"expiresSec":900}});
-    let effect = http_with(request);
-    let r = with_event_payload(effect.clone(),"SEARCHED",json!([field("url","string"),field("key","string")]));
-    assert!(!fires(&r,ErrorCode::EmitPayloadNotProduced),"{:?}",r.errors);
-    let r = with_event_payload(effect,"SEARCHED",json!([field("status","number")]));
-    assert!(fires(&r,ErrorCode::EmitPayloadNotProduced));
-}
-
-#[test]
-fn the_http_stream_event_is_data_event_id_key() {
-    let streaming = http_with(json!({ "stream": "sse" }));
-    let reads = |fields: Value| with_event_payload(streaming.clone(), "CHUNK", fields);
-    let r = reads(json!([field("data", "string"), field("event", "string"), field("id", "string"), field("key", "string")]));
-    assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "{:?}", r.errors);
-    let r = reads(json!([field("error", "string")]));
-    assert!(fires(&r, ErrorCode::EmitPayloadNotProduced), "a stream event has no error");
-}
-
-#[test]
 fn a_keyed_call_service_failure_is_error_and_key() {
     let keyed = json!([["call-service", "test-svc", "run", {},
         { "key": "@entity.id", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }]]);
@@ -421,45 +201,6 @@ fn exchange(extra: Value) -> Value {
     json!({ "auth": auth })
 }
 
-#[test]
-fn jwt_bearer_rejects_statically_invalid_auth_fields() {
-    for patch in [json!({"alg":"HS256"}), json!({"claims":{"iss":"override"}}), json!({"claims":17})] {
-        let mut auth = json!({"scheme":"jwt-bearer","key":"@config.apiKey","alg":"RS256",
-            "claims":{"aud":ORIGIN,"iat":1000,"exp":4600},"tokenUrl":format!("{ORIGIN}/token")});
-        auth.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
-        let r = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":auth})));
-        assert!(r.errors.iter().any(|error| error.code.as_str() == "ORB_HTTP_AUTH_INVALID"), "{:?}", r.errors);
-    }
-}
-
-#[test]
-fn static_http_header_injection_is_refused_and_valid_headers_are_clean() {
-    for headers in [json!({"X-Test":"line\r\ninjection"}), json!({"X Bad":"value"}), json!({"X:Bad":"value"}), json!({"X-Test":"nul\u{0}value"})] {
-        let r = check(ok_egress(), config(), post(json!(ORIGIN), json!({"headers":headers})));
-        assert!(r.errors.iter().any(|error| error.code.as_str() == "ORB_HTTP_HEADER_INVALID"), "{:?}", r.errors);
-    }
-    let r = check(ok_egress(), config(), post(json!(ORIGIN), json!({"headers":{"X-Test":"one line"}})));
-    assert!(!r.errors.iter().any(|error| error.code.as_str() == "ORB_HTTP_HEADER_INVALID"));
-    for auth in [
-        json!({"scheme":"api-key","credential":"@config.apiKey","name":"X:Bad","in":"header"}),
-        json!({"scheme":"hmac-sha256","credential":"@config.apiKey","name":"X Bad","signs":"data","encoding":"hex"}),
-    ] {
-        let r = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":auth})));
-        assert!(r.errors.iter().any(|error| error.code.as_str() == "ORB_HTTP_HEADER_INVALID"));
-    }
-    let r = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":{"scheme":"api-key","credential":"@config.apiKey","name":"X Bad","in":"query"}})));
-    assert!(!r.errors.iter().any(|error| error.code.as_str() == "ORB_HTTP_HEADER_INVALID"));
-}
-
-#[test]
-fn the_token_exchange_body_slot_rules_are_the_secret_flow_rules() {
-    assert!(secrets(post(json!(ORIGIN), exchange(json!({})))).is_empty());
-    let leaked = exchange(json!({ "body": { "form": { "k": "@config.apiKey" } } }));
-    assert_eq!(secrets(post(json!(ORIGIN), leaked)), vec![SECRET_OUTSIDE_AUTH_CODE]);
-    let plain = exchange(json!({ "body": { "form": { "k": { "credential": "@config.plain" } } } }));
-    assert_eq!(secrets(post(json!(ORIGIN), plain)), vec![CREDENTIAL_NOT_SECRET_CODE]);
-}
-
 fn grant_auths() -> [Value; 3] {
     [
         exchange(json!({}))["auth"].clone(),
@@ -469,273 +210,6 @@ fn grant_auths() -> [Value; 3] {
             "key":"@config.apiKey","alg":"RS256",
             "claims":{"aud":format!("{ORIGIN}/token"),"iat":1000,"exp":4600}}),
     ]
-}
-
-#[test]
-fn grant_request_is_optional_and_accepts_closed_options_for_all_three_schemes() {
-    for auth in grant_auths() {
-        let baseline = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":auth})));
-        for code in [ErrorCode::HttpAuthInvalid, ErrorCode::HttpHeaderInvalid, ErrorCode::OperatorArgTypeMismatch] {
-            assert!(!fires(&baseline, code), "baseline {auth}, {code:?}: {baseline:?}");
-        }
-        for options in [
-            json!({}), json!({"timeoutMs":null}), json!({"timeoutMs":0}),
-            json!({"headers":{},"timeoutMs":15000}),
-            json!({"headers":{"X-Grant":"grant-only","X-Empty":""},"timeoutMs":15000,
-                "retry":{"max":3,"on":["1xx","408","5xx","429","timeout","failed"],
-                    "scheduleMs":[100,500,1500],"noResponseMax":2}}),
-            json!({"headers":{"X-Public":"@config.plain","X-Expression":["str/concat","public:","@config.plain"]},
-                "timeoutMs":"@config.limit"}),
-            json!({"timeoutMs":["+","@config.limit",1]}),
-        ] {
-            let mut configured = auth.clone();
-            configured["grantRequest"] = options.clone();
-            let request = json!({"auth":configured,"headers":{"X-Resource":"resource-only"},
-                "timeoutMs":20000,"retry":{"max":1,"on":["5xx"],"backoffMs":7}});
-            let result = check(ok_egress(), config(), post(json!(ORIGIN), request.clone()));
-            for code in [ErrorCode::HttpAuthInvalid, ErrorCode::HttpHeaderInvalid, ErrorCode::OperatorArgTypeMismatch] {
-                assert!(!fires(&result, code), "{auth}, {options}, {code:?}: {result:?}");
-            }
-            assert!(secrets(post(json!(ORIGIN), request)).is_empty(), "{auth}: {options}");
-        }
-    }
-}
-
-#[test]
-fn delay_ms_is_a_declared_request_option_typed_as_a_whole_number_of_milliseconds() {
-    let errors = |request: Value| {
-        let result = check(ok_egress(), config(), post(json!(ORIGIN), request));
-        [ErrorCode::HttpAuthInvalid, ErrorCode::HttpRequestOptionInvalid, ErrorCode::OperatorArgTypeMismatch]
-            .into_iter()
-            .any(|code| fires(&result, code))
-    };
-    for good in [json!(0), json!(500), json!(null), json!("@config.limit"), json!(["+", "@config.limit", 1])] {
-        assert!(!errors(json!({"delayMs": good.clone()})), "{good}");
-    }
-    // Controls: a negative, fractional or text delay, a non-number expression and a grantRequest delay are refused.
-    for bad in [json!(-1), json!(1.5), json!("soon"), json!("@config.plain"), json!(true)] {
-        assert!(errors(json!({"delayMs": bad.clone()})), "{bad}");
-    }
-    for bad in [json!(-1), json!("soon"), json!("@config.plain")] {
-        let result = check(ok_egress(), config(), post(json!(ORIGIN), json!({"delayMs": bad.clone()})));
-        assert!(fires(&result, ErrorCode::HttpRequestOptionInvalid), "{bad}: {result:?}");
-        assert!(!fires(&result, ErrorCode::HttpAuthInvalid), "{bad}: {result:?}");
-    }
-}
-
-#[test]
-fn grant_request_rejects_nonobject_options_headers_and_retry() {
-    for auth in grant_auths() {
-        for invalid in [json!(null), json!(3), json!([]), json!(["literal", "@config.limit"]), json!(true), json!("request")] {
-            for (options, code) in [
-                (invalid.clone(), ErrorCode::HttpAuthInvalid),
-                (json!({"headers":invalid.clone()}), ErrorCode::HttpHeaderInvalid),
-                (json!({"retry":invalid.clone()}), ErrorCode::HttpRequestOptionInvalid),
-            ] {
-                let mut configured = auth.clone();
-                configured["grantRequest"] = options.clone();
-                let result = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":configured})));
-                assert!(fires(&result, code), "{auth}: {options}: {result:?}");
-            }
-        }
-    }
-}
-
-#[test]
-fn grant_and_resource_deadlines_share_whole_nonnegative_or_null_validation() {
-    for auth in grant_auths() {
-        for deadline in [json!(null), json!(0), json!(1), json!(15000), json!("@config.limit"), json!(["+","@config.limit",1])] {
-            let mut configured = auth.clone();
-            configured["grantRequest"] = json!({"timeoutMs":deadline});
-            let result = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":configured,"timeoutMs":deadline})));
-            assert!(!fires(&result, ErrorCode::HttpAuthInvalid), "{auth}: {deadline}: {result:?}");
-            assert!(!fires(&result, ErrorCode::OperatorArgTypeMismatch), "{auth}: {deadline}: {result:?}");
-        }
-        for deadline in [json!(-1), json!(0.5), json!("15000"), json!(true), json!([]), json!({}), json!("@config.plain")] {
-            for grant in [false, true] {
-                let mut request = json!({"auth":auth});
-                if grant {
-                    request["auth"]["grantRequest"] = json!({"timeoutMs":deadline});
-                } else {
-                    request["timeoutMs"] = deadline.clone();
-                }
-                let result = check(ok_egress(), config(), post(json!(ORIGIN), request));
-                assert!(fires(&result, ErrorCode::HttpRequestOptionInvalid) || fires(&result, ErrorCode::HttpAuthInvalid), "{auth}: {deadline}: grant={grant}: {result:?}");
-            }
-        }
-    }
-}
-
-#[test]
-fn grant_headers_reserve_authorization_and_content_type_even_without_basic_auth() {
-    let mut auths = grant_auths().to_vec();
-    let mut omitted = grant_auths()[0].clone();
-    for key in ["clientAuth", "clientId", "clientSecret"] {
-        omitted.as_object_mut().unwrap().remove(key);
-    }
-    auths.push(omitted);
-    let mut basic = grant_auths()[0].clone();
-    basic["clientAuth"] = json!("basic");
-    auths.push(basic);
-    for auth in auths {
-        let mut control = auth.clone();
-        control["grantRequest"] = json!({"headers":{"X-Grant":"public","X-Empty":""}});
-        let result = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":control})));
-        assert!(!fires(&result, ErrorCode::HttpHeaderInvalid), "{auth}: {result:?}");
-        assert!(!fires(&result, ErrorCode::HttpAuthInvalid), "{auth}: {result:?}");
-        assert!(!fires(&result, ErrorCode::OperatorArgTypeMismatch), "{auth}: {result:?}");
-        for name in ["Authorization", "aUtHoRiZaTiOn", "Content-Type", "cOnTeNt-TyPe"] {
-            let mut configured = auth.clone();
-            configured["grantRequest"] = json!({"headers":{name:"literal"}});
-            let result = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":configured})));
-            assert!(fires(&result, ErrorCode::HttpHeaderInvalid), "{auth}: {name}: {result:?}");
-        }
-    }
-}
-
-#[test]
-fn grant_headers_keep_canonical_token_single_line_and_static_type_checks() {
-    for auth in grant_auths() {
-        for headers in [
-            json!({"X Bad":"value"}), json!({"X:Bad":"value"}), json!({"":"value"}),
-            json!({"X-Test":"first\r\nInjected: second"}), json!({"X-Test":"line\nline"}),
-            json!({"X-Test":"nul\u{0}value"}), json!({"X-Test":5}), json!({"X-Test":true}),
-            json!({"X-Test":null}), json!({"X-Test":{}}), json!({"X-Test":[]}),
-            json!({"X-Test":"@config.limit"}),
-            json!({"X-Public":"@config.plain","X Bad":"value"}),
-            json!({"X-Public":["str/concat","public:","@config.plain"],"X-Bad":"line\nline"}),
-        ] {
-            let mut configured = auth.clone();
-            configured["grantRequest"] = json!({"headers":headers.clone()});
-            let result = check(ok_egress(), config(), post(json!(ORIGIN), json!({"auth":configured})));
-            assert!(fires(&result, ErrorCode::HttpHeaderInvalid), "{auth}: {headers}: {result:?}");
-        }
-    }
-}
-
-#[test]
-fn extended_retry_policies_are_shared_by_grant_and_resource_requests() {
-    for policy in [
-        json!({"max":3,"on":["1xx","408","5xx","429","timeout","failed"],"scheduleMs":[100,500,1500],"noResponseMax":2}),
-        json!({"max":1,"on":["failed","failed"],"scheduleMs":[0],"noResponseMax":0}),
-        json!({"max":2,"on":["timeout"],"backoffMs":0,"noResponseMax":2}),
-        json!({"max":1,"on":["5xx","429","timeout"],"backoffMs":7}),
-    ] {
-        for auth in grant_auths() {
-            for grant in [false, true] {
-                let mut request = json!({"auth":auth});
-                if grant {
-                    request["auth"]["grantRequest"] = json!({"retry":policy});
-                } else {
-                    request["retry"] = policy.clone();
-                }
-                let result = check(ok_egress(), config(), post(json!(ORIGIN), request));
-                for code in [ErrorCode::HttpAuthInvalid, ErrorCode::OperatorArgTypeMismatch] {
-                    assert!(!fires(&result, code), "{auth}: {policy}: grant={grant}: {code:?}: {result:?}");
-                }
-            }
-        }
-    }
-}
-
-#[test]
-fn extended_retry_rejects_invalid_forms_lengths_values_and_cap_bounds() {
-    for policy in [
-        json!({"max":1,"on":["5xx"]}),
-        json!({"max":1,"on":["5xx"],"backoffMs":1,"scheduleMs":[1]}),
-        json!({"max":1,"on":["5xx"],"backoffMs":null,"scheduleMs":[1]}),
-        json!({"max":1,"on":["5xx"],"scheduleMs":[]}),
-        json!({"max":1,"on":["5xx"],"scheduleMs":[1,2]}),
-        json!({"max":2,"on":["5xx"],"scheduleMs":[1]}),
-        json!({"max":1,"on":["5xx"],"scheduleMs":[-1]}),
-        json!({"max":1,"on":["5xx"],"scheduleMs":[0.5]}),
-        json!({"max":1,"on":["5xx"],"scheduleMs":[null]}),
-        json!({"max":1,"on":["5xx"],"scheduleMs":["1"]}),
-        json!({"max":1,"on":["5xx"],"scheduleMs":null}),
-        json!({"max":1,"on":["5xx"],"scheduleMs":1}),
-        json!({"max":1,"on":["5xx"],"scheduleMs":{}}),
-        json!({"max":1,"on":["5xx"],"scheduleMs":true}),
-        json!({"max":1,"on":["5xx"],"backoffMs":-1}),
-        json!({"max":1,"on":["5xx"],"backoffMs":0.5}),
-        json!({"max":1,"on":["5xx"],"backoffMs":null}),
-        json!({"max":1,"on":["5xx"],"backoffMs":"1"}),
-        json!({"max":1,"on":["5xx"],"backoffMs":1,"noResponseMax":-1}),
-        json!({"max":1,"on":["5xx"],"backoffMs":1,"noResponseMax":0.5}),
-        json!({"max":1,"on":["5xx"],"backoffMs":1,"noResponseMax":2}),
-        json!({"max":1,"on":["5xx"],"backoffMs":1,"noResponseMax":null}),
-        json!({"max":1,"on":["5xx"],"backoffMs":1,"noResponseMax":"0"}),
-        json!({"max":1,"on":["5xx"],"backoffMs":1,"noResponseMax":false}),
-        json!({"max":1,"on":["5xx"],"backoffMs":1,"noResponseMax":[]}),
-        json!({"max":1,"on":["5xx"],"backoffMs":1,"noResponseMax":{}}),
-        json!({"max":0,"on":["5xx"],"scheduleMs":[]}),
-        json!({"max":1.5,"on":["5xx"],"scheduleMs":[1]}),
-        json!({"max":4294967296u64,"on":["5xx"],"backoffMs":1}),
-        json!({"on":["5xx"],"backoffMs":1}),
-        json!({"max":1,"on":[],"scheduleMs":[1]}),
-        json!({"max":1,"on":"failed","scheduleMs":[1]}),
-        json!({"max":1,"on":["4xx"],"scheduleMs":[1]}),
-        json!({"max":1,"on":["FAILED"],"scheduleMs":[1]}),
-        json!({"max":1,"on":[99],"scheduleMs":[1]}),
-    ] {
-        for auth in grant_auths() {
-            for grant in [false, true] {
-                let mut request = json!({"auth":auth});
-                if grant {
-                    request["auth"]["grantRequest"] = json!({"retry":policy});
-                } else {
-                    request["retry"] = policy.clone();
-                }
-                let result = check(ok_egress(), config(), post(json!(ORIGIN), request));
-                assert!(fires(&result, ErrorCode::HttpRequestOptionInvalid) || fires(&result, ErrorCode::HttpAuthInvalid), "{auth}: {policy}: grant={grant}: {result:?}");
-            }
-        }
-    }
-}
-
-#[test]
-fn grant_request_does_not_create_any_new_secret_or_credential_slots() {
-    for auth in grant_auths() {
-        let mut control = json!({"auth":auth});
-        control["auth"]["grantRequest"] = json!({"headers":{"X-Public":"@config.plain"},"timeoutMs":"@config.limit"});
-        assert!(secrets(post(json!(ORIGIN), control)).is_empty(), "{auth}");
-        for options in [
-            json!({"headers":{"X-Grant":"@config.apiKey"}}),
-            json!({"headers":{"X-Grant":["str/concat","public:","@config.apiKey"]}}),
-            json!({"headers":{"X-Grant":{"credential":"@config.apiKey","scope":"user"}}}),
-            json!({"timeoutMs":"@config.apiKey"}),
-            json!({"retry":{"max":1,"on":["5xx"],"backoffMs":"@config.apiKey"}}),
-            json!({"retry":{"max":1,"on":["5xx"],"scheduleMs":["@config.apiKey"]}}),
-            json!({"retry":{"max":1,"on":["failed"],"backoffMs":0,"noResponseMax":"@config.apiKey"}}),
-        ] {
-            let mut configured = auth.clone();
-            configured["grantRequest"] = options.clone();
-            assert_eq!(secrets(post(json!(ORIGIN), json!({"auth":configured}))), vec![SECRET_OUTSIDE_AUTH_CODE], "{auth}: {options}");
-        }
-        for extra in [
-            json!({"headers":{"X-Resource":"@config.apiKey"}}),
-            json!({"query":{"token":"@config.apiKey"}}),
-            json!({"json":{"token":{"credential":"@config.apiKey"}}}),
-        ] {
-            let mut request = json!({"auth":auth});
-            request.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-            assert_eq!(secrets(post(json!(ORIGIN), request)), vec![SECRET_OUTSIDE_AUTH_CODE], "{auth}: {extra}");
-        }
-    }
-}
-
-#[test]
-fn grant_request_does_not_legalize_plain_values_in_existing_credential_slots() {
-    for auth in grant_auths() {
-        let slots: &[&str] = if auth["scheme"] == "jwt-bearer" { &["key"] } else { &["clientId", "clientSecret"] };
-        for slot in slots {
-            for value in [json!("@config.plain"), json!("LITERAL"), json!("@config.missing")] {
-                let mut configured = auth.clone();
-                configured["grantRequest"] = json!({"headers":{"X-Grant":"public"}});
-                configured[*slot] = value.clone();
-                assert_eq!(secrets(post(json!(ORIGIN), json!({"auth":configured}))), vec![CREDENTIAL_NOT_SECRET_CODE], "{auth}: {slot}: {value}");
-            }
-        }
-    }
 }
 
 fn dynamic_retry_config() -> Value {
@@ -749,101 +223,7 @@ fn dynamic_retry_config() -> Value {
     cfg
 }
 
-#[test]
-fn retry_accepts_typed_dynamic_operands_without_guessing_unknown_bounds_or_lengths() {
-    for policy in [
-        json!({"max":1,"on":["5xx"],"backoffMs":0,"noResponseMax":0}),
-        json!({"max":3,"on":["1xx","408","5xx","429","timeout","failed"],"scheduleMs":[100,500,1500],"noResponseMax":2}),
-        json!({"max":"@config.limit","on":["5xx"],"backoffMs":"@config.backoff","noResponseMax":"@config.retryCap"}),
-        json!({"max":["+","@config.limit",1],"on":["5xx","timeout"],"backoffMs":["+","@config.backoff",1],"noResponseMax":["+","@config.retryCap",0]}),
-        json!({"max":1,"on":"@config.retryOn","backoffMs":0}),
-        json!({"max":2,"on":[500,502,503,504,"timeout"],"backoffMs":0}),
-        json!({"max":2,"on":[503,"@config.limit","5xx"],"backoffMs":0}),
-        json!({"max":2,"on":"@config.retryDelays","backoffMs":0}),
-        json!({"max":1,"on":["failed"],"scheduleMs":"@config.retryDelays"}),
-        json!({"max":"@config.limit","on":"@config.retryOn","backoffMs":"@config.backoff","noResponseMax":"@config.retryCap"}),
-        json!({"max":"@config.limit","on":"@config.retryOn","scheduleMs":"@config.retryDelays","noResponseMax":"@config.retryCap"}),
-        json!({"max":2,"on":["5xx","failed"],"scheduleMs":["@config.limit",["+","@config.limit",1]],"noResponseMax":1}),
-        json!({"max":2,"on":["array/append","@config.retryOn","failed"],"scheduleMs":["array/append","@config.retryDelays",["+","@config.limit",1]],"noResponseMax":1}),
-        json!({"max":"@config.wideLimit","on":["failed"],"scheduleMs":[10,20,30],"noResponseMax":2}),
-        json!({"max":3,"on":"@config.retryOn","scheduleMs":"@config.threeDelays","noResponseMax":"@config.retryCap"}),
-    ] {
-        for auth in grant_auths() {
-            for grant in [false, true] {
-                let mut request = json!({"auth":auth});
-                if grant {
-                    request["auth"]["grantRequest"] = json!({"retry":policy});
-                } else {
-                    request["retry"] = policy.clone();
-                }
-                let result = check(ok_egress(), dynamic_retry_config(), post(json!(ORIGIN), request.clone()));
-                for code in [ErrorCode::HttpAuthInvalid, ErrorCode::OperatorArgTypeMismatch, ErrorCode::OperatorArgUndetermined] {
-                    assert!(!fires(&result, code), "{auth}: {policy}: grant={grant}: {code:?}: {result:?}");
-                }
-                assert!(secret_codes(dynamic_retry_config(), post(json!(ORIGIN), request)).is_empty(), "{auth}: {policy}: grant={grant}");
-            }
-        }
-    }
-}
-
-#[test]
-fn retry_dynamic_operands_do_not_hide_invalid_static_neighbors_or_wrong_declared_types() {
-    for policy in [
-        json!({"max":"@config.limit","on":["5xx"],"backoffMs":-1}),
-        json!({"max":"@config.limit","on":["4xx"],"backoffMs":"@config.backoff"}),
-        json!({"max":"@config.limit","on":["FAILED"],"scheduleMs":"@config.retryDelays"}),
-        json!({"max":2,"on":"@config.retryOn","scheduleMs":["@config.limit",-1]}),
-        json!({"max":1,"on":"@config.retryOn","scheduleMs":["@config.limit",0]}),
-        json!({"max":2,"on":"@config.retryOn","scheduleMs":["@config.limit"]}),
-        json!({"max":"@config.limit","on":"@config.retryOn","scheduleMs":[-1]}),
-        json!({"max":"@config.limit","on":"@config.retryOn","scheduleMs":[]}),
-        json!({"max":"@config.limit","on":"@config.retryOn","scheduleMs":[0],"noResponseMax":2}),
-        json!({"max":"@config.limit","on":"@config.retryOn","backoffMs":"@config.backoff","noResponseMax":-1}),
-        json!({"max":1,"on":"@config.retryOn","backoffMs":"@config.backoff","noResponseMax":2}),
-        json!({"max":"@config.limit","on":"@config.retryOn","backoffMs":"@config.backoff","scheduleMs":"@config.retryDelays"}),
-        json!({"max":"@config.limit","on":"@config.retryOn"}),
-        json!({"max":0,"on":"@config.retryOn","backoffMs":"@config.backoff"}),
-        json!({"max":1.5,"on":"@config.retryOn","backoffMs":"@config.backoff"}),
-        json!({"max":"@config.plain","on":"@config.retryOn","backoffMs":"@config.backoff"}),
-        json!({"max":"@config.limit","on":"@config.plain","backoffMs":"@config.backoff"}),
-        json!({"max":"@config.limit","on":[600],"backoffMs":"@config.backoff"}),
-        json!({"max":"@config.limit","on":[99],"backoffMs":"@config.backoff"}),
-        json!({"max":1,"on":[500.5],"backoffMs":0}),
-        json!({"max":"@config.limit","on":"@config.retryOn","scheduleMs":"@config.retryOn"}),
-        json!({"max":"@config.limit","on":"@config.retryOn","backoffMs":"@config.plain"}),
-        json!({"max":"@config.limit","on":"@config.retryOn","backoffMs":"@config.backoff","noResponseMax":"@config.plain"}),
-        json!({"max":"@config.limit","on":[],"backoffMs":"@config.backoff"}),
-        json!({"max":"@config.limit","on":["failed",true],"backoffMs":"@config.backoff"}),
-        json!({"max":"@config.limit","on":"@config.retryOn","scheduleMs":["@config.limit",0.5]}),
-        json!({"max":2,"on":"@config.retryOn","scheduleMs":["@config.limit",null]}),
-        json!({"max":1,"on":"@config.retryOn","scheduleMs":"@config.retryDelays","noResponseMax":2}),
-    ] {
-        for auth in grant_auths() {
-            for grant in [false, true] {
-                let mut request = json!({"auth":auth});
-                if grant {
-                    request["auth"]["grantRequest"] = json!({"retry":policy});
-                } else {
-                    request["retry"] = policy.clone();
-                }
-                let result = check(ok_egress(), dynamic_retry_config(), post(json!(ORIGIN), request));
-                assert!(fires(&result, ErrorCode::HttpRequestOptionInvalid) || fires(&result, ErrorCode::HttpAuthInvalid), "{auth}: {policy}: grant={grant}: {result:?}");
-            }
-        }
-    }
-}
-
 // --- token-exchange rotate / onUnauthorized / queryEncoding ---------------------------------------------------
-
-#[test]
-fn on_unauthorized_is_a_closed_choice() {
-    for good in ["reply", "refresh"] {
-        let r = check(ok_egress(), config(), post(json!(ORIGIN), exchange(json!({ "onUnauthorized": good }))));
-        assert!(!fires(&r, ErrorCode::HttpAuthInvalid), "{good}: {:?}", r.errors);
-    }
-    let r = check(ok_egress(), config(), post(json!(ORIGIN), exchange(json!({ "onUnauthorized": "retry" }))));
-    assert!(fires(&r, ErrorCode::HttpAuthInvalid));
-}
 
 mod browser_effects_validation {
     // `orb validate` rules of `browser/page-facts` and `browser/beacon` (G-CROSS-221): every code has a positive case
@@ -904,10 +284,6 @@ mod browser_effects_validation {
         json!({ "emit": { "success": "FACTS", "failure": "FACTS_FAILED" } })
     }
 
-    fn beacon_routes() -> Value {
-        json!({ "emit": { "success": "BEACON_DONE", "failure": "BEACON_FAILED", "cancelled": "BEACON_CANCELLED" } })
-    }
-
     const PAGE_FACT_CODES: [ErrorCode; 1] = [ErrorCode::PageFactsUnrequestedRead];
     #[test]
     fn control_well_formed_page_facts_raise_none_of_the_codes() {
@@ -927,19 +303,6 @@ mod browser_effects_validation {
         assert!(fires(&r, ErrorCode::PageFactsUnrequestedRead), "{:?}", r.errors);
         let r = check_reading(effects, &["referrer", "available"]);
         assert!(!fires(&r, ErrorCode::PageFactsUnrequestedRead), "{:?}", r.errors);
-    }
-
-    #[test]
-    fn a_cancelled_route_needs_a_key_in_the_request_or_the_options() {
-        let no_key = check(json!([["browser/beacon", "https://collector.example.com/e", { "text": "x" }, beacon_routes()]]));
-        assert!(fires(&no_key, ErrorCode::CallServiceCancelledWithoutKey), "{:?}", no_key.errors);
-        for call in [
-            json!(["browser/beacon", "https://collector.example.com/e", { "text": "x", "key": "k" }, beacon_routes()]),
-            json!(["browser/beacon", "https://collector.example.com/e", { "text": "x" }, { "key": "k", "emit": beacon_routes()["emit"].clone() }]),
-        ] {
-            let r = check(json!([call]));
-            assert!(!fires(&r, ErrorCode::CallServiceCancelledWithoutKey), "{:?}", r.errors);
-        }
     }
 
     #[test]
@@ -1233,7 +596,7 @@ mod call_key {
 
     #[test]
     fn a_call_key_is_accepted_as_the_key_of_a_call() {
-        let call = json!([["http", "GET", ORIGIN, "/s", {}, { "key": "@entity.callKey", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }]]);
+        let call = json!([["call-service", "Search", "run", {}, { "key": "@entity.callKey", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }]]);
         let r = run(call);
         assert!(!fires(&r, ErrorCode::CallServiceKeyType), "{:?}", r.errors);
     }
@@ -1243,13 +606,13 @@ mod call_key {
         let unused = run(json!([["cancel-call", ["as", "search", "CallKey"]]]));
         assert!(fires(&unused, ErrorCode::CallKeyUnused), "{:?}", unused.errors);
         let keyed = json!([
-            ["http", "GET", ORIGIN, "/s", {}, { "key": ["as", "search", "CallKey"], "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }],
+            ["call-service", "Search", "run", {}, { "key": ["as", "search", "CallKey"], "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }],
             ["cancel-call", ["as", "search", "CallKey"]]
         ]);
         let matched = run(keyed);
         assert!(!fires(&matched, ErrorCode::CallKeyUnused), "control: {:?}", matched.errors);
         let other = json!([
-            ["http", "GET", ORIGIN, "/s", {}, { "key": "other", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }],
+            ["call-service", "Search", "run", {}, { "key": "other", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }],
             ["cancel-call", ["as", "search", "CallKey"]]
         ]);
         assert!(fires(&run(other), ErrorCode::CallKeyUnused), "a different literal key is still unused");
@@ -1258,7 +621,7 @@ mod call_key {
     #[test]
     fn a_computed_call_key_silences_the_unused_rule() {
         let computed = json!([
-            ["http", "GET", ORIGIN, "/s", {}, { "key": "@entity.callKey", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }],
+            ["call-service", "Search", "run", {}, { "key": "@entity.callKey", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }],
             ["cancel-call", ["as", "search", "CallKey"]]
         ]);
         let r = run(computed);
@@ -1279,7 +642,7 @@ mod call_key_final {
     }
 
     fn keyed(key: &str) -> Value {
-        json!(["http", "GET", ORIGIN, "/s", {}, { "key": key, "emit": { "success": "OK", "failure": "BAD" } }])
+        json!(["call-service", "Search", "run", {}, { "key": key, "emit": { "success": "OK", "failure": "BAD" } }])
     }
 
     #[test]
@@ -1295,7 +658,7 @@ mod call_key_final {
     }
 
     fn keyed_cast() -> Value {
-        json!(["http", "GET", ORIGIN, "/s", {}, { "key": ["as", "@entity.id", "CallKey"], "emit": { "success": "OK", "failure": "BAD" } }])
+        json!(["call-service", "Search", "run", {}, { "key": ["as", "@entity.id", "CallKey"], "emit": { "success": "OK", "failure": "BAD" } }])
     }
 
     #[test]

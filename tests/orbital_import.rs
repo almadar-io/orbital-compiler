@@ -70,7 +70,7 @@ const UPSTREAM: &str = r#"{
           "linkedEntity": "Thing",
           "config": {
             "limit": { "type": "number", "default": "@config.pageSize" },
-            "navItems": { "type": "array", "default": [ { "href": "/things", "label": "Things" } ] }
+            "navItems": { "type": "[object]", "items": { "type": "object", "properties": { "href": { "type": "string" }, "label": { "type": "string" } } }, "default": [ { "href": "/things", "label": "Things" } ] }
           },
           "stateMachine": {
             "states": [ { "name": "idle", "isInitial": true } ],

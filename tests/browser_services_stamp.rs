@@ -61,51 +61,8 @@ fn control_an_uncalled_browser_only_service_is_not_stamped() {
     assert_eq!(oir.browser_services, vec!["browser-svc".to_string()]);
 }
 
-fn credential_program(credential: &str) -> String {
-    format!(
-        r#"{{
-  "name": "Site", "version": "1.0.0",
-  "orbitals": [{{
-    "name": "Visits",
-    "entity": {{ "name": "Visit", "persistence": "runtime", "fields": [ {{ "name": "id", "type": "string", "required": true }} ] }},
-    "traits": [{{
-      "name": "Pageview", "linkedEntity": "Visit", 
-      "config": {{ "token": {{ "type": "secret", "default": "SITE_TOKEN", "description": "The site token." }} }},
-      "stateMachine": {{
-        "states": [ {{ "name": "active", "isInitial": true }} ],
-        "events": [ {{ "key": "INIT" }}, {{ "key": "OK" }} ],
-        "transitions": [
-          {{ "from": "active", "to": "active", "event": "INIT",
-            "effects": [ ["http", "GET", "https://api.site.example", "/me", {{ "auth": {{ "scheme": "bearer", "credential": "{credential}" }} }}, {{ "emit": {{ "success": "OK" }} }}] ] }},
-          {{ "from": "active", "to": "active", "event": "OK" }}
-        ]
-      }}
-    }}],
-    "pages": [ {{ "name": "Home", "path": "/", "traits": [ {{ "ref": "Pageview" }} ] }} ]
-  }}]
-}}"#
-    )
-}
-
 #[test]
-fn the_program_secret_knobs_its_http_auth_reads_are_stamped_as_declared_credentials() {
-    let named = |credential: &str| -> Vec<(String, String, String)> {
-        let oir = compile_json(&credential_program(credential), &options(&[])).expect("compiles");
-        oir.program_credentials
-            .iter()
-            .map(|c| (c.group.clone(), c.env_var.clone(), c.description.clone()))
-            .collect()
-    };
-    assert_eq!(
-        named("@config.token"),
-        vec![("Visits".to_string(), "SITE_TOKEN".to_string(), "The site token.".to_string())]
-    );
-    // A literal is never matched to a knob by its default (a name match is a heuristic; resolve keeps `@config.` reads).
-    assert!(named("SITE_TOKEN").is_empty(), "control: a literal credential names no declared knob");
-}
-
-#[test]
-fn control_a_program_with_no_http_auth_declares_no_credentials() {
+fn control_a_program_with_no_credential_slots_declares_no_credentials() {
     let oir = compile_json(PROGRAM, &options(&[])).expect("compiles");
     assert!(oir.program_credentials.is_empty());
 }
