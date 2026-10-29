@@ -190,15 +190,6 @@ pub enum ErrorCode {
     CancelCallKeyNeverCalled,
     /// a keyed call-service whose registry responseShape already has a `key` field
     CallServiceResultHasKey,
-
-    /// an inbound handler (`listens { EVENT -> inbound "name" … }`) is reachable in a program whose app does not declare `name` in `inbound`
-    InboundUndeclared,
-    /// an `inbound` entry is not one lower-case hook name (letters, digits, `-`), or is listed twice
-    InboundEntryInvalid,
-    /// two traits handle the same inbound hook name
-    InboundDuplicate,
-    /// an inbound handler answers with an event its trait does not declare in `emits`
-    InboundAnswerUndeclared,
     /// a trait other than an inbound handler emits the handler's answer event and the handler does not relay it: only the handler's own emit answers
     InboundAnswerForeign,
     /// an `os/` call needs something the calling orbital's grants do not cover
@@ -209,35 +200,8 @@ pub enum ErrorCode {
     OsGrantUnused,
     /// a declared `os/` grant entry whose shape cannot match anything
     OsGrantEntryInvalid,
-    /// a `redis` call whose origin is not `redis://` or `rediss://`, whose command is not a non-empty list of text,
-    /// a `postgres` call whose origin is not `postgres://` or `postgresql://`, whose literal statement is not a single
     /// an event reads a page fact the `browser/page-facts` call did not request
     PageFactsUnrequestedRead,
-
-    /// a `deployment` unit lists an orbital the program does not declare
-    PlacementOrbitalUnknown,
-    /// an orbital is listed in more than one `deployment` unit, or twice in one
-    PlacementOrbitalDuplicate,
-    /// a `deployment` is declared and an orbital is in none of its units
-    PlacementOrbitalUnplaced,
-    /// a `deployment` unit lists no orbital
-    PlacementUnitEmpty,
-    /// `random-bytes`, `credential-status` or `credential-forget` with the wrong number of arguments
-    HostEffectArity,
-    /// a key other than `emit`, or a non-object, as the options of a host effect
-    HostEffectOptionUnknown,
-    /// a literal `random-bytes` count that is not an integer from 1 to 1024
-    RandomBytesCount,
-    /// a literal request of a `credential-*` administration effect that is not an object of its declared parameters, or
-    /// leaves one out
-    CredentialRequestInvalid,
-    /// `browser/page-facts` fields: an unknown word, an empty list or a duplicate
-    PageFactsFieldInvalid,
-    /// an event reads a page fact the `browser/page-facts` call did not request
-    /// a `browser/prompt` or `browser/embed` where the server runs the transition: a `[background]` tick
-    OnDeviceEffectOnServer,
-    /// a literal `browser/prompt` response schema that is not a JSON object
-    OnDeviceSchemaInvalid,
     /// a `browser/tab-*` request that is not an object of the op's closed keys, or whose literal values the kernel refuses
     TabRequestInvalid,
     /// set effect using @payload (should use @entity)
@@ -581,29 +545,12 @@ impl ErrorCode {
             ErrorCode::CallKeyUnused => "ORB_CALL_KEY_UNUSED",
             ErrorCode::CancelCallKeyNeverCalled => "ORB_CANCEL_CALL_KEY_NEVER_CALLED",
             ErrorCode::CallServiceResultHasKey => "ORB_CALL_SERVICE_RESULT_HAS_KEY",
-
-            ErrorCode::InboundUndeclared => "ORB_INBOUND_UNDECLARED",
-            ErrorCode::InboundEntryInvalid => "ORB_INBOUND_ENTRY_INVALID",
-            ErrorCode::InboundDuplicate => "ORB_INBOUND_DUPLICATE",
-            ErrorCode::InboundAnswerUndeclared => "ORB_INBOUND_ANSWER_UNDECLARED",
             ErrorCode::InboundAnswerForeign => "ORB_INBOUND_ANSWER_FOREIGN",
             ErrorCode::OsGrantMissing => "ORB_OS_GRANT_MISSING",
             ErrorCode::OsTargetNotStatic => "ORB_OS_TARGET_NOT_STATIC",
             ErrorCode::OsGrantUnused => "ORB_OS_GRANT_UNUSED",
             ErrorCode::OsGrantEntryInvalid => "ORB_OS_GRANT_ENTRY_INVALID",
             ErrorCode::PageFactsUnrequestedRead => "ORB_PAGE_FACTS_UNREQUESTED_READ",
-
-            ErrorCode::PlacementOrbitalUnknown => "ORB_PLACEMENT_ORBITAL_UNKNOWN",
-            ErrorCode::PlacementOrbitalDuplicate => "ORB_PLACEMENT_ORBITAL_DUPLICATE",
-            ErrorCode::PlacementOrbitalUnplaced => "ORB_PLACEMENT_ORBITAL_UNPLACED",
-            ErrorCode::PlacementUnitEmpty => "ORB_PLACEMENT_UNIT_EMPTY",
-            ErrorCode::HostEffectArity => "ORB_HOST_EFFECT_ARITY",
-            ErrorCode::HostEffectOptionUnknown => "ORB_HOST_EFFECT_OPTION_UNKNOWN",
-            ErrorCode::CredentialRequestInvalid => "ORB_CREDENTIAL_REQUEST_INVALID",
-            ErrorCode::RandomBytesCount => "ORB_RANDOM_BYTES_COUNT",
-            ErrorCode::PageFactsFieldInvalid => "ORB_PAGE_FACTS_FIELD_INVALID",
-            ErrorCode::OnDeviceEffectOnServer => "ORB_ON_DEVICE_EFFECT_ON_SERVER",
-            ErrorCode::OnDeviceSchemaInvalid => "ORB_ON_DEVICE_SCHEMA_INVALID",
             ErrorCode::TabRequestInvalid => "ORB_TAB_REQUEST_INVALID",
             ErrorCode::EffectSetPayloadNotAllowed => "ORB_EFF_SET_PAYLOAD_NOT_ALLOWED",
             ErrorCode::EffectFetchInvalidEntity => "ORB_EFF_FETCH_INVALID_ENTITY",
@@ -770,29 +717,12 @@ impl ErrorCode {
             | ErrorCode::CallKeyUnused
             | ErrorCode::CancelCallKeyNeverCalled
             | ErrorCode::CallServiceResultHasKey
-
-            | ErrorCode::InboundUndeclared
-            | ErrorCode::InboundEntryInvalid
-            | ErrorCode::InboundDuplicate
-            | ErrorCode::InboundAnswerUndeclared
             | ErrorCode::InboundAnswerForeign
             | ErrorCode::OsGrantMissing
             | ErrorCode::OsTargetNotStatic
             | ErrorCode::OsGrantUnused
             | ErrorCode::OsGrantEntryInvalid
             | ErrorCode::PageFactsUnrequestedRead
-
-            | ErrorCode::PlacementOrbitalUnknown
-            | ErrorCode::PlacementOrbitalDuplicate
-            | ErrorCode::PlacementOrbitalUnplaced
-            | ErrorCode::PlacementUnitEmpty
-            | ErrorCode::HostEffectArity
-            | ErrorCode::HostEffectOptionUnknown
-            | ErrorCode::CredentialRequestInvalid
-            | ErrorCode::RandomBytesCount
-            | ErrorCode::PageFactsFieldInvalid
-            | ErrorCode::OnDeviceEffectOnServer
-            | ErrorCode::OnDeviceSchemaInvalid
             | ErrorCode::TabRequestInvalid
             | ErrorCode::EffectNotifyRetired
             | ErrorCode::EffectSetPayloadNotAllowed
@@ -1245,7 +1175,6 @@ mod tests {
         "EffectSetPayloadNotAllowed",
         "EnumValueNotMember",
         "GenericTypeDeprecated",
-        "HttpAuthInvalid",
         "RenderUIInvalidSlot",
         "SExprInvalidOperator",
         "SchemaExpectationUnsatisfied",

@@ -313,17 +313,6 @@ mod os_grants {
         assert!(fires(&literal, ErrorCode::OsGrantMissing), "{:?}", literal.errors);
     }
 
-    fn finished(grants: Value, config: Value, target: Value) -> ValidationResult {
-        let mut schema = json!({
-            "name": "fixture", "version": "1.0.0",
-            "orbitals": [orbital("Orders", grants, false, json!([["os/spawn", target, []]]))]
-        });
-        schema["orbitals"][0]["traits"][0]["config"] = config;
-        orbital_compiler::phases::validation::final_program::validate_final_program(
-            &serde_json::from_value::<OrbitalSchema>(schema).expect("schema"),
-        )
-    }
-
     fn children(commands: &[&str]) -> Value {
         let list: Vec<Value> = commands.iter().map(|c| json!({ "command": c })).collect();
         json!({ "children": { "type": "array", "default": list } })
@@ -331,35 +320,6 @@ mod os_grants {
 
     fn fed() -> Value {
         json!(["object/get", ["array/nth", "@config.children", "@entity.cursor"], "command"])
-    }
-
-    #[test]
-    fn a_config_fed_target_is_grant_checked_in_the_finished_program() {
-        let granted = json!({ "exec": ["git"] });
-        let outside = finished(granted.clone(), children(&["git", "rm"]), fed());
-        assert!(fires(&outside, ErrorCode::OsGrantMissing), "`rm` is not granted: {:?}", outside.errors);
-        let inside = finished(granted.clone(), children(&["git"]), fed());
-        assert!(!fires(&inside, ErrorCode::OsGrantMissing), "control: {:?}", inside.errors);
-        let none = finished(granted.clone(), children(&[]), fed());
-        assert!(!fires(&none, ErrorCode::OsGrantMissing), "control: no child, nothing to check: {:?}", none.errors);
-        let direct = finished(
-            granted.clone(),
-            json!({ "cmd": { "type": "string", "default": "rm" } }),
-            json!("@config.cmd"),
-        );
-        assert!(fires(&direct, ErrorCode::OsGrantMissing), "{:?}", direct.errors);
-        let direct_ok = finished(granted, json!({ "cmd": { "type": "string", "default": "git" } }), json!("@config.cmd"));
-        assert!(!fires(&direct_ok, ErrorCode::OsGrantMissing), "control: {:?}", direct_ok.errors);
-    }
-
-    #[test]
-    fn a_config_fed_target_the_pass_cannot_resolve_is_not_static() {
-        let unresolvable = finished(
-            json!({ "exec": ["git"] }),
-            children(&["git"]),
-            json!(["str/concat", "@config.children", "x"]),
-        );
-        assert!(fires(&unresolvable, ErrorCode::OsTargetNotStatic), "{:?}", unresolvable.errors);
     }
 
     fn data_rw() -> Value {
@@ -401,36 +361,12 @@ mod os_grants {
         assert!(fires(&spawn, ErrorCode::OsTargetNotStatic), "only a file path may be computed: {:?}", spawn.errors);
     }
 
-    fn finished_fs(grants: Value, config: Value, target: Value) -> ValidationResult {
-        let mut schema = json!({
-            "name": "fixture", "version": "1.0.0",
-            "orbitals": [orbital("Orders", grants, false, json!([["os/read-file", target]]))]
-        });
-        schema["orbitals"][0]["traits"][0]["config"] = config;
-        orbital_compiler::phases::validation::final_program::validate_final_program(
-            &serde_json::from_value::<OrbitalSchema>(schema).expect("schema"),
-        )
-    }
-
     fn root_knob(value: &str) -> Value {
         json!({ "root": { "type": "string", "default": value } })
     }
 
     fn rooted() -> Value {
         json!(["str/concat", "@config.root", "/", "@payload.path"])
-    }
-
-    #[test]
-    fn a_config_rooted_computed_file_target_is_grant_checked_in_the_finished_program() {
-        let covered = finished_fs(data_rw(), root_knob("/data"), rooted());
-        assert!(!fires(&covered, ErrorCode::OsTargetNotStatic), "{:?}", covered.errors);
-        assert!(!fires(&covered, ErrorCode::OsGrantMissing), "{:?}", covered.errors);
-        let uncovered = finished_fs(data_rw(), root_knob("/etc"), rooted());
-        assert!(fires(&uncovered, ErrorCode::OsGrantMissing), "{:?}", uncovered.errors);
-        let no_slash = finished_fs(data_rw(), root_knob("/data"), json!(["str/concat", "@config.root", "@payload.path"]));
-        assert!(fires(&no_slash, ErrorCode::OsTargetNotStatic), "{:?}", no_slash.errors);
-        let undeclared = finished_fs(data_rw(), root_knob("/data"), json!(["str/concat", "@config.other", "/", "@payload.path"]));
-        assert!(fires(&undeclared, ErrorCode::OsTargetNotStatic), "{:?}", undeclared.errors);
     }
 
 

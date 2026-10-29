@@ -17,7 +17,6 @@
 //! - [`service`] - Service definitions
 //! - [`cross_orbital`] - Cross-orbital concerns (events, entities)
 //! - [`binding`] - Binding validation (@entity, @payload)
-//! - [`closed_circuit`] - UI→Event→Transition flow
 //! - [`icon`] - Lucide icon names
 //!
 //! # Usage
@@ -40,12 +39,9 @@
 // shared
 pub mod binding;
 pub mod error;
-pub mod final_program;
 pub(crate) mod value_walk;
 
 // entities — entity shape, mutation and the row store
-#[path = "entities/fetch_deliver.rs"]
-mod fetch_deliver;
 
 // identity — identity and access
 
@@ -56,8 +52,6 @@ pub mod user_identity;
 pub(crate) mod mounts;
 
 // circuit — Event → Guard → Transition → Effects → UI → Event, and the payloads it carries
-#[path = "circuit/closed_circuit.rs"]
-pub mod closed_circuit;
 #[path = "circuit/cross_emitter.rs"]
 pub mod cross_emitter;
 #[path = "circuit/cross_orbital/mod.rs"]
@@ -94,14 +88,11 @@ pub mod slot;
 pub mod sync;
 
 // composition — call sites, config knobs and cross-program contracts
-#[path = "composition/composed_wiring.rs"]
-pub mod composed_wiring;
 #[path = "composition/embed_bridge.rs"]
 pub mod embed_bridge;
-#[path = "composition/expectations.rs"]
-pub mod expectations;
-#[path = "composition/orbital_ref_config.rs"]
-pub mod orbital_ref_config;
+
+#[path = "report.rs"]
+pub mod report;
 
 pub use orbital_core_base::language::canonical_operators;
 
@@ -515,25 +506,10 @@ pub fn validate_comprehensive_full(
     // predicates. Runs immediately after identity for the same reason (needs
     // the resolved `[identity]` entity, post-inline).
 
-    // Phase 11c4: `expects` consumer-side requirement declarations —
-    // persist-payload self-consistency against the consumer's own declared
-    // shape (every schema), and the compose link-checks
-    // (ORB_S_EXPECTATION_*/ORB_S_EXPECTED_FIELD_*) for multi-orbital schemas.
-    expectations::validate_expectations(schema, &mut ctx);
-
     // Phase 11d: Multi-trait entity-mutation trio (SPLIT_ENTITY_MUTATION /
     // SharedEntityFieldConflict / SharedEntityRenderAuthority). Runs
     // post-inline so the fully `uses`-composed trait set and each entity's
     // `shared`/`persistence` flags are visible.
-
-    // Phase 12: Closed circuit validation
-    closed_circuit::validate_all_circuits(schema, &mut ctx);
-    // ORB_CIRCUIT_VIEWER_STRANDED + ORB_PAGE_SECOND_CONTENT_BODY: page-level
-    // (not per-trait) checks sharing one page-content-owner computation.
-    closed_circuit::validate_page_content_ownership(schema, &mut ctx);
-    // ORB_COMPOSED_STATE_UNREACHABLE + ORB_CONTROL_VALUE_DISCARDED: composed
-    // placements whose inputs nothing produces or whose control values nothing keeps.
-    composed_wiring::validate_composed_wiring(schema, &mut ctx);
 
     // Phase 13: Icon validation
 
@@ -586,7 +562,7 @@ fn collect_names(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
         // `linkedEntity` rebinds naming X resolve standalone. A genuinely
         // absent provider is caught by the compose link-check
         // (`ORB_S_EXPECTATION_UNSATISFIED`), never here.
-        for name in expectations::expected_entity_names(orbital) {
+        for name in crate::phases::inline::expected_entity_names(orbital) {
             ctx.entity_names.insert(name.to_string());
         }
 

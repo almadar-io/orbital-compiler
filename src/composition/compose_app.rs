@@ -2705,7 +2705,7 @@ pub fn union_os_grants(a: Option<&Value>, b: Option<&Value>) -> Value {
     if !dev.is_empty() {
         out.insert("dev".into(), Value::array(dev));
     }
-    for key in ["exec", "env", "stdio", "sys", "desktop"] {
+    for key in ["exec", "env", "stdio", "sys", "desktop", "credentials"] {
         let l = list(key);
         if !l.is_empty() {
             out.insert(key.to_string().into(), Value::array(l));
@@ -2994,7 +2994,6 @@ pub fn compose_programs(
     if let Some(overrides) = overrides {
         apply_compose_overrides(&mut schema, overrides)?;
     }
-    refuse_ungranted_os_calls(&schema)?;
     Ok(schema)
 }
 
@@ -3076,25 +3075,6 @@ pub fn apply_compose_overrides(schema: &mut Value, overrides: &Value) -> Result<
         }
     }
     Ok(())
-}
-
-/// A composed program is checked for grants as an authored one is: an `os/` call its grants do not cover is refused here,
-/// not at the first ask of a booted server.
-fn refuse_ungranted_os_calls(schema: &Value) -> Result<(), String> {
-    let parsed: orbital_core_base::schema::OrbitalSchema =
-        serde_json::from_str(&orbital_core_base::json_value::value_json_string(schema, false))
-            .map_err(|e| format!("the composed program does not parse: {e}"))?;
-    let result = crate::phases::validation::effect::validate_os_grants(&parsed);
-    let refused: Vec<String> = result
-        .errors
-        .iter()
-        .map(|e| format!("{} at {}: {}", e.code.as_str(), e.path, e.message))
-        .collect();
-    if refused.is_empty() {
-        Ok(())
-    } else {
-        Err(format!("the composed program's os calls are not granted:\n- {}", refused.join("\n- ")))
-    }
 }
 
 #[cfg(test)]

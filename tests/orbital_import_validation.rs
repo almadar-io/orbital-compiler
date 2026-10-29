@@ -18,9 +18,6 @@ use orbital_compiler::phases::inline::{
 };
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::error::ErrorCode;
-use orbital_compiler::phases::validation::orbital_ref_config::{
-    validate_orbital_ref_diagnostics, validate_uses_config_diagnostics,
-};
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
@@ -187,38 +184,6 @@ fn uses_config_consumer(use_config_extra: &str) -> String {
     )
 }
 
-#[test]
-fn uses_config_unknown_key_fires() {
-    let collected = collect(&uses_config_consumer(
-        r#", "config": { "bogus": { "type": "string", "default": "X" } }"#,
-    ));
-    let result = validate_uses_config_diagnostics(&collected.uses_config);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::UsesConfigUnknownKey && e.message.contains("bogus")),
-        "expected ORB_U_CONFIG_UNKNOWN_KEY for 'bogus', got: {:#?}",
-        result.errors
-    );
-}
-
-#[test]
-fn uses_config_declared_key_does_not_fire_unknown_key() {
-    let collected = collect(&uses_config_consumer(
-        r#", "config": { "appName": { "type": "string", "default": "X" } }"#,
-    ));
-    let result = validate_uses_config_diagnostics(&collected.uses_config);
-    assert!(
-        !result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::UsesConfigUnknownKey),
-        "declared app-level knob 'appName' must not fire ORB_U_CONFIG_UNKNOWN_KEY: {:#?}",
-        result.errors
-    );
-}
-
 // ============================================================================
 // (A) app-level `@config.<knob>` forward on an ORBITAL IMPORT must resolve
 // against the ALIAS's OWN schema config (its app-level `config {}`, folded
@@ -345,25 +310,6 @@ fn orbital_ref_app_level_forward_without_uses_override_keeps_upstream_default() 
         Some(orbital_core_base::schema::SExpression::String(("App".to_string()).into())),
         "with no `uses … {{ config }}` override, the alias's own declared app default must resolve: {:#?}",
         title
-    );
-}
-
-#[test]
-fn uses_config_unknown_key_still_fires_alongside_a_resolving_orbital_ref() {
-    // The (A) fix must not weaken `ORB_U_CONFIG_UNKNOWN_KEY`: a `uses …
-    // { config }` key the upstream app never declares stays flagged even
-    // though the reference itself resolves fine.
-    let consumer =
-        app_forward_consumer(r#", "config": { "bogus": { "type": "string", "default": "X" } }"#);
-    let collected = collect_with(APP_FORWARD_UPSTREAM, &consumer);
-    let result = validate_uses_config_diagnostics(&collected.uses_config);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::UsesConfigUnknownKey && e.message.contains("bogus")),
-        "expected ORB_U_CONFIG_UNKNOWN_KEY for 'bogus' even though the orbital reference itself resolves: {:#?}",
-        result.errors
     );
 }
 
@@ -798,220 +744,13 @@ fn collect_stage_b_with_status(reference_extra: &str) -> Collected {
 
 // --- ORB_O_ROLE_TARGET_NOT_MEMBER -------------------------------------------
 
-#[test]
-fn role_target_not_member_of_consumer_roster_fires() {
-    let collected = collect_stage_b(r#", "roles": { "approver": ["nonmember"] }"#);
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefRoleTargetNotMember
-                && e.message.contains("nonmember")
-                && e.message.contains("Member")),
-        "expected ORB_O_ROLE_TARGET_NOT_MEMBER for 'nonmember', got: {:#?}",
-        result.errors
-    );
-}
-
-#[test]
-fn role_target_that_is_a_consumer_roster_member_does_not_fire() {
-    let collected = collect_stage_b(r#", "roles": { "approver": ["owner"] }"#);
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        !result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefRoleTargetNotMember),
-        "'owner' is a member of the consumer roster ('Member') — must not fire: {:#?}",
-        result.errors
-    );
-}
-
-/// B4-R4: a `roles {}` target that is a member of some OTHER field's
-/// vocabulary on the consumer roster (`Member.status`'s `"active"`) must not
-/// pass by matching the wrong field — `ORB_O_ROLE_TARGET_NOT_MEMBER` fires
-/// naming `Member.role` specifically.
-#[test]
-fn role_target_that_is_a_different_fields_vocabulary_member_fires_org_o() {
-    let collected = collect_stage_b_with_status(r#", "roles": { "approver": ["active"] }"#);
-
-    let org_o = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        org_o
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefRoleTargetNotMember
-                && e.message.contains("active")
-                && e.message.contains("role")),
-        "'active' is a member of Member.status's vocabulary, not Member.role's — \
-         ORB_O_ROLE_TARGET_NOT_MEMBER must still fire, naming the `role` field: {:#?}",
-        org_o.errors
-    );
-}
-
-/// A `roles {}` list mixing a genuine roster member (`owner`) with a
-/// different field's vocabulary value (`active`) fires
-/// ORB_O_ROLE_TARGET_NOT_MEMBER for the invalid member only.
-#[test]
-fn role_target_list_with_one_status_value_fires_for_that_member_only() {
-    let collected =
-        collect_stage_b_with_status(r#", "roles": { "approver": ["owner", "active"] }"#);
-
-    let org_o = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    let org_o_target_errors: Vec<_> = org_o
-        .errors
-        .iter()
-        .filter(|e| e.code == ErrorCode::OrbitalRefRoleTargetNotMember)
-        .collect();
-    assert_eq!(
-        org_o_target_errors.len(),
-        1,
-        "expected exactly one ORB_O_ROLE_TARGET_NOT_MEMBER (for 'active' only, not 'owner'), got {:#?}",
-        org_o.errors
-    );
-    assert!(org_o_target_errors[0].message.contains("active"));
-}
-
-/// The valid Project-Friday-shaped mapping (`approver -> owner`, with a
-/// `status` field also present on the roster) stays silent.
-#[test]
-fn role_target_valid_mapping_stays_silent_even_with_a_status_field_present() {
-    let collected = collect_stage_b_with_status(r#", "roles": { "approver": ["owner"] }"#);
-
-    let org_o = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        !org_o
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefRoleTargetNotMember),
-        "{:#?}",
-        org_o.errors
-    );
-}
-
 // --- ORB_O_ROLE_UNKNOWN_UPSTREAM ---------------------------------------------
-
-#[test]
-fn role_key_unknown_upstream_fires() {
-    let collected = collect_stage_b(r#", "roles": { "bogus": ["owner"] }"#);
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefRoleUnknownUpstream
-                && e.message.contains("bogus")),
-        "expected ORB_O_ROLE_UNKNOWN_UPSTREAM for 'bogus', got: {:#?}",
-        result.errors
-    );
-}
-
-#[test]
-fn role_key_declared_upstream_does_not_fire_unknown_upstream() {
-    let collected = collect_stage_b(r#", "roles": { "approver": ["owner"] }"#);
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        !result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefRoleUnknownUpstream),
-        "'approver' is in upstream ThingOwner's vocabulary — must not fire: {:#?}",
-        result.errors
-    );
-}
 
 // --- ORB_O_ENTITY_UNMAPPED ----------------------------------------------------
 
-#[test]
-fn out_of_orbital_relation_left_unmapped_fires_entity_unmapped() {
-    let collected = collect_stage_b("");
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefEntityUnmapped && e.message.contains("Other")),
-        "expected ORB_O_ENTITY_UNMAPPED for the unmapped 'Other' relation, got: {:#?}",
-        result.errors
-    );
-}
-
-#[test]
-fn out_of_orbital_relation_mapped_does_not_fire_entity_unmapped() {
-    let collected = collect_stage_b(r#", "entities": { "Other": "ConsumerOther" }"#);
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        !result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefEntityUnmapped),
-        "'Other' is mapped to 'ConsumerOther' — must not fire: {:#?}",
-        result.errors
-    );
-}
-
 // --- ORB_O_ENTITY_UNKNOWN_KEY -------------------------------------------------
 
-#[test]
-fn entities_key_naming_no_upstream_entity_fires_unknown_key() {
-    let collected =
-        collect_stage_b(r#", "entities": { "Other": "ConsumerOther", "Bogus": "ConsumerOther" }"#);
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefEntityUnknownKey && e.message.contains("Bogus")),
-        "expected ORB_O_ENTITY_UNKNOWN_KEY for 'Bogus', got: {:#?}",
-        result.errors
-    );
-}
-
-#[test]
-fn entities_key_naming_the_out_of_orbital_entity_does_not_fire_unknown_key() {
-    let collected = collect_stage_b(r#", "entities": { "Other": "ConsumerOther" }"#);
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        !result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefEntityUnknownKey),
-        "'Other' names the alias's own out-of-orbital entity — must not fire: {:#?}",
-        result.errors
-    );
-}
-
 // --- ORB_O_ENTITY_TARGET_UNKNOWN ----------------------------------------------
-
-#[test]
-fn entities_target_naming_no_consumer_entity_fires_target_unknown() {
-    let collected = collect_stage_b(r#", "entities": { "Other": "NoSuchConsumerEntity" }"#);
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefEntityTargetUnknown
-                && e.message.contains("NoSuchConsumerEntity")),
-        "expected ORB_O_ENTITY_TARGET_UNKNOWN for 'NoSuchConsumerEntity', got: {:#?}",
-        result.errors
-    );
-}
-
-#[test]
-fn entities_target_naming_a_declared_consumer_entity_does_not_fire_target_unknown() {
-    let collected = collect_stage_b(r#", "entities": { "Other": "ConsumerOther" }"#);
-    let result = validate_orbital_ref_diagnostics(&collected.orbital_ref, &collected.schema);
-    assert!(
-        !result
-            .errors
-            .iter()
-            .any(|e| e.code == ErrorCode::OrbitalRefEntityTargetUnknown),
-        "'ConsumerOther' is declared by the consumer schema — must not fire: {:#?}",
-        result.errors
-    );
-}
 
 fn orbital_references_of(consumer_source: &str) -> Vec<Value> {
     let (_dir, consumer_path) = materialize(consumer_source);

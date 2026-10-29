@@ -15,7 +15,6 @@ mod host_effects;
 mod keyed_call;
 mod cast;
 mod operator_args;
-mod os_grants;
 mod os_watch;
 mod program_eval;
 mod row_literal;
@@ -34,7 +33,6 @@ pub(crate) use fetch::{
 pub(crate) use keyed_call::validate_call_key_literals_are_used;
 use keyed_call::CallKeyFacts;
 pub(crate) use operator_args::{validate_operator_arg_types, validate_operator_arg_types_under};
-pub(crate) use os_grants::{validate_final_os_targets, validate_os_grants};
 pub(crate) use os_watch::validate_os_effect;
 pub(crate) use row_literal::RowSite;
 pub(crate) use program_eval::validate_program_eval;
@@ -70,7 +68,6 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
     ctx.merge(validate_call_key_literals_are_used(schema));
     ctx.merge(validate_browser_calls(schema));
     ctx.merge(validate_host_effects(schema));
-    ctx.merge(validate_os_grants(schema));
 }
 
 /// The binding types one trait's effects are checked against: the linked entity's fields, and the payload of each

@@ -41,6 +41,8 @@ pub mod type_infer;
 // codegen — IR handed to a shell backend
 #[path = "codegen/generate.rs"]
 pub mod generate;
+#[path = "codegen/mixed.rs"]
+pub mod mixed;
 #[path = "codegen/shell.rs"]
 pub mod shell;
 

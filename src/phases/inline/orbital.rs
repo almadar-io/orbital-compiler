@@ -35,10 +35,25 @@ use super::rewrite::{
 use super::InlineError;
 use crate::phases::validation::user_identity::{identity_entities_of, vocabulary};
 use orbital_core_base::schema::{
-    ConfigField, EntityDefinition, EntityRef, FieldDefinition, ListenSource, Orbital,
+    ConfigField, EntityDefinition, EntityRef, ExpectDeclaration, FieldDefinition, ListenSource, Orbital,
     OrbitalRefObject, PageRef, Persistence, SExpression, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
+
+/// Every entity name the orbital's `expects` declarations license, a named `expects entity [identity]` included.
+pub(crate) fn expected_entity_names(orbital: &Orbital) -> Vec<&str> {
+    orbital
+        .expects
+        .iter()
+        .flatten()
+        .filter_map(|e| match e {
+            ExpectDeclaration::Entity { name, .. } => Some(name.as_str()),
+            ExpectDeclaration::Identity { name: Some(name), .. } => Some(name.as_str()),
+            ExpectDeclaration::Identity { name: None, .. } | ExpectDeclaration::Page { .. } => None,
+            _ => None,
+        })
+        .collect()
+}
 
 /// Diagnostic collected while resolving one `orbital X = Alias.orbitals.Y
 /// { … }` reference: a call-site `config {}` key the upstream orbital never
@@ -1100,7 +1115,7 @@ pub(crate) fn resolve_orbital_reference(
     // A target a sibling orbital declares, promised by this orbital's `expects entity`:
     // the rename applies (no id — an expectation carries none); compose link-checks it.
     let expected_targets: HashSet<String> =
-        crate::phases::validation::expectations::expected_entity_names(orbital)
+        expected_entity_names(orbital)
             .into_iter()
             .map(str::to_string)
             .collect();

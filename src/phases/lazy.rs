@@ -293,3 +293,28 @@ pub fn write_lazy(
     }
     Ok(())
 }
+
+/// The resolved program as a key-sorted JSON tree with the awaiting-server skeleton predictions attached (resolve output
+/// only, never persisted): `HashMap` iteration varies run to run, so the keys are sorted before the tree is printed.
+pub fn resolved_tree(resolved: &OrbitalSchema) -> Result<serde_json::Value, String> {
+    let mut tree = serde_json::to_value(resolved).map_err(|e| format!("Failed to serialize resolved schema: {e}"))?;
+    super::await_render::attach_await_renders(resolved, &mut tree);
+    Ok(orbital_core_eval::util::into_canonical_json(tree))
+}
+
+/// [`resolved_tree`] pretty-printed: the text `orb resolve` prints and writes.
+pub fn resolved_json(resolved: &OrbitalSchema) -> Result<String, String> {
+    serde_json::to_string_pretty(&resolved_tree(resolved)?).map_err(|e| format!("Failed to serialize resolved schema: {e}"))
+}
+
+/// The resolved program as a key-sorted core value, built straight from the schema with no JSON tree between.
+pub fn resolved_value(resolved: &OrbitalSchema) -> Result<orbital_core_base::value::Value, String> {
+    let mut value = orbital_core_base::value_serialize::to_canonical_value(resolved).map_err(|e| format!("Failed to serialize resolved schema: {e}"))?;
+    super::await_render::attach_await_renders(resolved, &mut value);
+    Ok(value)
+}
+
+/// [`write_lazy`] with each child printed by [`resolved_json`].
+pub fn write_resolved_lazy(dir: &Path, lazy: &[ResolvedLazy], program_dir: &Path) -> std::io::Result<()> {
+    write_lazy(dir, lazy, program_dir, &|schema| resolved_json(schema).map_err(std::io::Error::other))
+}

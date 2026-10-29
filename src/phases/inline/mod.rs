@@ -67,6 +67,7 @@ use orbital::{
     SiblingImportInfo,
 };
 pub use orbital::{OrbitalRefDiagnostic, UsesConfigDiagnostic};
+pub(crate) use orbital::expected_entity_names;
 use rewrite::{apply_inline_config_defaults, trait_ref_name};
 use service::inline_services;
 use splice::splice_lambda_trait_refs;

@@ -4,7 +4,7 @@
 use super::super::{inline_traits, ErrorCode, ValidationError, ValidationResult};
 use super::emit_declaration::collect_declared_emits;
 use super::keyed_call::check_key_and_cancelled;
-use super::{extract_emit_object_ref, validate_emit_config, DeclaredEmit};
+use super::DeclaredEmit;
 use orbital_core_base::value::Value;
 use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitDefinition};
 
@@ -62,9 +62,6 @@ pub(super) fn each_call_of<'a>(expr: &'a SExpression, head: &str, visit: &mut dy
 fn check_page_facts_call(arr: &[SExpression], site: &Site, result: &mut ValidationResult) {
     if let Some(SExpression::Object(options)) = arr.get(2) {
         result.merge(check_key_and_cancelled(options, site.path, "browser/page-facts"));
-        if let Some(emit) = extract_emit_object_ref(options) {
-            result.merge(validate_emit_config(emit, &["success", "failure"], Some(site.declared), site.path));
-        }
     }
 }
 
@@ -74,9 +71,6 @@ fn check_on_device_call(arr: &[SExpression], site: &Site, result: &mut Validatio
     let positional = if head == "browser/prompt" { 2 } else { 1 };
     if let Some(SExpression::Object(options)) = arr.get(positional + 1) {
         result.merge(check_key_and_cancelled(options, site.path, head));
-        if let Some(emit) = extract_emit_object_ref(options) {
-            result.merge(validate_emit_config(emit, &["success", "failure", "cancelled"], Some(site.declared), site.path));
-        }
     }
 }
 
@@ -133,9 +127,6 @@ fn check_tab_call(
     }
     if let Some(SExpression::Object(options)) = arr.get(2) {
         result.merge(check_key_and_cancelled(options, site.path, head));
-        if let Some(emit) = extract_emit_object_ref(options) {
-            result.merge(validate_emit_config(emit, &["success", "failure", "cancelled"], Some(site.declared), site.path));
-        }
     }
 }
 

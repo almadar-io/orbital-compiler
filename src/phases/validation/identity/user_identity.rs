@@ -71,6 +71,13 @@ pub(crate) fn identity_entities(schema: &OrbitalSchema) -> Vec<&EntityDefinition
     identity_entities_of(&schema.orbitals)
 }
 
+fn identity_expectation_shape(e: &orbital_core_base::schema::ExpectDeclaration) -> Option<Option<Vec<orbital_core_base::schema::FieldDefinition>>> {
+    match e {
+        orbital_core_base::schema::ExpectDeclaration::Identity { shape, .. } => Some(shape.clone()),
+        _ => None,
+    }
+}
+
 /// The type of `@user` for the trait named `trait_name`: the viewer plus the program's `[identity]` roster, else
 /// plus the declaring orbital's `expects entity [identity] { … }` shape, else the viewer alone.
 pub(crate) fn identity_type(
@@ -83,8 +90,8 @@ pub(crate) fn identity_type(
             .any(|t| matches!(t, orbital_core_base::schema::TraitReference::Inline(def) if def.name == trait_name))
     });
     let expected = orbital
-        .and_then(super::expectations::identity_expectation)
-        .and_then(|e| e.shape.map(<[_]>::to_vec));
+        .and_then(|o| o.expects.as_ref()?.iter().find_map(identity_expectation_shape))
+        .and_then(|shape| shape);
     let roster = identity_entities(schema)
         .into_iter()
         .next()
