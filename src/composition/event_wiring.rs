@@ -131,6 +131,7 @@ pub fn apply_event_wiring(
                     tier: None,
                     payload_mapping: None,
                     guard: None,
+                    key: None,
                     source: None,
                     event_id: None,
                     triggers_id: None,

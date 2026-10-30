@@ -646,6 +646,7 @@ mod tests {
             tier: None,
             payload_mapping: None,
             guard: None,
+            key: None,
             source: None,
             event_id: None,
             triggers_id: None,

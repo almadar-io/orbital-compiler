@@ -1256,6 +1256,9 @@ impl<'a> Resolver<'a> {
                 if let Some(guard) = &listen.guard {
                     oir.guard = Some(self.resolve_sexpr(guard)?);
                 }
+                if let Some(key) = &listen.key {
+                    oir.key = Some(self.resolve_sexpr(key)?);
+                }
                 if let Some(mapping) = &listen.payload_mapping {
                     let mut resolved = orbital_core_base::ir::OirFields::new();
                     for (field, expr) in mapping {

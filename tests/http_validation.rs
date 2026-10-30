@@ -306,6 +306,16 @@ mod browser_effects_validation {
     }
 
     #[test]
+    fn href_is_readable_when_requested_and_flagged_when_not() {
+        let asked = json!([["browser/page-facts", ["href"], facts_routes()]]);
+        let r = check_reading(asked, &["href", "available"]);
+        assert!(!fires(&r, ErrorCode::PageFactsUnrequestedRead), "{:?}", r.errors);
+        let other = json!([["browser/page-facts", ["referrer"], facts_routes()]]);
+        let r = check_reading(other, &["href"]);
+        assert!(fires(&r, ErrorCode::PageFactsUnrequestedRead), "{:?}", r.errors);
+    }
+
+    #[test]
     fn a_keyed_page_facts_adds_key_to_what_an_event_may_read() {
         let keyed = json!([["browser/page-facts", ["referrer"], { "key": "@entity.id", "emit": { "success": "FACTS", "failure": "FACTS_FAILED" } }]]);
         let r = check_reading(keyed.clone(), &["referrer", "key"]);

@@ -308,6 +308,11 @@ pub enum InlineError {
     )]
     UnstampedConfigKnob { trait_name: String, knob: String },
 
+    #[error(
+        "Trait '{trait_name}' declares delivery of '{trigger}' per a key, and the call site's listens restates a route to '{trigger}' without `per`: a listens override replaces the atom's set, so restate the `per` clause with the route"
+    )]
+    ListenKeyDropped { trait_name: String, trigger: String },
+
     #[error("`unquote` at {path} appears outside a quasiquote body")]
     UnquoteOutsideQuasiquote { path: String },
 
@@ -370,6 +375,7 @@ impl InlineError {
             InlineError::BehaviorRefNotLiteral { .. } => "ORB_T_BEHAVIOR_REF_NOT_LITERAL",
             InlineError::UnquoteOutsideQuasiquote { .. } => "ORB_T_UNQUOTE_OUTSIDE_QUASIQUOTE",
             InlineError::UnknownEventRef { .. } => "ORB_ID_UNKNOWN_REF",
+            InlineError::ListenKeyDropped { .. } => "ORB_T_LISTEN_KEY_DROPPED",
             InlineError::ConfigWiringTypeMismatch { .. } | InlineError::UnstampedConfigKnob { .. } => "ORB_T_CONFIG_SHAPE_MISMATCH",
             InlineError::Loader(LoaderError::PackageNotInstalled { .. })
             | InlineError::Loader(LoaderError::BehaviorPackageNotInstalled { .. }) => {

@@ -1936,6 +1936,9 @@ pub(super) fn rewrite_trait_expressions(
                 if let Some(guard) = listen.guard.as_mut() {
                     rewrite(guard);
                 }
+                if let Some(key) = listen.key.as_mut() {
+                    rewrite(key);
+                }
             }
         });
     }

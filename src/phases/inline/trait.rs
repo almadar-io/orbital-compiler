@@ -994,8 +994,13 @@ pub(crate) fn apply_post_subst_overrides_to_trait(
     trait_def: &mut TraitDefinition,
     listens: Option<&Vec<orbital_core_base::schema::ListenDefinition>>,
     emits_scope: Option<&orbital_core_base::schema::EventScope>,
-) {
+) -> Result<(), InlineError> {
     if let Some(new_listens) = listens {
+        let delivered = |l: &orbital_core_base::schema::ListenDefinition| l.triggers.clone().unwrap_or_else(|| l.event.clone());
+        let keyed: Vec<String> = trait_def.listens.iter().flatten().filter(|l| l.key.is_some()).map(delivered).collect();
+        if let Some(dropped) = new_listens.iter().find(|l| l.key.is_none() && keyed.contains(&delivered(l))) {
+            return Err(InlineError::ListenKeyDropped { trait_name: trait_def.name.clone(), trigger: delivered(dropped) });
+        }
         let mut new_listens = new_listens.clone();
         stamp_call_site_triggers(&mut new_listens, trait_def);
         trait_def.listens = Some(new_listens.into());
@@ -1011,6 +1016,7 @@ pub(crate) fn apply_post_subst_overrides_to_trait(
             }
         }
     }
+    Ok(())
 }
 
 /// Call-site listens are authored where no stamper sees the composed trait: each one's `triggers` takes the id of the
@@ -2263,7 +2269,7 @@ pub(crate) fn inline_traits(
                                         &mut trait_def,
                                         listens_override.as_ref(),
                                         emits_scope_override.as_ref(),
-                                    );
+                                    )?;
                                     // STUDIO-1/2: stamp provenance onto the
                                     // resolved trait. Runtime + codegen
                                     // ignore both fields; only Studio's L2
@@ -4262,7 +4268,7 @@ mod call_site_listen_tests {
     #[test]
     fn a_call_site_listen_takes_the_id_of_the_event_it_triggers_and_a_later_rename_reaches_it() {
         let mut td = atom();
-        apply_post_subst_overrides_to_trait(&mut td, Some(&vec![listen("LLM_EXTRACT")]), None);
+        apply_post_subst_overrides_to_trait(&mut td, Some(&vec![listen("LLM_EXTRACT")]), None).unwrap();
         assert_eq!(td.listens.as_ref().unwrap()[0].triggers_id.as_deref(), Some("evt_extract"));
         let mut renames = orbital_core_base::collections::IndexMap::new();
         renames.insert("LLM_EXTRACT".to_string(), "ORIGINATOR_EXTRACT".to_string());
@@ -4274,7 +4280,41 @@ mod call_site_listen_tests {
     #[test]
     fn control_a_call_site_listen_triggering_no_declared_event_stays_unstamped() {
         let mut td = atom();
-        apply_post_subst_overrides_to_trait(&mut td, Some(&vec![listen("UNDECLARED")]), None);
+        apply_post_subst_overrides_to_trait(&mut td, Some(&vec![listen("UNDECLARED")]), None).unwrap();
         assert_eq!(td.listens.as_ref().unwrap()[0].triggers_id, None);
+    }
+
+    fn keyed_atom() -> TraitDefinition {
+        let mut td = atom();
+        td.listens = Some(
+            vec![serde_json::from_value(serde_json::json!({ "event": "SEND", "triggers": "LLM_EXTRACT", "key": "@payload.key" })).expect("listen")].into(),
+        );
+        td
+    }
+
+    #[test]
+    fn a_call_site_listen_that_restates_the_per_clause_keeps_it() {
+        let keyed: orbital_core_base::schema::ListenDefinition =
+            serde_json::from_value(serde_json::json!({ "event": "EXTRACT", "triggers": "LLM_EXTRACT", "key": "@payload.key" })).expect("listen");
+        let mut td = keyed_atom();
+        apply_post_subst_overrides_to_trait(&mut td, Some(&vec![keyed]), None).unwrap();
+        assert_eq!(td.listens.as_ref().unwrap()[0].key, Some(orbital_core_base::schema::SExpression::string("@payload.key")));
+    }
+
+    #[test]
+    fn a_call_site_listen_that_routes_a_keyed_trigger_without_per_is_refused() {
+        let mut td = keyed_atom();
+        let refused = apply_post_subst_overrides_to_trait(&mut td, Some(&vec![listen("LLM_EXTRACT")]), None).unwrap_err();
+        assert_eq!(refused.structured_code(), "ORB_T_LISTEN_KEY_DROPPED");
+    }
+
+    #[test]
+    fn control_a_call_site_listen_on_a_trigger_the_atom_never_keyed_needs_no_per() {
+        let mut td = keyed_atom();
+        td.listens = Some(Vec::new().into());
+        apply_post_subst_overrides_to_trait(&mut td, Some(&vec![listen("LLM_EXTRACT")]), None).unwrap();
+        assert_eq!(td.listens.as_ref().unwrap()[0].key, None);
+        let mut other = keyed_atom();
+        apply_post_subst_overrides_to_trait(&mut other, Some(&vec![listen("OTHER")]), None).unwrap();
     }
 }

@@ -3209,6 +3209,33 @@ pub fn collect_guard_type_warnings(module: &OirModule) -> Vec<String> {
     warnings
 }
 
+/// A `per` clause must name a string (EXEC-STEP-1a): one error per listener key whose type is definitively not a
+/// string. A binding the payload types leave undetermined is judged at delivery, where a non-string is refused.
+pub fn collect_listen_key_type_errors(module: &OirModule) -> Vec<String> {
+    let mut errors = Vec::new();
+    for tr in &module.traits {
+        for l in &tr.listeners {
+            let Some(key) = &l.key else { continue };
+            if let Some(
+                found @ (OirType::Number
+                | OirType::Integer
+                | OirType::Boolean
+                | OirType::Instant
+                | OirType::Money
+                | OirType::Array { .. }
+                | OirType::Struct { .. }),
+            ) = infer_oir_expr_type(key, &NoBindingCtx)
+            {
+                errors.push(format!(
+                    "{}: listener for '{}' declares `per` with a key of type {found:?}, not a string",
+                    tr.name, l.event_pattern
+                ));
+            }
+        }
+    }
+    errors
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5540,5 +5567,30 @@ mod tests {
         let found = check_oir_expr(&call("array/map", vec![entity(&["tags"]), lambda(&["a", "b", "c", "d"])]), &row);
         assert!(found.iter().any(|d| matches!(d.mismatch, Mismatch::Type { .. })), "{found:?}");
         assert!(check_oir_expr(&call("array/map", vec![entity(&["tags"]), lambda(&["a"])]), &row).is_empty());
+    }
+
+    fn module_with_listener_key(key: Option<OirExpr>) -> OirModule {
+        let mut trait_ = OirTrait::new("MyTrait");
+        let mut li = OirListener::new("evt", "trig");
+        li.key = key;
+        trait_.listeners.push(li);
+        let mut m = OirModule::new("App", "1.0.0");
+        m.traits.push(trait_);
+        m
+    }
+
+    #[test]
+    fn a_per_key_that_is_a_number_is_an_error() {
+        let m = module_with_listener_key(Some(OirExpr::Number { value: 1.0 }));
+        let errors = collect_listen_key_type_errors(&m);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].contains("MyTrait") && errors[0].contains("not a string"));
+    }
+
+    #[test]
+    fn control_a_string_key_or_an_undetermined_binding_or_no_key_is_clean() {
+        assert!(collect_listen_key_type_errors(&module_with_listener_key(Some(OirExpr::String { value: "k".into() }))).is_empty());
+        assert!(collect_listen_key_type_errors(&module_with_listener_key(Some(call("str/concat", vec![OirExpr::String { value: "a".into() }])))).is_empty());
+        assert!(collect_listen_key_type_errors(&module_with_listener_key(None)).is_empty());
     }
 }

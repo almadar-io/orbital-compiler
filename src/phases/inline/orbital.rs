@@ -644,7 +644,7 @@ pub(crate) fn resolve_orbital_reference(
                 true,
                 &mut recorder,
             )?;
-            apply_post_subst_overrides_to_trait(td, ov.listens.as_ref(), ov.emits_scope.as_ref());
+            apply_post_subst_overrides_to_trait(td, ov.listens.as_ref(), ov.emits_scope.as_ref())?;
             td.dispatch = ov.dispatch.or(td.dispatch);
         }
     }

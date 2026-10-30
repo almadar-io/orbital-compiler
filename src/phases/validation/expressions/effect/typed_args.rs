@@ -132,7 +132,7 @@ pub fn record_declared_shapes(schema: &mut OrbitalSchema) -> Result<(), ShapeErr
     Ok(())
 }
 
-/// `expr` with each `json/parse` / `as` shape naming a program alias recorded as that alias's type (G-ORB-420).
+/// `expr` with each `json/parse` / `yaml/parse` / `as` shape naming a program alias recorded as that alias's type (G-ORB-420).
 fn declare(expr: &SExpression, ctx: &ExprReturnCtx<'_>, aliases: &Aliases) -> Result<SExpression, ShapeError> {
     let version = ctx.schema.and_then(|schema| schema.type_contract_version);
     record_parse_shapes(expr, aliases, version)
@@ -187,7 +187,7 @@ fn record_parse_shapes(expr: &SExpression, aliases: &Aliases, version: Option<u3
                 }
             }
             if let [SExpression::String(head), _, SExpression::String(shape)] = out.as_slice() {
-                if head == "json/parse" || head == "as" {
+                if head == "json/parse" || head == "yaml/parse" || head == "as" {
                     if let Some(declared) = DeclaredShape::of_alias(shape, aliases)? {
                         out[2] =
                             SExpression::string(recorded_type(declared.name, declared.ty, aliases, version.or(declared.version))?);
@@ -398,6 +398,18 @@ mod tests {
         let value = effect_of(&schema);
         let recorded = DeclaredShape::parse(value[2][2].as_str().expect("recorded descriptor")).unwrap();
         assert_eq!(recorded.version, None, "field facts cannot invent root provenance");
+    }
+
+    #[test]
+    fn a_yaml_parse_naming_a_program_alias_records_its_type_like_json_parse() {
+        let via = json!({ "name": "via", "type": "string" });
+        let effect = json!(["set", "@entity.count", ["yaml/parse", "@payload.via", "RowFile"]]);
+        let mut schema = with_row_types(program(via, effect));
+        record_declared_shapes(&mut schema).expect("shapes");
+        let recorded: DeclaredShape =
+            serde_json::from_str(effect_of(&schema)[2][2].as_str().expect("shape text")).expect("a recorded shape");
+        assert_eq!(recorded.name.as_deref(), Some("RowFile"));
+        assert_eq!(recorded.named.keys().collect::<Vec<_>>(), ["Row", "RowCell"]);
     }
 
     #[test]
