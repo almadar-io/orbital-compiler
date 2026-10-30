@@ -66,6 +66,7 @@ pub fn effect_operators() -> &'static [&'static str] {
         let mut v: Vec<&'static str> = effect_category_operators().collect();
         v.extend_from_slice(EFFECT_POSITION_EXTRA);
         v.extend(orbital_core_base::language::registry::program_host_effects());
+        v.extend(orbital_core_base::language::registry::substrate_host_effects());
         v.extend(orbital_core_base::language::registry::os_host_effects());
         v
     })

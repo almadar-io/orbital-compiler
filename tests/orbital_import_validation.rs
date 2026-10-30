@@ -3,9 +3,8 @@
 //! negative per code, plus the page-path collision regression and the
 //! backwards-compatibility (no-config) sweep.
 //!
-//! - `ORB_U_CONFIG_UNKNOWN_KEY`: converted from
-//!   [`orbital_compiler::phases::inline::UsesConfigDiagnostic`]s collected in
-//!   the `uses` loop.
+//! - `ORB_U_CONFIG_UNKNOWN_KEY` is the std lint `std-orb-lint-orbital-ref-closure`'s; the
+//!   [`orbital_compiler::phases::inline::UsesConfigSite`]s collected in the `uses` loop carry no finding.
 //! - `ORB_O_ROLE_TARGET_NOT_MEMBER` / `ORB_O_ROLE_UNKNOWN_UPSTREAM` /
 //!   `ORB_O_ENTITY_UNMAPPED` / `ORB_O_ENTITY_UNKNOWN_KEY` /
 //!   `ORB_O_ENTITY_TARGET_UNKNOWN` (B3-R): the
@@ -14,7 +13,7 @@
 
 use orbital_compiler::phases::inline::{
     inline_schema, inline_schema_with_orbital_diagnostics, InlineConfig, OrbitalRefDiagnostic,
-    UsesConfigDiagnostic,
+    UsesConfigSite,
 };
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::validation::error::ErrorCode;
@@ -107,7 +106,7 @@ fn materialize(consumer_source: &str) -> (tempfile::TempDir, std::path::PathBuf)
 
 struct Collected {
     orbital_ref: Vec<OrbitalRefDiagnostic>,
-    uses_config: Vec<UsesConfigDiagnostic>,
+    uses_config: Vec<UsesConfigSite>,
     schema: OrbitalSchema,
 }
 
@@ -762,8 +761,11 @@ fn orbital_references_of(consumer_source: &str) -> Vec<Value> {
     serde_json::to_value(session.take_references())
         .expect("serializes")
         .as_array()
-        .cloned()
         .expect("a list")
+        .iter()
+        .filter(|r| r["kind"] == "orbital")
+        .cloned()
+        .collect()
 }
 
 #[test]

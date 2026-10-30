@@ -66,7 +66,7 @@ use orbital::{
     materialized_primary_entity, materialized_trait_subs, only_closure, resolve_orbital_reference,
     SiblingImportInfo,
 };
-pub use orbital::{OrbitalRefDiagnostic, UsesConfigDiagnostic};
+pub use orbital::{OrbitalRefDiagnostic, UsesConfigSite};
 pub(crate) use orbital::expected_entity_names;
 use rewrite::{apply_inline_config_defaults, trait_ref_name};
 use service::inline_services;
@@ -515,7 +515,7 @@ struct InlinedImport {
     orbitals: std::rc::Rc<Vec<Orbital>>,
     provenance: Vec<ConfigProvenanceRecord>,
     orbital_ref_diagnostics: Vec<orbital::OrbitalRefDiagnostic>,
-    uses_config_diagnostics: Vec<orbital::UsesConfigDiagnostic>,
+    uses_config_sites: Vec<orbital::UsesConfigSite>,
     deferred_merges: Vec<DeferredMerge>,
     loaded_files: HashSet<PathBuf>,
 }
@@ -529,13 +529,13 @@ pub fn inline_schema(
     source_path: Option<&Path>,
 ) -> Result<(), InlineError> {
     let mut orbital_ref_diagnostics = Vec::new();
-    let mut uses_config_diagnostics = Vec::new();
+    let mut uses_config_sites = Vec::new();
     inline_schema_with_orbital_diagnostics(
         schema,
         config,
         source_path,
         &mut orbital_ref_diagnostics,
-        &mut uses_config_diagnostics,
+        &mut uses_config_sites,
     )
 }
 
@@ -552,7 +552,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     config: &InlineConfig,
     source_path: Option<&Path>,
     orbital_ref_diagnostics: &mut Vec<orbital::OrbitalRefDiagnostic>,
-    uses_config_diagnostics: &mut Vec<orbital::UsesConfigDiagnostic>,
+    uses_config_sites: &mut Vec<orbital::UsesConfigSite>,
 ) -> Result<(), InlineError> {
     if config.skip_inline {
         return Ok(());
@@ -687,7 +687,7 @@ pub fn inline_schema_with_orbital_diagnostics(
             &consumer_entity_ids,
             &listen_source_targets,
             orbital_ref_diagnostics,
-            uses_config_diagnostics,
+            uses_config_sites,
             Some(idx),
             &mut deferred_merges,
             imports,
@@ -1695,7 +1695,7 @@ fn inline_orbital(
     // aliases are a different namespace than the caller's.
     listen_source_targets: &HashMap<(String, String), SiblingImportInfo>,
     orbital_ref_diagnostics: &mut Vec<orbital::OrbitalRefDiagnostic>,
-    uses_config_diagnostics: &mut Vec<orbital::UsesConfigDiagnostic>,
+    uses_config_sites: &mut Vec<orbital::UsesConfigSite>,
     // `.lolo` spans (Stage C): this orbital's index into the TOP-LEVEL
     // `schema.orbitals` array (`Some` only when `is_top_level` — a
     // recursively-inlined alias orbital lives in a different file's index
@@ -1857,30 +1857,15 @@ fn inline_orbital(
                 alias_orbitals: Vec::new(),
             });
         }
-        if let Some(overrides) = use_decl.config.as_ref() {
-            let unknown_keys: Vec<String> = overrides
-                .keys()
-                .filter(|k| {
-                    loaded_schema_config
-                        .as_ref()
-                        .is_none_or(|declared| !declared.contains_key(*k))
-                })
-                .cloned()
-                .collect();
-            if !unknown_keys.is_empty() {
-                // `.lolo` spans (Stage C): the digit-bracket indexed form
-                // `LoloSourceMap::normalize` accepts — see
-                // `resolve_orbital_reference`'s matching `diag_path` fix.
-                let path = match orbital_index {
-                    Some(i) => format!("orbitals[{i}]"),
-                    None => format!("orbitals[name={}]", orbital.name),
-                };
-                uses_config_diagnostics.push(orbital::UsesConfigDiagnostic {
-                    path,
-                    alias: use_decl.alias.clone(),
-                    unknown_keys,
-                });
-            }
+        if use_decl.config.is_some() {
+            let path = match orbital_index {
+                Some(i) => format!("orbitals[{i}]"),
+                None => format!("orbitals[name={}]", orbital.name),
+            };
+            uses_config_sites.push(orbital::UsesConfigSite {
+                path,
+                alias: use_decl.alias.clone(),
+            });
         }
 
         // Fold this alias's OWN loaded app-config with its call-site
@@ -1923,7 +1908,7 @@ fn inline_orbital(
             if let Some(done) = imports.get(&import_key) {
                 recorder.extend(done.provenance.iter().cloned());
                 orbital_ref_diagnostics.extend(done.orbital_ref_diagnostics.iter().cloned());
-                uses_config_diagnostics.extend(done.uses_config_diagnostics.iter().cloned());
+                uses_config_sites.extend(done.uses_config_sites.iter().cloned());
                 deferred_merges.extend(done.deferred_merges.iter().cloned());
                 loader.mark_loaded(&done.loaded_files);
                 std::rc::Rc::clone(&done.orbitals)
@@ -1936,7 +1921,7 @@ fn inline_orbital(
                 let marks = (
                     recorder.len(),
                     orbital_ref_diagnostics.len(),
-                    uses_config_diagnostics.len(),
+                    uses_config_sites.len(),
                     deferred_merges.len(),
                 );
                 loader.begin_recording();
@@ -1977,7 +1962,7 @@ fn inline_orbital(
                             &nested_entity_ids,
                             &nested_listen_source_targets,
                             orbital_ref_diagnostics,
-                            uses_config_diagnostics,
+                            uses_config_sites,
                             None,
                             deferred_merges,
                             imports,
@@ -2029,7 +2014,7 @@ fn inline_orbital(
                         orbitals: std::rc::Rc::clone(&inlined_orbitals),
                         provenance: recorder[marks.0..].to_vec(),
                         orbital_ref_diagnostics: orbital_ref_diagnostics[marks.1..].to_vec(),
-                        uses_config_diagnostics: uses_config_diagnostics[marks.2..].to_vec(),
+                        uses_config_sites: uses_config_sites[marks.2..].to_vec(),
                         deferred_merges: deferred_merges[marks.3..].to_vec(),
                         loaded_files,
                     },
@@ -7835,32 +7820,11 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         write_nested_import_solution(dir.path(), serde_json::json!({"Person": "Customer"}));
         let mut schema = nested_consumer();
-        let diagnostics = diagnose(&mut schema, dir.path());
-        let unknown: Vec<_> = diagnostics
-            .iter()
-            .flat_map(|d| d.entity_target_unknown.clone())
-            .collect();
-        assert!(unknown.is_empty(), "{unknown:?}");
+        diagnose(&mut schema, dir.path());
         assert!(
             linked_entities(&schema, "Chat").contains(&"Customer".to_string()),
             "{:?}",
             linked_entities(&schema, "Chat")
-        );
-    }
-
-    #[test]
-    fn control_an_imported_programs_retarget_naming_nothing_is_still_diagnosed() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        write_nested_import_solution(dir.path(), serde_json::json!({"Person": "Nobody"}));
-        let mut schema = nested_consumer();
-        let diagnostics = diagnose(&mut schema, dir.path());
-        let unknown: Vec<_> = diagnostics
-            .iter()
-            .flat_map(|d| d.entity_target_unknown.clone())
-            .collect();
-        assert!(
-            unknown.contains(&("Person".to_string(), "Nobody".to_string())),
-            "{unknown:?}"
         );
     }
 
@@ -7895,12 +7859,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         write_same_file_shared_entity(dir.path());
         let mut schema = same_file_consumer(serde_json::json!({"Product": "Product"}));
-        let diagnostics = diagnose(&mut schema, dir.path());
-        let unknown_keys: Vec<_> = diagnostics
-            .iter()
-            .flat_map(|d| d.entity_unknown_key.clone())
-            .collect();
-        assert!(unknown_keys.is_empty(), "{unknown_keys:?}");
+        diagnose(&mut schema, dir.path());
         assert!(
             linked_entities(&schema, "ShelfOrbital").contains(&"Product".to_string()),
             "{:?}",
@@ -7910,24 +7869,6 @@ mod tests {
             aux_fields(&schema, "ShelfOrbital", "ShelfOrbitalProduct").is_empty(),
             "the shelf import must not keep its own copy"
         );
-    }
-
-    #[test]
-    fn control_an_unmapped_same_file_siblings_entity_is_diagnosed_unmapped() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        write_same_file_shared_entity(dir.path());
-        let mut schema = same_file_consumer(serde_json::Value::Null);
-        let diagnostics = diagnose(&mut schema, dir.path());
-        let unmapped: Vec<_> = diagnostics
-            .iter()
-            .flat_map(|d| {
-                d.entity_unmapped
-                    .iter()
-                    .map(|(_, e)| e.clone())
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        assert!(unmapped.contains(&"Product".to_string()), "{unmapped:?}");
     }
 
     /// `exp.orb` declares the app knob `welcomeTitle`; its `Welcome` trait forwards `headline`

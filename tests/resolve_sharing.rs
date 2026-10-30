@@ -27,7 +27,7 @@ const LEAF: &str = r#"{
 }"#;
 
 /// `post` imports `leaf` with a call-site config knob `leaf` never declares,
-/// so every inline of `post` reports one `uses` config diagnostic.
+/// so every inline of `post` records one `uses` config site.
 const POST: &str = r#"{
   "name": "post",
   "version": "1.0.0",
@@ -174,7 +174,7 @@ fn control_the_first_user_of_an_import_is_unchanged_too() {
     );
 }
 
-fn uses_config_diagnostic_count(p: &Program) -> usize {
+fn uses_config_site_count(p: &Program) -> usize {
     let mut schema = parse_file(&p.path).expect("parses");
     let (mut orbital_diags, mut uses_diags) = (Vec::new(), Vec::new());
     inline_schema_with_orbital_diagnostics(
@@ -189,14 +189,14 @@ fn uses_config_diagnostic_count(p: &Program) -> usize {
 }
 
 #[test]
-fn every_use_of_an_import_still_reports_its_diagnostics() {
-    let one = uses_config_diagnostic_count(&program(&[blog("BlogA", "/a")], false));
+fn every_use_of_an_import_still_records_its_uses_config_sites() {
+    let one = uses_config_site_count(&program(&[blog("BlogA", "/a")], false));
     assert!(
         one >= 1,
-        "post's own unknown `uses` config knob is reported"
+        "post's own `uses` config call site is recorded"
     );
     let two =
-        uses_config_diagnostic_count(&program(&[blog("BlogA", "/a"), blog("BlogB", "/b")], false));
+        uses_config_site_count(&program(&[blog("BlogA", "/a"), blog("BlogB", "/b")], false));
     assert_eq!(two, 2 * one);
 }
 

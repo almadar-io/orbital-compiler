@@ -37,7 +37,6 @@
 //! ```
 
 // shared
-pub mod binding;
 pub mod error;
 pub(crate) mod value_walk;
 
@@ -486,9 +485,6 @@ pub fn validate_comprehensive_full(
     // Phase 9: Service validation
 
     // Phase 9b: Theme validation
-
-    // Phase 11: Binding validation
-    binding::validate_all_bindings(schema, &mut ctx);
 
     // Phase 11b: Sigil context validation (Phase 3.4 of Lolo v3 plan)
 

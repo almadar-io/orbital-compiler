@@ -938,26 +938,6 @@ pub(crate) fn role_list_sites(
     unique
 }
 
-/// The string literals of every role list `site` denotes inside `default`
-/// (the knob's settled default). Lists holding a dynamic member are skipped,
-/// exactly as the remap skips them.
-pub(crate) fn role_list_literals(default: &SExpression, site: &RoleListSite) -> Vec<String> {
-    let mut probe = default.clone();
-    let mut out: Vec<String> = Vec::new();
-    visit_role_lists_at(&mut probe, &site.path, site.key.as_deref(), &mut |list| {
-        if let Some(members) = literal_role_members(list) {
-            for m in members {
-                if let SExpression::String(s) = m {
-                    if !out.contains(s) {
-                        out.push(s.clone().into_inner());
-                    }
-                }
-            }
-        }
-    });
-    out
-}
-
 /// Stage B `roles {}` over config-held role lists. A role literal sitting in a
 /// knob value is only a role COMPARISON once the trait's own guard/render
 /// reads it against a role source, so `rewrite_role_literals` (which needs the
@@ -1389,45 +1369,6 @@ pub(crate) fn rewrite_bare_field_name_config_default(
                         }
                     }
                 }
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Read-only, POST-rewrite completeness check for G3's `fields {}` rename
-/// (`docs/Almadar_Compiler_Gaps.md` §82, rung 2): does `default` still
-/// contain a bare string exactly equal to one of the PRE-rename field
-/// names, in ANY position — not just the `key`/`name`/`field` member set
-/// `rewrite_entity_field_paths` rewrites, or the bare string/list shape
-/// `rewrite_bare_field_name_config_default` rewrites? A struct member
-/// spelled outside that set (e.g. a pattern-specific `sourceField`) is
-/// invisible to both rewriters while still holding a genuine leftover
-/// reference; called AFTER they run, so a match here means the rename
-/// could not be safely applied — `ORB_O_FIELD_RENAME_UNAPPLIED` turns that
-/// into a diagnostic instead of a silent no-op. Recurses through
-/// arrays/objects; a `@`-prefixed string is a live binding, never a
-/// leftover literal, and `field_subs`'s domain (the few old names actually
-/// being renamed) bounds how broad a match can be.
-pub(crate) fn collect_stale_field_name_literals(
-    default: &SExpression,
-    field_subs: &orbital_core_base::collections::IndexMap<String, String>,
-    out: &mut HashSet<String>,
-) {
-    match default {
-        SExpression::String(s) => {
-            if !s.is_empty() && !s.starts_with('@') && field_subs.contains_key(s.as_str()) {
-                out.insert(s.clone().into_inner());
-            }
-        }
-        SExpression::Array(items) => {
-            for item in items {
-                collect_stale_field_name_literals(item, field_subs, out);
-            }
-        }
-        SExpression::Object(map) => {
-            for v in map.values() {
-                collect_stale_field_name_literals(v, field_subs, out);
             }
         }
         _ => {}

@@ -351,7 +351,7 @@ fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
         return envelope.is_some_and(|options| !matches!(options.get("key"), None | Some(SExpression::Null)));
     }
     match op_name {
-        "http" | "redis" | "postgres" => true,
+        "http" => true,
         "browser/page-facts" | "random-bytes" => matches!(
             args.get(2),
             Some(SExpression::Object(options)) if !matches!(options.get("key"), None | Some(SExpression::Null))

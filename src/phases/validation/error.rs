@@ -74,43 +74,11 @@ pub enum ErrorCode {
     PageEndpointGrantMissing,
     /// A protocol page's address does not type-check against the protocol's address record
     PageAddressInvalid,
-    /// An `orbital X = Alias.orbitals.Y { roles { … } } }` target is not a
-    /// member of the CONSUMER roster's vocabulary (`identity_entities` on the
-    /// importing schema, post-inline).
-    OrbitalRefRoleTargetNotMember,
-    /// An `orbital X = Alias.orbitals.Y { roles { … } } }` key names no
-    /// value in any UPSTREAM identity field's vocabulary (or the upstream
-    /// alias declares no roster at all).
-    OrbitalRefRoleUnknownUpstream,
-    /// A kept trait/relation/page references an out-of-orbital entity that
-    /// `obj.entities {}` never maps — the import splice has nothing to
-    /// rebind it to.
-    OrbitalRefEntityUnmapped,
-    /// An `obj.entities {}` key names no entity in the upstream closure's
-    /// out-of-orbital universe.
-    OrbitalRefEntityUnknownKey,
-    /// An entity an imported orbital expects of a sibling is provided by several sibling imports and no
-    /// `entities {}` entry names which one it binds to.
-    OrbitalRefEntityExpectAmbiguous,
-    /// An `obj.entities {}` value names no entity the consumer schema
-    /// declares.
-    OrbitalRefEntityTargetUnknown,
-    /// A `fields { OLD: NEW }` rename on an `orbital X = Alias.orbitals.Y
-    /// { … }` reference left a structurally-recognized field-reference
-    /// position (a config default's bare/list field-name value) still
-    /// naming the pre-rename upstream field — the rename silently failed to
-    /// reach it (G3, `docs/Almadar_Compiler_Gaps.md` §82, rung 2: what used
-    /// to validate 0/0 with a dead reference now errors instead).
-    OrbitalRefFieldRenameUnapplied,
     /// A page whose `main` a shell owns through a config channel
     /// (`contentTrait` …) also mounts a trait that paints a control into
     /// `main` which neither the owner nor anything it embeds references: the
     /// control stacks outside the shell's layout instead of inside it.
     PageControlOutsideShell,
-    /// A composed trait's rendered control fires an event carrying a value
-    /// that no other trait hears and whose own handling reads none of it: the
-    /// value the user entered is discarded (a form submission nothing keeps).
-    ControlValueDiscarded,
 
     // =========================================================================
     // Slot Errors (ORB_SLOT_*)
@@ -193,11 +161,6 @@ pub enum ErrorCode {
     /// `emit.success` event key. Applies to fetch / persist / call-service
     /// by default; any future operator can opt in via the same JSON flag.
     EffectMissingRequiredEmit,
-    /// `deliver: ids` makes the success event's `data` a row-set reference; any use other than
-    /// passing it whole as a `render-ui` prop value reads rows that were never delivered.
-    FetchDeliverIdsRowsRead,
-    /// `total: none` skips the count, so the success event's `totalCount` is never set.
-    FetchTotalNoneRead,
 
     // =========================================================================
     // S-Expression Errors (SEXPR_*)
@@ -343,10 +306,6 @@ pub enum ErrorCode {
     /// A spec proposition the prover could not decide (an expression outside the decidable fragment, or a write
     /// whose effect on the proposition is over-approximated). Never a pass.
     SchemaInvariantUnproved,
-    /// A `uses A from "…" { config { … } }` call-site override names a key
-    /// the imported behavior's app-level `config {}` (`OrbitalSchema.config`,
-    /// `Almadar_Orbital_Import.md` §4.5) does not declare.
-    UsesConfigUnknownKey,
 
     // =========================================================================
     // Generic Errors (ORB_GEN_*)
@@ -390,15 +349,7 @@ impl ErrorCode {
             ErrorCode::PageUnknownProtocol => "ORB_P_UNKNOWN_PROTOCOL",
             ErrorCode::PageEndpointGrantMissing => "ORB_P_ENDPOINT_GRANT_MISSING",
             ErrorCode::PageAddressInvalid => "ORB_P_ADDRESS_INVALID",
-            ErrorCode::OrbitalRefRoleTargetNotMember => "ORB_O_ROLE_TARGET_NOT_MEMBER",
-            ErrorCode::OrbitalRefRoleUnknownUpstream => "ORB_O_ROLE_UNKNOWN_UPSTREAM",
-            ErrorCode::OrbitalRefEntityUnmapped => "ORB_O_ENTITY_UNMAPPED",
-            ErrorCode::OrbitalRefEntityUnknownKey => "ORB_O_ENTITY_UNKNOWN_KEY",
-            ErrorCode::OrbitalRefEntityExpectAmbiguous => "ORB_O_ENTITY_EXPECT_AMBIGUOUS",
-            ErrorCode::OrbitalRefEntityTargetUnknown => "ORB_O_ENTITY_TARGET_UNKNOWN",
-            ErrorCode::OrbitalRefFieldRenameUnapplied => "ORB_O_FIELD_RENAME_UNAPPLIED",
             ErrorCode::PageControlOutsideShell => "ORB_PAGE_CONTROL_OUTSIDE_SHELL",
-            ErrorCode::ControlValueDiscarded => "ORB_CONTROL_VALUE_DISCARDED",
 
             // Slot
 
@@ -432,8 +383,6 @@ impl ErrorCode {
             ErrorCode::EffectEmitInvalidName => "ORB_EFF_EMIT_INVALID_NAME",
             ErrorCode::EffectEmitUndeclaredEvent => "ORB_EFF_EMIT_UNDECLARED_EVENT",
             ErrorCode::EffectMissingRequiredEmit => "ORB_EFF_MISSING_REQUIRED_EMIT",
-            ErrorCode::FetchDeliverIdsRowsRead => "ORB_FETCH_DELIVER_IDS_ROWS_READ",
-            ErrorCode::FetchTotalNoneRead => "ORB_FETCH_TOTAL_NONE_READ",
 
             // S-Expression
             ErrorCode::SExprArityMismatch => "SEXPR_ARITY_MISMATCH",
@@ -486,7 +435,6 @@ impl ErrorCode {
             // Schema
             ErrorCode::SchemaInvariantViolated => "ORB_S_INVARIANT_VIOLATED",
             ErrorCode::SchemaInvariantUnproved => "ORB_S_INVARIANT_UNPROVED",
-            ErrorCode::UsesConfigUnknownKey => "ORB_U_CONFIG_UNKNOWN_KEY",
 
             // Identity
 
@@ -525,13 +473,6 @@ impl ErrorCode {
             ErrorCode::PageUnknownProtocol
             | ErrorCode::PageEndpointGrantMissing
             | ErrorCode::PageAddressInvalid
-            | ErrorCode::OrbitalRefRoleTargetNotMember
-            | ErrorCode::OrbitalRefRoleUnknownUpstream
-            | ErrorCode::OrbitalRefEntityUnmapped
-            | ErrorCode::OrbitalRefEntityUnknownKey
-            | ErrorCode::OrbitalRefEntityExpectAmbiguous
-            | ErrorCode::OrbitalRefEntityTargetUnknown
-            | ErrorCode::OrbitalRefFieldRenameUnapplied
             | ErrorCode::PageControlOutsideShell => "page",
 
             ErrorCode::RenderUIInvalidPattern
@@ -559,8 +500,6 @@ impl ErrorCode {
             | ErrorCode::EffectEmitInvalidName
             | ErrorCode::EffectEmitUndeclaredEvent
             | ErrorCode::EffectMissingRequiredEmit
-            | ErrorCode::FetchDeliverIdsRowsRead
-            | ErrorCode::FetchTotalNoneRead
             | ErrorCode::SetValueTypeMismatch
             | ErrorCode::RowLiteralUnknownField
             | ErrorCode::RowLiteralFieldTypeMismatch
@@ -596,12 +535,10 @@ impl ErrorCode {
             ErrorCode::SharedEntityRenderAuthority => "entity_mutation",
 
             ErrorCode::CircuitDeadEndComponent
-            | ErrorCode::CircuitViewerStranded
-            | ErrorCode::ControlValueDiscarded => "circuit",
+            | ErrorCode::CircuitViewerStranded => "circuit",
 
             ErrorCode::SchemaInvariantViolated
-            | ErrorCode::SchemaInvariantUnproved
-            | ErrorCode::UsesConfigUnknownKey => "schema",
+            | ErrorCode::SchemaInvariantUnproved => "schema",
 
             ErrorCode::InvalidReference | ErrorCode::MissingField | ErrorCode::DuplicateEntity => {
                 "generic"
@@ -641,49 +578,6 @@ pub fn collection_operator_as_pattern(code: ErrorCode, path: &str, op: &str) -> 
     ))
 }
 
-/// S16 — the one diagnostic for an out-of-scope `@item` / `@index`, shared by
-/// both emitters of the class (`binding.rs`'s unknown-root arm and
-/// `sigil_context.rs`'s context-rules arm) so the two can never drift.
-///
-/// `item` / `index` are bound ONLY by the collection-callback arm of each
-/// walker, so reaching either call site proves the binding escaped its
-/// callback. The generic "allowed sigils" advice is actively wrong here: no
-/// other sigil names the element being iterated, so it sends the author down a
-/// path with no fix at the end.
-///
-/// ⚠️ The remedy is the EXPLICIT lambda, not "avoid JSX". Verified 2026-08-04
-/// with two probes identical but for the map shape: `(array/map @entity.rows
-/// (fn (item) <Alias.traits.X content={@item.title} />))` validates 0/0, while
-/// the implicit-`@item` shorthand `(array/map @entity.rows { … @item … })` in a
-/// `children:` position fails — only the pinned 3-tuple `["array/map", <coll>,
-/// ["fn", <param>, <node>]]` is recognised there (`SExpression::
-/// as_mapped_children`). With no recognised lambda, hoisted JSX has nothing for
-/// `splice_lambda_trait_refs` to splice back into, which is what strands the
-/// binding. JSX inside a lambda is fine and is used throughout the shipped
-/// corpus.
-///
-/// Severity is unchanged at both sites: `binding.rs` used `ValidationError::
-/// warning`, which is the documented shim that already produces a blocking
-/// error, so this replaces the wording only.
-pub fn out_of_scope_collection_local(code: ErrorCode, path: &str, root: &str) -> ValidationError {
-    ValidationError::error(
-        code,
-        path,
-        format!(
-            "Binding @{} is not in scope here — @item / @index are bound only inside a \
-             collection callback (array/map, array/filter, …).",
-            root
-        ),
-    )
-    .with_suggestion(
-        "Under `children:` the collection callback must use the EXPLICIT lambda form — \
-         `(array/map <collection> (fn (item) <node>))`. The implicit shorthand \
-         `(array/map <collection> { … })` is not recognised there, so its body is not \
-         treated as a lambda and @item never comes into scope. Both a raw `type:` object \
-         and a JSX element are valid as <node>.",
-    )
-}
-
 /// A validation error with full context
 #[derive(Debug, Clone)]
 pub struct ValidationError {
@@ -703,6 +597,10 @@ pub struct ValidationError {
     pub expected_shape: Option<String>,
     /// Additional context for LLM fix guidance
     pub fix_guidance: Option<String>,
+    /// The entity the finding is about (an unresolved reference names the entity that did not resolve)
+    pub entity: Option<String>,
+    /// The field of `entity` the finding names
+    pub field: Option<String>,
 }
 
 impl ValidationError {
@@ -717,7 +615,19 @@ impl ValidationError {
             valid_values: None,
             expected_shape: None,
             fix_guidance: None,
+            entity: None,
+            field: None,
         }
+    }
+
+    pub fn with_entity(mut self, entity: impl Into<String>) -> Self {
+        self.entity = Some(entity.into());
+        self
+    }
+
+    pub fn with_field(mut self, field: impl Into<String>) -> Self {
+        self.field = Some(field.into());
+        self
     }
 
     // `warning()` — the legacy alias of `error()` — was removed 2026-09-02:
@@ -941,10 +851,9 @@ mod tests {
         assert_eq!(result.error_count(), 2);
     }
 
-    /// Variants a std lint atom (`sigil-context`) also owns that Rust still references: `binding.rs` also walks
-    /// `@ensures`, `@holds` and entity invariants, which the atom does not. Each retirement removes its entry; the test
+    /// Variants a std lint atom also owns that Rust still references. Each retirement removes its entry; the test
     /// fails if a new double owner appears or a listed one is already retired.
-    const STILL_DOUBLE_OWNED: &[&str] = &["BindingPayloadInTick", "BindingUnknownRoot"];
+    const STILL_DOUBLE_OWNED: &[&str] = &[];
 
     fn double_owned(
         rust_refs: &std::collections::BTreeSet<String>,

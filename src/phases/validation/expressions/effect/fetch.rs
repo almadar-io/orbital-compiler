@@ -100,3 +100,51 @@ pub(crate) fn resolve_fetch_include_field(
                 })
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::{validate_comprehensive_without_services, ErrorCode};
+    use orbital_core_base::schema::OrbitalSchema;
+
+    fn nearest_program(options: &str) -> OrbitalSchema {
+        serde_json::from_str(&format!(
+            r#"{{ "name": "S", "orbitals": [{{ "name": "O",
+              "entity": {{ "name": "Doc", "persistence": "runtime", "fields": [
+                {{ "name": "id", "type": "string" }}, {{ "name": "title", "type": "string" }},
+                {{ "name": "count", "type": "number" }},
+                {{ "name": "embedding", "type": "array", "items": {{ "name": "component", "type": "number" }} }}] }},
+              "traits": [{{ "name": "T", "linkedEntity": "Doc", "stateMachine": {{
+                "states": [{{ "name": "idle", "isInitial": true }}],
+                "transitions": [{{ "from": "idle", "to": "idle", "event": "INIT",
+                  "effects": [["fetch", "Doc", {{ {options} }}]] }}] }} }}] }}] }}"#
+        ))
+        .expect("nearest program")
+    }
+
+    fn nearest_codes(options: &str) -> Vec<ErrorCode> {
+        validate_comprehensive_without_services(&nearest_program(options))
+            .errors
+            .iter()
+            .map(|e| e.code.clone())
+            .filter(|c| matches!(c, ErrorCode::OperatorArgTypeMismatch))
+            .collect()
+    }
+
+    #[test]
+    fn a_well_formed_nearest_validates_and_a_mistyped_one_is_refused() {
+        let nearest = |body: &str| format!(r#""nearest": {{ {body} }}"#);
+        let good = nearest(r#""field": "embedding", "vector": "@entity.embedding", "k": 3"#);
+        assert!(nearest_codes(&good).is_empty(), "{:?}", nearest_codes(&good));
+        let with_filter = format!(r#""filter": ["=", ["object/get", "@entity", "title"], "a"], {good}"#);
+        assert!(nearest_codes(&with_filter).is_empty());
+        let dynamic_k = nearest(r#""field": "embedding", "vector": "@entity.embedding", "k": "@entity.count""#);
+        assert!(nearest_codes(&dynamic_k).is_empty());
+
+        for body in [
+            r#""field": "embedding", "vector": "@entity.title", "k": 3"#,
+            r#""field": "embedding", "vector": "@entity.embedding", "k": "@entity.title""#,
+        ] {
+            assert_eq!(nearest_codes(&nearest(body)), vec![ErrorCode::OperatorArgTypeMismatch], "{body}");
+        }
+    }
+}

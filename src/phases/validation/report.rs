@@ -63,6 +63,11 @@ pub struct Finding {
     pub valid_values: Option<Vec<String>>,
     pub position: Option<SourcePosition>,
     pub needs_install: Option<bool>,
+    /// The entity the finding is about, set by the phase that raised it: for an unresolved-reference code, the
+    /// entity name that did not resolve; otherwise the entity the finding sits on.
+    pub entity: Option<String>,
+    /// The field of `entity` the finding names, where the raising phase knows it.
+    pub field: Option<String>,
 }
 
 impl Finding {
@@ -142,6 +147,10 @@ pub struct ProgramFinding {
     /// The accepted values, when the finding names a closed set (a field type, an enum member).
     #[serde(default, rename = "validValues")]
     pub valid_values: Option<Vec<String>>,
+    #[serde(default)]
+    pub entity: Option<String>,
+    #[serde(default)]
+    pub field: Option<String>,
 }
 
 /// Everything the pipeline reads about one parsed program.
@@ -491,10 +500,16 @@ fn validate_core(input: ValidationInput<'_>, options: &CompilerOptions) -> Core 
         );
         f.expected_shape = e.expected_shape.clone();
         f.valid_values = e.valid_values.clone();
+        f.entity = e.entity.clone();
+        f.field = e.field.clone();
         f
     }));
     warnings.extend(comprehensive.warnings.iter().map(|w| {
-        located_finding(locator, w.code.to_string(), w.path.clone(), w.message.clone(), w.suggestion.clone(), None)
+        let mut f =
+            located_finding(locator, w.code.to_string(), w.path.clone(), w.message.clone(), w.suggestion.clone(), None);
+        f.entity = w.entity.clone();
+        f.field = w.field.clone();
+        f
     }));
 
     for pf in program_findings {
@@ -507,6 +522,8 @@ fn validate_core(input: ValidationInput<'_>, options: &CompilerOptions) -> Core 
             None,
         );
         f.valid_values = pf.valid_values.clone();
+        f.entity = pf.entity.clone();
+        f.field = pf.field.clone();
         match pf.severity {
             FindingSeverity::Error => errors.push(f),
             FindingSeverity::Warning => warnings.push(f),
@@ -621,6 +638,8 @@ mod tests {
             suggestion: String::new(),
             severity: FindingSeverity::Warning,
             valid_values: None,
+            entity: None,
+            field: None,
         }
     }
 
@@ -646,12 +665,32 @@ mod tests {
             suggestion: String::new(),
             severity,
             valid_values: None,
+            entity: None,
+            field: None,
         };
         let as_error = report(orb("idle"), None, &[finding(FindingSeverity::Error)]);
         assert_eq!(as_error.errors.iter().filter(|f| f.code == "LINT_X").count(), 1);
         let as_warning = report(orb("idle"), None, &[finding(FindingSeverity::Warning)]);
         assert!(as_warning.errors.is_empty());
         assert_eq!(as_warning.warnings.iter().filter(|f| f.code == "LINT_X").count(), 1);
+    }
+
+    #[test]
+    fn a_program_finding_keeps_its_entity_and_field_in_the_report() {
+        let named: ProgramFinding = serde_json::from_str(
+            r#"{"code":"LINT_X","path":"orbitals[0]","message":"m","severity":"error","entity":"Other","field":"ownerId"}"#,
+        )
+        .unwrap();
+        let bare: ProgramFinding =
+            serde_json::from_str(r#"{"code":"LINT_Y","path":"orbitals[0]","message":"m","severity":"error"}"#).unwrap();
+        let found = report(orb("idle"), None, &[named, bare]);
+        let named = found.errors.iter().find(|f| f.code == "LINT_X").expect("named");
+        assert_eq!(
+            (named.entity.as_deref(), named.field.as_deref()),
+            (Some("Other"), Some("ownerId"))
+        );
+        let bare = found.errors.iter().find(|f| f.code == "LINT_Y").expect("control");
+        assert!(bare.entity.is_none() && bare.field.is_none());
     }
 
     #[test]

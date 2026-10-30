@@ -128,3 +128,88 @@ fn an_os_arity_change_is_reported() {
     expected.push("os/irq-ack: in orbital-core's OsOp table but not in the registry".to_string());
     assert_eq!(os_arity_drift(&registry), expected);
 }
+
+/// Every operator whose table walk metadata disagrees with core's derivation: `valueSourceSlots` is
+/// `ValueSourceSlots::of_semantics` of its `returnSemantics`, `fieldProjection` is `Signature::field_projection`, and a
+/// call head is recognized exactly when the table names it.
+fn walk_metadata_drift(registry: &HashMap<String, EmbeddedOperator>) -> Vec<String> {
+    use orbital_core_base::schema::ValueSourceSlots;
+    use orbital_core_base::signature::Signature;
+    let mut out = Vec::new();
+    for (name, op) in registry {
+        let slots = op.return_semantics.as_deref().and_then(ValueSourceSlots::of_semantics);
+        if op.value_source_slots != slots {
+            out.push(format!(
+                "{name}: registry valueSourceSlots {:?}, orbital-core {slots:?}",
+                op.value_source_slots
+            ));
+        }
+        let projection = Signature::of(op).field_projection();
+        if op.field_projection != projection {
+            out.push(format!(
+                "{name}: registry fieldProjection {:?}, orbital-core {projection:?}",
+                op.field_projection
+            ));
+        }
+        let head = orbital_core_base::schema::SExpression::Array(
+            vec![orbital_core_base::schema::SExpression::String(name.as_str().into())].into(),
+        );
+        if orbital_core_eval::lower::recognized_call_head(&head).is_none() {
+            out.push(format!("{name}: in the registry but not a recognized call head"));
+        }
+    }
+    for name in orbital_core_eval::evaluator::operators::DISPATCHED_NAMES {
+        if !registry.contains_key(*name) {
+            out.push(format!("{name}: dispatched by the evaluator but not in the registry"));
+        }
+    }
+    out.sort();
+    out
+}
+
+/// With `OPERATOR_WALK_METADATA_WRITE=<file>` the walk metadata core derives for every operator is written to `<file>`
+/// (operator name to its `valueSourceSlots` and `fieldProjection`, only where core derives one): the one source the
+/// table's fields are merged from.
+fn write_walk_metadata(registry: &HashMap<String, EmbeddedOperator>, file: &str) {
+    use orbital_core_base::schema::ValueSourceSlots;
+    use orbital_core_base::signature::Signature;
+    let mut derived = std::collections::BTreeMap::new();
+    for (name, op) in registry {
+        let mut entry = serde_json::Map::new();
+        if let Some(slots) = op.return_semantics.as_deref().and_then(ValueSourceSlots::of_semantics) {
+            entry.insert("valueSourceSlots".into(), serde_json::to_value(slots).unwrap());
+        }
+        if let Some(projection) = Signature::of(op).field_projection() {
+            entry.insert("fieldProjection".into(), serde_json::to_value(projection).unwrap());
+        }
+        if !entry.is_empty() {
+            derived.insert(name.clone(), entry);
+        }
+    }
+    std::fs::write(file, serde_json::to_string_pretty(&derived).unwrap() + "\n").unwrap();
+}
+
+#[test]
+fn the_table_walk_metadata_agrees_with_core() {
+    if let Ok(file) = std::env::var("OPERATOR_WALK_METADATA_WRITE") {
+        write_walk_metadata(operators(), &file);
+        return;
+    }
+    assert_eq!(walk_metadata_drift(operators()), Vec::<String>::new());
+}
+
+#[test]
+fn a_table_walk_metadata_change_is_reported() {
+    use orbital_core_base::schema::ValueSourceSlots;
+    let mut registry = operators().clone();
+    registry.get_mut("array/map").unwrap().value_source_slots = Some(ValueSourceSlots::Last);
+    registry.get_mut("object/get").unwrap().field_projection = None;
+    registry.get_mut("array/len").unwrap().value_source_slots = Some(ValueSourceSlots::Args);
+    registry.remove("array/filter");
+    let drift = walk_metadata_drift(&registry);
+    assert_eq!(drift.len(), 4, "{drift:?}");
+    assert!(drift.iter().any(|d| d.starts_with("array/map: registry valueSourceSlots Some(Last)")));
+    assert!(drift.iter().any(|d| d.starts_with("object/get: registry fieldProjection None")));
+    assert!(drift.iter().any(|d| d.starts_with("array/len: registry valueSourceSlots Some(Args), orbital-core None")));
+    assert!(drift.contains(&"array/filter: dispatched by the evaluator but not in the registry".to_string()));
+}

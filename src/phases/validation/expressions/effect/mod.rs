@@ -545,13 +545,32 @@ fn binding_types(
         locals: Default::default(),
         type_params: trait_def.type_params.iter().flatten().map(|param| param.name.clone()).collect(),
         user: super::user_identity::identity_type(schema, &trait_def.name),
-        config: trait_def
-            .config
-            .iter()
+        config: orbital_config_of(schema, trait_def)
+            .into_iter()
             .flatten()
+            .chain(trait_def.config.iter().flatten())
             .map(|(name, field)| (name.clone(), crate::phases::resolve::config_field_oir_type(field, schema).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased())))
             .collect(),
     }
+}
+
+/// The config knobs of the orbital that holds `trait_def` inline: a composed trait reads them as `@config.<knob>`
+/// once its forwarded defaults are substituted, and a knob's declared type is its type whether or not it has a default.
+fn orbital_config_of<'a>(
+    schema: &'a OrbitalSchema,
+    trait_def: &TraitDefinition,
+) -> Option<&'a orbital_core_base::collections::IndexMap<String, orbital_core_base::schema::ConfigField>> {
+    use orbital_core_base::schema::TraitReference;
+    schema
+        .orbitals
+        .iter()
+        .find(|orbital| {
+            orbital
+                .traits
+                .iter()
+                .any(|r| matches!(r, TraitReference::Inline(inline) if std::ptr::eq(&**inline, trait_def)))
+        })
+        .and_then(|orbital| orbital.config.as_ref())
 }
 
 /// The payload fields the declaration of `event` (or, for a tick, the first emit declaring each field) does not
@@ -662,6 +681,35 @@ mod per_event_payload_tests {
             "emits": []
         }))
         .expect("fixture deserializes")
+    }
+
+    #[test]
+    fn an_orbital_knob_has_its_declared_type_with_or_without_a_default() {
+        use orbital_core_base::ir::OirType;
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "E", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                "config": {
+                    "host": { "type": "string", "nullable": false },
+                    "port": { "type": "number", "nullable": false, "default": 80 }
+                },
+                "traits": [{
+                    "name": "T",
+                    "config": { "own": { "type": "boolean", "nullable": false, "default": true } },
+                    "stateMachine": { "initial": "idle", "states": [{ "name": "idle" }], "transitions": [] },
+                    "emits": []
+                }]
+            }]
+        }))
+        .expect("fixture deserializes");
+        let (trait_def, _) = crate::phases::validation::inline_traits(&schema).next().expect("one inline trait");
+        let types = binding_types(trait_def, &schema, HashMap::new(), &HashMap::new());
+        assert_eq!(types.config.get("host"), Some(&OirType::String), "no default: the declared type");
+        assert_eq!(types.config.get("port"), Some(&OirType::Number), "control: a default types the same");
+        assert_eq!(types.config.get("own"), Some(&OirType::Boolean), "control: the trait's own knob");
+        assert_eq!(types.config.get("missing"), None, "control: an undeclared knob stays untyped");
     }
 
     #[test]
