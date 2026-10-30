@@ -629,8 +629,24 @@ fn check_declared_against_produced(
     path: &str,
     result: &mut ValidationResult,
 ) {
+    check_fields_against_produced(op_name, emit_key, success_event, declared_payload, produced, false, "", path, result);
+}
+
+fn check_fields_against_produced(
+    op_name: &str,
+    emit_key: &str,
+    success_event: &str,
+    declared_payload: &[PayloadField],
+    produced: &[PayloadField],
+    open: bool,
+    prefix: &str,
+    path: &str,
+    result: &mut ValidationResult,
+) {
     for declared in declared_payload.iter() {
+        let declared_path = format!("{prefix}{}", declared.name);
         match produced.iter().find(|p| p.name == declared.name) {
+            None if open => {}
             None => {
                 result.add_error(
                     ValidationError::error(
@@ -639,12 +655,12 @@ fn check_declared_against_produced(
                         format!(
                             "Event '{}' declares payload field '{}', but '{}' emits {} on '{}' — '{}' is not one of them, so '?{}' reads undefined at runtime",
                             success_event,
-                            declared.name,
+                            declared_path,
                             op_name,
                             describe_fields(produced),
                             emit_key,
-                            declared.name,
-                            declared.name
+                            declared_path,
+                            declared_path
                         ),
                     )
                     .with_suggestion(format!(
@@ -666,7 +682,7 @@ fn check_declared_against_produced(
                             format!(
                                 "Event '{}' declares payload field '{}' as '{}', but '{}' emits it as '{}'",
                                 success_event,
-                                declared.name,
+                                declared_path,
                                 declared.field_type,
                                 op_name,
                                 produced_field.field_type
@@ -674,8 +690,25 @@ fn check_declared_against_produced(
                         )
                         .with_suggestion(format!(
                             "Align '{}.{}' with the emitted type '{}'",
-                            success_event, declared.name, produced_field.field_type
+                            success_event, declared_path, produced_field.field_type
                         )),
+                    );
+                    continue;
+                }
+                if let (Some(declared_members), Some(produced_members)) =
+                    (declared.properties.as_deref(), produced_field.properties.as_deref())
+                {
+                    let item = if declared.field_type.starts_with('[') { "[]" } else { "" };
+                    check_fields_against_produced(
+                        op_name,
+                        emit_key,
+                        success_event,
+                        declared_members,
+                        produced_members,
+                        produced_field.additional_properties.is_some(),
+                        &format!("{declared_path}{item}."),
+                        path,
+                        result,
                     );
                 }
             }
@@ -1621,6 +1654,70 @@ mod tests {
             has_wrapped(&ctx, "ThreadPostCreated"),
             "a declared field that is never emitted must warn regardless of its shape"
         );
+    }
+
+    const CREDENTIAL_LIST: &str = r#"["credential-list", {}, { "emit": { "success": "CredListed" } }]"#;
+
+    fn nested_findings(ctx: &ValidationContext) -> Vec<String> {
+        ctx.result
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::EmitPayloadNotProduced)
+            .map(|e| e.message.clone())
+            .collect()
+    }
+
+    fn item(name: &str, nested: Vec<PayloadField>, open: bool) -> PayloadField {
+        let mut list = produced_shape::scalar_field(name, "array");
+        list.properties = Some(nested);
+        if open {
+            list.additional_properties = Some(Box::new(produced_shape::scalar_field("", "any")));
+        }
+        list
+    }
+
+    fn declared_items(names: &[&str]) -> Vec<PayloadField> {
+        let mut list = produced_shape::scalar_field("entries", "[object]");
+        list.properties = Some(names.iter().map(|n| produced_shape::scalar_field(n, "string")).collect());
+        vec![list]
+    }
+
+    fn nested_check(declared: &[&str], open: bool) -> Vec<String> {
+        let produced = vec![item("entries", vec![produced_shape::scalar_field("service", "string"), produced_shape::scalar_field("name", "string")], open)];
+        let mut found = ValidationResult::new();
+        check_declared_against_produced("op", "success", "Ev", &declared_items(declared), &produced, "p", &mut found);
+        found.errors.iter().map(|e| e.message.clone()).collect()
+    }
+
+    #[test]
+    fn a_list_item_field_a_closed_item_never_emits_is_refused_by_nested_path() {
+        let found = nested_check(&["service", "envVar"], false);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("'entries[].envVar'"), "{found:?}");
+    }
+
+    #[test]
+    fn a_list_item_field_the_operator_emits_is_clean() {
+        assert_eq!(nested_check(&["service", "name"], false), Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_undeclared_field_read_under_an_open_item_is_clean() {
+        assert_eq!(nested_check(&["service", "envVar"], true), Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_open_item_of_the_operator_table_admits_an_undeclared_field() {
+        let emit = r#"{ "event": "CredListed", "payloadSchema": [{ "name": "declared", "type": "[object]", "properties": [{ "name": "group", "type": "string" }, { "name": "extra", "type": "string" }] }] }"#;
+        assert_eq!(nested_findings(&check(emit, CREDENTIAL_LIST)), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_top_level_field_the_operator_never_emits_still_names_the_bare_field() {
+        let emit = r#"{ "event": "CredListed", "payloadSchema": [{ "name": "nope", "type": "string" }] }"#;
+        let found = nested_findings(&check(emit, CREDENTIAL_LIST));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("'nope'") && !found[0].contains("[]"), "{found:?}");
     }
 
     /// POSITIVE CONTROL — a wrapper naming a DIFFERENT entity is still a

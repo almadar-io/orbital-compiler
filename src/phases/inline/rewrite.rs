@@ -1964,13 +1964,14 @@ pub(crate) fn rewrite_config_bindings(
     {
         return;
     }
-    rewrite_config_bindings_inner(expr, config_subs, declared, &mut Vec::new());
+    rewrite_config_bindings_inner(expr, config_subs, declared, false, &mut Vec::new());
 }
 
 fn rewrite_config_bindings_inner(
     expr: &mut SExpression,
     config_subs: &orbital_core_base::schema::SObject,
     declared: &orbital_core_base::schema::SObject,
+    consumed: bool,
     in_progress: &mut Vec<String>,
 ) {
     if config_subs.is_empty() {
@@ -2016,7 +2017,7 @@ fn rewrite_config_bindings_inner(
                             let param = param.to_string();
                             *expr = value.clone();
                             in_progress.push(param);
-                            rewrite_config_bindings_inner(expr, config_subs, declared, in_progress);
+                            rewrite_config_bindings_inner(expr, config_subs, declared, consumed, in_progress);
                             in_progress.pop();
                         }
                         Some(path) => {
@@ -2029,7 +2030,7 @@ fn rewrite_config_bindings_inner(
                                     let leaf = leaf.clone();
                                     in_progress.push(param.to_string());
                                     *expr = leaf;
-                                    rewrite_config_bindings_inner(expr, config_subs, declared, in_progress);
+                                    rewrite_config_bindings_inner(expr, config_subs, declared, consumed, in_progress);
                                     in_progress.pop();
                                 }
                             }
@@ -2070,28 +2071,30 @@ fn rewrite_config_bindings_inner(
                                 }
                                 for part in parts.iter_mut().skip(1) {
                                     if !is_empty_list_knob(part, config_subs) {
-                                        rewrite_config_bindings_inner(part, config_subs, declared, in_progress);
+                                        rewrite_config_bindings_inner(part, config_subs, declared, true, in_progress);
                                     }
                                 }
                                 continue;
                             }
-                            rewrite_config_bindings_inner(pair, config_subs, declared, in_progress);
+                            rewrite_config_bindings_inner(pair, config_subs, declared, true, in_progress);
                         }
                         continue;
                     }
                 }
                 if reads_as_operand
-                    && !(at >= 1 && result_operands.contains(&(at - 1)))
+                    && !(at >= 1 && result_operands.contains(&(at - 1)) && !consumed)
                     && take_declared(item, config_subs, declared)
                 {
                     continue;
                 }
-                rewrite_config_bindings_inner(item, config_subs, declared, in_progress);
+                let handed_on = at >= 1 && result_operands.contains(&(at - 1));
+                let item_consumed = if reads_as_operand { !handed_on || consumed } else { is_let && consumed };
+                rewrite_config_bindings_inner(item, config_subs, declared, item_consumed, in_progress);
             }
         }
         SExpression::Object(map) => {
             for (_k, v) in map.iter_mut() {
-                rewrite_config_bindings_inner(v, config_subs, declared, in_progress);
+                rewrite_config_bindings_inner(v, config_subs, declared, false, in_progress);
             }
         }
     }
@@ -3849,6 +3852,75 @@ mod literal_list_tests {
             effect[2][1][0], "let",
             "control: an operand the result is not drawn from keeps the declaration: {effect}"
         );
+    }
+
+    fn cue_list_trait(effect: serde_json::Value, optional: bool) -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Cues",
+            "config": { "cues": {
+                "type": "[Cue]",
+                "default": [{ "a": 1 }, { "b": "x" }],
+                "items": { "type": "object", "properties": {
+                    "a": { "name": "a", "type": "number", "required": !optional },
+                    "b": { "name": "b", "type": "string", "required": !optional }
+                } }
+            } },
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "RUN", "effects": [effect] }]
+            }
+        }))
+        .expect("trait")
+    }
+
+    fn declared_lets(value: &serde_json::Value) -> usize {
+        match value {
+            serde_json::Value::Array(items) => {
+                usize::from(items.first().is_some_and(|h| h == "let") && items.get(1).is_some_and(|b| b[0][0].as_str().is_some_and(|n| n.starts_with("knob_"))))
+                    + items.iter().map(declared_lets).sum::<usize>()
+            }
+            _ => 0,
+        }
+    }
+
+    #[test]
+    fn a_record_list_knob_read_through_a_result_operand_into_another_operator_keeps_its_declared_type() {
+        let through = serde_json::json!([
+            "set", "@entity.n",
+            ["object/get", ["array/first", ["array/filter", "@config.cues", ["fn", "c", true]]], "a"]
+        ]);
+        let mut t = cue_list_trait(through, true);
+        apply_inline_config_defaults(&mut t, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&t)).unwrap();
+        assert_eq!(declared_lets(&effect), 1, "{effect}");
+
+        let bound = serde_json::json!([
+            "set", "@entity.n",
+            ["let", [["hit", ["array/first", "@config.cues"]]], ["object/get", "@hit", "a"]]
+        ]);
+        let mut t = cue_list_trait(bound, true);
+        apply_inline_config_defaults(&mut t, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&t)).unwrap();
+        assert_eq!(declared_lets(&effect), 1, "{effect}");
+    }
+
+    #[test]
+    fn a_record_list_knob_handed_on_to_a_prop_or_a_homogeneous_list_stays_the_plain_literal() {
+        let mut prop = cue_list_trait(
+            serde_json::json!(["render-ui", "main", { "type": "data-list", "entities": ["array/first", "@config.cues"] }]),
+            true,
+        );
+        apply_inline_config_defaults(&mut prop, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&prop)).unwrap();
+        assert_eq!(declared_lets(&effect), 0, "control: a result handed to a prop is the literal: {effect}");
+
+        let mut exact = cue_list_trait(
+            serde_json::json!(["set", "@entity.n", ["object/get", ["array/first", "@config.cues"], "a"]]),
+            false,
+        );
+        apply_inline_config_defaults(&mut exact, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&exact)).unwrap();
+        assert_eq!(declared_lets(&effect), 0, "control: records with no optional field read as written: {effect}");
     }
 
     fn knob_trait(knob: serde_json::Value, effect: serde_json::Value) -> TraitDefinition {

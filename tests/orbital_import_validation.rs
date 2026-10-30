@@ -832,3 +832,104 @@ fn two_references_to_one_upstream_orbital_share_one_declaration() {
     assert_eq!(declarations[0].orbital().name, "WidgetOrbital");
     assert!(declarations[0].shares_allocation_with(&declarations[1]), "one allocation per upstream declaration");
 }
+
+// ============================================================================
+// An auxiliary entity reached only through an entity-typed knob default.
+// ============================================================================
+
+const UPSTREAM_KNOB_ENTITY: &str = r#"{
+  "name": "test-orbital-knob-entity-upstream",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "KnobOrbital",
+      "config": { "dirKnob": { "type": "entity", "default": "KnobRow" } },
+      "entity": {
+        "name": "Widget",
+        "persistence": "persistent",
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+      },
+      "auxiliaryEntities": [
+        {
+          "name": "KnobRow",
+          "persistence": "persistent",
+          "fields": [ { "name": "id", "type": "string", "required": true } ]
+        },
+        {
+          "name": "LinkedRow",
+          "persistence": "persistent",
+          "fields": [ { "name": "id", "type": "string", "required": true } ]
+        }
+      ],
+      "traits": [
+        {
+          "name": "KnobReader",
+          "linkedEntity": "Widget",
+          "config": { "dir": { "type": "entity", "default": "@config.dirKnob" } },
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "events": [ { "key": "LOAD" } ],
+            "transitions": [
+              { "from": "idle", "to": "idle", "event": "LOAD", "effects": [ ["fetch", "@config.dir", {}] ] }
+            ]
+          }
+        },
+        {
+          "name": "LinkedReader",
+          "linkedEntity": "LinkedRow",
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "events": [ { "key": "GO" } ],
+            "transitions": [ { "from": "idle", "to": "idle", "event": "GO", "effects": [] } ]
+          }
+        }
+      ],
+      "pages": [
+        { "name": "KnobPage", "path": "/knob", "primaryEntity": "Widget", "traits": [ { "ref": "KnobReader" } ] }
+      ]
+    }
+  ]
+}"#;
+
+fn entity_names_of(schema: &OrbitalSchema) -> Vec<String> {
+    let v = serde_json::to_value(schema).expect("schema serializes");
+    let mut names = Vec::new();
+    for o in v["orbitals"].as_array().into_iter().flatten() {
+        if let Some(n) = o["entity"]["name"].as_str() {
+            names.push(n.to_string());
+        }
+        for e in o["auxiliaryEntities"].as_array().into_iter().flatten() {
+            if let Some(n) = e["name"].as_str() {
+                names.push(n.to_string());
+            }
+        }
+    }
+    names
+}
+
+#[test]
+fn orbital_ref_renames_an_entity_knob_default_with_its_prefixed_aux_entity() {
+    let consumer = orbital_ref_consumer("").replace("WidgetOrbital", "KnobOrbital");
+    let c = collect_with(UPSTREAM_KNOB_ENTITY, &consumer);
+    let names = entity_names_of(&c.schema);
+    let v = serde_json::to_value(&c.schema).expect("schema serializes");
+    let reader = &v["orbitals"][0]["traits"][0];
+    let fetched = reader["stateMachine"]["transitions"][0]["effects"][0][1]
+        .as_str()
+        .expect("fetch target is a name");
+    assert!(names.iter().any(|n| n == fetched), "fetch of '{fetched}' must name a declared entity: {names:?}");
+    let knob = reader["config"]["dir"]["default"].as_str().expect("knob default");
+    assert!(names.iter().any(|n| n == knob), "knob default '{knob}' must name a declared entity: {names:?}");
+}
+
+#[test]
+fn control_orbital_ref_carries_an_aux_entity_reached_by_linked_entity() {
+    let consumer = orbital_ref_consumer("").replace("WidgetOrbital", "KnobOrbital");
+    let c = collect_with(UPSTREAM_KNOB_ENTITY, &consumer);
+    let names = entity_names_of(&c.schema);
+    assert!(
+        names.iter().any(|n| n.ends_with("LinkedRow")),
+        "linkedEntity aux must be carried: {names:?}"
+    );
+}
+

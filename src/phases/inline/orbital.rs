@@ -650,6 +650,7 @@ pub(crate) fn resolve_orbital_reference(
                 ov.fields.as_ref(),
                 true,
                 &mut recorder,
+                upstream.types.as_ref(),
             )?;
             apply_post_subst_overrides_to_trait(td, ov.listens.as_ref(), ov.emits_scope.as_ref())?;
             td.dispatch = ov.dispatch.or(td.dispatch);
@@ -1378,6 +1379,7 @@ pub(crate) fn resolve_orbital_reference(
                 rewrite_entity_fields_in_config(cfg, &field_subs);
             }
         }
+        rewrite_entity_typed_config_values(td, &subs, &entity_ids);
         rewrite_role_literals_in_config_lists(td, &role_fields, &roles, &schema_only_keys);
         if let Some(events) = obj.events.as_ref() {
             rename_events_in_trait(td, events, &subs, &event_scope)?;

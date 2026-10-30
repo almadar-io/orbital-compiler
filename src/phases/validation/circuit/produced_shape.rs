@@ -170,27 +170,28 @@ mod tests {
 fn field_shape(
     type_ref: &OperatorTypeRef,
     entity: Option<&EntityDefinition>,
-) -> (String, Option<Vec<PayloadField>>) {
+) -> (String, Option<Vec<PayloadField>>, bool) {
     match type_ref {
-        OperatorTypeRef::Primitive(p) => (p.clone(), None),
+        OperatorTypeRef::Primitive(p) => (p.clone(), None, false),
         OperatorTypeRef::Tagged(kind) => match kind {
             OperatorTypeRefKind::Entity { .. } => match entity {
-                Some(e) => ("object".to_string(), Some(entity_payload_fields(e))),
+                Some(e) => ("object".to_string(), Some(entity_payload_fields(e)), false),
                 // The operator produces a row but we could not resolve which
                 // entity — permissive rather than wrong.
-                None => ("any".to_string(), None),
+                None => ("any".to_string(), None, false),
             },
             OperatorTypeRefKind::Array { of } => {
-                let (inner, props) = field_shape(of, entity);
-                (format!("[{inner}]"), props)
+                let (inner, props, open) = field_shape(of, entity);
+                (format!("[{inner}]"), props, open)
             }
-            OperatorTypeRefKind::Object { fields, .. } => (
+            OperatorTypeRefKind::Object { fields, open, .. } => (
                 "object".to_string(),
                 Some(object_payload_fields(fields, entity)),
+                open.unwrap_or(false),
             ),
             // A union / binding / sexpr / slot in a field position is not
             // something this check can adjudicate.
-            _ => ("any".to_string(), None),
+            _ => ("any".to_string(), None, false),
         },
     }
 }
@@ -202,10 +203,10 @@ fn object_payload_fields(
     let mut out: Vec<PayloadField> = fields
         .iter()
         .map(|(name, ty)| {
-            let (field_type, properties) = field_shape(ty, entity);
+            let (field_type, properties, open) = field_shape(ty, entity);
             PayloadField {
                 nullable: None,
-                additional_properties: None,
+                additional_properties: open.then(|| Box::new(scalar_field("", "any"))),
                 values: None,
                 name: name.clone(),
                 field_type,
@@ -255,7 +256,7 @@ fn entity_payload_fields(entity: &EntityDefinition) -> Vec<PayloadField> {
     out
 }
 
-fn scalar_field(name: &str, field_type: &str) -> PayloadField {
+pub(super) fn scalar_field(name: &str, field_type: &str) -> PayloadField {
     PayloadField {
         nullable: None,
         additional_properties: None,
@@ -305,6 +306,9 @@ fn shape_fields(shape: &[ShapeField]) -> Vec<PayloadField> {
             let mut field = scalar_field(f.name, f.field_type);
             if !f.fields.is_empty() {
                 field.properties = Some(shape_fields(f.fields));
+            }
+            if f.open {
+                field.additional_properties = Some(Box::new(scalar_field("", "any")));
             }
             field
         })
@@ -400,6 +404,7 @@ pub(crate) fn produced_payload(
         op_name,
         "credential-status"
             | "credential-forget"
+            | "credential-connect"
             | "access-check"
             | "browser/prompt"
             | "browser/embed"

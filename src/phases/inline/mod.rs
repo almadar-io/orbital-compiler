@@ -4253,6 +4253,7 @@ mod tests {
             None,
             false,
             &mut Vec::new(),
+            None,
         ).expect("overrides apply");
         assert_eq!(
             trait_def.name, "CartItemAddItem",
@@ -4277,6 +4278,7 @@ mod tests {
             None,
             false,
             &mut Vec::new(),
+            None,
         ).expect("overrides apply");
         assert_eq!(trait_def.name, "ModalRecordModal");
     }
@@ -4295,6 +4297,7 @@ mod tests {
             None,
             false,
             &mut Vec::new(),
+            None,
         ).expect("overrides apply");
         assert_eq!(trait_def.name, "ModalRecordModal");
     }
@@ -4339,6 +4342,7 @@ mod tests {
             None,
             false,
             &mut Vec::new(),
+            None,
         ).expect("overrides apply");
 
         assert_eq!(
@@ -4395,6 +4399,7 @@ mod tests {
             None,
             false,
             &mut Vec::new(),
+            None,
         ).expect("overrides apply");
 
         assert_eq!(trait_def.linked_entity.as_deref(), Some("CartItem"));
@@ -4424,6 +4429,7 @@ mod tests {
             None,
             false,
             &mut Vec::new(),
+            None,
         ).expect("overrides apply");
         assert_eq!(trait_def.linked_entity.as_deref(), Some("CartItem"));
         assert_eq!(
@@ -6093,6 +6099,7 @@ mod tests {
             None,
             false,
             &mut Vec::new(),
+            None,
         ).expect("overrides apply");
 
         // Structured field rewritten.
@@ -6383,6 +6390,7 @@ mod tests {
             None,
             false,
             &mut Vec::new(),
+            None,
         ).expect("overrides apply");
 
         // linked_entity field flipped.

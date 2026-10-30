@@ -1265,7 +1265,7 @@ impl<'c> Inferer<'c> {
 
     /// Whether a call to a failable operator is proved not to fail: every `unlessLiteral` argument is a literal (a
     /// literal zero denominator is not), or a structural write's keyed arguments declare their keys (an object
-    /// literal without `__proto__`, or a closed struct or entity row).
+    /// literal, or a closed struct or entity row).
     fn failable_call_cannot_fail(&self, name: &str, args: &[&OirExpr], arg_types: &[Option<OirType>]) -> bool {
         let Some(failable) = orbital_core_base::language::registry::get_operator(name).and_then(|op| op.failable.as_ref())
         else {
@@ -1311,11 +1311,22 @@ impl<'c> Inferer<'c> {
         {
             return true;
         }
+        if !failable.unless_object.is_empty()
+            && failable.unless_object.iter().all(|&index| {
+                matches!(args.get(index), Some(OirExpr::Object { .. }))
+                    || matches!(
+                        arg_types.get(index).cloned().flatten().map(|t| self.unfold(t)),
+                        Some(OirType::Map { .. } | OirType::Struct { .. } | OirType::Row { .. })
+                    )
+            })
+        {
+            return true;
+        }
         if !failable.unless_literal.is_empty() {
             return failable.unless_literal.iter().all(|&index| literal(index));
         }
         let declared_keys = |index: usize| match args.get(index) {
-            Some(OirExpr::Object { fields }) => !fields.contains_key("__proto__"),
+            Some(OirExpr::Object { .. }) => true,
             Some(_) => matches!(
                 arg_types.get(index).cloned().flatten().map(|t| self.unfold(t)),
                 Some(OirType::Struct { additional: None, .. } | OirType::Row { .. })
@@ -1324,14 +1335,6 @@ impl<'c> Inferer<'c> {
         };
         match name {
             "object/merge" | "object/deepMerge" => !args.is_empty() && (0..args.len()).all(declared_keys),
-            "object/set" => {
-                matches!(args.get(1), Some(OirExpr::String { value }) if !value.contains('.') && value != "__proto__")
-                    && (declared_keys(0)
-                        || matches!(
-                            arg_types.first().cloned().flatten().map(|t| self.unfold(t)),
-                            Some(OirType::Map { .. })
-                        ))
-            }
             _ => false,
         }
     }
@@ -5844,5 +5847,35 @@ mod tests {
         assert!(collect_listen_key_type_errors(&module_with_listener_key(Some(OirExpr::String { value: "k".into() }))).is_empty());
         assert!(collect_listen_key_type_errors(&module_with_listener_key(Some(call("str/concat", vec![OirExpr::String { value: "a".into() }])))).is_empty());
         assert!(collect_listen_key_type_errors(&module_with_listener_key(None)).is_empty());
+    }
+    fn local_ref(name: &str) -> OirExpr {
+        OirExpr::Binding { binding: OirBinding::new(OirBindingRoot::Local(name.into()), vec![]) }
+    }
+
+    fn counts() -> OirType {
+        OirType::map(OirType::String, OirType::Number)
+    }
+
+    #[test]
+    fn an_object_set_on_a_proved_object_is_a_value_and_on_a_maybe_object_is_optional() {
+        let empty = || OirExpr::Object { fields: Default::default() };
+        let row = Row(vec![("name", OirType::String), ("maybe", OirType::optional(counts()))]);
+        let set = |target: OirExpr, key: OirExpr| infer_oir_expr_type(&call("object/set", vec![target, key, num(1.0)]), &row);
+        assert_eq!(set(checked_local(empty(), counts()), entity(&["name"])), Some(counts()), "a Map target, a computed key");
+        assert_eq!(set(checked_local(empty(), counts()), text("k")), Some(counts()), "control: a literal key");
+        assert!(matches!(set(entity(&["maybe"]), entity(&["name"])), Some(OirType::Optional { .. })), "a maybe-object target");
+        assert!(!matches!(set(entity(&["nowhere"]), entity(&["name"])), Some(ty) if !matches!(ty, OirType::Optional { .. })), "an unknown target");
+    }
+
+    #[test]
+    fn a_fold_whose_step_sets_a_key_on_its_accumulator_answers_the_object_type() {
+        let step = OirExpr::Lambda {
+            params: vec!["acc".into(), "e".into()],
+            body: Box::new(call("object/set", vec![local_ref("acc"), local_ref("e"), num(1.0)])),
+        };
+        let init = checked_local(OirExpr::Object { fields: Default::default() }, counts());
+        let fold = call("array/reduce", vec![entity(&["tags"]), init, step]);
+        assert_eq!(infer_oir_expr_type(&fold, &tags_row()), Some(counts()));
+        assert_eq!(missing_results(&call("object/keys", vec![fold])), 0);
     }
 }
