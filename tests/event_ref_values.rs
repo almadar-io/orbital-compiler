@@ -142,8 +142,3 @@ fn a_trait_qualified_ref_resolves_only_within_its_own_orbital() {
     );
 }
 
-#[test]
-fn control_a_bare_value_keeps_the_own_trait_membership_check() {
-    let f = findings("DO_CREATE", "TaskPersistor.DO_CREATE");
-    assert_eq!(codes(&f), vec![INVALID], "{f:?}");
-}

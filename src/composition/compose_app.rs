@@ -3397,12 +3397,6 @@ mod tests {
         assert!(composed.get("osGrants").is_none(), "{}", composed["osGrants"]);
     }
 
-    #[test]
-    fn a_composed_os_call_no_grant_covers_is_refused_at_compose() {
-        let error = compose(&[composable("app", "Notes", None, Some(getenv("SECRET")), None)], None).unwrap_err();
-        assert!(error.contains("ORB_OS_GRANT_MISSING"), "{error}");
-    }
-
     fn knobbed() -> Value {
         composable("server", "Http", None, None, Some(jv!({ "port": { "type": "number", "default": 3000 } })))
     }

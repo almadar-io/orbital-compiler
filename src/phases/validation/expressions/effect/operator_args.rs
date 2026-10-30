@@ -69,6 +69,7 @@ fn collect(
             result.merge(super::keyed_call::check_cancel_call_arg(items, path, ctx));
             result.merge(super::cast::check_cast(items, path, ctx));
             result.merge(super::fetch::check_fetch_nearest(items, path, ctx));
+            result.merge(super::option_since::check_option_release(items, path));
             let mut covered = covered;
             let mut children = items.as_slice();
             if let Some(SExpression::String(head)) = items.first() {

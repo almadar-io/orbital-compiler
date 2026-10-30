@@ -94,5 +94,6 @@ fn a_trait_mounted_from_an_import_brings_the_aliases_its_file_declares() {
     inline_schema_with_orbital_diagnostics(&mut schema, &InlineConfig::default(), Some(&path), &mut b, &mut c)
         .expect("inline succeeds");
     let types = schema.orbitals[0].types.as_ref().expect("the trait's file's aliases arrive");
-    assert!(types.contains_key("Point") && types.contains_key("Row"), "{:?}", types.keys().collect::<Vec<_>>());
+    assert!(types.contains_key("up::Point") && types.contains_key("up::Row"), "{:?}", types.keys().collect::<Vec<_>>());
+    assert!(!types.contains_key("Point") && !types.contains_key("Row"), "control: a mounted trait brings its file's types qualified by that file (R13), never bare");
 }

@@ -14,6 +14,7 @@ mod fetch;
 mod keyed_call;
 mod cast;
 mod operator_args;
+mod option_since;
 mod os_watch;
 mod program_eval;
 mod row_literal;

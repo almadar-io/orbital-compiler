@@ -101,8 +101,13 @@ fn k_dir(consumer: &str) -> (tempfile::TempDir, std::path::PathBuf) {
 #[test]
 fn a_trait_reference_is_paired_with_its_deferred_upstream_declaration() {
     let (_dir, path) = k_dir(&k_consumer("./atom.orb", "Up.traits.Widget"));
-    let references = references_of(&path);
-    assert_eq!(references.len(), 1, "{references:#?}");
+    let all = references_of(&path);
+    let uses: Vec<_> = all.iter().filter(|r| r["kind"] == "uses").collect();
+    assert_eq!(uses.len(), 1, "one `uses` pair for the import itself: {all:#?}");
+    assert_eq!(uses[0]["alias"], "Up");
+    assert_eq!(uses[0]["callSite"]["from"], "./atom.orb");
+    let references: Vec<_> = all.iter().filter(|r| r["kind"] == "trait").cloned().collect();
+    assert_eq!(references.len(), 1, "{all:#?}");
     let pair = &references[0];
     assert_eq!(pair["kind"], "trait");
     assert_eq!(pair["alias"], "Up");
@@ -139,8 +144,12 @@ fn control_collection_is_off_until_the_session_asks() {
 #[test]
 fn a_ref_trait_inside_the_import_is_expanded_in_the_declaration() {
     let (_dir, path) = k_dir(&k_consumer("./middle.orb", "Up.traits.Mid"));
-    let references = references_of(&path);
-    assert_eq!(references.len(), 1, "only the compiled file's own reference is answered, not the import's: {references:#?}");
+    let all = references_of(&path);
+    let uses: Vec<_> = all.iter().filter(|r| r["kind"] == "uses").collect();
+    assert_eq!(uses.len(), 1, "only the compiled file's own import is answered, not the middle file's: {all:#?}");
+    assert_eq!(uses[0]["callSite"]["from"], "./middle.orb");
+    let references: Vec<_> = all.iter().filter(|r| r["kind"] == "trait").cloned().collect();
+    assert_eq!(references.len(), 1, "only the compiled file's own reference is answered, not the import's: {all:#?}");
     let consumer = &references[0];
     assert_eq!(consumer["alias"], "Up");
     assert_eq!(consumer["name"], "Mid");

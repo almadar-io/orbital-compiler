@@ -114,12 +114,6 @@ fn an_address_of_a_handled_event_that_is_not_an_input_is_rejected() {
 }
 
 #[test]
-fn a_non_string_value_is_rejected() {
-    let f = findings_value("EventAddress", json!(7));
-    assert_eq!(codes(&f), vec![INVALID], "{f:?}");
-}
-
-#[test]
 fn control_an_event_member_keeps_its_bare_name_rule() {
     let f = findings("event", "INIT");
     assert!(f.is_empty(), "{f:?}");

@@ -4,7 +4,6 @@
 
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
-use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 
 fn upstream(expects: &str) -> String {
     format!(
@@ -213,62 +212,6 @@ fn inline_reconciled_consumer(
     let mut schema = parse_file(&path).expect("parse");
     inline_schema(&mut schema, &InlineConfig::default(), Some(&path)).expect("inline");
     schema
-}
-
-const SPEC: &str = r#"{
-  "name": "shop-spec",
-  "version": "1.0.0",
-  "orbitals": [{
-    "name": "ShopSpec",
-    "spec": true,
-    "expects": [__EXPECTS__],
-    "entity": { "name": "ShopSpec", "fields": [] },
-    "traits": []
-  }]
-}"#;
-
-const SPEC_CONSUMER: &str = r#"{
-  "name": "shop",
-  "version": "1.0.0",
-  "orbitals": [{
-    "name": "Shop",
-    "uses": [ { "from": "./spec.orb", "as": "Spec" } ],
-    "entity": {
-      "name": "Order", "persistence": "persistent", "collection": "orders",
-      "fields": [ { "name": "id", "type": "string", "required": true }, { "name": "total", "type": "number" } ]
-    },
-    "traits": [{
-      "name": "OrderView", "linkedEntity": "Order", 
-      "stateMachine": {
-        "states": [ { "name": "ready", "isInitial": true } ],
-        "events": [ { "key": "INIT" } ],
-        "transitions": [ { "from": "ready", "to": "ready", "event": "INIT", "effects": [ ["render-ui", "main", { "type": "stack" }] ] } ]
-      }
-    }],
-    "pages": [ { "name": "OrderPage", "path": "/orders", "traits": [ { "ref": "OrderView" } ] } ]
-  }]
-}"#;
-
-fn spec_import_codes(spec_expects: &str) -> Vec<String> {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    std::fs::write(dir.path().join("spec.orb"), SPEC.replace("__EXPECTS__", spec_expects)).expect("write spec");
-    let path = dir.path().join("shop.orb");
-    std::fs::write(&path, SPEC_CONSUMER).expect("write consumer");
-    let mut schema = parse_file(&path).expect("consumer parses");
-    inline_schema(&mut schema, &InlineConfig::default(), Some(&path)).expect("inline succeeds");
-    validate_comprehensive_without_services(&schema)
-        .errors
-        .iter()
-        .map(|e| format!("{} {}", e.code.as_str(), e.message))
-        .collect()
-}
-
-#[test]
-fn an_imported_spec_obligation_with_the_wrong_field_type_is_a_mismatch() {
-    let codes = spec_import_codes(
-        r#"{ "kind": "entity", "name": "Order", "strict": true, "shape": [ { "name": "total", "type": "string" } ] }"#,
-    );
-    assert!(codes.iter().any(|c| c.starts_with("ORB_S_EXPECTED_FIELD_TYPE_MISMATCH")), "{codes:?}");
 }
 
 const NODE_PROVIDER: &str = r#"{

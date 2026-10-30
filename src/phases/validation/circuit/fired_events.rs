@@ -28,7 +28,8 @@
 
 use orbital_core_base::events::is_bus_excluded_event;
 use std::sync::Arc;
-use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitDefinition, TraitReference};
+use orbital_core_base::envelope::DELIVERY_REJECTED;
+use orbital_core_base::schema::{ListenSource, OrbitalSchema, SExpression, TraitDefinition, TraitReference};
 
 use crate::embedded::patterns;
 use crate::phases::validation::value_walk::live_sources;
@@ -126,6 +127,18 @@ pub(crate) fn collect_schema_fired_events(schema: &OrbitalSchema) -> FiredEvents
                     if let Some(default) = &field.default {
                         collect_fired_with_knobs(&td.name, default, &knobs, &mut fired);
                     }
+                }
+            }
+            for listen in td.listens.iter().flat_map(|listens| listens.iter()) {
+                let source = match &listen.source {
+                    Some(ListenSource::Trait { trait_name, .. })
+                    | Some(ListenSource::Orbital { trait_name, .. }) => trait_name,
+                    _ => continue,
+                };
+                if listen.key.is_some() {
+                    fired
+                        .by_effect
+                        .insert((source.clone(), DELIVERY_REJECTED.to_string()));
                 }
             }
         }
@@ -600,6 +613,45 @@ mod tests {
     /// for it; a SIBLING trait `ArticleEdit` renders the actual button. A
     /// schema-wide-by-NAME set would credit `ArticleBrowse` with control
     /// production it doesn't have — keying by (trait, event) must not.
+    fn keyed_listen_schema(key: Option<serde_json::Value>) -> OrbitalSchema {
+        let mut edge = serde_json::json!({ "event": "GO", "triggers": "GO", "source": { "kind": "trait", "trait": "Sender" } });
+        if let Some(key) = key {
+            edge["key"] = key;
+        }
+        serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "Rows",
+                "entity": { "name": "Row", "fields": [{ "name": "id", "type": "string" }] },
+                "traits": [
+                    { "name": "Sender", "linkedEntity": "Row",
+                      "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] } },
+                    { "name": "Receiver", "linkedEntity": "Row", "listens": [edge],
+                      "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] } },
+                    { "name": "Bystander", "linkedEntity": "Row",
+                      "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] } }
+                ]
+            }]
+        }))
+        .unwrap()
+    }
+
+    /// EXEC-STEP-1a: the kernel produces `DELIVERY_REJECTED` from the emitting trait of a `per` edge.
+    #[test]
+    fn the_source_trait_of_a_per_edge_produces_delivery_rejected() {
+        let fired = collect_schema_fired_events(&keyed_listen_schema(Some(serde_json::json!("@payload.key"))));
+        assert!(fired.contains_for_trait("Sender", "DELIVERY_REJECTED"));
+        assert!(fired.contains_any_trait("DELIVERY_REJECTED"));
+        assert!(!fired.contains_for_trait("Bystander", "DELIVERY_REJECTED"));
+        assert!(!fired.contains_for_trait("Receiver", "DELIVERY_REJECTED"));
+    }
+
+    #[test]
+    fn control_an_edge_without_per_produces_no_delivery_rejected() {
+        let fired = collect_schema_fired_events(&keyed_listen_schema(None));
+        assert!(!fired.contains_any_trait("DELIVERY_REJECTED"));
+    }
+
     /// A list whose search control sits behind `(if @config.bodySearch …)`, both in a transition
     /// effect and inside another knob's default (std-browse's `bodyContent`), with `bodySearch`
     /// resolved to `body_search` (G-CROSS-144).

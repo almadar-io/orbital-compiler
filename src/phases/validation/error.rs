@@ -233,6 +233,9 @@ pub enum ErrorCode {
     /// handed to a position the kernel raises on when it is null (`rejectsNull` in the operator table), with no presence
     /// check or default in front of it. The program says what a missing value means: a guard, a default, or a required field.
     OperatorNullOperand,
+    /// A call states an operator option that the installed operator table introduces in an orb release newer than the
+    /// one running (`optionSince`), so this orb would refuse or ignore it at the host. Upgrade orb, or drop the option.
+    OperatorOptionNewer,
     /// `(set @entity.X @config.<knob>)` where the value is STILL the literal
     /// `@config.<knob>` token post-inline (no default resolved it, no
     /// call-site override supplied one) and `X` is a REQUIRED entity field.
@@ -408,6 +411,7 @@ impl ErrorCode {
             ErrorCode::OperatorArgUndetermined => "ORB_X_OPERATOR_ARG_UNDETERMINED",
             ErrorCode::OrderingOptionalOperand => "ORB_X_ORDERING_OPTIONAL_OPERAND",
             ErrorCode::OperatorNullOperand => "ORB_X_OPERATOR_NULL_OPERAND",
+            ErrorCode::OperatorOptionNewer => "ORB_X_OPERATOR_OPTION_NEWER",
             ErrorCode::SetRequiredFieldFromOptionalKnob => {
                 "ORB_X_SET_REQUIRED_FIELD_FROM_OPTIONAL_KNOB"
             }
@@ -510,6 +514,7 @@ impl ErrorCode {
             | ErrorCode::OperatorArgUndetermined
             | ErrorCode::OrderingOptionalOperand
             | ErrorCode::OperatorNullOperand
+            | ErrorCode::OperatorOptionNewer
             | ErrorCode::SetRequiredFieldFromOptionalKnob
             | ErrorCode::EmitDeclaredButUnfired
             | ErrorCode::EmitControlUnhandled => "effect",
