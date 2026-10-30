@@ -1383,6 +1383,17 @@ mod tests {
         }
 
         #[test]
+        fn a_null_test_on_a_let_local_narrows_it_as_an_operator_operand() {
+            let local = |body: &str| format!(r#"["let", [["x", ["str/to-number", "a"]]], {body}]"#);
+            let divide = r#"["/", 1, "@x"]"#;
+            let untested = null_findings(&local(divide), entity(false, false));
+            assert!(untested > 0, "control: untested, the divisor may be null");
+            assert_eq!(null_findings(&local(&format!(r#"["if", ["=", "@x", null], 0, {divide}]"#)), entity(false, false)), 0);
+            assert_eq!(null_findings(&local(&format!(r#"["if", ["and", true, ["!=", "@x", null]], {divide}, 0]"#)), entity(false, false)), 0);
+            assert!(null_findings(&local(&format!(r#"["if", ["=", "@x", null], {divide}, 0]"#)), entity(false, false)) > 0, "control: the null branch");
+        }
+
+        #[test]
         fn a_divisor_that_can_be_missing_makes_the_result_missing_where_a_value_is_needed() {
             for json in [
                 r#"["+", ["/", 1, "@entity.p"], 1]"#,

@@ -10,6 +10,8 @@ use std::collections::{HashMap, HashSet};
 
 mod browser_calls;
 mod emit_declaration;
+mod expr_types;
+pub use expr_types::expression_types;
 mod fetch;
 mod keyed_call;
 mod cast;
@@ -197,6 +199,7 @@ pub fn validate_trait_effects(
                     &scoped_shapes.payload,
                     Some(schema),
                     Some(&scoped_shapes),
+                    transition.guard.as_ref(),
                 );
                 result.merge(effect_result);
 
@@ -255,6 +258,7 @@ pub fn validate_trait_effects(
                     &tick_types.payload,
                     Some(schema),
                     Some(&tick_types),
+                    tick.guard.as_ref(),
                 );
                 result.merge(effect_result);
 

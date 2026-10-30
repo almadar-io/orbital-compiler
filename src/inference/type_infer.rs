@@ -161,6 +161,8 @@ struct Inferer<'c> {
     record: std::cell::Cell<bool>,
     /// The first declared slot a literal `null` reached in a contextual read that admits no null.
     null_slot: RefCell<Option<OirType>>,
+    /// The type each node was last inferred as, by node address; on only for [`trace_types_under`].
+    trace: RefCell<Option<std::collections::HashMap<*const OirExpr, OirType>>>,
 }
 
 struct ScopeState {
@@ -194,6 +196,7 @@ impl<'c> Inferer<'c> {
             proven: RefCell::new(std::collections::HashMap::new()),
             record: std::cell::Cell::new(false),
             null_slot: RefCell::new(None),
+            trace: RefCell::new(None),
         }
     }
 
@@ -468,6 +471,9 @@ impl<'c> Inferer<'c> {
             {
                 inferred = self.narrow(&inferred, &fact.predicate, fact.truth).unwrap_or(inferred);
             }
+        }
+        if let Some(trace) = self.trace.borrow_mut().as_mut() {
+            trace.insert(expr as *const OirExpr, inferred.clone());
         }
         Some(inferred)
     }
@@ -1736,7 +1742,10 @@ impl<'c> Inferer<'c> {
                 Some(Some(source)),
             ) = (key, key_type.as_ref(), arg_types.get(projection.source_arg))
             {
-                if Self::literal_text(key).is_none() && self.is_record(source, record) {
+                if Self::literal_text(key).is_none() && !self.is_record(source, record) {
+                    return None;
+                }
+                if Self::literal_text(key).is_none() {
                     let defaulted = !key_may_be_null
                         && projection
                             .default_arg
@@ -3154,6 +3163,20 @@ pub fn proven_calls_under<C: TypeCtx>(
         .collect()
 }
 
+/// The type the check infers for each node of `expr` (a guard, or an effect where `condition` holds), keyed by the
+/// node's address in `expr`. A node with no determined type (null, an effect, a lambda itself) is absent.
+pub fn trace_types_under<C: TypeCtx>(
+    expr: &OirExpr,
+    condition: Option<&OirExpr>,
+    ctx: &C,
+) -> std::collections::HashMap<*const OirExpr, OirType> {
+    let inferer = Inferer::new(ctx);
+    inferer.assume(condition);
+    *inferer.trace.borrow_mut() = Some(std::collections::HashMap::new());
+    inferer.known(expr);
+    inferer.trace.into_inner().unwrap_or_default()
+}
+
 /// The diagnostics of `expr` where `condition` holds, as a transition's guard holds for its effects.
 pub fn check_oir_expr_under<C: TypeCtx>(expr: &OirExpr, condition: Option<&OirExpr>, ctx: &C) -> Vec<Diagnostic> {
     let inferer = Inferer::new(ctx);
@@ -3778,6 +3801,91 @@ mod tests {
         );
     }
 
+    fn union_of(types: Vec<OirType>) -> OirType {
+        OirType::Union {
+            variants: types
+                .into_iter()
+                .enumerate()
+                .map(|(index, ty)| OirField::new(index.to_string(), ty))
+                .collect(),
+        }
+    }
+
+    fn keyed_row() -> Row {
+        Row(vec![
+            ("a", OirType::String),
+            ("b", OirType::Number),
+            ("key", OirType::String),
+        ])
+    }
+
+    #[test]
+    fn object_get_with_a_runtime_key_on_a_closed_record_is_the_union_of_its_field_types() {
+        let read = call("object/get", vec![entity(&[]), entity(&["key"])]);
+        assert_eq!(
+            infer_oir_expr_type(&read, &keyed_row()),
+            Some(OirType::optional(union_of(vec![OirType::String, OirType::Number])))
+        );
+        let alike = Row(vec![("a", OirType::String), ("key", OirType::String), ("c", OirType::String)]);
+        assert_eq!(infer_oir_expr_type(&read, &alike), Some(OirType::optional(OirType::String)));
+        let defaulted = call("object/get", vec![entity(&[]), entity(&["key"]), text("")]);
+        assert_eq!(
+            infer_oir_expr_type(&defaulted, &keyed_row()),
+            Some(union_of(vec![OirType::String, OirType::Number]))
+        );
+    }
+
+    #[test]
+    fn a_runtime_key_over_an_optional_field_keeps_one_null() {
+        let row = Row(vec![
+            ("a", OirType::optional(OirType::String)),
+            ("b", OirType::Number),
+            ("key", OirType::String),
+        ]);
+        let read = call("object/get", vec![entity(&[]), entity(&["key"])]);
+        assert_eq!(
+            infer_oir_expr_type(&read, &row),
+            Some(OirType::optional(union_of(vec![OirType::String, OirType::Number])))
+        );
+    }
+
+    #[test]
+    fn a_literal_key_still_reads_exactly_its_field_beside_a_runtime_key() {
+        assert_eq!(
+            infer_oir_expr_type(&call("object/get", vec![entity(&[]), text("b")]), &keyed_row()),
+            Some(OirType::Number)
+        );
+    }
+
+    #[test]
+    fn a_runtime_key_over_a_map_keeps_the_value_type_optional() {
+        let row = Row(vec![
+            ("m", OirType::map(OirType::String, OirType::Number)),
+            ("key", OirType::String),
+        ]);
+        let read = call("object/get", vec![entity(&["m"]), entity(&["key"])]);
+        assert_eq!(infer_oir_expr_type(&read, &row), Some(OirType::optional(OirType::Number)));
+    }
+
+    #[test]
+    fn a_runtime_key_read_compares_against_a_string() {
+        let compared = call("=", vec![call("object/get", vec![entity(&[]), entity(&["key"])]), text("x")]);
+        let found = check_oir_expr(&compared, &keyed_row());
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    #[test]
+    fn a_runtime_key_over_an_undeclared_record_stays_undetermined() {
+        let empty = Row(vec![
+            ("o", OirType::Struct { fields: Vec::<OirField>::new().into(), additional: None }),
+            ("key", OirType::String),
+        ]);
+        let read = call("object/get", vec![entity(&["o"]), entity(&["key"])]);
+        assert_eq!(infer_oir_expr_type(&read, &empty), None);
+        let unknown = call("object/get", vec![entity(&["nowhere"]), entity(&["key"])]);
+        assert_eq!(infer_oir_expr_type(&unknown, &keyed_row()), None);
+    }
+
     #[test]
     fn a_lambda_is_inferred_with_its_parameter_typed_by_the_signature() {
         // (array/map @entity.tags (fn t (str/len @t))) is [number]
@@ -4186,13 +4294,14 @@ mod tests {
         // control: a key into a different record does not apply to this one.
         let other = row(field_ref("Other", Some(OirType::String)));
         assert_eq!(infer_oir_expr_type(&get(), &other), None);
-        // control: a field of any type says nothing about the read.
+        // a field of any type reads the union of the record's field types, or null.
         let any = row(field_ref("@entity", None));
-        assert_eq!(infer_oir_expr_type(&get(), &any), None);
+        let read = infer_oir_expr_type(&get(), &any).expect("a closed record answers a key it names");
+        assert!(read.is_optional(), "{read:?}");
         let found = check_oir_expr(&call("array/len", vec![get()]), &any);
-        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(!found.is_empty(), "{found:?}");
         assert!(
-            matches!(found[0].mismatch, Mismatch::Undetermined { .. }),
+            found.iter().all(|d| !matches!(d.mismatch, Mismatch::Undetermined { .. })),
             "{found:?}"
         );
     }

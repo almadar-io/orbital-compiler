@@ -187,6 +187,7 @@ pub(crate) fn validate_set_return_type(
     payload_field_types: &HashMap<String, String>,
     schema: Option<&orbital_core_base::schema::OrbitalSchema>,
     types: Option<&BindingTypes>,
+    guard: Option<&SExpression>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -208,7 +209,8 @@ pub(crate) fn validate_set_return_type(
         types,
         schema,
     };
-    if let Some(slot) = null_written_into_never_null_slot(&arr[2], &meta.shape, &ctx) {
+    let condition = guard.and_then(|g| orbital_core_eval::lower::lower_sexpr(g).ok());
+    if let Some(slot) = null_written_into_never_null_slot(&arr[2], &meta.shape, condition.as_ref(), &ctx) {
         result.add_error(
             ValidationError::error(
                 ErrorCode::SetValueTypeMismatch,
@@ -225,7 +227,7 @@ pub(crate) fn validate_set_return_type(
     if !matches!(&arr[2], SExpression::Array(_)) {
         return result;
     }
-    if let Some(inferred) = expr_return_incompatible_in_ctx(&arr[2], &meta.shape, &ctx) {
+    if let Some(inferred) = expr_return_incompatible_given(&arr[2], &meta.shape, &ctx, guard) {
         result.add_error(
             ValidationError::error(
                 ErrorCode::SetReturnTypeMismatch,
@@ -269,10 +271,11 @@ pub(crate) fn validate_set_return_type(
 pub(crate) fn null_written_into_never_null_slot<C: crate::type_infer::TypeCtx>(
     value: &SExpression,
     declared: &orbital_core_base::ir::OirType,
+    condition: Option<&orbital_core_base::ir::OirExpr>,
     ctx: &C,
 ) -> Option<orbital_core_base::ir::OirType> {
     let lowered = orbital_core_eval::lower::lower_sexpr(value).ok()?;
-    crate::type_infer::null_at_declared_slot(&lowered, declared, None, ctx)
+    crate::type_infer::null_at_declared_slot(&lowered, declared, condition, ctx)
 }
 
 /// G-ORB-457: `(set @entity.<relation> { … })` writes a record into a to-one relation field. The literal is checked
@@ -835,7 +838,7 @@ mod return_type_tests {
             parsed,
             SExpression::Array(vec![].into()),
         ].into()));
-        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema), None);
+        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema), None, None);
         assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
     }
 
@@ -843,7 +846,7 @@ mod return_type_tests {
     fn control_json_parse_answers_null_on_a_misfit_so_a_required_list_field_refuses_it() {
         let schema = typed_schema();
         let arr = set_call("rows", "json/parse", &["[]", "Points"]);
-        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema), None);
+        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema), None, None);
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
     }
 
@@ -851,14 +854,14 @@ mod return_type_tests {
     fn control_json_parse_over_a_struct_alias_into_a_list_field_is_an_error() {
         let schema = typed_schema();
         let arr = set_call("rows", "json/parse", &["{}", "Point"]);
-        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema), None);
+        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema), None, None);
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
     }
 
     #[test]
     fn control_a_string_op_into_a_list_field_is_still_an_error() {
         let arr = set_call("rows", "str/concat", &["a", "b"]);
-        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), None, None);
+        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), None, None, None);
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
     }
 
@@ -866,7 +869,7 @@ mod return_type_tests {
     fn string_op_into_number_field_errors() {
         // `(set @entity.count (str/concat "a" "b"))` — str/concat returns string.
         let arr = set_call("count", "str/concat", &["a", "b"]);
-        let r = validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None, None);
+        let r = validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None, None, None);
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
         assert_eq!(r.errors[0].code, ErrorCode::SetReturnTypeMismatch);
     }
@@ -874,7 +877,7 @@ mod return_type_tests {
     #[test]
     fn bytes_op_into_string_field_errors() {
         let arr = set_call("title", "bytes/from-string", &["hi"]);
-        let r = validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None, None);
+        let r = validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None, None, None);
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
         assert_eq!(r.errors[0].code, ErrorCode::SetReturnTypeMismatch);
     }
@@ -882,14 +885,14 @@ mod return_type_tests {
     #[test]
     fn bytes_op_into_bytes_field_passes() {
         let arr = set_call("blob", "bytes/from-string", &["hi"]);
-        let r = validate_set_return_type(&arr, "p", &field("blob", "bytes"), &HashMap::new(), None, None);
+        let r = validate_set_return_type(&arr, "p", &field("blob", "bytes"), &HashMap::new(), None, None, None);
         assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
     }
 
     #[test]
     fn bytes_to_string_into_string_field_passes() {
         let arr = set_call("title", "bytes/to-string", &["AAEC"]);
-        let r = validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None, None);
+        let r = validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None, None, None);
         assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
     }
 
@@ -897,7 +900,7 @@ mod return_type_tests {
     fn string_op_into_string_field_passes() {
         let arr = set_call("title", "str/concat", &["a", "b"]);
         assert!(
-            validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None, None)
+            validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None, None, None)
                 .errors
                 .is_empty()
         );
@@ -908,7 +911,7 @@ mod return_type_tests {
         // object/get is input-dependent (object-key-lookup → Json); never rejects.
         let arr = set_call("count", "object/get", &["@entity.data", "k"]);
         assert!(
-            validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None, None)
+            validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None, None, None)
                 .errors
                 .is_empty()
         );
@@ -923,7 +926,7 @@ mod return_type_tests {
             SExpression::String("5".into()),
         ];
         assert!(
-            validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None, None)
+            validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None, None, None)
                 .errors
                 .is_empty()
         );

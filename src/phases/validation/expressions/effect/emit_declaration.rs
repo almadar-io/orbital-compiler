@@ -135,36 +135,154 @@ pub(crate) fn validate_effect(
         &HashMap::new(),
         None,
         None,
+        None,
     )
 }
 
 /// The effects a sequencing form (`do`, `if`, `when`, `let`) runs directly, each with its path: `<path>.do[i]`,
 /// `.then`, `.else`, `.then[i]` (`when`), `.body[i]` (`let`). A position written as a list of effects (`[[effect…]]`)
 /// adds `[k]`. Empty for a leaf effect. The one definition of where an effect nests.
-pub(crate) fn nested_effects<'a>(effect: &'a SExpression, path: &str) -> Vec<(&'a SExpression, String)> {
+///
+/// Each effect also carries the condition it runs under: `condition` (the transition's guard, or the branch it is
+/// already in) and the test of the `if` / `when` it is a branch of (`(not test)` for an `else`). A `let` ends the
+/// facts about the names it rebinds, and an effect after a `set` in the same sequence no longer holds facts read
+/// from `@entity`.
+pub(crate) fn nested_effects<'a>(
+    effect: &'a SExpression,
+    path: &str,
+    condition: Option<&SExpression>,
+) -> Vec<(&'a SExpression, String, Option<SExpression>)> {
     let SExpression::Array(arr) = effect else {
         return Vec::new();
     };
-    let positions: Vec<(&SExpression, String)> = match arr.first().and_then(|e| e.as_str()) {
-        Some("do") => arr.iter().enumerate().skip(1).map(|(i, b)| (b, format!("{}.do[{}]", path, i - 1))).collect(),
-        Some("if") => [(arr.get(2), "then"), (arr.get(3), "else")]
-            .into_iter()
-            .filter_map(|(b, label)| b.map(|b| (b, format!("{}.{}", path, label))))
-            .collect(),
-        Some("when") => arr.iter().enumerate().skip(2).map(|(i, b)| (b, format!("{}.then[{}]", path, i - 2))).collect(),
-        Some("let") => arr.iter().enumerate().skip(2).map(|(i, b)| (b, format!("{}.body[{}]", path, i - 2))).collect(),
+    let head = arr.first().and_then(|e| e.as_str());
+    let test = |negate: bool| {
+        arr.get(1).map(|test| {
+            if negate {
+                SExpression::Array(vec![SExpression::String("not".into()), test.clone()].into())
+            } else {
+                test.clone()
+            }
+        })
+    };
+    let (positions, under): (Vec<(&SExpression, String)>, Vec<Option<SExpression>>) = match head {
+        Some("do") => {
+            let positions: Vec<_> = arr.iter().enumerate().skip(1).map(|(i, b)| (b, format!("{}.do[{}]", path, i - 1))).collect();
+            let under = vec![condition.cloned(); positions.len()];
+            (positions, under)
+        }
+        Some("if") => {
+            let mut positions = Vec::new();
+            let mut under = Vec::new();
+            for (branch, label, negate) in [(arr.get(2), "then", false), (arr.get(3), "else", true)] {
+                if let Some(branch) = branch {
+                    positions.push((branch, format!("{}.{}", path, label)));
+                    under.push(and_condition(condition, test(negate)));
+                }
+            }
+            (positions, under)
+        }
+        Some("when") => {
+            let positions: Vec<_> = arr.iter().enumerate().skip(2).map(|(i, b)| (b, format!("{}.then[{}]", path, i - 2))).collect();
+            let under = vec![and_condition(condition, test(false)); positions.len()];
+            (positions, under)
+        }
+        Some("let") => {
+            let bound = let_names(arr);
+            let held = condition.and_then(|c| conjunction(conjuncts(c).into_iter().filter(|part| !bound.iter().any(|name| mentions(part, name))).collect()));
+            let positions: Vec<_> = arr.iter().enumerate().skip(2).map(|(i, b)| (b, format!("{}.body[{}]", path, i - 2))).collect();
+            let under = vec![held; positions.len()];
+            (positions, under)
+        }
         _ => return Vec::new(),
     };
+    let sequenced = matches!(head, Some("do" | "when" | "let"));
+    let mut written = false;
     let mut out = Vec::new();
-    for (position, position_path) in positions {
+    for ((position, position_path), mut held) in positions.into_iter().zip(under) {
+        if written {
+            held = held.and_then(|c| conjunction(conjuncts(&c).into_iter().filter(|part| !mentions(part, "entity")).collect()));
+        }
         match position {
             SExpression::Array(items) if matches!(items.first(), Some(SExpression::Array(_))) => {
-                out.extend(items.iter().enumerate().map(|(k, e)| (e, format!("{}[{}]", position_path, k))));
+                for (k, e) in items.iter().enumerate() {
+                    let mut at = held.clone();
+                    if written {
+                        at = at.and_then(|c| conjunction(conjuncts(&c).into_iter().filter(|part| !mentions(part, "entity")).collect()));
+                    }
+                    out.push((e, format!("{}[{}]", position_path, k), at));
+                    written |= sequenced && writes_entity(e);
+                }
             }
-            _ => out.push((position, position_path)),
+            _ => {
+                out.push((position, position_path, held));
+                written |= sequenced && writes_entity(position);
+            }
         }
     }
     out
+}
+
+fn let_names(arr: &[SExpression]) -> Vec<String> {
+    match arr.get(1) {
+        Some(SExpression::Array(bindings)) => bindings
+            .iter()
+            .filter_map(|binding| match binding {
+                SExpression::Array(pair) => pair.first().and_then(|name| name.as_str()).map(str::to_string),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn and_condition(outer: Option<&SExpression>, extra: Option<SExpression>) -> Option<SExpression> {
+    let mut parts = outer.map(conjuncts).unwrap_or_default();
+    parts.extend(extra.as_ref().map(conjuncts).unwrap_or_default());
+    conjunction(parts)
+}
+
+fn conjuncts(condition: &SExpression) -> Vec<SExpression> {
+    match condition {
+        SExpression::Array(items) if items.first().and_then(|head| head.as_str()) == Some("and") => {
+            items.iter().skip(1).flat_map(conjuncts).collect()
+        }
+        other => vec![other.clone()],
+    }
+}
+
+fn conjunction(mut parts: Vec<SExpression>) -> Option<SExpression> {
+    match parts.len() {
+        0 => None,
+        1 => parts.pop(),
+        _ => {
+            parts.insert(0, SExpression::String("and".into()));
+            Some(SExpression::Array(parts.into()))
+        }
+    }
+}
+
+/// Whether `expr` reads the binding `@name` (or a path under it).
+fn mentions(expr: &SExpression, name: &str) -> bool {
+    match expr {
+        SExpression::String(text) => text
+            .strip_prefix('@')
+            .is_some_and(|rest| rest.strip_prefix(name).is_some_and(|tail| tail.is_empty() || tail.starts_with('.'))),
+        SExpression::Array(items) => items.iter().any(|item| mentions(item, name)),
+        SExpression::Object(fields) => fields.values().any(|item| mentions(item, name)),
+        _ => false,
+    }
+}
+
+/// Whether running `effect` can write the entity (a `set` anywhere in it).
+fn writes_entity(effect: &SExpression) -> bool {
+    match effect {
+        SExpression::Array(items) => {
+            items.first().and_then(|head| head.as_str()) == Some("set") || items.iter().any(writes_entity)
+        }
+        SExpression::Object(fields) => fields.values().any(writes_entity),
+        _ => false,
+    }
 }
 
 /// The binding types the body of `["let", [[name, value]…], body…]` is checked against: `types` plus each local, typed
@@ -235,6 +353,7 @@ pub(crate) fn validate_effect_in(
     payload_shapes: &HashMap<String, orbital_core_base::ir::OirType>,
     schema: Option<&OrbitalSchema>,
     types: Option<&super::set::BindingTypes>,
+    condition: Option<&SExpression>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     let head = match effect {
@@ -256,6 +375,7 @@ pub(crate) fn validate_effect_in(
             payload_shapes,
             schema,
             types,
+            condition,
         ));
         return result;
     };
@@ -276,7 +396,7 @@ pub(crate) fn validate_effect_in(
         }
         _ => {}
     }
-    for (member, at) in nested_effects(effect, path) {
+    for (member, at, under) in nested_effects(effect, path, condition) {
         result.merge(validate_effect_in(
             member,
             &at,
@@ -291,6 +411,7 @@ pub(crate) fn validate_effect_in(
             payload_shapes,
             schema,
             scoped.as_ref().or(types),
+            under.as_ref(),
         ));
     }
     result
@@ -314,6 +435,7 @@ fn validate_leaf_effect(
     payload_shapes: &HashMap<String, orbital_core_base::ir::OirType>,
     schema: Option<&OrbitalSchema>,
     types: Option<&super::set::BindingTypes>,
+    condition: Option<&SExpression>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
     let row_ctx = ExprReturnCtx {
@@ -354,6 +476,7 @@ fn validate_leaf_effect(
                             payload_field_types,
                             schema,
                             types,
+                            condition,
                         ));
                         result.merge(validate_set_relation_literal(arr, path, entity_field_types, &rows));
                     }
@@ -445,4 +568,81 @@ fn validate_leaf_effect(
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::set::BindingTypes;
+    use super::super::EntityFieldMeta;
+
+    fn set_findings(effect: &str, guard: Option<&str>) -> usize {
+        let types = BindingTypes {
+            payload: HashMap::new(),
+            user: orbital_core_base::ir::OirType::Struct { additional: None, fields: Default::default() },
+            config: HashMap::new(),
+            prev_payload: None,
+            optional_payload: Default::default(),
+            locals: Default::default(),
+            type_params: Default::default(),
+        };
+        let meta = |shape| EntityFieldMeta { field_type: "number".into(), shape, required: false, defaulted: false };
+        let number = orbital_core_base::type_compat::compat_kind_oir("number");
+        let entity: HashMap<String, EntityFieldMeta> = [
+            ("n".to_string(), meta(number.clone())),
+            ("m".to_string(), meta(orbital_core_base::ir::OirType::optional(number))),
+        ]
+        .into_iter()
+        .collect();
+        let effect: SExpression = serde_json::from_str(effect).unwrap();
+        let guard: Option<SExpression> = guard.map(|g| serde_json::from_str(g).unwrap());
+        validate_effect_in(
+            &effect,
+            "p",
+            &HashSet::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            &ServiceRegistryData::default(),
+            None,
+            &entity,
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+            Some(&types),
+            guard.as_ref(),
+        )
+        .errors
+        .iter()
+        .filter(|e| e.code == super::super::super::ErrorCode::SetReturnTypeMismatch)
+        .count()
+    }
+
+    fn set_in_let(body: &str) -> String {
+        format!(r#"["let", [["x", ["str/to-number", "a"]]], {body}]"#)
+    }
+
+    #[test]
+    fn a_null_test_on_a_let_local_narrows_it_in_a_set() {
+        let write = r#"["set", "@entity.n", ["if", true, "@x", 0]]"#;
+        let fail = r#"["log", "info", "none"]"#;
+        assert_eq!(set_findings(&set_in_let(write), None), 1, "control: untested, the local may be null");
+        assert_eq!(set_findings(&set_in_let(&format!(r#"["if", ["=", "@x", null], {fail}, {write}]"#)), None), 0);
+        assert_eq!(set_findings(&set_in_let(&format!(r#"["if", ["and", true, ["!=", "@x", null]], {write}, {fail}]"#)), None), 0);
+        assert_eq!(set_findings(&set_in_let(&format!(r#"["if", ["=", "@x", null], {write}, {fail}]"#)), None), 1, "control: the null branch");
+        let shadowed = format!(r#"["let", [["x", ["str/to-number", "b"]]], {write}]"#);
+        assert_eq!(set_findings(&set_in_let(&format!(r#"["if", ["!=", "@x", null], {shadowed}, {fail}]"#)), None), 1, "a shadowing let ends the narrowing");
+    }
+
+    #[test]
+    fn a_guard_narrows_a_set_and_a_set_ends_a_narrowing_read_from_the_entity() {
+        let write = r#"["set", "@entity.n", ["if", true, "@entity.m", 0]]"#;
+        let guard = r#"["!=", "@entity.m", null]"#;
+        assert_eq!(set_findings(write, None), 1, "control: the optional field may be null");
+        assert_eq!(set_findings(write, Some(guard)), 0, "the transition guard holds for the set");
+        let tested = |body: &str| format!(r#"["if", {guard}, {body}, ["log", "info", "none"]]"#);
+        assert_eq!(set_findings(&tested(write), None), 0, "an if test holds in its then branch");
+        let after_write = format!(r#"["do", ["set", "@entity.m", null], {write}]"#);
+        assert_eq!(set_findings(&tested(&after_write), None), 1, "a set of the entity ends what the test showed of it");
+    }
 }

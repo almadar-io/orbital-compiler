@@ -123,6 +123,9 @@ impl LocalTypes {
     }
 
     pub(crate) fn field_definition(&self, field: &mut FieldDefinition) {
+        if let Some(name) = field.by_name_reference().and_then(|name| self.qualify(name)) {
+            field.values = Some(vec![name]);
+        }
         self.record(&mut field.record);
         self.projection(field.projected_from.as_mut());
         if let Some(items) = field.items.as_mut() {

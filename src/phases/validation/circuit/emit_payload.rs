@@ -90,7 +90,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                             "{}.stateMachine.transitions[{}].effects[{}]",
                             trait_path, i, j
                         );
-                        check_effect_tree(effect, &path, &site, Some(&types), &mut found);
+                        check_effect_tree(effect, &path, &site, Some(&types), site.guard, &mut found);
                     }
                     ctx.merge(found);
                 }
@@ -110,7 +110,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                     let mut found = ValidationResult::new();
                     for (j, effect) in tick.effects.iter().enumerate() {
                         let path = format!("{}.ticks[{}].effects[{}]", trait_path, i, j);
-                        check_effect_tree(effect, &path, &site, Some(&scopes.tick_types), &mut found);
+                        check_effect_tree(effect, &path, &site, Some(&scopes.tick_types), site.guard, &mut found);
                     }
                     ctx.merge(found);
                 }
@@ -200,6 +200,7 @@ fn check_effect_tree(
     path: &str,
     site: &EmitSite<'_>,
     types: Option<&BindingTypes>,
+    condition: Option<&SExpression>,
     found: &mut ValidationResult,
 ) {
     let type_ctx = ExprReturnCtx {
@@ -215,7 +216,7 @@ fn check_effect_tree(
             site.emit_schemas,
             &type_ctx,
             site.schema,
-            site.guard,
+            condition,
         ));
     }
     // V2 Phase 0 P0.8: tie operator `effect.produces` to `emit: { success: "X" }` on the same call.
@@ -232,8 +233,8 @@ fn check_effect_tree(
         }
         _ => None,
     };
-    for (member, member_path) in nested_effects(effect, path) {
-        check_effect_tree(member, &member_path, site, scoped.as_ref().or(types), found);
+    for (member, member_path, under) in nested_effects(effect, path, condition) {
+        check_effect_tree(member, &member_path, site, scoped.as_ref().or(types), under.as_ref(), found);
     }
 }
 
@@ -1111,6 +1112,38 @@ mod tests {
         assert_eq!(null_member(false, r#"["if", true, "a", null]"#), 1, "an if arm that is null");
         assert_eq!(null_member(true, "null"), 0, "control: an optional member takes it");
         assert_eq!(null_member(false, r#""text""#), 0, "control: a present string passes");
+    }
+
+    fn narrowed_emit_findings(body: &str) -> usize {
+        let ctx = check(
+            r#"{ "event": "Parsed", "payloadSchema": [{ "name": "n", "type": "number" }] }"#,
+            &format!(r#"["let", [["x", ["str/to-number", "@entity.content"]]], {body}]"#),
+        );
+        ctx.result
+            .errors
+            .iter()
+            .filter(|e| matches!(e.code, ErrorCode::EmitPayloadFieldTypeMismatch | ErrorCode::OperatorNullOperand))
+            .count()
+    }
+
+    #[test]
+    fn a_null_test_on_a_let_local_narrows_it_in_an_emit_payload() {
+        let emit = r#"["emit", "Parsed", { "n": "@x" }]"#;
+        let fail = r#"["log", "info", "none"]"#;
+        assert_eq!(narrowed_emit_findings(emit), 1, "control: untested, the local may be null");
+        assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["=", "@x", null], {fail}, {emit}]"#)), 0, "else of an equality test");
+        assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["!=", "@x", null], {emit}, {fail}]"#)), 0, "then of an inequality test");
+        assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["and", true, ["!=", "@x", null]], {emit}, {fail}]"#)), 0, "inside an and chain");
+        assert_eq!(narrowed_emit_findings(&format!(r#"["when", ["!=", "@x", null], {emit}]"#)), 0, "when body");
+        assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["=", "@x", null], {emit}, {fail}]"#)), 1, "control: the null branch is not narrowed");
+        assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["or", ["!=", "@x", null], true], {emit}, {fail}]"#)), 1, "control: an or does not show it present");
+    }
+
+    #[test]
+    fn a_null_test_does_not_narrow_a_shadowing_let_in_the_branch() {
+        let emit = r#"["emit", "Parsed", { "n": "@x" }]"#;
+        let shadowed = format!(r#"["let", [["x", ["str/to-number", "@entity.content"]]], {emit}]"#);
+        assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["!=", "@x", null], {shadowed}, ["log", "info", "none"]]"#)), 1);
     }
 
     const CREATE_FAILING: &str = r#"["persist", "create", "ThreadPost", { "content": "@entity.content" }, { "emit": { "failure": "ThreadPostFailed" } }]"#;

@@ -2139,7 +2139,7 @@ fn inline_orbital(
             } = trait_ref
             {
                 if let Ok(ParsedReference::Trait { alias, name }) = parse_reference(ref_str) {
-                    if let Some(imported_entity) =
+                    if let Some(mut imported_entity) =
                         ctx.get_bound_entity_for_trait_orbital(&alias, &name, ref_id.as_deref())
                     {
                         let (carries_fields, intrinsic_only) = match linked_entity {
@@ -2231,6 +2231,11 @@ fn inline_orbital(
                                 for old_name in renames.keys() {
                                     referenced_fields.remove(old_name);
                                 }
+                            }
+                            if let Some(local) =
+                                ctx.local_types_for_trait_orbital(&alias, &name, ref_id.as_deref())
+                            {
+                                local.entity(&mut imported_entity);
                             }
                             pending.push(PendingMerge {
                                 target,

@@ -1178,6 +1178,54 @@ fn names_a_record(name: &str, binding_ctx: Option<&ReferenceBindingCtx>) -> bool
     matches!(orbital_core_base::ir::types::declared_alias_shape(members), Ok(OrbitalOirType::Struct { .. }))
 }
 
+/// The member types of the union a knob's alias name stands for, when the alias is in scope and is not a record.
+fn union_alias_members(name: &str, binding_ctx: Option<&ReferenceBindingCtx>) -> Option<Vec<OrbitalOirType>> {
+    let members = binding_ctx?.aliases.iter().find_map(|aliases| aliases.get(name))?;
+    match orbital_core_base::ir::types::declared_alias_shape(members) {
+        Ok(OrbitalOirType::Union { variants }) => Some(variants.iter().map(|v| v.field_type.clone()).collect()),
+        _ => None,
+    }
+}
+
+/// The scalar tag `check_primitive_shape` reads for a union member, `None` for a member that is not a scalar.
+fn union_member_tag(member: &OrbitalOirType) -> Option<&'static str> {
+    match member {
+        OrbitalOirType::String => Some("string"),
+        OrbitalOirType::Number => Some("number"),
+        OrbitalOirType::Integer => Some("int"),
+        OrbitalOirType::Boolean => Some("boolean"),
+        _ => None,
+    }
+}
+
+fn check_union_alias_default(
+    alias: &str,
+    members: &[OrbitalOirType],
+    default: &SExpression,
+    path: &str,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let fits = matches!(default, SExpression::Null)
+        || members.iter().any(|member| match union_member_tag(member) {
+            Some(tag) => check_primitive_shape(tag, default, path).errors.is_empty(),
+            None => matches!(default, SExpression::Object(_) | SExpression::Array(_)),
+        });
+    if !fits {
+        let tags: Vec<&str> = members.iter().map(|m| union_member_tag(m).unwrap_or("object")).collect();
+        result.add_error(ValidationError::error(
+            ErrorCode::TraitConfigShapeMismatch,
+            path,
+            format!(
+                "config default {} fits no member of '{}' ({})",
+                super::sexpr::render_sexpr_brief(default),
+                alias,
+                tags.join(" | ")
+            ),
+        ));
+    }
+    result
+}
+
 fn check_config_default_shape(
     field: &ConfigField,
     default: &SExpression,
@@ -1339,6 +1387,10 @@ fn check_config_default_shape(
     // rule at a time, so a corpus movement has one attributable cause.
     //
     if let Some(props) = &field.properties {
+        if let Some(members) = union_alias_members(&field.field_type, binding_ctx) {
+            result.merge(check_union_alias_default(&field.field_type, &members, default, path));
+            return result;
+        }
         if !matches!(default, SExpression::Object(_) | SExpression::Null) {
             result.add_error(
                 ValidationError::error(

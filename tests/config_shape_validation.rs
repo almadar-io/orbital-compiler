@@ -1502,3 +1502,69 @@ fn field_ref_with_the_alias_shape_in_properties_flags_an_undeclared_name() {
     );
     assert!(field_ref_codes(&field_ref_alias_schema("amount", false)).is_empty());
 }
+
+// ============================================================================
+// A knob declared with a union alias of primitives is checked against the union's members
+// ============================================================================
+
+fn alias_knob_schema(alias: serde_json::Value, props: serde_json::Value, default: SExpression) -> OrbitalSchema {
+    let mut schema = sexpr_member_schema(FieldType::String, SExpression::Null);
+    let orbital = &mut schema.orbitals[0];
+    let TraitReference::Inline(trait_def) = &mut orbital.traits[0] else {
+        unreachable!()
+    };
+    let trait_def = Arc::make_mut(trait_def);
+    let mut field: ConfigField = serde_json::from_value(serde_json::json!({
+        "type": "Knob",
+        "properties": props,
+    }))
+    .expect("config field json");
+    field.default = Some(default);
+    let mut config = IndexMap::new();
+    config.insert("width".to_string(), field);
+    trait_def.config = Some(config);
+    orbital.types = Some(serde_json::from_value(serde_json::json!({ "Knob": alias })).expect("alias json"));
+    schema
+}
+
+fn string_or_number_knob(default: SExpression) -> OrbitalSchema {
+    alias_knob_schema(
+        serde_json::json!([{ "name": "", "type": "union", "properties": [
+            { "name": "string", "type": "string" }, { "name": "number", "type": "number" }
+        ]}]),
+        serde_json::json!({ "string": { "name": "string", "type": "string" }, "number": { "name": "number", "type": "number" } }),
+        default,
+    )
+}
+
+#[test]
+fn a_union_of_primitives_alias_accepts_each_members_literal_default() {
+    assert_eq!(shape_errors(&string_or_number_knob(SExpression::Number(250.0))), Vec::<String>::new());
+    assert_eq!(
+        shape_errors(&string_or_number_knob(SExpression::String("15rem".to_string().into()))),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_union_of_primitives_alias_refuses_a_literal_that_is_no_member() {
+    let errs = shape_errors(&string_or_number_knob(SExpression::Bool(true)));
+    assert_eq!(errs.len(), 1, "{errs:?}");
+    let errs = shape_errors(&string_or_number_knob(SExpression::Array(vec![].into())));
+    assert_eq!(errs.len(), 1, "{errs:?}");
+}
+
+fn point_knob(default: serde_json::Value) -> OrbitalSchema {
+    alias_knob_schema(
+        serde_json::json!([{ "name": "x", "type": "number", "required": true }]),
+        serde_json::json!({ "x": { "name": "x", "type": "number", "required": true } }),
+        serde_json::from_value(default).expect("default json"),
+    )
+}
+
+#[test]
+fn a_record_alias_still_checks_its_shape() {
+    assert_eq!(shape_errors(&point_knob(serde_json::json!({ "x": 1 }))), Vec::<String>::new());
+    assert_eq!(shape_errors(&point_knob(serde_json::json!({ "x": "a" }))).len(), 1);
+    assert_eq!(shape_errors(&point_knob(serde_json::json!(3))).len(), 1);
+}

@@ -66,7 +66,7 @@ pub(crate) fn check_row_literal(
         let Ok(declared) = field_shape(field) else {
             continue;
         };
-        if let Some(slot) = super::set::null_written_into_never_null_slot(value, &declared, site.ctx) {
+        if let Some(slot) = super::set::null_written_into_never_null_slot(value, &declared, None, site.ctx) {
             result.add_error(ValidationError::error(
                 ErrorCode::RowLiteralFieldTypeMismatch,
                 path,
