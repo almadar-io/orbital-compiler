@@ -503,14 +503,21 @@ pub(crate) fn resolve_orbital_reference(
     };
     let upstream = ctx.get_orbital(&alias, &name)?;
     if ctx.collect_references {
+        let entry = ctx.get_entry(&alias)?;
+        let orbitals = std::rc::Rc::clone(&entry.orbitals);
+        let index = orbitals
+            .iter()
+            .position(|o| o.name == name)
+            .ok_or_else(|| InlineError::OrbitalNotFound(name.clone(), entry.source_label.clone()))?;
+        let others = super::AliasOrbitals::new(std::rc::Rc::clone(&orbitals), index);
         ctx.reference_pairs.borrow_mut().push(super::ReferencePair {
             kind: super::ReferenceKind::Orbital,
             alias: alias.clone(),
             name: name.clone(),
             path: diag_path.clone(),
             call_site: super::ReferenceCallSite::Orbital(obj.clone()),
-            declaration: super::ReferenceDeclaration::Orbital(upstream.clone()),
-            alias_orbitals: ctx.get_entry(&alias)?.orbitals.iter().filter(|o| o.name != upstream.name).cloned().collect(),
+            declaration: super::ReferenceDeclaration::Orbital(super::OrbitalDeclaration::new(orbitals, index)),
+            alias_orbitals: Some(others).filter(|o| !o.is_empty()),
         });
     }
     let schema_config = alias_schema_configs.get(&alias);

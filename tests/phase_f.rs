@@ -34,6 +34,7 @@ fn payload_field(name: &str, ty: &str, required: bool) -> PayloadField {
         entity: None,
         projected_from: None,
         items: None,
+        relation: None,
     }
 }
 
@@ -158,6 +159,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
                 guard: None,
                 effects: Some(vec![emit]),
                 ensures: None,
+                await_render: None,
             }],
         }.into(),
         emits: Some(vec![emit_def(

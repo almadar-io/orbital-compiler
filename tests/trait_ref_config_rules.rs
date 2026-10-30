@@ -158,3 +158,33 @@ fn a_ref_trait_inside_the_import_is_expanded_in_the_declaration() {
     assert!(declaration.contains("LEAF_PING"), "the leaf's body is expanded: {declaration}");
     assert!(declaration.contains("@config.k"), "still deferred: {declaration}");
 }
+
+fn session_references_of(path: &std::path::Path) -> Vec<orbital_compiler::phases::inline::ReferencePair> {
+    let session = InlineSession::default();
+    session.collect_references();
+    let config = InlineConfig { session: Some(session.clone()), ..InlineConfig::default() };
+    let mut schema = parse_file(path).expect("must parse");
+    inline_schema(&mut schema, &config, Some(path)).expect("inline must succeed");
+    session.take_references()
+}
+
+#[test]
+fn two_references_to_one_upstream_trait_share_one_declaration() {
+    use orbital_compiler::phases::inline::{ReferenceDeclaration, ReferenceKind};
+    let consumer = k_consumer("./atom.orb", "Up.traits.Widget").replace(
+        r#"{ "ref": "Up.traits.Widget", "name": "T", "linkedEntity": "Rec", "config": { "k": { "type": "number", "default": 1 } } }"#,
+        r#"{ "ref": "Up.traits.Widget", "name": "T", "linkedEntity": "Rec" }, { "ref": "Up.traits.Widget", "name": "T2", "linkedEntity": "Rec" }"#,
+    );
+    let (_dir, path) = k_dir(&consumer);
+    let pairs = session_references_of(&path);
+    let declarations: Vec<_> = pairs
+        .iter()
+        .filter(|p| matches!(p.kind, ReferenceKind::Trait))
+        .map(|p| match &p.declaration {
+            ReferenceDeclaration::Trait(t) => t.clone(),
+            other => panic!("a trait pair holds a trait declaration: {other:?}"),
+        })
+        .collect();
+    assert_eq!(declarations.len(), 2);
+    assert!(std::sync::Arc::ptr_eq(&declarations[0], &declarations[1]), "one allocation per upstream declaration");
+}

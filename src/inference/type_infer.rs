@@ -844,7 +844,9 @@ impl<'c> Inferer<'c> {
             function: "let".into(),
             index: 0,
             mismatch: Mismatch::Type {
-                expected: shape.name.unwrap_or_else(|| format!("{:?}", shape.ty)),
+                expected: shape
+                    .name
+                    .unwrap_or_else(|| orbital_core_base::signature::describe_type(&shape.ty)),
                 actual: "an initializer whose declared type is not proved".into(),
             },
             expression: orbital_core_base::ir::pretty_print_expr(value),
@@ -908,7 +910,7 @@ impl<'c> Inferer<'c> {
             if matches!(expr, OirExpr::Null) {
                 return Some(expected.clone());
             }
-            if expr.is_literal() {
+            if expr.is_literal() || matches!(as_call(expr), Some(("list", _))) {
                 return self
                     .infer_contextual(expr, inner, named, expanding)
                     .map(|_| expected.clone());

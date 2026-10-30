@@ -51,6 +51,7 @@ fn make_trait_with_transition(
                 guard,
                 effects: Some(effects),
                 ensures: None,
+                await_render: None,
             }],
         }.into(),
         emits: None,

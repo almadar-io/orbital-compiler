@@ -113,7 +113,7 @@ pub(crate) fn field_of(p: &PayloadField) -> FieldDefinition {
         unique: None,
         default: None,
         values: p.values.clone(),
-        relation: None,
+        relation: p.relation.clone(),
         items: p
             .items
             .as_deref()
@@ -133,6 +133,7 @@ pub(crate) fn field_of(p: &PayloadField) -> FieldDefinition {
                         type_when: None,
                         entity: p.entity.clone(),
                         projected_from: p.projected_from.clone(),
+                        relation: None,
                     })
                 })
             })
@@ -514,6 +515,7 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
         type_when: None,
         entity: None,
         projected_from: None,
+        relation: f.relation.clone(),
         items: if f.items.is_some() {
             f.items.as_deref().map(|item| {
                 Box::new(PayloadField {
@@ -593,8 +595,8 @@ fn pascal(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{payload_field_of, substitute_entity_sentinel, substitute_named_entity_sentinels};
-    use orbital_core_base::schema::{FieldDefinition, PayloadField};
+    use super::{field_of, payload_field_of, substitute_entity_sentinel, substitute_named_entity_sentinels};
+    use orbital_core_base::schema::{FieldDefinition, FieldType, PayloadField};
 
     fn payload(json: serde_json::Value) -> PayloadField {
         serde_json::from_value(json).expect("PayloadField")
@@ -735,5 +737,26 @@ mod tests {
             "properties": { "street": { "name": "street", "type": "string" } }
         }));
         assert_eq!(names(&payload_field_of(&f)), vec!["street"]);
+    }
+
+    /// An entity row carried as a payload tags a relation `relation` with no
+    /// definition; rebuilding it must not yield a relation the resolver rejects.
+    #[test]
+    fn a_relation_row_member_rebuilds_with_its_relation_definition() {
+        let owner = field(serde_json::json!({
+            "name": "ownerId", "type": "relation",
+            "relation": { "entity": "Person", "entityId": "ent_P", "cardinality": "many-to-many", "onDelete": "cascade", "display": "name" }
+        }));
+        assert!(owner.relation.as_ref().is_some_and(|r| r.cardinality.is_some() && r.display.is_some()));
+        let rebuilt = field_of(&payload_field_of(&owner));
+        assert_eq!(rebuilt.field_type, FieldType::Relation);
+        assert_eq!(rebuilt.relation, owner.relation);
+    }
+
+    /// Control: a plain string member is unchanged by the round trip.
+    #[test]
+    fn a_string_row_member_round_trips() {
+        let plain = field(serde_json::json!({ "name": "title", "type": "string" }));
+        assert_eq!(field_of(&payload_field_of(&plain)).field_type, FieldType::String);
     }
 }

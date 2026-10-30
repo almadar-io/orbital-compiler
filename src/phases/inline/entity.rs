@@ -748,6 +748,7 @@ mod render_ui_pattern_contract_reference_tests {
                     guard: None,
                     effects: Some(vec![render_effect]),
                     ensures: None,
+                    await_render: None,
                 }],
             }.into(),
             ticks: None,

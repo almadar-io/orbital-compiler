@@ -834,6 +834,7 @@ mod tests {
             guard: None,
             effects: effects_json.map(|json| vec![serde_json::from_str(json).unwrap()]),
             ensures: None,
+            await_render: None,
         }
     }
 

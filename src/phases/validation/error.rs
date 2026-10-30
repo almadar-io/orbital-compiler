@@ -132,6 +132,8 @@ pub enum ErrorCode {
     TabRequestRefused,
     /// `persist batch` ops expression is not array-typed
     PersistBatchOpsNotArray,
+    /// one dispatch's delegated effects reach browser-stored rows and server work
+    DispatchMixedResidence,
     /// Multiple render_ui effects targeting same slot
     EffectSlotConflict,
     /// Unknown effect type
@@ -377,6 +379,7 @@ impl ErrorCode {
             ErrorCode::PageFactsUnrequestedRead => "ORB_PAGE_FACTS_UNREQUESTED_READ",
             ErrorCode::TabRequestRefused => "ORB_TAB_REQUEST_REFUSED",
             ErrorCode::PersistBatchOpsNotArray => "ORB_PERSIST_BATCH_OPS_NOT_ARRAY",
+            ErrorCode::DispatchMixedResidence => "ORB_X_DISPATCH_MIXED_RESIDENCE",
             ErrorCode::EffectSlotConflict => "ORB_EFF_SLOT_CONFLICT",
             ErrorCode::EffectUnknownType => "ORB_EFF_UNKNOWN_TYPE",
             ErrorCode::EffectNotifyRetired => "ORB_EFF_NOTIFY_RETIRED",
@@ -498,6 +501,7 @@ impl ErrorCode {
             | ErrorCode::TabRequestRefused
             | ErrorCode::EffectNotifyRetired
             | ErrorCode::PersistBatchOpsNotArray
+            | ErrorCode::DispatchMixedResidence
             | ErrorCode::EffectSlotConflict
             | ErrorCode::EffectUnknownType
             | ErrorCode::EffectEmitKeyInvalid

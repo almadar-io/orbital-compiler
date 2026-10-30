@@ -604,6 +604,7 @@ mod tests {
                 ),
             ].into())]),
             ensures: None,
+            await_render: None,
         }];
         td
     }

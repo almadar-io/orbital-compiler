@@ -835,6 +835,7 @@ fn list_item_mismatch(
                     additional_properties: None,
                     name: String::new(), field_type: element.to_string(), values: None, required: None,
                     description: None, properties: None, type_when: None, entity: None, projected_from: None, items: None,
+                    relation: None,
                 };
                 if let Some(inferred) = declared_oir(&element_field, schema_types)
                     .and_then(|declared| expr_return_incompatible_in_ctx(item, &declared, type_ctx))

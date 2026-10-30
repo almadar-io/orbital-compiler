@@ -491,9 +491,63 @@ pub enum ReferenceCallSite {
 #[serde(untagged)]
 pub enum ReferenceDeclaration {
     Trait(Arc<TraitDefinition>),
-    Orbital(Orbital),
+    Orbital(OrbitalDeclaration),
     /// A `uses` import: the app-level `config {}` the imported file declares (empty when it declares none).
     AliasConfig(orbital_core_base::collections::IndexMap<String, ConfigField>),
+}
+
+/// One orbital of an inlined import, held by position in the import's shared orbital list.
+#[derive(Debug, Clone)]
+pub struct OrbitalDeclaration {
+    orbitals: std::rc::Rc<Vec<Orbital>>,
+    index: usize,
+}
+
+impl OrbitalDeclaration {
+    pub(crate) fn new(orbitals: std::rc::Rc<Vec<Orbital>>, index: usize) -> Self {
+        Self { orbitals, index }
+    }
+
+    pub fn orbital(&self) -> &Orbital {
+        &self.orbitals[self.index]
+    }
+
+    pub fn shares_allocation_with(&self, other: &Self) -> bool {
+        std::rc::Rc::ptr_eq(&self.orbitals, &other.orbitals) && self.index == other.index
+    }
+}
+
+impl serde::Serialize for OrbitalDeclaration {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.orbital().serialize(serializer)
+    }
+}
+
+/// The other orbitals of an imported file: the import's shared list without the orbital a reference resolved to.
+#[derive(Debug, Clone)]
+pub struct AliasOrbitals {
+    orbitals: std::rc::Rc<Vec<Orbital>>,
+    except: usize,
+}
+
+impl AliasOrbitals {
+    pub(crate) fn new(orbitals: std::rc::Rc<Vec<Orbital>>, except: usize) -> Self {
+        Self { orbitals, except }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Orbital> {
+        self.orbitals.iter().enumerate().filter(|(i, _)| *i != self.except).map(|(_, o)| o)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.iter().next().is_none()
+    }
+}
+
+impl serde::Serialize for AliasOrbitals {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.iter())
+    }
 }
 
 /// One reference paired with the declaration it resolves to; `path` is the
@@ -509,8 +563,8 @@ pub struct ReferencePair {
     pub declaration: ReferenceDeclaration,
     /// An orbital reference: the other orbitals of the imported file, as the inliner holds them (the out-of-orbital
     /// universe `entities {}` and `roles {}` resolve against).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub alias_orbitals: Vec<Orbital>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alias_orbitals: Option<AliasOrbitals>,
 }
 
 /// An imported behavior inlined once (keyed by its canonical file): its
@@ -1860,7 +1914,7 @@ fn inline_orbital(
                 },
                 call_site: ReferenceCallSite::Uses(use_decl.clone()),
                 declaration: ReferenceDeclaration::AliasConfig(loaded_schema_config.clone().unwrap_or_default()),
-                alias_orbitals: Vec::new(),
+                alias_orbitals: None,
             });
         }
         if use_decl.config.is_some() {
@@ -3193,13 +3247,33 @@ fn merge_source_ledgers(
         .map(|l| l.entries.keys().cloned().collect())
         .unwrap_or_default();
 
+    // An event's row is carried by its live parent trait, so a copied event row takes the
+    // consumer trait that declares the id; the source atom's trait id no longer exists here.
+    let mut event_declarers: HashMap<String, String> = HashMap::new();
+    for orbital in &schema.orbitals {
+        event_id_hygiene::for_each_inline_trait(orbital, &mut |td| {
+            let Some(trait_id) = td.id.as_ref() else {
+                return;
+            };
+            for (id, _) in declared_event_keys(td) {
+                event_declarers.entry(id.to_string()).or_insert_with(|| trait_id.clone());
+            }
+        });
+    }
+
     let mut to_add: Vec<orbital_core_base::identity::LedgerEntry> = Vec::new();
     for id in &referenced {
         if declared.contains(id) || have.contains(id) {
             continue;
         }
         if let Some(row) = source_union.get(id) {
-            to_add.push(row.clone());
+            let mut row = row.clone();
+            if row.kind == orbital_core_base::identity::IdKind::Event {
+                if let Some(parent) = event_declarers.get(id) {
+                    row.parent = Some(parent.clone());
+                }
+            }
+            to_add.push(row);
         }
     }
     if to_add.is_empty() {
@@ -4251,6 +4325,7 @@ mod tests {
                     SExpression::String(("ModalRecord".to_string()).into()),
                 ].into())]),
                 ensures: None,
+                await_render: None,
             });
 
         let linked = "CartItem".to_string();
@@ -5732,6 +5807,7 @@ mod tests {
                         guard: None,
                         effects: None,
                         ensures: None,
+                        await_render: None,
                     },
                     TransitionDefinition {
                         event_id: Some("evt_close".to_string()),
@@ -5741,6 +5817,7 @@ mod tests {
                         guard: None,
                         effects: None,
                         ensures: None,
+                        await_render: None,
                     },
                 ],
             }.into(),
@@ -5988,6 +6065,7 @@ mod tests {
                         SExpression::String(("OPEN".to_string()).into()),
                     ].into())]),
                     ensures: None,
+                    await_render: None,
                 }],
             }.into(),
             ticks: None,
@@ -6263,6 +6341,7 @@ mod tests {
                         guard: None,
                         effects: Some(vec![SExpression::Array(vec![s("fetch"), s("Source")].into())]),
                         ensures: None,
+                        await_render: None,
                     },
                     TransitionDefinition {
                         event_id: None,
@@ -6277,6 +6356,7 @@ mod tests {
                             s("@payload.data"),
                         ].into())]),
                         ensures: None,
+                        await_render: None,
                     },
                 ],
             }.into(),
@@ -9525,6 +9605,7 @@ mod tests {
                     ].into()),
                 ]),
                 ensures: None,
+                await_render: None,
             });
 
         let own = trait_referenced_fields_of_entity(&trait_def, &bound, true);
@@ -9993,6 +10074,86 @@ mod event_rename_reid_tests {
         let a_id = event_id(inline(&s, 0, 0));
         let listen = &inline(&s, 0, 1).listens.as_ref().unwrap()[0];
         assert_eq!(listen.event_id.as_deref(), Some(a_id.as_str()));
+    }
+}
+
+#[cfg(test)]
+mod merged_ledger_row_tests {
+    use super::*;
+    use orbital_core_base::identity::{IdKind, LedgerEntry, LedgerOwner};
+    use serde_json::json;
+
+    fn browse(name: &str, tid: &str) -> serde_json::Value {
+        json!({
+            "name": name, "id": tid, "linkedEntity": "Note",
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "REFETCH", "eventId": "evt_x" }],
+                "events": [{ "key": "REFETCH", "id": "evt_x" }]
+            }
+        })
+    }
+
+    fn listener(listen: bool) -> serde_json::Value {
+        let listens = if listen {
+            json!([{ "event": "FILTER", "triggers": "REFETCH", "triggersId": "evt_x", "source": { "kind": "any" } }])
+        } else {
+            json!([])
+        };
+        json!({
+            "name": "Listener", "id": "trt_l", "linkedEntity": "Note", "listens": listens,
+            "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] }
+        })
+    }
+
+    fn merged(listen: bool, declared: bool) -> OrbitalSchema {
+        let traits = if declared {
+            vec![browse("BrowseOne", "trt_1"), listener(listen)]
+        } else {
+            vec![listener(listen)]
+        };
+        let mut s: OrbitalSchema = serde_json::from_value(json!({
+            "version": "2.0", "name": "T", "schemaVersion": 1,
+            "orbitals": [{
+                "name": "A", "entity": { "name": "Note", "fields": [], "id": "ent_a" },
+                "traits": traits
+            }],
+            "ledger": { "schemaVersion": 1, "entries": {} }
+        }))
+        .expect("schema");
+        let source_union = HashMap::from([(
+            "evt_x".to_string(),
+            LedgerEntry {
+                id: "evt_x".into(),
+                kind: IdKind::Event,
+                baked_name: "REFETCH".into(),
+                cur_name: "REFETCH".into(),
+                renames: vec![],
+                owner: LedgerOwner::Std,
+                parent: Some("trt_atom".into()),
+            },
+        )]);
+        merge_source_ledgers(&mut s, &source_union);
+        s
+    }
+
+    fn row_parent(s: &OrbitalSchema) -> Option<String> {
+        s.ledger.as_ref().unwrap().entries.get("evt_x").and_then(|r| r.parent.clone())
+    }
+
+    #[test]
+    fn a_copied_event_row_takes_the_consumer_trait_that_declares_it() {
+        assert_eq!(row_parent(&merged(true, true)).as_deref(), Some("trt_1"));
+    }
+
+    #[test]
+    fn control_a_copied_event_row_nobody_declares_keeps_its_source_parent() {
+        assert_eq!(row_parent(&merged(true, false)).as_deref(), Some("trt_atom"));
+    }
+
+    #[test]
+    fn control_a_declared_event_nothing_references_copies_no_source_row() {
+        assert_eq!(row_parent(&merged(false, true)), None);
     }
 }
 

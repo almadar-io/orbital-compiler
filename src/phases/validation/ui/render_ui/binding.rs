@@ -1135,6 +1135,7 @@ mod array_into_record_tests {
             entity,
             projected_from: None,
             items: None,
+            relation: None,
         }]
     }
 

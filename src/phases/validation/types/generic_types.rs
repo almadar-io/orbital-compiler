@@ -76,6 +76,7 @@ mod tests {
             entity: None,
             projected_from: None,
             items: None,
+            relation: None,
         }
     }
 

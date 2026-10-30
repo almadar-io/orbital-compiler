@@ -791,3 +791,44 @@ fn control_an_orbital_reference_without_extend_carries_none_in_its_call_site() {
     assert_eq!(references.len(), 1, "{references:#?}");
     assert!(references[0]["callSite"].get("extend").is_none(), "{}", references[0]["callSite"]);
 }
+
+#[test]
+fn two_references_to_one_upstream_orbital_share_one_declaration() {
+    use orbital_compiler::phases::inline::ReferenceDeclaration;
+    let consumer = orbital_ref_consumer("").replace(
+        r#""reference": {
+        "ref": "Up.orbitals.WidgetOrbital"
+      }
+    }"#,
+        r#""reference": {
+        "ref": "Up.orbitals.WidgetOrbital"
+      }
+    },
+    {
+      "name": "Local2",
+      "uses": [ { "from": "./upstream.orb", "as": "Up" } ],
+      "entity": "Up.orbitals.WidgetOrbital.entity",
+      "traits": [],
+      "reference": {
+        "ref": "Up.orbitals.WidgetOrbital"
+      }
+    }"#,
+    );
+    let (_dir, path) = materialize(&consumer);
+    let session = orbital_compiler::phases::inline::InlineSession::default();
+    session.collect_references();
+    let config = InlineConfig { session: Some(session.clone()), ..InlineConfig::default() };
+    let mut schema = parse_file(&path).expect("consumer must parse");
+    inline_schema(&mut schema, &config, Some(&path)).expect("inline must succeed");
+    let declarations: Vec<_> = session
+        .take_references()
+        .into_iter()
+        .filter_map(|p| match p.declaration {
+            ReferenceDeclaration::Orbital(d) => Some(d),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(declarations.len(), 2);
+    assert_eq!(declarations[0].orbital().name, "WidgetOrbital");
+    assert!(declarations[0].shares_allocation_with(&declarations[1]), "one allocation per upstream declaration");
+}

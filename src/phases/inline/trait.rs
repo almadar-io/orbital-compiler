@@ -1980,8 +1980,9 @@ pub(crate) fn inline_traits(
                             };
                             match inlined {
                                 TraitReference::Inline(trait_def) => {
+                                    let upstream_declaration = ctx.collect_references.then(|| Arc::clone(&trait_def));
                                     let mut trait_def = Arc::unwrap_or_clone(trait_def);
-                                    if ctx.collect_references {
+                                    if let Some(declaration) = upstream_declaration {
                                         ctx.reference_pairs.borrow_mut().push(
                                             super::ReferencePair {
                                                 kind: super::ReferenceKind::Trait,
@@ -1991,10 +1992,8 @@ pub(crate) fn inline_traits(
                                                 call_site: super::ReferenceCallSite::Trait(
                                                     trait_ref.clone(),
                                                 ),
-                                                declaration: super::ReferenceDeclaration::Trait(
-                                                    Arc::new(trait_def.clone()),
-                                                ),
-                                                alias_orbitals: Vec::new(),
+                                                declaration: super::ReferenceDeclaration::Trait(declaration),
+                                                alias_orbitals: None,
                                             },
                                         );
                                     }
@@ -2971,6 +2970,7 @@ mod entity_id_reader_tests {
             entity: None,
             projected_from: None,
             items: None,
+            relation: None,
         }
     }
 
@@ -3031,6 +3031,7 @@ mod entity_id_reader_tests {
                         s(&format!("@config.{knob}")),
                     ].into())]),
                     ensures: None,
+                    await_render: None,
                 }],
             }.into(),
             ticks: None,
@@ -3210,6 +3211,7 @@ mod entity_id_reader_tests {
                         ),
                     ].into())]),
                     ensures: None,
+                    await_render: None,
                 }],
             }.into(),
             ticks: None,

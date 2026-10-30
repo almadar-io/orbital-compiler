@@ -281,6 +281,20 @@ fn a_computed_record_set_into_a_relation_field_is_checked_against_the_related_en
 }
 
 #[test]
+fn a_relation_read_set_into_a_relation_field_of_the_same_entity_is_accepted() {
+    let r = validate_rows(row_fields(), json!({}), json!([["set", "@entity.hero", ["object/get", "@entity", "hero"]]]));
+    assert!(with_code(&r, ErrorCode::SetReturnTypeMismatch).is_empty(), "{:?} {:?}", codes(&r), with_code(&r, ErrorCode::SetReturnTypeMismatch));
+}
+
+#[test]
+fn a_relation_read_of_another_entity_set_into_a_relation_field_is_rejected() {
+    let mut fields = row_fields();
+    fields.as_array_mut().expect("fields").push(json!({ "name": "parent", "type": "relation", "relation": { "entity": "Row", "cardinality": "one" } }));
+    let r = validate_rows(fields, json!({}), json!([["set", "@entity.hero", ["object/get", "@entity", "parent"]]]));
+    assert_eq!(with_code(&r, ErrorCode::SetReturnTypeMismatch).len(), 1, "{:?} {:?}", codes(&r), with_code(&r, ErrorCode::SetReturnTypeMismatch));
+}
+
+#[test]
 fn a_literal_record_set_into_a_relation_field_is_left_to_the_std_lint() {
     for literal in [json!({ "power": "high" }), json!({ "bogus": 1 }), json!({ "power": null })] {
         let r = validate_rows(row_fields(), json!({}), json!([["set", "@entity.hero", literal.clone()]]));
@@ -302,4 +316,31 @@ fn json_parse_naming_no_declared_type_is_reported_in_effects_and_declared_types_
     assert!(found[0].contains("`Nope`"), "{found:?}");
     let declared = validate_rows(row_fields(), types, parse("Point"));
     assert!(with_code(&declared, ErrorCode::OperatorArgTypeMismatch).is_empty(), "{:?}", codes(&declared));
+}
+
+fn mixed(r: &ValidationResult) -> bool {
+    r.errors.iter().any(|e| e.code == ErrorCode::DispatchMixedResidence)
+}
+
+#[test]
+fn an_arm_persisting_a_browser_entity_and_a_server_entity_is_a_mixed_residence_error() {
+    let effects = json!([
+        ["persist", "batch", [["create", "Draft", { "id": "d" }]], emit()],
+        ["persist", "create", "Row", { "id": "r" }]
+    ]);
+    assert!(mixed(&validate(effects, saved_payload())));
+    let one_batch = batch(json!([["create", "Draft", { "id": "d" }], ["create", "Row", { "id": "r" }]]));
+    assert!(mixed(&validate(one_batch, saved_payload())));
+}
+
+#[test]
+fn control_an_all_browser_arm_an_all_server_arm_and_alternative_branches_are_clean() {
+    let browser = json!([["persist", "create", "Draft", { "id": "d" }]]);
+    let server = json!([["persist", "create", "Row", { "id": "r" }]]);
+    let branches = json!([["if", "@payload.local",
+        ["persist", "create", "Draft", { "id": "d" }],
+        ["persist", "create", "Row", { "id": "r" }]]]);
+    for effects in [browser, server, branches] {
+        assert!(!mixed(&validate(effects, saved_payload())));
+    }
 }

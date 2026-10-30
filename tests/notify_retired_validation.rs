@@ -88,6 +88,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
                 guard: None,
                 effects: Some(effects),
                 ensures: None,
+                await_render: None,
             }],
         }
         .into(),

@@ -708,6 +708,7 @@ mod tests {
             entity: None,
             projected_from: None,
             items: None,
+            relation: None,
         }];
         let ctx = BindingContext {
             trait_def: &t,
@@ -962,6 +963,7 @@ mod tests {
             entity: None,
             projected_from: None,
             items: None,
+            relation: None,
         }];
         let ctx = BindingContext {
             trait_def: &t,

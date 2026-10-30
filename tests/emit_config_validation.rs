@@ -119,6 +119,7 @@ fn schema_with_effects(
                 guard: None,
                 effects: Some(effects),
                 ensures: None,
+                await_render: None,
             }],
         }
         .into(),

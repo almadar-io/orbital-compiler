@@ -229,6 +229,26 @@ pub(crate) fn validate_set_return_type(
     }
     if let orbital_core_base::ir::OirType::Reference { entity } = &meta.shape {
         use crate::type_infer::TypeCtx;
+        let reads_a_relation = orbital_core_eval::lower::lower_sexpr(&arr[2])
+            .ok()
+            .and_then(|lowered| crate::type_infer::infer_oir_expr_type(&lowered, &ctx))
+            .is_some_and(|inferred| matches!(inferred, orbital_core_base::ir::OirType::Reference { .. }));
+        if reads_a_relation {
+            if let Some(inferred) = expr_return_incompatible_given(&arr[2], &meta.shape, &ctx, guard) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::SetReturnTypeMismatch,
+                        path,
+                        format!(
+                            "set @entity.{entity_field} writes a relation to '{}' into a relation to '{entity}'.",
+                            orbital_core_base::signature::describe_type(&inferred)
+                        ),
+                    )
+                    .with_suggestion(format!("Write a value that refers to '{entity}'")),
+                );
+            }
+            return result;
+        }
         if let Some(orbital_core_base::ir::OirType::Struct { additional, fields }) = ctx.entity_type(entity) {
             let partial = orbital_core_base::ir::OirType::Struct {
                 additional,

@@ -102,3 +102,41 @@ pub(crate) fn validate_browser_calls(schema: &OrbitalSchema) -> ValidationResult
     }
     result
 }
+
+/// A transition or tick whose delegated effects reach browser-stored rows and server work in one run: the
+/// client-role kernel refuses it (EXEC-DIST-6), classified by core's `LegTouch`.
+pub(crate) fn validate_dispatch_residence(
+    schema: &OrbitalSchema,
+    entities: &std::collections::HashMap<String, orbital_core_base::schema::EntityDefinition>,
+) -> ValidationResult {
+    use orbital_core_base::runs_on::{expr_leg_touches, Residence};
+    use std::collections::BTreeSet;
+    let mut result = ValidationResult::new();
+    let residence = Residence::of_entities(entities.values());
+    for (trait_def, path) in inline_traits(schema) {
+        let arms = trait_def
+            .state_machine
+            .transitions
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (format!("{path}.stateMachine.transitions[{i}]"), t.event.as_str(), t.effects.as_deref().unwrap_or_default()))
+            .chain(trait_def.ticks.iter().flatten().enumerate().map(|(i, t)| (format!("{path}.ticks[{i}]"), t.name.as_str(), t.effects.as_slice())));
+        for (at, event, effects) in arms {
+            let touches = effects.iter().fold(BTreeSet::from([orbital_core_base::runs_on::LegTouch::NONE]), |acc, e| {
+                let next = expr_leg_touches(e, &residence);
+                acc.iter().flat_map(|a| next.iter().map(move |b| a.then(*b))).collect()
+            });
+            if touches.iter().any(|t| t.is_mixed()) {
+                result.add_error(ValidationError::error(
+                    ErrorCode::DispatchMixedResidence,
+                    &at,
+                    format!(
+                        "one dispatch of {} on {event} reaches browser-stored data and server work; split it with an emit and a listen",
+                        trait_def.name
+                    ),
+                ));
+            }
+        }
+    }
+    result
+}

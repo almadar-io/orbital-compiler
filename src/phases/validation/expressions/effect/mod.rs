@@ -23,7 +23,7 @@ mod set;
 mod typed_args;
 mod utils;
 
-pub(crate) use browser_calls::validate_browser_calls;
+pub(crate) use browser_calls::{validate_browser_calls, validate_dispatch_residence};
 pub(crate) use emit_declaration::{collect_declared_emits, nested_effects, scope_let_locals};
 #[cfg(test)]
 pub(crate) use emit_declaration::validate_effect;
@@ -64,6 +64,7 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
         ctx.merge(result);
     }
     ctx.merge(validate_browser_calls(schema));
+    ctx.merge(validate_dispatch_residence(schema, &ctx.entity_definitions));
 }
 
 /// The binding types one trait's effects are checked against: the linked entity's fields, and the payload of each

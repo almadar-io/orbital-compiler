@@ -254,6 +254,7 @@ fn schema_with_config(config: orbital_core_base::collections::IndexMap<String, C
                 guard: None,
                 effects: Some(vec![]),
                 ensures: None,
+                await_render: None,
             }],
         }.into(),
         emits: None,

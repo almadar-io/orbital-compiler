@@ -46,6 +46,9 @@ pub enum ResolveError {
 
     #[error("Invalid tick interval '{0}': expected 'frame', a duration ('5ms'/'5s'/'1m'/'1h'), or a 5-field cron expression")]
     InvalidTickInterval(String),
+
+    #[error("Failed to stamp entity fields: {0}")]
+    FieldStamp(#[from] orbital_core_base::language::field_stamp::FieldStampError),
 }
 
 /// A schema id map (unordered) as the IR's, keys sorted so the IR is deterministic.
@@ -263,6 +266,7 @@ impl<'a> Resolver<'a> {
             for trait_ref in &orbital.traits {
                 if let TraitReference::Inline(trait_def) = trait_ref {
                     let mut resolved = self.resolve_trait(trait_def)?;
+                    self.stamp_entity_fields(orbital, &mut resolved)?;
                     resolved.orbital_name = orbital.name.clone();
                     for ev in &mut resolved.events {
                         if let Some(input) = ev.external.as_mut() {
@@ -1540,6 +1544,55 @@ impl<'a> Resolver<'a> {
     fn sexpr_to_value(&self, sexpr: &SExpression) -> OirValue {
         ExprLowerer.sexpr_to_value(sexpr)
     }
+    /// Stamp each `render-ui` of the trait from its linked entity's field definitions
+    /// (`@fieldsContract` patterns only). A trait with no linked entity is left as authored.
+    fn stamp_entity_fields(
+        &self,
+        orbital: &'a orbital_core_base::schema::Orbital,
+        oir_trait: &mut OirTrait,
+    ) -> Result<(), ResolveError> {
+        let Some(linked) = oir_trait.linked_entity.as_deref() else {
+            return Ok(());
+        };
+        let Some(entity) = std::iter::once(&orbital.entity)
+            .chain(orbital.auxiliary_entities.iter().flatten())
+            .filter_map(|r| self.get_entity_from_ref(r))
+            .find(|e| e.name == linked)
+        else {
+            return Ok(());
+        };
+        let stamps = orbital_core_base::language::field_stamp::EntityFieldStamps::of(entity)?;
+        for trans in &mut oir_trait.transitions {
+            for effect in &mut trans.effects {
+                Self::stamp_render_ui(effect, &stamps)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn stamp_render_ui(
+        effect: &mut OirExpr,
+        stamps: &orbital_core_base::language::field_stamp::EntityFieldStamps,
+    ) -> Result<(), ResolveError> {
+        match effect {
+            OirExpr::Effect { effect } => {
+                if let OirEffect::RenderUi { pattern, .. } = effect.as_mut() {
+                    stamps.stamp_pattern(pattern)?;
+                }
+            }
+            OirExpr::Conditional {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                Self::stamp_render_ui(then_branch, stamps)?;
+                Self::stamp_render_ui(else_branch, stamps)?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     /// Collect every slot a render-ui effect reaches, including branches of
     /// an `(if …)` — a config-driven switch (`std-board`'s boardLook,
     /// `std-browse`'s browseLook) still targets a real slot from EITHER
@@ -1974,6 +2027,7 @@ mod tests {
             entity: None,
             projected_from: None,
             items: None,
+            relation: None,
         };
         let field = orbital_core_base::schema::PayloadField {
             nullable: None,
@@ -1992,6 +2046,7 @@ mod tests {
             entity: None,
             projected_from: None,
             items: None,
+            relation: None,
         };
         let schema = empty_schema();
         let named_types = RefCell::new(BTreeMap::new());
@@ -2074,10 +2129,12 @@ mod tests {
                 entity: None,
                 projected_from: None,
                 items: None,
+                relation: None,
             }]),
             type_when: None,
             entity: None,
             projected_from: None,
+            relation: None,
             items: None,
         };
         let schema = empty_schema();
@@ -2129,10 +2186,12 @@ mod tests {
                 entity: None,
                 projected_from: None,
                 items: None,
+                relation: None,
             }]),
             type_when: None,
             entity: Some("Note".to_string()),
             projected_from: None,
+            relation: None,
             items: None,
         };
         let schema = empty_schema();
@@ -2185,10 +2244,12 @@ mod tests {
                 entity: None,
                 projected_from: None,
                 items: None,
+                relation: None,
             }]),
             type_when: None,
             entity: Some("Ghost".to_string()),
             projected_from: None,
+            relation: None,
             items: None,
         };
         let schema = empty_schema();
@@ -2235,6 +2296,7 @@ mod tests {
             entity: None,
             projected_from: None,
             items: None,
+            relation: None,
         };
         let row = orbital_core_base::schema::PayloadField {
             nullable: None,
@@ -2258,12 +2320,14 @@ mod tests {
                     entity: None,
                     projected_from: None,
                     items: None,
+                    relation: None,
                 },
                 sub_menu_backref,
             ]),
             type_when: None,
             entity: None,
             projected_from: None,
+            relation: None,
             items: None,
         };
         let schema = empty_schema();
@@ -2936,6 +3000,46 @@ mod tests {
     }
 
     #[test]
+    fn a_traits_render_ui_fields_are_stamped_from_its_linked_entity() {
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "app", "version": "1.0.0",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "E", "fields": [
+                    { "name": "title", "type": "string", "required": true },
+                    { "name": "status", "type": "string", "values": ["open", "done"] }
+                ] },
+                "traits": [{
+                    "name": "T", "linkedEntity": "E",
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "events": [{ "key": "OPEN" }],
+                        "transitions": [{
+                            "from": "idle", "to": "idle", "event": "OPEN",
+                            "effects": [["render-ui", "main", { "type": "form", "fields": ["title", { "name": "status", "label": "S" }, "ghost"] }]]
+                        }]
+                    }
+                }],
+                "pages": []
+            }]
+        }))
+        .expect("fixture parses");
+        let oir = resolve_to_oir(&schema).expect("resolves");
+        let effect = oir.traits[0].transitions[0].effects[0].clone();
+        let OirExpr::Effect { effect } = effect else { panic!("render-ui effect expected") };
+        let OirEffect::RenderUi { pattern, .. } = *effect else { panic!("render-ui expected") };
+        let fields = serde_json::to_value(&pattern.config["fields"]).expect("serializes");
+        assert_eq!(
+            fields,
+            serde_json::json!([
+                { "name": "title", "label": "title", "type": "string", "required": true },
+                { "name": "status", "label": "S", "type": "string", "values": ["open", "done"] },
+                "ghost"
+            ])
+        );
+    }
+
+    #[test]
     fn page_not_found_marker_is_stamped_on_the_resolved_page() {
         let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
             "name": "app", "version": "1.0.0",
@@ -3514,6 +3618,38 @@ mod tests {
         let module = resolve_to_oir(&schema).expect("resolves");
         let paths: Vec<&str> = module.pages.iter().map(|p| p.path.as_str()).collect();
         assert_eq!(paths, vec!["/"]);
+    }
+
+    #[test]
+    fn a_string_field_with_declared_values_carries_them_as_enum_values() {
+        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "app", "version": "1.0.0",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "Transaction", "persistence": "runtime", "fields": [
+                    { "name": "id", "type": "string", "required": true },
+                    { "name": "type", "type": "string", "values": ["income", "expense"] },
+                    { "name": "status", "type": "enum", "values": ["draft", "posted"] },
+                    { "name": "account", "type": "relation", "relation": { "entity": "Account", "cardinality": "one" } },
+                    { "name": "description", "type": "string" }
+                ] },
+                "traits": [],
+                "pages": []
+            }, {
+                "name": "A",
+                "entity": { "name": "Account", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+                "traits": [],
+                "pages": []
+            }]
+        }))
+        .expect("schema");
+        let module = resolve_to_oir(&schema).expect("resolves");
+        let entity = module.entities.iter().find(|e| e.name == "Transaction").expect("entity");
+        let values = |name: &str| entity.fields.iter().find(|f| f.name == name).expect("field").enum_values.clone();
+        assert_eq!(values("type"), Some(vec!["income".to_string(), "expense".to_string()]));
+        assert_eq!(values("status"), Some(vec!["draft".to_string(), "posted".to_string()]));
+        assert_eq!(values("description"), None);
+        assert_eq!(values("account"), None);
     }
 
     fn resolve_json(value: serde_json::Value) -> OirExpr {
