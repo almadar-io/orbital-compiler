@@ -1121,6 +1121,14 @@ impl<'c> Inferer<'c> {
                             *a == *b || stands_for(a, b, &self.let_inits.borrow())
                         })
                 }),
+                CallFact::Below(call) => as_call(call).is_some_and(|(shown, shown_args)| {
+                    shown == name
+                        && shown_args.len() == args.len()
+                        && shown_args.iter().zip(args).all(|(a, b)| {
+                            *a == *b || stands_for(a, b, &self.let_inits.borrow())
+                        })
+                        && args.get(1).is_some_and(|index| self.shows_sign(index, Sign::NonNegative))
+                }),
                 CallFact::Signed(..) => false,
             })
     }
@@ -1152,7 +1160,7 @@ impl<'c> Inferer<'c> {
     fn shows_sign(&self, expr: &OirExpr, sign: Sign) -> bool {
         let shown = self.present_calls.borrow().iter().any(|fact| match fact {
             CallFact::Signed(shown, held) => shown == expr && held.implies(sign),
-            CallFact::Present(_) => false,
+            CallFact::Present(_) | CallFact::Below(_) => false,
         });
         shown || match sign {
             Sign::Positive => self.positive(expr),
@@ -1525,7 +1533,15 @@ impl<'c> Inferer<'c> {
                     let shown = element_parameter(signature, index)
                         .and_then(|at| params.get(at))
                         .zip(args.first())
-                        .map(|(param, source)| facts_of_elements(source, param))
+                        .map(|(param, source)| {
+                            let mut facts = facts_of_elements(source, param);
+                            facts.retain(|fact| {
+                                !params.iter().map(String::as_str).chain(["item", "index"]).any(|other| {
+                                    other != param.as_str() && mentions_local(fact.expr(), other)
+                                })
+                            });
+                            facts
+                        })
                         .unwrap_or_default();
                     let dependencies = signature.lambda_child_parameters(index);
                     let provisional = std::cell::Cell::new(signature.reads_lambda_twice(index));
@@ -2380,6 +2396,16 @@ fn present_calls(expr: &OirExpr, truth: bool) -> Vec<CallFact> {
             _ => Vec::new(),
         }
     };
+    // `index < (array/len xs)` shows `(array/nth xs index)` present, given a non-negative index.
+    let below = |index: &OirExpr, length: &OirExpr| -> Option<CallFact> {
+        match as_call(length) {
+            Some(("array/len", list)) if list.len() == 1 => Some(CallFact::Below(OirExpr::Call {
+                function: "array/nth".to_string(),
+                args: vec![list[0].clone(), index.clone()],
+            })),
+            _ => None,
+        }
+    };
     let Some((name, args)) = as_call(expr) else {
         return Vec::new();
     };
@@ -2415,11 +2441,27 @@ fn present_calls(expr: &OirExpr, truth: bool) -> Vec<CallFact> {
             _ => null_compared(&args).into_iter().collect(),
         },
         ">" if truth => match args.as_slice() {
-            [value, floor] => above(value, number(floor), false),
+            [value, floor] => above(value, number(floor), false).into_iter().chain(below(floor, value)).collect(),
             _ => Vec::new(),
         },
         "<" if truth => match args.as_slice() {
-            [floor, value] => above(value, number(floor), false),
+            [floor, value] => above(value, number(floor), false).into_iter().chain(below(floor, value)).collect(),
+            _ => Vec::new(),
+        },
+        "<" if !truth => match args.as_slice() {
+            [value, floor] => above(value, number(floor), true),
+            _ => Vec::new(),
+        },
+        ">" if !truth => match args.as_slice() {
+            [floor, value] => above(value, number(floor), true),
+            _ => Vec::new(),
+        },
+        ">=" if !truth => match args.as_slice() {
+            [index, length] => below(index, length).into_iter().collect(),
+            _ => Vec::new(),
+        },
+        "<=" if !truth => match args.as_slice() {
+            [length, index] => below(index, length).into_iter().collect(),
             _ => Vec::new(),
         },
         ">=" if truth => match args.as_slice() {
@@ -2438,6 +2480,8 @@ fn present_calls(expr: &OirExpr, truth: bool) -> Vec<CallFact> {
 enum CallFact {
     Present(OirExpr),
     Signed(OirExpr, Sign),
+    /// An `(array/nth xs i)` whose index is below `(array/len xs)`: present once `i` is also non-negative.
+    Below(OirExpr),
 }
 
 impl CallFact {
@@ -2445,12 +2489,13 @@ impl CallFact {
         match self {
             CallFact::Present(expr) => CallFact::Present(f(&expr)),
             CallFact::Signed(expr, sign) => CallFact::Signed(f(&expr), sign),
+            CallFact::Below(expr) => CallFact::Below(f(&expr)),
         }
     }
 
     fn expr(&self) -> &OirExpr {
         match self {
-            CallFact::Present(expr) | CallFact::Signed(expr, _) => expr,
+            CallFact::Present(expr) | CallFact::Signed(expr, _) | CallFact::Below(expr) => expr,
         }
     }
 }
@@ -2582,6 +2627,24 @@ fn facts_of_elements(source: &OirExpr, param: &str) -> Vec<CallFact> {
             })],
             _ => Vec::new(),
         },
+        Some(("array/range", args)) => {
+            let from_zero = |lo: &OirExpr| matches!(lo, OirExpr::Number { value } if *value >= 0.0);
+            let bound = match args.as_slice() {
+                [end] => Some(*end),
+                [start, end] if from_zero(start) => Some(*end),
+                [start, end, OirExpr::Number { value }] if from_zero(start) && *value > 0.0 => Some(*end),
+                _ => None,
+            };
+            let Some(("array/len", list)) = bound.and_then(as_call) else { return Vec::new() };
+            let [list] = list.as_slice() else { return Vec::new() };
+            if mentions_local(list, param) {
+                return Vec::new();
+            }
+            vec![
+                CallFact::Signed(element.clone(), Sign::NonNegative),
+                CallFact::Below(OirExpr::Call { function: "array/nth".to_string(), args: vec![(*list).clone(), element] }),
+            ]
+        }
         Some(("array/filter", args)) => match args.as_slice() {
             [list, OirExpr::Lambda { params, body }] => {
                 let renamed: Vec<(String, OirExpr)> = params.first().map(|k| (k.clone(), element.clone())).into_iter().collect();
@@ -4101,6 +4164,84 @@ mod tests {
         assert_eq!(null_operands(guarded(call(">=", vec![len(), num(0.0)]), "array/first")), 1, "control: len >= 0 shows nothing");
         let nth = call("if", vec![call(">", vec![len(), num(0.0)]), call("object/get", vec![call("array/nth", vec![entity(&["rows"]), num(1.0)]), text("k"), text("")]), text("")]);
         assert_eq!(null_operands(nth), 1, "control: a positive length does not show an element at an index");
+    }
+
+    #[test]
+    fn an_index_below_the_length_shows_the_element_present() {
+        let rec = || OirType::Struct { fields: vec![OirField::new("k", OirType::String)].into(), additional: None };
+        let row = Row(vec![
+            ("rows", OirType::array(rec())),
+            ("other", OirType::array(rec())),
+            ("i", OirType::Number),
+        ]);
+        let rows = || entity(&["rows"]);
+        let other = || entity(&["other"]);
+        let i = || entity(&["i"]);
+        let len = |xs: OirExpr| call("array/len", vec![xs]);
+        let read = |xs: OirExpr, at: OirExpr| call("object/get", vec![call("array/nth", vec![xs, at]), text("k"), text("")]);
+        let null_operands = |expr: OirExpr| check_oir_expr(&expr, &row).iter().filter(|d| matches!(d.mismatch, Mismatch::NullOperand { .. })).count();
+        let under = |cond: OirExpr, body: OirExpr| null_operands(call("if", vec![cond, body, text("")]));
+        let nonneg = || call(">=", vec![i(), num(0.0)]);
+        let within = || call("<", vec![i(), len(rows())]);
+        assert_eq!(under(call("and", vec![nonneg(), within()]), read(rows(), i())), 0, "0 <= i < len");
+        assert_eq!(under(call("and", vec![call(">", vec![len(rows()), i()]), nonneg()]), read(rows(), i())), 0, "len > i and i >= 0");
+        assert_eq!(under(call("not", vec![call("or", vec![call("<", vec![i(), num(0.0)]), call(">=", vec![i(), len(rows())])])]), read(rows(), i())), 0, "not (i < 0 or i >= len)");
+        assert_eq!(under(call("and", vec![call("<", vec![num(-1.0), i()]), within()]), read(rows(), i())), 1, "control: -1 < i does not show a non-negative index");
+        assert_eq!(under(within(), read(rows(), i())), 1, "control: below the length but possibly negative");
+        assert_eq!(under(call("and", vec![nonneg(), call("<", vec![i(), len(other())])]), read(rows(), i())), 1, "control: the guard is on a different array");
+        assert_eq!(under(call("and", vec![nonneg(), call("<=", vec![i(), len(rows())])]), read(rows(), i())), 1, "control: <= is off by one");
+        assert_eq!(under(nonneg(), read(rows(), i())), 1, "control: an index with no upper bound");
+        let bound = |inner: OirExpr| call("let", vec![list_of(vec![list_of(vec![text("xs"), rows()])]), inner]);
+        let at = |xs: OirExpr| read(xs, i());
+        let shadowed = bound(call("if", vec![call("and", vec![nonneg(), call("<", vec![i(), len(local("xs"))])]), call("let", vec![list_of(vec![list_of(vec![text("xs"), other()])]), at(local("xs"))]), text("")]));
+        assert_eq!(null_operands(shadowed), 1, "control: xs rebound between the guard and the read");
+        let kept = bound(call("if", vec![call("and", vec![nonneg(), call("<", vec![i(), len(local("xs"))])]), at(local("xs")), text("")]));
+        assert_eq!(null_operands(kept), 0, "the guard and the read name the same local");
+    }
+
+    #[test]
+    fn filtering_a_mixed_closed_record_types_its_callback_and_keeps_each_field_optional() {
+        let record = OirType::Struct {
+            fields: vec![OirField::new("name", OirType::String), OirField::new("count", OirType::Number)].into(),
+            additional: None,
+        };
+        let row = Row(vec![("r", record)]);
+        let gone = list_of(vec![text("name")]);
+        let keep = OirExpr::Lambda {
+            params: vec!["k".into(), "v".into()],
+            body: Box::new(call("not", vec![call("array/includes", vec![gone, local("k")])])),
+        };
+        let filtered = call("object/filter", vec![entity(&["r"]), keep]);
+        assert!(check_oir_expr(&filtered, &row).is_empty(), "{:?}", check_oir_expr(&filtered, &row).len());
+        let Some(OirType::Struct { fields, .. }) = infer_oir_expr_type(&filtered, &row) else { panic!("a record") };
+        assert!(fields.iter().all(|f| !f.required) && fields.len() == 2, "every field may be dropped");
+        let omitted = call("object/omit", vec![entity(&["r"]), list_of(vec![text("count")])]);
+        let Some(OirType::Struct { fields, .. }) = infer_oir_expr_type(&omitted, &row) else { panic!("a record") };
+        assert_eq!(fields.len(), 1, "literal keys leave exactly the other fields");
+        assert!(fields[0].required);
+    }
+
+    #[test]
+    fn a_range_over_the_length_shows_its_index_present_in_the_callback() {
+        let rec = || OirType::Struct { fields: vec![OirField::new("k", OirType::String)].into(), additional: None };
+        let row = Row(vec![("rows", OirType::array(rec())), ("other", OirType::array(rec()))]);
+        let rows = || entity(&["rows"]);
+        let other = || entity(&["other"]);
+        let len = |xs: OirExpr| call("array/len", vec![xs]);
+        let null_operands = |expr: OirExpr| check_oir_expr(&expr, &row).iter().filter(|d| matches!(d.mismatch, Mismatch::NullOperand { .. })).count();
+        let over = |range: OirExpr, xs: OirExpr, params: &[&str]| {
+            let body = call("object/get", vec![call("array/nth", vec![xs, local("i")]), text("k"), text("")]);
+            null_operands(call("array/map", vec![range, OirExpr::Lambda { params: params.iter().map(|p| p.to_string()).collect(), body: Box::new(body) }]))
+        };
+        assert_eq!(over(call("array/range", vec![num(0.0), len(rows())]), rows(), &["i"]), 0, "range 0 len over the same list");
+        assert_eq!(over(call("array/range", vec![len(rows())]), rows(), &["i"]), 0, "range len");
+        assert_eq!(over(call("array/range", vec![num(1.0), len(rows())]), rows(), &["i"]), 0, "a later non-negative start");
+        assert_eq!(over(call("array/range", vec![num(0.0), len(rows()), num(2.0)]), rows(), &["i"]), 0, "a positive step");
+        assert_eq!(over(call("array/range", vec![num(0.0), len(other())]), rows(), &["i"]), 1, "control: the range is over a different list");
+        assert_eq!(over(call("array/range", vec![num(0.0), call("+", vec![len(rows()), num(1.0)])]), rows(), &["i"]), 1, "control: one past the end");
+        assert_eq!(over(call("array/range", vec![num(-1.0), len(rows())]), rows(), &["i"]), 1, "control: a negative start");
+        assert_eq!(over(call("array/range", vec![num(0.0), len(rows()), num(-1.0)]), rows(), &["i"]), 1, "control: a negative step");
+        assert_eq!(over(call("array/range", vec![num(0.0), len(rows())]), rows(), &["j"]), 1, "control: the index is not the range's element");
     }
 
     #[test]

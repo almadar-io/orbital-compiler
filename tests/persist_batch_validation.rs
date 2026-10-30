@@ -260,18 +260,33 @@ fn persist_create(data: Value) -> Value {
 
 
 #[test]
-fn a_record_set_into_a_relation_field_is_checked_against_the_related_entity() {
+fn a_computed_record_set_into_a_relation_field_is_checked_against_the_related_entity() {
     let set = |value: Value| json!([["set", "@entity.hero", value]]);
-    let unknown = validate_rows(row_fields(), json!({}), set(json!({ "bogus": 1 })));
-    assert_eq!(with_code(&unknown, ErrorCode::RowLiteralUnknownField).len(), 1, "{:?}", codes(&unknown));
-    let wrong_type = validate_rows(row_fields(), json!({}), set(json!({ "power": "high" })));
-    assert_eq!(with_code(&wrong_type, ErrorCode::RowLiteralFieldTypeMismatch).len(), 1, "{:?}", codes(&wrong_type));
-    for ok in [json!({ "fxKind": "a", "power": 3 }), json!({ "fxKind": "@payload.k" }), json!({})] {
-        let r = validate_rows(row_fields(), json!({}), set(ok.clone()));
+    let computed = |literal: Value| json!(["if", ["=", 1, 1], literal, {}]);
+    let mismatches = |r: &ValidationResult| -> Vec<String> {
+        r.errors.iter().filter(|e| e.code == ErrorCode::SetReturnTypeMismatch).map(|e| e.message.clone()).collect()
+    };
+    for (label, bad) in [
+        ("wrong field type", json!({ "power": "high" })),
+        ("unknown field", json!({ "bogus": 1 })),
+        ("null into non-nullable", json!({ "power": null })),
+    ] {
+        let r = validate_rows(row_fields(), json!({}), set(computed(bad)));
+        assert_eq!(mismatches(&r).len(), 1, "{label}: {:?} {:?}", codes(&r), mismatches(&r));
+    }
+    for ok in [json!({ "fxKind": "a", "power": 3 }), json!({}), json!({ "id": "h1" })] {
+        let r = validate_rows(row_fields(), json!({}), set(computed(ok.clone())));
+        assert!(mismatches(&r).is_empty(), "{ok}: {:?} {:?}", codes(&r), mismatches(&r));
+    }
+}
+
+#[test]
+fn a_literal_record_set_into_a_relation_field_is_left_to_the_std_lint() {
+    for literal in [json!({ "power": "high" }), json!({ "bogus": 1 }), json!({ "power": null })] {
+        let r = validate_rows(row_fields(), json!({}), json!([["set", "@entity.hero", literal.clone()]]));
         assert!(
-            with_code(&r, ErrorCode::RowLiteralUnknownField).is_empty()
-                && with_code(&r, ErrorCode::RowLiteralFieldTypeMismatch).is_empty(),
-            "{ok}: {:?}",
+            r.errors.iter().all(|e| e.code != ErrorCode::SetReturnTypeMismatch && e.code != ErrorCode::SetValueTypeMismatch),
+            "{literal}: {:?}",
             codes(&r)
         );
     }

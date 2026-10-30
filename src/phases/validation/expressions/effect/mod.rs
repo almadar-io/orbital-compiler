@@ -19,7 +19,6 @@ mod operator_args;
 mod option_since;
 mod os_watch;
 mod program_eval;
-mod row_literal;
 mod set;
 mod typed_args;
 mod utils;
@@ -34,7 +33,6 @@ pub(crate) use fetch::{
 use keyed_call::CallKeyFacts;
 pub(crate) use operator_args::{validate_operator_arg_types, validate_operator_arg_types_under};
 pub(crate) use os_watch::validate_os_effect;
-pub(crate) use row_literal::RowSite;
 pub(crate) use program_eval::validate_program_eval;
 pub(crate) use set::{
     entity_field_type_map, expr_return_incompatible_given, expr_return_incompatible_in_ctx,

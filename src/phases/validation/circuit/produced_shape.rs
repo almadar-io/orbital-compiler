@@ -16,10 +16,12 @@
 
 use std::collections::HashMap;
 
-use orbital_core_base::emit_contract::{failure_payload, message_payload, success_payload, CallVariant, ProducedPayload, ShapeField};
+use orbital_core_base::emit_contract::{
+    failure_payload, message_payload, success_payload, CallVariant, ProducedPayload, ShapeField,
+};
 use orbital_core_base::schema::{EntityDefinition, PayloadField, SExpression};
 
-use crate::embedded::{get_operator, ServiceRegistryData, OperatorTypeRef, OperatorTypeRefKind};
+use crate::embedded::{get_operator, OperatorTypeRef, OperatorTypeRefKind, ServiceRegistryData};
 
 use super::effect::entity_field_type_map;
 
@@ -86,7 +88,80 @@ fn narrow<'a>(
         };
         return of.get(idx);
     }
+    // http's union is ordered [reply, presigned url]; a request carrying `presign` signs a url and sends nothing.
+    if op_name == "http" {
+        let presigned = matches!(
+            args.get(4),
+            Some(SExpression::Object(request)) if !matches!(request.get("presign"), None | Some(SExpression::Null))
+        );
+        return of.get(usize::from(presigned));
+    }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn union_of_two() -> OperatorTypeRef {
+        let table: OperatorTypeRef = serde_json::from_str(
+            r#"{"kind":"union","of":[{"kind":"object","fields":{"status":"number"},"open":false},{"kind":"object","fields":{"url":"string"},"open":false}]}"#,
+        )
+        .expect("a union of two shapes");
+        table
+    }
+
+    fn call(request: &str) -> Vec<SExpression> {
+        let json: serde_json::Value = serde_json::from_str(&format!(
+            r#"["http","GET","https://a.test","/p",{request},{{"emit":{{"success":"OK"}}}}]"#
+        ))
+        .expect("a call");
+        match serde_json::from_value::<SExpression>(json).expect("an s-expression") {
+            SExpression::Array(items) => items.into_iter().collect(),
+            other => panic!("a call is an array, got {other:?}"),
+        }
+    }
+
+    fn names(narrowed: Option<&OperatorTypeRef>) -> Vec<String> {
+        match narrowed {
+            Some(OperatorTypeRef::Tagged(OperatorTypeRefKind::Object { fields, .. })) => {
+                fields.keys().cloned().collect()
+            }
+            other => panic!("expected one object branch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_http_request_with_presign_narrows_to_the_signed_url_branch() {
+        let union = union_of_two();
+        assert_eq!(
+            names(narrow(
+                "http",
+                &call(r#"{"presign":{"expiresSec":60}}"#),
+                &union
+            )),
+            ["url"]
+        );
+    }
+
+    #[test]
+    fn an_http_request_without_presign_narrows_to_the_reply_branch() {
+        let union = union_of_two();
+        assert_eq!(
+            names(narrow("http", &call(r#"{"query":{"a":"b"}}"#), &union)),
+            ["status"]
+        );
+        assert_eq!(
+            names(narrow("http", &call(r#"{"presign":null}"#), &union)),
+            ["status"]
+        );
+        assert_eq!(names(narrow("http", &call("{}"), &union)), ["status"]);
+    }
+
+    #[test]
+    fn a_union_of_another_operator_is_still_undecidable() {
+        assert!(narrow("fetch", &call("{}"), &union_of_two()).is_none());
+    }
 }
 
 /// Lower one `OperatorTypeRef` into the `(field_type, properties)` pair a
@@ -238,7 +313,9 @@ fn shape_fields(shape: &[ShapeField]) -> Vec<PayloadField> {
 fn produced_to_fields(produced: ProducedPayload) -> Option<Vec<PayloadField>> {
     match produced {
         ProducedPayload::Shape(shape) => Some(shape_fields(shape)),
-        ProducedPayload::Fields(names) => Some(names.iter().map(|n| scalar_field(n, "any")).collect()),
+        ProducedPayload::Fields(names) => {
+            Some(names.iter().map(|n| scalar_field(n, "any")).collect())
+        }
         ProducedPayload::EntityRow | ProducedPayload::Opaque => None,
     }
 }
@@ -246,10 +323,16 @@ fn produced_to_fields(produced: ProducedPayload) -> Option<Vec<PayloadField>> {
 /// The `browser/page-facts` payload: `available` plus the facts the call requested; a fact left out is not
 /// readable. An undecidable field list yields no shape (no check).
 fn page_facts_payload(args: &[SExpression]) -> Option<Vec<PayloadField>> {
-    let SExpression::Array(words) = args.get(1)? else { return None };
+    let SExpression::Array(words) = args.get(1)? else {
+        return None;
+    };
     let keyed = call_has_key("browser/page-facts", args);
-    let requested: Vec<&str> = words.iter().map(SExpression::as_str).collect::<Option<_>>()?;
-    let ProducedPayload::Shape(shape) = success_payload("browser/page-facts", CallVariant::Plain) else {
+    let requested: Vec<&str> = words
+        .iter()
+        .map(SExpression::as_str)
+        .collect::<Option<_>>()?;
+    let ProducedPayload::Shape(shape) = success_payload("browser/page-facts", CallVariant::Plain)
+    else {
         return None;
     };
     let kept: Vec<ShapeField> = shape
@@ -298,7 +381,11 @@ pub(crate) fn produced_payload(
         } else {
             CallVariant::Plain
         };
-        return with_os_key(op_name, args, produced_to_fields(success_payload(op_name, variant)));
+        return with_os_key(
+            op_name,
+            args,
+            produced_to_fields(success_payload(op_name, variant)),
+        );
     }
     if orbital_core_base::tab::TabOp::is_tab_effect(op_name) {
         return produced_to_fields(success_payload(op_name, CallVariant::Plain));
@@ -347,8 +434,10 @@ pub(crate) fn produced_payload(
 
 fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
     if let Some(op) = orbital_core_base::os::OsOp::from_name(op_name) {
-        let (_, envelope) = orbital_core_base::os::split_envelope(op, args.get(1..).unwrap_or_default());
-        return envelope.is_some_and(|options| !matches!(options.get("key"), None | Some(SExpression::Null)));
+        let (_, envelope) =
+            orbital_core_base::os::split_envelope(op, args.get(1..).unwrap_or_default());
+        return envelope
+            .is_some_and(|options| !matches!(options.get("key"), None | Some(SExpression::Null)));
     }
     match op_name {
         "http" => true,
@@ -361,11 +450,18 @@ fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
         op if orbital_core_base::agent_ports::is_agent_port_operator(op)
             || orbital_core_base::language::registry::is_program_host_effect(op) =>
         {
-            args.iter().skip(1).rev().find_map(|arg| match arg {
-                SExpression::Object(options) if options.contains_key("emit") => Some(&**options),
-                _ => None,
-            })
-            .is_some_and(|options| !matches!(options.get("key"), None | Some(SExpression::Null)))
+            args.iter()
+                .skip(1)
+                .rev()
+                .find_map(|arg| match arg {
+                    SExpression::Object(options) if options.contains_key("emit") => {
+                        Some(&**options)
+                    }
+                    _ => None,
+                })
+                .is_some_and(|options| {
+                    !matches!(options.get("key"), None | Some(SExpression::Null))
+                })
         }
         _ => matches!(
             args.last(),
@@ -412,10 +508,21 @@ pub(crate) fn produced_failure_payload(
         ("persist", Some(action)) => CallVariant::PersistAction(action),
         _ => CallVariant::Plain,
     };
-    with_os_key(op_name, args, produced_to_fields(failure_payload(op_name, variant, call_has_key(op_name, args))))
+    with_os_key(
+        op_name,
+        args,
+        produced_to_fields(failure_payload(
+            op_name,
+            variant,
+            call_has_key(op_name, args),
+        )),
+    )
 }
 
 /// The payload an operator call site puts on `emit.onMessage` (an `http` `stream`).
-pub(crate) fn produced_message_payload(op_name: &str, args: &[SExpression]) -> Option<Vec<PayloadField>> {
+pub(crate) fn produced_message_payload(
+    op_name: &str,
+    args: &[SExpression],
+) -> Option<Vec<PayloadField>> {
     with_os_key(op_name, args, produced_to_fields(message_payload(op_name)))
 }

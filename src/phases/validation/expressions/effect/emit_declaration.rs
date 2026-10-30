@@ -5,9 +5,8 @@ use super::{
     effect_operators, extract_emit_object_ref,
     validate_os_effect, validate_program_eval,
     validate_set_return_type, validate_set_value_type,
-    DeclaredEmit, EntityFieldMeta, ExprReturnCtx, RowSite,
+    DeclaredEmit, EntityFieldMeta,
 };
-use super::set::validate_set_relation_literal;
 use crate::embedded::ServiceRegistryData;
 use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
@@ -438,13 +437,6 @@ fn validate_leaf_effect(
     condition: Option<&SExpression>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
-    let row_ctx = ExprReturnCtx {
-        entity: entity_field_types,
-        payload: payload_field_types,
-        types,
-        schema,
-    };
-    let rows = RowSite { entities: entity_definitions, ctx: &row_ctx };
 
     match effect {
         // S-expression array form: ["operator", ...args]
@@ -478,7 +470,6 @@ fn validate_leaf_effect(
                             types,
                             condition,
                         ));
-                        result.merge(validate_set_relation_literal(arr, path, entity_field_types, &rows));
                     }
                     "persist" => {
                     }

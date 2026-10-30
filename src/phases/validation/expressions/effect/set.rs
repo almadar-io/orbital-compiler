@@ -227,6 +227,71 @@ pub(crate) fn validate_set_return_type(
     if !matches!(&arr[2], SExpression::Array(_)) {
         return result;
     }
+    if let orbital_core_base::ir::OirType::Reference { entity } = &meta.shape {
+        use crate::type_infer::TypeCtx;
+        if let Some(orbital_core_base::ir::OirType::Struct { additional, fields }) = ctx.entity_type(entity) {
+            let partial = orbital_core_base::ir::OirType::Struct {
+                additional,
+                fields: fields.iter().cloned().map(|mut f| { f.required = false; f }).collect(),
+            };
+            let unknown: Vec<String> = orbital_core_eval::lower::lower_sexpr(&arr[2])
+                .ok()
+                .and_then(|lowered| crate::type_infer::infer_oir_expr_type(&lowered, &ctx))
+                .and_then(|inferred| match inferred {
+                    orbital_core_base::ir::OirType::Struct { fields: written, .. } => Some(
+                        written
+                            .iter()
+                            .map(|f| f.name.clone())
+                            .filter(|n| {
+                                !fields.iter().any(|d| &d.name == n)
+                                    && !orbital_core_base::schema::types::FRAMEWORK_STAMPED_FIELDS.contains(&n.as_str())
+                            })
+                            .collect(),
+                    ),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            if !unknown.is_empty() {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::SetReturnTypeMismatch,
+                        path,
+                        format!(
+                            "set @entity.{entity_field} writes a record with {} not declared on '{entity}'.",
+                            unknown.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(", ")
+                        ),
+                    )
+                    .with_suggestion(format!("Name only declared fields of '{entity}'"))
+                    .with_valid_values(fields.iter().map(|f| f.name.clone()).collect()),
+                );
+            } else if let Some(slot) = null_written_into_never_null_slot(&arr[2], &partial, condition.as_ref(), &ctx) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::SetReturnTypeMismatch,
+                        path,
+                        format!(
+                            "set @entity.{entity_field} builds a null where '{}' is declared in '{entity}'; the declared type admits no null.",
+                            orbital_core_base::signature::describe_type(&slot)
+                        ),
+                    )
+                    .with_suggestion("Write a value of the declared type, or declare the field optional (`T?`)"),
+                );
+            } else if let Some(inferred) = expr_return_incompatible_given(&arr[2], &partial, &ctx, guard) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::SetReturnTypeMismatch,
+                        path,
+                        format!(
+                            "set @entity.{entity_field} writes a record into '{entity}' that evaluates to '{}'; it does not match the fields of '{entity}'.",
+                            orbital_core_base::signature::describe_type(&inferred)
+                        ),
+                    )
+                    .with_suggestion(format!("Name only declared fields of '{entity}', each with a value of its declared type")),
+                );
+            }
+        }
+        return result;
+    }
     if let Some(inferred) = expr_return_incompatible_given(&arr[2], &meta.shape, &ctx, guard) {
         result.add_error(
             ValidationError::error(
@@ -276,41 +341,6 @@ pub(crate) fn null_written_into_never_null_slot<C: crate::type_infer::TypeCtx>(
 ) -> Option<orbital_core_base::ir::OirType> {
     let lowered = orbital_core_eval::lower::lower_sexpr(value).ok()?;
     crate::type_infer::null_at_declared_slot(&lowered, declared, condition, ctx)
-}
-
-/// G-ORB-457: `(set @entity.<relation> { … })` writes a record into a to-one relation field. The literal is checked
-/// against the entity the relation points at, as a `persist` data literal is: its keys, its enum members and the
-/// types of its values.
-pub(crate) fn validate_set_relation_literal(
-    arr: &[SExpression],
-    path: &str,
-    entity_field_types: &HashMap<String, EntityFieldMeta>,
-    site: &super::row_literal::RowSite<'_>,
-) -> ValidationResult {
-    let mut result = ValidationResult::new();
-    let [_, target, value, ..] = arr else {
-        return result;
-    };
-    let Some(field) = set_entity_field(target) else {
-        return result;
-    };
-    let Some(orbital_core_base::ir::OirType::Reference { entity }) = entity_field_types.get(field).map(|m| &m.shape)
-    else {
-        return result;
-    };
-    if let Some(definition) = site.entities.get(entity.as_str()) {
-        let what = format!("set @entity.{field}");
-        super::row_literal::check_row_literal(
-            definition,
-            value,
-            super::row_literal::RowWrite::Partial,
-            &what,
-            path,
-            site,
-            &mut result,
-        );
-    }
-    result
 }
 
 /// Infer an array-form value expression's result type — through the canonical
