@@ -43,7 +43,7 @@ pub use typed_args::record_declared_shapes;
 pub(crate) use typed_args::needs_declaration;
 pub use utils::effect_operators;
 pub(crate) use utils::{
-    extract_emit_object_ref, extract_payload_fields, is_valid_event_identifier, persist_entity_index,
+    extract_emit_object_ref, persist_entity_index,
 };
 
 /// Validate all effects in a schema

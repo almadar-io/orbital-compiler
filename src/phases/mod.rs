@@ -39,8 +39,6 @@ pub mod cross_file_ids;
 pub(crate) mod embed_graph;
 #[path = "program/messages.rs"]
 pub mod messages;
-#[path = "program/page_content_owner.rs"]
-pub mod page_content_owner;
 #[path = "program/public.rs"]
 pub mod public;
 

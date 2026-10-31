@@ -12,10 +12,8 @@
 //! - [`page`] - Page structure, paths, traits
 //! - [`effect`] - Effect validation (call_service, set, fetch)
 //! - [`render_ui`] - Render-UI effects, patterns, props
-//! - [`slot`] - Slot coverage, contention, nesting
 //! - [`sexpr`] - S-expression semantic validation
 //! - [`service`] - Service definitions
-//! - [`cross_orbital`] - Cross-orbital concerns (events, entities)
 //! - [`binding`] - Binding validation (@entity, @payload)
 //! - [`icon`] - Lucide icon names
 //!
@@ -47,12 +45,8 @@ pub(crate) mod value_walk;
 // traits
 #[path = "identity/user_identity.rs"]
 pub mod user_identity;
-#[path = "traits/mounts.rs"]
-pub(crate) mod mounts;
 
 // circuit — Event → Guard → Transition → Effects → UI → Event, and the payloads it carries
-#[path = "circuit/cross_orbital/mod.rs"]
-pub mod cross_orbital;
 #[path = "circuit/emit_payload.rs"]
 pub mod emit_payload;
 #[path = "circuit/fired_events.rs"]
@@ -79,14 +73,8 @@ pub mod page;
 pub mod render_ui;
 #[path = "ui/render_ui_binding.rs"]
 pub mod render_ui_binding;
-#[path = "ui/slot.rs"]
-pub mod slot;
 #[path = "ui/sync/mod.rs"]
 pub mod sync;
-
-// composition — call sites, config knobs and cross-program contracts
-#[path = "composition/embed_bridge.rs"]
-pub mod embed_bridge;
 
 #[path = "report.rs"]
 pub mod report;

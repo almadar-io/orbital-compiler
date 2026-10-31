@@ -23,7 +23,11 @@ fn program(effects: Value) -> OrbitalSchema {
                     { "event": "DRAWN_KEYED", "payloadSchema": [{ "name": "value", "type": "string", "required": true }, { "name": "key", "type": "string", "required": true }] },
                     { "event": "KNOWN", "payloadSchema": [{ "name": "connected", "type": "boolean", "required": true }] },
                     { "event": "VERDICT", "payloadSchema": [{ "name": "allowed", "type": "boolean", "required": true }] },
-                    { "event": "SPOILED", "payloadSchema": [{ "name": "bytes", "type": "string", "required": true }] }
+                    { "event": "SPOILED", "payloadSchema": [{ "name": "bytes", "type": "string", "required": true }] },
+                    { "event": "NAMES_LISTED", "payloadSchema": [{ "name": "result", "type": "[string]", "required": true }] },
+                    { "event": "COUNT_LISTED", "payloadSchema": [{ "name": "result", "type": "number", "required": true }] },
+                    { "event": "MEMORIES_READ", "payloadSchema": [{ "name": "result", "type": "[object]", "required": true, "properties": [{ "name": "id", "type": "string" }, { "name": "bogus", "type": "string" }] }] },
+                    { "event": "MEMORIES_READ_BY_ID", "payloadSchema": [{ "name": "result", "type": "[object]", "required": true, "properties": [{ "name": "id", "type": "string" }] }] }
                 ],
                 "stateMachine": {
                     "states": [{ "name": "idle", "isInitial": true }],
@@ -39,6 +43,12 @@ fn program(effects: Value) -> OrbitalSchema {
 
 fn check(effects: Value) -> ValidationResult {
     validate_comprehensive_without_services(&program(effects))
+}
+
+fn check_declaring(effects: Value, types: Value) -> ValidationResult {
+    let mut schema = serde_json::to_value(program(effects)).expect("program");
+    schema["types"] = types;
+    validate_comprehensive_without_services(&serde_json::from_value(schema).expect("schema"))
 }
 
 fn fires(r: &ValidationResult, code: ErrorCode) -> bool {
@@ -171,7 +181,7 @@ fn the_credential_effect_payloads_are_checked() {
 
 #[test]
 fn the_access_check_verdict_payload_is_checked() {
-    let request = json!({ "entity": "Row", "action": "read", "row": {}, "viewer": null });
+    let request = json!({ "entity": "Row", "action": "read", "row": {}, "identity": null });
     let ok = check(json!([["access-check", request.clone(), { "emit": { "success": "VERDICT", "failure": "DRAW_FAILED" } }]]));
     for code in [ErrorCode::EmitPayloadNotProduced] {
         assert!(!fires(&ok, code), "{code:?}: {:?}", ok.errors);
@@ -192,4 +202,35 @@ fn the_host_port_effects_are_known_effects() {
 fn control_an_operator_no_table_declares_is_still_unknown() {
     let result = check(json!([["auth/sign-sideways"]]));
     assert!(fires(&result, ErrorCode::EffectUnknownType), "{:?}", result.errors);
+}
+
+#[test]
+fn a_substrate_operators_success_payload_is_its_result_and_is_checked() {
+    let route = |event: &str| json!([["workspace/list-orbitals", { "emit": { "success": event } }]]);
+    let wrong_field = check(route("DRAWN"));
+    assert!(fires(&wrong_field, ErrorCode::EmitPayloadNotProduced), "DRAWN reads `value`, which a substrate op never answers: {:?}", wrong_field.errors);
+    let wrong_type = check(route("COUNT_LISTED"));
+    assert!(fires(&wrong_type, ErrorCode::EmitPayloadNotProduced), "the result is a list of names, not a number: {:?}", wrong_type.errors);
+    let ok = check(route("NAMES_LISTED"));
+    assert!(!fires(&ok, ErrorCode::EmitPayloadNotProduced), "control: result as the list it is: {:?}", ok.errors);
+}
+
+#[test]
+fn a_bare_name_return_type_is_judged_only_when_a_declared_shape_resolves_it() {
+    let read = json!([["session/read-memory", "k", { "emit": { "success": "MEMORIES_READ" } }]]);
+    let record = json!({ "AgentMemoryRecord": [{ "name": "id", "type": "string" }] });
+    let declared = check_declaring(read.clone(), record.clone());
+    assert!(
+        fires(&declared, ErrorCode::EmitPayloadNotProduced),
+        "`bogus` is not a member of the declared AgentMemoryRecord: {:?}",
+        declared.errors
+    );
+    let by_id = check_declaring(json!([["session/read-memory", "k", { "emit": { "success": "MEMORIES_READ_BY_ID" } }]]), record);
+    assert!(!fires(&by_id, ErrorCode::EmitPayloadNotProduced), "control: a member the shape declares: {:?}", by_id.errors);
+    let undeclared = check(read);
+    assert!(
+        !fires(&undeclared, ErrorCode::EmitPayloadNotProduced),
+        "control: a name no program or language declares is undecidable, not judged: {:?}",
+        undeclared.errors
+    );
 }

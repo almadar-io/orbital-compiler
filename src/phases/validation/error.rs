@@ -285,8 +285,8 @@ pub enum ErrorCode {
     // =========================================================================
     /// Interactive component missing itemActions
     CircuitDeadEndComponent,
-    /// The trait that OWNS a page's content region (`page_content_owner`'s
-    /// `channel`/`sole-writer`) has a user-triggered arm that repaints its
+    /// The trait that OWNS a page's content region (its sole writer or
+    /// content channel) has a user-triggered arm that repaints its
     /// own main-slot body with something offering no way on: no content-body
     /// pattern, no registry event-kind prop bound to a live (non-lifecycle)
     /// event or an unresolved binding, and no `@trait.X` embed. "User-

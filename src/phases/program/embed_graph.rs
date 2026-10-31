@@ -32,30 +32,15 @@
 //! effects.
 
 use orbital_core_base::schema::{
-    collect_state_machine_trait_tokens, collect_trait_tokens, ConfigField, Orbital, PageRef,
-    SExpression, TraitReference,
+    collect_state_machine_trait_tokens, collect_trait_tokens, ConfigField, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
-
-/// Forward adjacency view shared by both `EmbedGraph` accessors below: trait
-/// name -> the trait names it embeds. Borrowed from one `EmbedGraph`, so both
-/// the full (config + state machine) and config-only views share this shape.
-pub(crate) type EmbedAdjacency<'a> = HashMap<&'a str, HashSet<&'a str>>;
 
 pub(crate) struct EmbedGraph {
     /// child trait name -> the names of every trait whose declared values
     /// reference it via `@trait.<child>`, in FIRST-SEEN order (the traits
     /// slice's own order) — `embedder_chain` takes the first entry per hop.
     referrers: HashMap<String, Vec<String>>,
-    /// Config-only sibling of `referrers`: `@trait.X` tokens found ONLY in a
-    /// trait's declared CONFIG values, never its state machine — the JS
-    /// `collectTraitConfigRefAdjacency` "content channel" view (a page's
-    /// shell designating its body through a config slot) as opposed to
-    /// `referrers`' full `collectTraitEmbedAdjacency` view ("containment" —
-    /// a trait rendered as part of another's tree). Same token walker
-    /// (`collect_trait_tokens`) as `referrers`, filled from the config-only
-    /// pass in `build` before the state-machine scan runs.
-    config_referrers: HashMap<String, Vec<String>>,
     /// trait name -> its own declared values (see module doc for what
     /// "declared" means per entry kind).
     declared: HashMap<String, orbital_core_base::collections::IndexMap<String, ConfigField>>,
@@ -65,7 +50,6 @@ impl EmbedGraph {
     pub(crate) fn build(traits: &[TraitReference]) -> Self {
         let mut declared: HashMap<String, orbital_core_base::collections::IndexMap<String, ConfigField>> = HashMap::new();
         let mut referrers: HashMap<String, Vec<String>> = HashMap::new();
-        let mut config_referrers: HashMap<String, Vec<String>> = HashMap::new();
 
         for trait_ref in traits {
             let (name, config): (&str, orbital_core_base::collections::IndexMap<String, ConfigField>) = match trait_ref {
@@ -87,26 +71,8 @@ impl EmbedGraph {
                     collect_trait_tokens(default, &mut children);
                 }
             }
-            // Config-only snapshot, before the state-machine scan below adds
-            // to `children` — this is the exact set `config_referrers` records,
-            // less what the trait paints only into an overlay slot: that is
-            // containment, never a page-body channel.
-            let mut config_children = children.clone();
-            if let TraitReference::Inline(td) = trait_ref {
-                for name in overlay_only_embeds(td) {
-                    config_children.remove(&name);
-                }
-            }
             if let TraitReference::Inline(td) = trait_ref {
                 collect_state_machine_trait_tokens(td, &mut children);
-            }
-            for child in &config_children {
-                if child != name {
-                    config_referrers
-                        .entry(child.clone())
-                        .or_default()
-                        .push(name.to_string());
-                }
             }
             for child in children {
                 if child != name {
@@ -118,27 +84,8 @@ impl EmbedGraph {
 
         Self {
             referrers,
-            config_referrers,
             declared,
         }
-    }
-
-    /// Every trait name this graph knows a declared-values map for, paired
-    /// with that map — the validator's reachability walk needs the full
-    /// table, not just one lookup at a time.
-    pub(crate) fn declared_iter(
-        &self,
-    ) -> impl Iterator<Item = (&str, &orbital_core_base::collections::IndexMap<String, ConfigField>)> {
-        self.declared.iter().map(|(k, v)| (k.as_str(), v))
-    }
-
-    /// child trait name -> the names that embed it, in first-seen order.
-    /// The validator's undirected reachability walk needs the full
-    /// adjacency, not one lookup at a time.
-    pub(crate) fn referrers_iter(&self) -> impl Iterator<Item = (&str, &[String])> {
-        self.referrers
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_slice()))
     }
 
     /// The trait that embeds `trait_name` via a bare `@trait.<trait_name>`
@@ -188,214 +135,12 @@ impl EmbedGraph {
         }
         chain
     }
-
-    /// Forward index: trait name -> the trait names it embeds directly via
-    /// `@trait.X` — the inverse of `referrers` (child -> parents), built
-    /// once in O(n). Feeds `client_bound_traits`'s page-seeded reachability
-    /// walk below, and the page-content-owner model's "containment" relation
-    /// (`page_content_owner::reduce_to_owners`'s `embed_adjacency`).
-    pub(crate) fn embedded_children(&self) -> EmbedAdjacency<'_> {
-        let mut forward: EmbedAdjacency<'_> = HashMap::new();
-        for (child, parents) in self.referrers_iter() {
-            for parent in parents {
-                forward.entry(parent.as_str()).or_default().insert(child);
-            }
-        }
-        forward
-    }
-
-    /// Config-only sibling of `embedded_children`: trait name -> the trait
-    /// names it embeds via `@trait.X` tokens in DECLARED CONFIG ONLY (not
-    /// state machine) — mirrors `@almadar/core`'s `collectTraitConfigRefAdjacency`.
-    /// The page-content-owner model's "designation"/"content channel"
-    /// relation (`page_content_owner::reduce_to_owners`'s `channel_adjacency`).
-    pub(crate) fn config_embedded_children(&self) -> EmbedAdjacency<'_> {
-        let mut forward: EmbedAdjacency<'_> = HashMap::new();
-        for (child, parents) in self
-            .config_referrers
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_slice()))
-        {
-            for parent in parents {
-                forward.entry(parent.as_str()).or_default().insert(child);
-            }
-        }
-        forward
-    }
-}
-
-/// Traits this trait paints only into non-main slots (`drawer`, `modal`, …):
-/// every `render-ui` effect whose payload embeds them, directly or through a
-/// `@config.<knob>` payload, targets an overlay slot.
-fn overlay_only_embeds(td: &orbital_core_base::schema::TraitDefinition) -> HashSet<String> {
-    fn scan(
-        node: &SExpression,
-        config: &orbital_core_base::collections::IndexMap<String, ConfigField>,
-        slots_by_trait: &mut HashMap<String, Vec<String>>,
-    ) {
-        let SExpression::Array(items) = node else {
-            return;
-        };
-        if let [SExpression::String(op), SExpression::String(slot), payload, ..] = items.as_slice()
-        {
-            if op == "render-ui" {
-                let mut embedded: HashSet<String> = HashSet::new();
-                collect_trait_tokens(payload, &mut embedded);
-                if let SExpression::String(p) = payload {
-                    if let Some(default) = p
-                        .strip_prefix("@config.")
-                        .and_then(|knob| config.get(knob))
-                        .and_then(|f| f.default.as_ref())
-                    {
-                        collect_trait_tokens(default, &mut embedded);
-                    }
-                }
-                for name in embedded {
-                    slots_by_trait.entry(name).or_default().push(slot.clone().into_inner());
-                }
-            }
-        }
-        for item in items {
-            scan(item, config, slots_by_trait);
-        }
-    }
-    let config = td.config.clone().unwrap_or_default();
-    let mut slots_by_trait: HashMap<String, Vec<String>> = HashMap::new();
-    let effects = td
-        .state_machine
-        .transitions
-        .iter()
-        .filter_map(|t| t.effects.as_ref())
-        .chain(td.ticks.iter().flatten().map(|t| &t.effects));
-    for list in effects {
-        for effect in list {
-            scan(effect, &config, &mut slots_by_trait);
-        }
-    }
-    slots_by_trait
-        .into_iter()
-        .filter(|(_, slots)| {
-            slots
-                .iter()
-                .all(|slot| !orbital_core_base::slots::MAIN_SLOTS.contains(&slot.as_str()))
-        })
-        .map(|(name, _)| name)
-        .collect()
-}
-
-/// Client-bound traits: every trait a page declares directly, plus the
-/// transitive `@trait.X` embed closure reached from those seeds — the exact
-/// set the client mounts a state machine for. Mirrors
-/// `@almadar/core/embedded-trait-config.ts`'s `clientBoundTraits` (seeded
-/// from `PageTraitRef.ref`, walked over `collectTraitEmbedAdjacency`).
-///
-/// Seeds come only from INLINE pages (`PageRef::Inline`) — an imported page
-/// reference carries no trait list to read here, matching the JS's
-/// `inlinePages` filter. A page-declared trait entry contributes its own
-/// `name` (an `Inline` page trait) or its `reference` (a `Reference` page
-/// trait, the common post-inline shape — `TraitReference::Reference.reference`
-/// serializes as `"ref"`, `PageTraitRef.ref` in the TS type).
-pub(crate) fn client_bound_traits(orbital: &Orbital) -> HashSet<String> {
-    reached_from(orbital, declared_traits(orbital, |page| page.is_route()))
-}
-
-/// Every trait of `orbital` some page of any protocol mounts, directly or through `@trait` embeds. A page of any
-/// orbital in `program` may list it, as the kernel mounts by trait name across the program (`mounts_of`).
-pub(crate) fn mounted_traits(program: &[Orbital], orbital: &Orbital) -> HashSet<String> {
-    reached_from(orbital, program.iter().flat_map(page_declared_traits).collect())
-}
-
-fn reached_from(orbital: &Orbital, seeds: HashSet<String>) -> HashSet<String> {
-    let graph = EmbedGraph::build(&orbital.traits);
-    let forward = graph.embedded_children();
-
-    let mut bound: HashSet<String> = seeds;
-    let mut queue: Vec<String> = bound.iter().cloned().collect();
-    while let Some(current) = queue.pop() {
-        for child in forward.get(current.as_str()).into_iter().flatten() {
-            if bound.insert(child.to_string()) {
-                queue.push(child.to_string());
-            }
-        }
-    }
-    bound
-}
-
-/// The traits an inline page declares directly in its own trait list: a page-declared
-/// `Inline` trait's `name`, or a `Reference` page trait's `reference`.
-pub(crate) fn page_declared_traits(orbital: &Orbital) -> HashSet<String> {
-    declared_traits(orbital, |_| true)
-}
-
-fn declared_traits(orbital: &Orbital, keep: impl Fn(&orbital_core_base::schema::PageDefinition) -> bool) -> HashSet<String> {
-    let mut declared: HashSet<String> = HashSet::new();
-    for page_ref in orbital.pages.iter().flatten() {
-        let PageRef::Inline(page) = page_ref else {
-            continue;
-        };
-        if !keep(page) {
-            continue;
-        }
-        for trait_ref in page.traits.iter().flatten() {
-            match trait_ref {
-                TraitReference::Inline(td) => {
-                    declared.insert(td.name.clone());
-                }
-                TraitReference::Reference {
-                    reference: Some(r), ..
-                } => {
-                    declared.insert(r.clone());
-                }
-                _ => {}
-            }
-        }
-    }
-    declared
-}
-
-/// Pages that declare, directly in their own page-level trait list, one of
-/// `trait_name`'s own `@trait.X` embedded children. Feeds the suggestion text
-/// for `ORB_CIRCUIT_CLIENT_UNBOUND_STATE_MACHINE` only — a courtesy, not part
-/// of the unbound predicate itself. Mirrors the JS wiring lint's
-/// `client-unbound-state-machine` `childPages` computation exactly
-/// (`wiring-lint.ts:850-862`: `pages.filter(page => page.traits.some(pt =>
-/// adjacency.get(name).has(pt.ref)))`) — a page that already mounts a child
-/// `trait_name` itself embeds is the natural place to also add `trait_name`.
-pub(crate) fn pages_embedding_children_of(orbital: &Orbital, trait_name: &str) -> Vec<String> {
-    let graph = EmbedGraph::build(&orbital.traits);
-    let forward = graph.embedded_children();
-    let Some(children) = forward.get(trait_name) else {
-        return Vec::new();
-    };
-    if children.is_empty() {
-        return Vec::new();
-    }
-
-    let mut pages = Vec::new();
-    for page_ref in orbital.pages.iter().flatten() {
-        let PageRef::Inline(page) = page_ref else {
-            continue;
-        };
-        let declares_a_child = page.traits.iter().flatten().any(|trait_ref| {
-            let name = match trait_ref {
-                TraitReference::Inline(td) => Some(td.name.as_str()),
-                TraitReference::Reference {
-                    reference: Some(r), ..
-                } => Some(r.as_str()),
-                _ => None,
-            };
-            name.is_some_and(|n| children.contains(n))
-        });
-        if declares_a_child {
-            pages.push(page.path.clone());
-        }
-    }
-    pages
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orbital_core_base::schema::SExpression;
     use serde_json::json;
 
     fn trait_ref(json_val: serde_json::Value) -> TraitReference {
@@ -523,8 +268,8 @@ mod tests {
             "config": { "x": { "type": "unknown", "default": "@config.title" } }
         }))];
         let graph = EmbedGraph::build(&traits);
-        assert!(graph.declared_iter().next().is_none());
-        assert!(graph.referrers_iter().next().is_none());
+        assert!(graph.embedder_chain("Whatever").is_empty());
+        assert_eq!(graph.direct_host("Whatever"), None);
     }
 
     #[test]
@@ -549,236 +294,5 @@ mod tests {
         let graph = EmbedGraph::build(&timeline_shaped_traits());
         assert_eq!(graph.direct_host("Feed"), None);
         assert_eq!(graph.direct_host("NeverHeardOfIt"), None);
-    }
-
-    // --- config_embedded_children ---
-
-    /// `timeline_shaped_traits`: Feed -> Stack8 is a STATE-MACHINE edge (a
-    /// render-ui effect's `children`), never a config default — it must be
-    /// absent from the config-only view even though it's present in the full
-    /// `embedded_children` view. Stack8 -> Stack5 and Stack5 -> Typography4
-    /// ARE config-default edges (each `Reference`'s own `children` default),
-    /// so both views agree there.
-    #[test]
-    fn config_embedded_children_excludes_state_machine_only_edges() {
-        let graph = EmbedGraph::build(&timeline_shaped_traits());
-        let config_forward = graph.config_embedded_children();
-        let full_forward = graph.embedded_children();
-
-        assert!(
-            !config_forward.contains_key("Feed"),
-            "Feed embeds Stack8 only via a render-ui effect, not config — config-only view must not see it"
-        );
-        assert!(
-            full_forward
-                .get("Feed")
-                .is_some_and(|c| c.contains("Stack8")),
-            "the full view must still see Feed -> Stack8"
-        );
-
-        let stack8_children = config_forward
-            .get("Stack8")
-            .expect("Stack8 has a config-default child");
-        assert!(stack8_children.contains("Stack5"));
-        let stack5_children = config_forward
-            .get("Stack5")
-            .expect("Stack5 has a config-default child");
-        assert!(stack5_children.contains("Typography4"));
-    }
-
-    #[test]
-    fn config_embedded_children_empty_when_no_trait_declares_a_config_forward() {
-        let traits = vec![inline_trait(
-            "Solo",
-            json!({}),
-            json!([["render-ui", "main", { "children": ["@trait.Chrome"] }]]),
-        )];
-        let graph = EmbedGraph::build(&traits);
-        assert!(graph.config_embedded_children().is_empty());
-    }
-
-    /// `kflow-lesson`'s `LessonViz`: its `readyView` knob embeds the sims and is
-    /// painted only into the `drawer` slot, so it designates no page body.
-    #[test]
-    fn config_embedded_children_skips_a_knob_painted_only_into_an_overlay_slot() {
-        let traits = vec![inline_trait(
-            "Viz",
-            json!({ "readyView": { "type": "render-ui", "default": { "type": "drawer", "children": ["@trait.Sim"] } } }),
-            json!([
-                ["render-ui", "drawer", "@config.readyView"],
-                ["render-ui", "drawer", null]
-            ]),
-        )];
-        let graph = EmbedGraph::build(&traits);
-        assert!(!graph.config_embedded_children().contains_key("Viz"));
-        assert!(graph
-            .embedded_children()
-            .get("Viz")
-            .is_some_and(|c| c.contains("Sim")));
-    }
-
-    #[test]
-    fn config_embedded_children_skips_an_inlined_overlay_tree() {
-        // Post-inline the knob's tree sits in the effect itself.
-        let traits = vec![inline_trait(
-            "Viz",
-            json!({ "readyView": { "type": "render-ui", "default": { "type": "drawer", "children": ["@trait.Sim"] } } }),
-            json!([["render-ui", "drawer", { "type": "drawer", "children": ["@trait.Sim"] }]]),
-        )];
-        let graph = EmbedGraph::build(&traits);
-        assert!(!graph.config_embedded_children().contains_key("Viz"));
-    }
-
-    #[test]
-    fn control_a_knob_painted_into_main_still_designates() {
-        let traits = vec![inline_trait(
-            "Viz",
-            json!({ "readyView": { "type": "render-ui", "default": { "type": "stack", "children": ["@trait.Sim"] } } }),
-            json!([
-                ["render-ui", "drawer", "@config.readyView"],
-                ["render-ui", "main", "@config.readyView"]
-            ]),
-        )];
-        let graph = EmbedGraph::build(&traits);
-        assert!(graph
-            .config_embedded_children()
-            .get("Viz")
-            .is_some_and(|c| c.contains("Sim")));
-    }
-
-    #[test]
-    fn control_a_knob_never_painted_by_its_own_trait_still_designates() {
-        let traits = vec![inline_trait(
-            "Shell",
-            json!({ "contentTrait": { "type": "trait", "default": "@trait.Body" } }),
-            json!([["render-ui", "main", { "type": "box", "children": ["@config.contentTrait"] }]]),
-        )];
-        let graph = EmbedGraph::build(&traits);
-        assert!(graph
-            .config_embedded_children()
-            .get("Shell")
-            .is_some_and(|c| c.contains("Body")));
-    }
-
-    // --- client_bound_traits ---
-
-    fn orbital_with_pages(traits: Vec<TraitReference>, pages_json: serde_json::Value) -> Orbital {
-        use orbital_core_base::schema::EntityRef;
-        let pages: Vec<PageRef> =
-            serde_json::from_value(pages_json).expect("pages fixture deserializes");
-        Orbital {
-            spec: false,
-            types: None,
-            name: "TestOrbital".to_string(),
-            uses: None,
-            expects: None,
-            theme: None,
-            services: None,
-            entity: EntityRef::Reference("Item".to_string()),
-            auxiliary_entities: None,
-            traits,
-            pages: Some(pages),
-            emits: None,
-            listens: None,
-            exposes: None,
-            domain_context: None,
-            os_grants: None,
-            design: None,
-            id: None,
-            reference: None,
-            config: None,
-        }
-    }
-
-    /// Seed = the page's own `traits[].ref`; walk = the embed adjacency
-    /// (`timeline_shaped_traits`'s Feed -> Stack8 -> Stack5 -> Typography4
-    /// chain). A trait nothing on the page reaches, directly or
-    /// transitively, is NOT bound even though it lives in the same orbital.
-    #[test]
-    fn a_trait_mounted_only_on_a_protocol_endpoint_is_not_client_bound() {
-        let traits = vec![inline_trait("Server", json!({}), json!([])), inline_trait("View", json!({}), json!([]))];
-        let orbital = orbital_with_pages(
-            traits,
-            json!([
-                { "name": "Home", "path": "/", "traits": [ { "ref": "View" } ] },
-                { "name": "Api", "path": "", "protocol": "http", "traits": [ { "ref": "Server" } ] }
-            ]),
-        );
-        let bound = client_bound_traits(&orbital);
-        assert!(bound.contains("View"), "control: a route trait is client-bound");
-        assert!(!bound.contains("Server"), "{bound:?}");
-    }
-
-    #[test]
-    fn client_bound_traits_seeds_from_page_and_walks_embed_adjacency() {
-        let mut traits = timeline_shaped_traits();
-        traits.push(inline_trait("Loose", json!({}), json!([])));
-        let orbital = orbital_with_pages(
-            traits,
-            json!([{ "name": "Home", "path": "/", "traits": [ { "ref": "Feed" } ] }]),
-        );
-        let bound = client_bound_traits(&orbital);
-        let expected: HashSet<String> = ["Feed", "Stack8", "Stack5", "Typography4"]
-            .into_iter()
-            .map(String::from)
-            .collect();
-        assert_eq!(bound, expected);
-        assert!(
-            !bound.contains("Loose"),
-            "a trait no page reaches and nothing embeds must not be client-bound"
-        );
-    }
-
-    #[test]
-    fn client_bound_traits_empty_when_page_declares_none() {
-        let orbital = orbital_with_pages(
-            timeline_shaped_traits(),
-            json!([{ "name": "Home", "path": "/" }]),
-        );
-        assert!(client_bound_traits(&orbital).is_empty());
-    }
-
-    /// An imported page reference (`PageRef::Reference`/`Object`, no inline
-    /// trait list to read) contributes nothing — mirrors the JS's
-    /// `inlinePages` filter.
-    #[test]
-    fn client_bound_traits_ignores_imported_page_refs() {
-        let orbital = orbital_with_pages(timeline_shaped_traits(), json!(["Alias.pages.Home"]));
-        assert!(client_bound_traits(&orbital).is_empty());
-    }
-
-    // --- pages_embedding_children_of ---
-
-    /// `Feed` embeds `Stack8` (its child). A page declaring `Stack8` directly
-    /// (without `Feed`) is exactly the courtesy-suggestion shape.
-    #[test]
-    fn pages_embedding_children_of_finds_a_page_declaring_a_direct_child() {
-        let orbital = orbital_with_pages(
-            timeline_shaped_traits(),
-            json!([{ "name": "Home", "path": "/home", "traits": [ { "ref": "Stack8" } ] }]),
-        );
-        assert_eq!(
-            pages_embedding_children_of(&orbital, "Feed"),
-            vec!["/home".to_string()]
-        );
-    }
-
-    #[test]
-    fn pages_embedding_children_of_empty_for_a_leaf_trait() {
-        // Typography4 embeds nothing — it has no children to be found on any page.
-        let orbital = orbital_with_pages(
-            timeline_shaped_traits(),
-            json!([{ "name": "Home", "path": "/home", "traits": [ { "ref": "Stack8" } ] }]),
-        );
-        assert!(pages_embedding_children_of(&orbital, "Typography4").is_empty());
-    }
-
-    #[test]
-    fn pages_embedding_children_of_empty_when_no_page_declares_a_child() {
-        let orbital = orbital_with_pages(
-            timeline_shaped_traits(),
-            json!([{ "name": "Home", "path": "/home", "traits": [ { "ref": "Feed" } ] }]),
-        );
-        assert!(pages_embedding_children_of(&orbital, "Feed").is_empty());
     }
 }

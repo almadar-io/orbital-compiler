@@ -226,6 +226,7 @@ fn check_effect_tree(
         site.emit_schemas,
         site.entity_definitions,
         site.registry,
+        site.schema,
     ));
     let scoped = match effect {
         SExpression::Array(arr) if matches!(arr.first().and_then(|e| e.as_str()), Some("let")) => {
@@ -564,6 +565,7 @@ fn validate_emit_success_return(
     emit_schemas: &HashMap<&str, &[PayloadField]>,
     entity_definitions: &HashMap<String, EntityDefinition>,
     registry: &ServiceRegistryData,
+    schema: &OrbitalSchema,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -580,7 +582,9 @@ fn validate_emit_success_return(
     let slots: [(&[&str], Option<Vec<PayloadField>>); 3] = [
         (
             &["success"],
-            produced_shape::produced_payload(op_name.as_str(), arr.as_slice(), entity_definitions, registry),
+            produced_shape::produced_payload(op_name.as_str(), arr.as_slice(), entity_definitions, registry, &|name| {
+                crate::phases::resolve::declared_struct_type(schema, name).ok().flatten()
+            }),
         ),
         (&["failure"], produced_shape::produced_failure_payload(op_name.as_str(), arr.as_slice())),
         (&["onMessage"], produced_shape::produced_message_payload(op_name.as_str(), arr.as_slice())),

@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use orbital_core_base::emit_contract::{
     failure_payload, message_payload, success_payload, CallVariant, ProducedPayload, ShapeField,
 };
+use orbital_core_base::ir::OirType;
 use orbital_core_base::schema::{EntityDefinition, PayloadField, SExpression};
 
 use crate::embedded::{get_operator, OperatorTypeRef, OperatorTypeRefKind, ServiceRegistryData};
@@ -156,6 +157,81 @@ mod tests {
             ["status"]
         );
         assert_eq!(names(narrow("http", &call("{}"), &union)), ["status"]);
+    }
+
+    fn stepping() -> orbital_core_base::language::registry::EmbeddedOperator {
+        serde_json::from_value(serde_json::json!({
+            "category": "std-program", "minArity": 2, "maxArity": 3,
+            "returnType": { "kind": "array", "of": { "kind": "object", "fields": { "trait": "string" }, "open": true } },
+            "params": [
+                { "name": "program", "type": "sexpr" },
+                { "name": "requests", "type": "array" },
+                { "name": "options", "type": { "kind": "object", "fields": { "report": { "kind": "literal", "value": "raw" } }, "open": true } }
+            ],
+            "resultByOption": { "option": "report", "results": {
+                "raw": { "kind": "object", "fields": { "success": "boolean", "steps": { "kind": "array", "of": "string" } }, "open": false }
+            } }
+        }))
+        .expect("an operator with an option-selected result")
+    }
+
+    fn step_call(options: Option<&str>) -> Vec<SExpression> {
+        let tail = options.map(|o| format!(",{o}")).unwrap_or_default();
+        let json: serde_json::Value = serde_json::from_str(&format!(r#"["program/step","@p",[]{tail}]"#)).expect("a call");
+        match serde_json::from_value::<SExpression>(json).expect("an s-expression") {
+            SExpression::Array(items) => items.into_iter().collect(),
+            other => panic!("a call is an array, got {other:?}"),
+        }
+    }
+
+    fn selected_is_raw(op: &orbital_core_base::language::registry::EmbeddedOperator, call: &[SExpression]) -> Option<bool> {
+        match op.result_for_call(call)? {
+            OperatorTypeRef::Tagged(OperatorTypeRefKind::Object { fields, .. }) => Some(fields.contains_key("success")),
+            OperatorTypeRef::Tagged(OperatorTypeRefKind::Array { .. }) => Some(false),
+            other => panic!("unexpected result {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_literal_option_value_selects_the_result_the_table_declares_for_it() {
+        let op = stepping();
+        assert_eq!(selected_is_raw(&op, &step_call(Some(r#"{"report":"raw"}"#))), Some(true));
+        assert_eq!(selected_is_raw(&op, &step_call(Some(r#"{"report":"raw","emit":{"success":"OK"}}"#))), Some(true));
+    }
+
+    #[test]
+    fn an_absent_option_answers_the_declared_return_type() {
+        let op = stepping();
+        for call in [step_call(None), step_call(Some("{}")), step_call(Some(r#"{"report":null}"#)), step_call(Some(r#"{"render":true}"#))] {
+            assert_eq!(selected_is_raw(&op, &call), Some(false), "{call:?}");
+        }
+    }
+
+    #[test]
+    fn a_computed_or_undeclared_option_value_claims_no_result() {
+        let op = stepping();
+        assert_eq!(selected_is_raw(&op, &step_call(Some(r#"{"report":"@payload.mode"}"#))), None, "a binding");
+        assert_eq!(selected_is_raw(&op, &step_call(Some(r#"{"report":true}"#))), None, "not a word");
+        assert_eq!(selected_is_raw(&op, &step_call(Some(r#"{"report":"loose"}"#))), None, "a value the table declares no result for");
+    }
+
+    #[test]
+    fn the_selected_result_is_the_shape_the_event_is_judged_against() {
+        let op = stepping();
+        let members = |call: &[SExpression]| -> Vec<String> {
+            let payload = program_result_payload("program/step", call, op.result_for_call(call).unwrap(), &|_| None);
+            let result = payload.iter().find(|f| f.name == "result").expect("result");
+            result.properties.iter().flatten().map(|f| f.name.clone()).collect()
+        };
+        assert_eq!(members(&step_call(Some(r#"{"report":"raw"}"#))), ["steps", "success"]);
+        assert_eq!(members(&step_call(None)), ["trait"], "control: the played steps");
+    }
+
+    #[test]
+    fn an_operator_declaring_no_selector_answers_its_return_type_whatever_the_options_say() {
+        let mut op = stepping();
+        op.result_by_option = None;
+        assert_eq!(selected_is_raw(&op, &step_call(Some(r#"{"report":"raw"}"#))), Some(false));
     }
 
     #[test]
@@ -380,6 +456,7 @@ pub(crate) fn produced_payload(
     args: &[SExpression],
     entity_definitions: &HashMap<String, EntityDefinition>,
     registry: &ServiceRegistryData,
+    named_type: &dyn Fn(&str) -> Option<OirType>,
 ) -> Option<Vec<PayloadField>> {
     if orbital_core_base::os::OsOp::from_name(op_name).is_some() {
         let keyed = call_has_key(op_name, args);
@@ -422,9 +499,9 @@ pub(crate) fn produced_payload(
     }
     let operator = get_operator(op_name)?;
     if operator.effect.as_ref().and_then(|e| e.produces.as_ref()).is_none()
-        && orbital_core_base::language::registry::is_program_host_effect(op_name)
+        && orbital_core_base::ir::is_substrate_operator(op_name)
     {
-        return Some(program_result_payload(op_name, args, &operator.return_type));
+        return Some(program_result_payload(op_name, args, operator.result_for_call(args)?, named_type));
     }
     let produces = operator.effect.as_ref()?.produces.as_ref()?;
     let narrowed = narrow(op_name, args, produces)?;
@@ -451,14 +528,19 @@ pub(crate) fn produced_payload(
     }
 }
 
-/// A program-host op's success payload is `{ result }` (plus `text`, the result as JSON text, for an agent-port op, and
-/// the call's `key` when it has one), as the kernel's `completion_result` builds it; `result` is the operator's declared
-/// return type. A return type naming a type the table does not spell out is undecidable: `any`.
-fn program_result_payload(op_name: &str, args: &[SExpression], return_type: &OperatorTypeRef) -> Vec<PayloadField> {
-    let (field_type, properties, open) = if names_unspelled_type(return_type) {
-        ("any".to_string(), None, false)
-    } else {
-        field_shape(return_type, None)
+/// A program-host or substrate op's success payload is `{ result }` (plus `text`, the result as JSON text, for an
+/// agent-port op, and the call's `key` when it has one), as the kernel's `completion_result` builds it; `result` is the
+/// operator's declared return type. A return type naming a type the table does not spell out is judged by the shape the
+/// program or the language declares for that name (`named_type`); a name neither declares is undecidable: `any`.
+fn program_result_payload(
+    op_name: &str,
+    args: &[SExpression],
+    return_type: &OperatorTypeRef,
+    named_type: &dyn Fn(&str) -> Option<OirType>,
+) -> Vec<PayloadField> {
+    let (field_type, properties, open) = match with_declared_names(return_type, named_type) {
+        Some(spelled) if !names_unspelled_type(&spelled) => field_shape(&spelled, None),
+        _ => ("any".to_string(), None, false),
     };
     let mut fields = vec![PayloadField {
         nullable: None,
@@ -484,9 +566,62 @@ fn program_result_payload(op_name: &str, args: &[SExpression], return_type: &Ope
     fields
 }
 
+/// `type_ref` with each bare name the table does not spell out replaced by the shape `named_type` declares for it;
+/// `None` when a name has no declared shape. A part of a declared shape this check cannot read is `any`.
+fn with_declared_names(
+    type_ref: &OperatorTypeRef,
+    named_type: &dyn Fn(&str) -> Option<OirType>,
+) -> Option<OperatorTypeRef> {
+    match type_ref {
+        OperatorTypeRef::Primitive(name) if matches!(name.as_str(), "string" | "number" | "boolean" | "any") => {
+            Some(type_ref.clone())
+        }
+        OperatorTypeRef::Primitive(name) => declared_shape(&named_type(name)?),
+        OperatorTypeRef::Tagged(OperatorTypeRefKind::Array { of }) => Some(OperatorTypeRef::Tagged(
+            OperatorTypeRefKind::Array { of: Box::new(with_declared_names(of, named_type)?) },
+        )),
+        OperatorTypeRef::Tagged(OperatorTypeRefKind::Object { fields, open, optional }) => {
+            let fields = fields
+                .iter()
+                .map(|(name, ty)| Some((name.clone(), with_declared_names(ty, named_type)?)))
+                .collect::<Option<HashMap<_, _>>>()?;
+            Some(OperatorTypeRef::Tagged(OperatorTypeRefKind::Object {
+                fields,
+                open: *open,
+                optional: optional.clone(),
+            }))
+        }
+        OperatorTypeRef::Tagged(_) => Some(type_ref.clone()),
+    }
+}
+
+/// A declared record, list or scalar as the table's own type language; a part that is none of them is `any`, which the
+/// check never judges.
+fn declared_shape(ty: &OirType) -> Option<OperatorTypeRef> {
+    let any = || OperatorTypeRef::Primitive("any".to_string());
+    Some(match ty {
+        OirType::String => OperatorTypeRef::Primitive("string".to_string()),
+        OirType::Number | OirType::Integer => OperatorTypeRef::Primitive("number".to_string()),
+        OirType::Boolean => OperatorTypeRef::Primitive("boolean".to_string()),
+        OirType::Optional { inner } => declared_shape(inner).unwrap_or_else(any),
+        OirType::Array { inner } => OperatorTypeRef::Tagged(OperatorTypeRefKind::Array {
+            of: Box::new(declared_shape(inner).unwrap_or_else(any)),
+        }),
+        OirType::Struct { fields, additional } => OperatorTypeRef::Tagged(OperatorTypeRefKind::Object {
+            fields: fields
+                .iter()
+                .map(|f| (f.name.clone(), declared_shape(&f.field_type).unwrap_or_else(any)))
+                .collect(),
+            open: Some(additional.is_some()),
+            optional: Vec::new(),
+        }),
+        _ => return None,
+    })
+}
+
 fn names_unspelled_type(type_ref: &OperatorTypeRef) -> bool {
     match type_ref {
-        OperatorTypeRef::Primitive(name) => !matches!(name.as_str(), "string" | "number" | "boolean"),
+        OperatorTypeRef::Primitive(name) => !matches!(name.as_str(), "string" | "number" | "boolean" | "any"),
         OperatorTypeRef::Tagged(OperatorTypeRefKind::Array { of }) => names_unspelled_type(of),
         OperatorTypeRef::Tagged(OperatorTypeRefKind::Object { fields, .. }) => fields.values().any(names_unspelled_type),
         OperatorTypeRef::Tagged(_) => false,
