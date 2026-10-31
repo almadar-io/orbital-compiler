@@ -1614,6 +1614,28 @@ mod tests {
         assert!(!has_wrapped(&ctx, "ThreadPostsFailed"));
     }
 
+    const FETCH_ROUTES: &str = r#""emit": { "success": "ThreadPostsLoaded", "failure": "ThreadPostsFailed" }"#;
+    const KEYED_FETCH_LOADED: &str = r#"{ "event": "ThreadPostsLoaded", "payloadSchema": [{ "name": "data", "type": "array" }, { "name": "key", "type": "string" }] }"#;
+    const KEYED_FETCH_FAILED: &str = r#"{ "event": "ThreadPostsFailed", "payloadSchema": [{ "name": "error", "type": "string" }, { "name": "key", "type": "string" }] }"#;
+
+    /// A keyed `fetch` echoes its `key` in both completions (EXEC-FETCH-3), so an event declaring it validates.
+    #[test]
+    fn a_keyed_fetch_declaring_its_key_on_success_and_failure_does_not_warn() {
+        let keyed = format!(r#"["fetch", "ThreadPost", {{ "key": "@entity.id", {FETCH_ROUTES} }}]"#);
+        assert!(!has_wrapped(&check(KEYED_FETCH_LOADED, &keyed), "ThreadPostsLoaded"));
+        assert!(!has_wrapped(&check(KEYED_FETCH_FAILED, &keyed), "ThreadPostsFailed"));
+    }
+
+    /// CONTROL — an unkeyed fetch (no `key`, or a null one) delivers no `key`, so a declared one warns.
+    #[test]
+    fn an_unkeyed_fetch_declaring_a_key_warns() {
+        for options in [FETCH_ROUTES.to_string(), format!(r#""key": null, {FETCH_ROUTES}"#)] {
+            let unkeyed = format!(r#"["fetch", "ThreadPost", {{ {options} }}]"#);
+            assert!(has_wrapped(&check(KEYED_FETCH_LOADED, &unkeyed), "ThreadPostsLoaded"), "{options}");
+            assert!(has_wrapped(&check(KEYED_FETCH_FAILED, &unkeyed), "ThreadPostsFailed"), "{options}");
+        }
+    }
+
     const KEYED_FAILED: &str = r#"{ "event": "HOOK_FAILED", "payloadSchema": [{ "name": "error", "type": "string" }, { "name": "errors", "type": "array" }, { "name": "key", "type": "string" }] }"#;
 
     /// A keyed `program/dispatch` echoes its `key` on failure (R-b1), whatever its arity: the two-argument inbound

@@ -198,6 +198,11 @@ impl LocalTypes {
                     self.rename_in_place(default);
                 }
             });
+        definition
+            .type_args
+            .iter_mut()
+            .flatten()
+            .for_each(|(_, value)| self.rename_in_place(value));
         super::rewrite::rewrite_trait_expressions(definition, &mut |expr| {
             self.shape_arguments(expr)
         });

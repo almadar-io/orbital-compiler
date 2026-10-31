@@ -106,13 +106,13 @@ mod tests {
     use super::super::super::{validate_comprehensive_without_services, ErrorCode};
     use orbital_core_base::schema::OrbitalSchema;
 
-    fn nearest_program(options: &str) -> OrbitalSchema {
+    fn nearest_program(options: &str, embedding_required: bool) -> OrbitalSchema {
         serde_json::from_str(&format!(
             r#"{{ "name": "S", "orbitals": [{{ "name": "O",
               "entity": {{ "name": "Doc", "persistence": "runtime", "fields": [
                 {{ "name": "id", "type": "string" }}, {{ "name": "title", "type": "string" }},
-                {{ "name": "count", "type": "number" }},
-                {{ "name": "embedding", "type": "array", "items": {{ "name": "component", "type": "number" }} }}] }},
+                {{ "name": "count", "type": "number", "required": true }},
+                {{ "name": "embedding", "type": "array", "required": {embedding_required}, "items": {{ "name": "component", "type": "number" }} }}] }},
               "traits": [{{ "name": "T", "linkedEntity": "Doc", "stateMachine": {{
                 "states": [{{ "name": "idle", "isInitial": true }}],
                 "transitions": [{{ "from": "idle", "to": "idle", "event": "INIT",
@@ -122,7 +122,11 @@ mod tests {
     }
 
     fn nearest_codes(options: &str) -> Vec<ErrorCode> {
-        validate_comprehensive_without_services(&nearest_program(options))
+        nearest_codes_with(options, true)
+    }
+
+    fn nearest_codes_with(options: &str, embedding_required: bool) -> Vec<ErrorCode> {
+        validate_comprehensive_without_services(&nearest_program(options, embedding_required))
             .errors
             .iter()
             .map(|e| e.code.clone())
@@ -146,5 +150,11 @@ mod tests {
         ] {
             assert_eq!(nearest_codes(&nearest(body)), vec![ErrorCode::OperatorArgTypeMismatch], "{body}");
         }
+
+        assert_eq!(
+            nearest_codes_with(&good, false),
+            vec![ErrorCode::OperatorArgTypeMismatch],
+            "an unguarded read of a vector field that may be absent is an optional list"
+        );
     }
 }

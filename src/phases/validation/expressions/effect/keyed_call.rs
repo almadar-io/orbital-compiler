@@ -111,7 +111,11 @@ fn is_call_key_typed(expr: &SExpression, ctx: &ExprReturnCtx<'_>) -> bool {
     let Ok(resolved) = crate::phases::resolve::resolve_sexpr_standalone(expr) else {
         return false;
     };
-    match crate::type_infer::infer_oir_expr_type(&resolved, ctx) {
+    let inferred = match crate::type_infer::infer_oir_expr_type(&resolved, ctx) {
+        Some(OirType::Optional { inner }) => Some(*inner),
+        other => other,
+    };
+    match inferred {
         Some(OirType::CallKey) => true,
         Some(OirType::Array { inner }) => matches!(*inner, OirType::CallKey),
         _ => false,

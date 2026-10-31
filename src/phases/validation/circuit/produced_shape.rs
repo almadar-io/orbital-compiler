@@ -439,7 +439,12 @@ pub(crate) fn produced_payload(
             entity.map(entity_payload_fields)
         }
         OperatorTypeRef::Tagged(OperatorTypeRefKind::Object { fields, .. }) => {
-            Some(object_payload_fields(fields, entity))
+            let mut payload = object_payload_fields(fields, entity);
+            if op_name == "fetch" && call_has_key(op_name, args) {
+                payload.push(scalar_field("key", "string"));
+                payload.sort_by(|a, b| a.name.cmp(&b.name));
+            }
+            Some(payload)
         }
         // `any` (call-service, set) and anything else carries no shape to check.
         _ => None,
@@ -497,7 +502,7 @@ fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
     }
     match op_name {
         "http" => true,
-        "browser/page-facts" | "random-bytes" => matches!(
+        "browser/page-facts" | "random-bytes" | "fetch" => matches!(
             args.get(2),
             Some(SExpression::Object(options)) if !matches!(options.get("key"), None | Some(SExpression::Null))
         ),

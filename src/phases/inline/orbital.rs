@@ -6262,4 +6262,65 @@ mod tests {
         assert!(types.contains_key("Badge") && types.contains_key("Atom::Badge"), "{:?}", types.keys());
         assert_eq!(types["Badge"][0].name, "code");
     }
+    fn parameterised_upstream(with_params: bool) -> Orbital {
+        let mut def = json!({
+            "name": "UpOrbital",
+            "id": "orb_UPSTREAMPARAMORBITAL0000",
+            "types": {"Badge": [{"name": "id", "type": "string"}]},
+            "entity": {"name": "Widget", "persistence": "runtime", "fields": [
+                {"name": "id", "type": "string", "required": true}]},
+            "traits": [{"name": "A", "linkedEntity": "Widget", "stateMachine": {
+                "states": [{"name": "idle", "isInitial": true}],
+                "events": [{"key": "SEND", "payloadSchema": [{"name": "payload", "type": if with_params { "$p" } else { "Badge" }}]}],
+                "transitions": [{"from": "idle", "to": "idle", "event": "SEND"}]}}]
+        });
+        if with_params {
+            def["traits"][0]["typeParams"] = json!([{"name": "p", "kind": "Type"}]);
+            def["traits"][0]["typeArgs"] = json!({"p": "Badge"});
+        }
+        serde_json::from_value(def).expect("parameterised upstream fixture")
+    }
+
+    fn resolve_parameterised(behavior: &str, with_params: bool) -> Orbital {
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &parameterised_upstream(with_params));
+        ctx.set_behavior_name("Up", behavior.to_string());
+        let mut orbital: Orbital = serde_json::from_value(json!({
+            "name": "Local", "entity": "Up.orbitals.UpOrbital.entity", "traits": []
+        }))
+        .expect("consumer");
+        let obj = OrbitalRefObject { reference: "Up.orbitals.UpOrbital".to_string(), ..Default::default() };
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &orbital_core_base::collections::IndexMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
+            &HashMap::new(),
+            None,
+            &mut Vec::new(),
+            None,
+            &mut Vec::new(),
+        )
+        .expect("resolves");
+        crate::phases::inline::rewrite::resolve_orbital_type_param_sentinels(&mut orbital);
+        orbital
+    }
+
+    #[test]
+    fn an_orbital_level_uses_keeps_a_traits_type_argument_bound_to_the_qualified_type() {
+        let orbital = resolve_parameterised("Atom", true);
+        let text = serde_json::to_string(&orbital.traits).expect("json");
+        assert!(!text.contains("$p"), "{text}");
+        assert!(text.contains(r#""payloadSchema":[{"name":"payload""#), "{text}");
+        assert!(text.contains(r#""name":"id""#), "{text}");
+    }
+
+    #[test]
+    fn control_an_orbital_level_uses_of_a_trait_without_type_parameters_is_unchanged() {
+        let orbital = resolve_parameterised("Atom", false);
+        let text = serde_json::to_string(&orbital.traits).expect("json");
+        assert!(text.contains(r#""type":"Atom::Badge""#), "{text}");
+        assert!(!text.contains("typeArgs"), "{text}");
+    }
 }

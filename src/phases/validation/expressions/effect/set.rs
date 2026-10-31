@@ -231,7 +231,8 @@ pub(crate) fn validate_set_return_type(
     let Some(meta) = entity_field_types.get(entity_field) else {
         return result;
     };
-    if !matches!(&arr[2], SExpression::Array(_) | SExpression::Object(_) | SExpression::Null) {
+    let reads_entity_field = matches!(&arr[2], SExpression::String(s) if s.strip_prefix("@entity.").is_some_and(|rest| !rest.is_empty()));
+    if !reads_entity_field && !matches!(&arr[2], SExpression::Array(_) | SExpression::Object(_) | SExpression::Null) {
         return result;
     }
     let ctx = ExprReturnCtx {
@@ -255,7 +256,7 @@ pub(crate) fn validate_set_return_type(
             .with_suggestion("Write a value of the declared type, or declare the field optional (`T?`)"),
         );
     }
-    if !matches!(&arr[2], SExpression::Array(_)) {
+    if !reads_entity_field && !matches!(&arr[2], SExpression::Array(_)) {
         return result;
     }
     if let orbital_core_base::ir::OirType::Reference { entity } = &meta.shape {
@@ -527,6 +528,10 @@ fn operand_kind(operand: &SExpression, ctx: &ExprReturnCtx<'_>) -> Option<&'stat
             crate::type_infer::infer_oir_expr_type(&oir, ctx)?
         }
     };
+    let ty = match ty {
+        OirType::Optional { inner } => *inner,
+        present => present,
+    };
     match ty {
         OirType::Number | OirType::Integer => Some("number"),
         OirType::String
@@ -593,7 +598,12 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
                 names.sort();
                 let mut fields: Vec<OirField> = names
                     .into_iter()
-                    .map(|n| OirField::new(n.clone(), self.entity[n].shape.clone()))
+                    .map(|n| {
+                        let meta = &self.entity[n];
+                        let mut field = OirField::new(n.clone(), meta.shape.clone());
+                        field.required = meta.required || meta.defaulted;
+                        field
+                    })
                     .collect();
                 if self.types.is_some() {
                     for (system, ty) in [("id", OirType::String), ("createdAt", OirType::DateTime), ("updatedAt", OirType::DateTime)] {
@@ -686,7 +696,11 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
         let source = declared.or_else(promised)?;
         let mut fields: Vec<OirField> = source
             .iter()
-            .filter_map(|f| Some(OirField::new(f.name.clone()?, orbital_core_base::ir::types::field_shape(f).unwrap_or_else(|_| OirType::erased()))))
+            .filter_map(|f| {
+                let mut field = OirField::new(f.name.clone()?, orbital_core_base::ir::types::field_shape(f).unwrap_or_else(|_| OirType::erased()));
+                field.required = f.required.unwrap_or(false) || f.default.is_some();
+                Some(field)
+            })
             .collect();
         for (system, ty) in [("id", OirType::String), ("createdAt", OirType::DateTime), ("updatedAt", OirType::DateTime)] {
             if !fields.iter().any(|f| f.name == system) {
@@ -1053,7 +1067,8 @@ mod return_type_tests {
         use crate::type_infer::TypeCtx;
         use orbital_core_base::ir::{OirBinding, OirBindingRoot, OirType};
 
-        let entity = field("tags", "[string]");
+        let mut entity = field("tags", "[string]");
+        entity.get_mut("tags").unwrap().required = true;
         let payload = HashMap::new();
         let ctx = ExprReturnCtx {
             entity: &entity,
@@ -1564,5 +1579,66 @@ mod set_value_type_tests {
             expr_return_incompatible(&concat, &OirType::CallKey, &entity, &HashMap::new(), None).is_some(),
             "a string is not a call key"
         );
+    }
+}
+
+#[cfg(test)]
+mod absent_entity_read_tests {
+    use super::*;
+    use crate::type_infer::TypeCtx;
+    use orbital_core_base::ir::{OirBinding, OirBindingRoot, OirType};
+
+    fn entity() -> HashMap<String, EntityFieldMeta> {
+        let entity: EntityDefinition = serde_json::from_value(serde_json::json!({
+            "name": "E", "collection": "es", "fields": [
+                { "name": "loose", "type": "string" },
+                { "name": "needed", "type": "string", "required": true },
+                { "name": "kept", "type": "string", "default": "" },
+                { "name": "maybe", "type": "string", "nullable": true },
+                { "name": "dst", "type": "string", "required": true },
+                { "name": "slot", "type": "string", "nullable": true }
+            ]
+        }))
+        .unwrap();
+        entity_field_type_map(&entity)
+    }
+
+    fn read_type(field: &str) -> Option<OirType> {
+        let fields = entity();
+        let payload = HashMap::new();
+        let ctx = ExprReturnCtx { entity: &fields, payload: &payload, types: None, schema: None };
+        ctx.binding_type(&OirBinding::new(OirBindingRoot::Entity, vec![field.to_string()]))
+    }
+
+    fn set_errors(target: &str, value: &str, guard: Option<&str>) -> usize {
+        let fields = entity();
+        let source = |text: &str| -> SExpression { serde_json::from_str(text).unwrap() };
+        let arr = vec![SExpression::String("set".into()), SExpression::string(format!("@entity.{target}")), source(value)];
+        let guard = guard.map(source);
+        validate_set_return_type(&arr, "p", &fields, &HashMap::new(), None, None, guard.as_ref()).errors.len()
+    }
+
+    #[test]
+    fn a_read_of_a_non_required_non_defaulted_field_types_as_optional() {
+        assert_eq!(read_type("loose"), Some(OirType::optional(OirType::String)));
+        assert_eq!(read_type("needed"), Some(OirType::String), "control: required");
+        assert_eq!(read_type("kept"), Some(OirType::String), "control: defaulted");
+        assert_eq!(read_type("maybe"), Some(OirType::optional(OirType::String)), "control: nullable stays one optional");
+    }
+
+    #[test]
+    fn an_unguarded_set_of_an_optional_read_into_a_non_null_field_is_refused() {
+        assert_eq!(set_errors("dst", r#""@entity.loose""#, None), 1);
+        assert_eq!(set_errors("dst", r#""@entity.maybe""#, None), 1);
+        assert_eq!(set_errors("dst", r#""@entity.needed""#, None), 0, "control: required read");
+        assert_eq!(set_errors("dst", r#""@entity.kept""#, None), 0, "control: defaulted read");
+        assert_eq!(set_errors("slot", r#""@entity.loose""#, None), 0, "control: a nullable target takes it");
+    }
+
+    #[test]
+    fn a_narrowed_set_of_an_optional_read_is_accepted() {
+        assert_eq!(set_errors("dst", r#""@entity.loose""#, Some(r#"["!=", "@entity.loose", null]"#)), 0, "guard");
+        assert_eq!(set_errors("dst", r#"["default", "@entity.loose", ""]"#, None), 0, "default");
+        assert_eq!(set_errors("dst", r#"["if", ["!=", "@entity.loose", null], "@entity.loose", ""]"#, None), 0, "if");
     }
 }

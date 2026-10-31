@@ -1900,6 +1900,20 @@ impl<'c> Inferer<'c> {
         if let (OperatorTypeRef::Tagged(OperatorTypeRefKind::Shape), OirType::TypeRef { name }) =
             (shape_return(signature.returns()), named)
         {
+            if orbital_core_base::sealed::is_sealed_type(name) {
+                let index = signature.shape_position().unwrap_or_default();
+                self.diagnostics.borrow_mut().push(Diagnostic {
+                    function: name_fn.to_string(),
+                    index,
+                    mismatch: Mismatch::Type {
+                        expected: "a type a program may build".to_string(),
+                        actual: format!("`{name}`, a sealed type only the kernel makes"),
+                    },
+                    expression: printed(name_fn, args),
+                    argument: printed_arg(args.get(index)),
+                });
+                return None;
+            }
             if self.ctx.declared_type(name) == Some(false) {
                 let index = signature.shape_position().unwrap_or_default();
                 self.diagnostics.borrow_mut().push(Diagnostic {
@@ -4323,6 +4337,29 @@ mod tests {
         let parse = |shape: &str| call("json/parse", vec![checked_local(text("{}"), OirType::String), text(shape)]);
         assert!(!check_oir_expr(&parse("Nope"), &Declared).is_empty(), "a shape no type declares");
         assert!(check_oir_expr(&parse("Pt"), &Declared).is_empty(), "control: a declared shape");
+    }
+
+    #[test]
+    fn a_parse_or_a_cast_naming_a_sealed_type_is_refused_even_when_the_name_is_declared() {
+        struct Declared;
+        impl TypeCtx for Declared {
+            fn binding_type(&self, binding: &OirBinding) -> Option<OirType> {
+                matches!(&binding.root, OirBindingRoot::Local(name) if name.as_str() == "v")
+                    .then(|| OirType::optional(OirType::map(OirType::String, OirType::Number)))
+            }
+            fn named_type(&self, name: &str) -> Option<OirType> {
+                orbital_core_base::sealed::sealed_record(name)
+            }
+            fn declared_type(&self, name: &str) -> Option<bool> {
+                Some(name == "Verified" || name == "Pt")
+            }
+        }
+        let parse = |shape: &str| call("json/parse", vec![checked_local(text("{}"), OirType::String), text(shape)]);
+        let cast = |shape: &str| call("as", vec![local("v"), text(shape)]);
+        assert!(!check_oir_expr(&parse("Verified"), &Declared).is_empty(), "json/parse never makes a Verified");
+        assert!(!check_oir_expr(&cast("Verified"), &Declared).is_empty(), "as never makes a Verified");
+        assert!(check_oir_expr(&parse("Pt"), &Declared).is_empty(), "control: a declared, unsealed shape");
+        assert!(check_oir_expr(&cast("Pt"), &Declared).is_empty(), "control: a declared, unsealed cast");
     }
 
     #[test]

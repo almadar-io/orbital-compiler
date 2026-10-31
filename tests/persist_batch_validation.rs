@@ -282,8 +282,13 @@ fn a_computed_record_set_into_a_relation_field_is_checked_against_the_related_en
 
 #[test]
 fn a_relation_read_set_into_a_relation_field_of_the_same_entity_is_accepted() {
-    let r = validate_rows(row_fields(), json!({}), json!([["set", "@entity.hero", ["object/get", "@entity", "hero"]]]));
+    let copy = json!([["set", "@entity.hero", ["object/get", "@entity", "hero"]]]);
+    let mut fields = row_fields();
+    fields[3]["required"] = json!(true);
+    let r = validate_rows(fields, json!({}), copy.clone());
     assert!(with_code(&r, ErrorCode::SetReturnTypeMismatch).is_empty(), "{:?} {:?}", codes(&r), with_code(&r, ErrorCode::SetReturnTypeMismatch));
+    let r = validate_rows(row_fields(), json!({}), copy);
+    assert_eq!(with_code(&r, ErrorCode::SetReturnTypeMismatch).len(), 1, "control: a relation that may be absent reads as optional: {:?}", codes(&r));
 }
 
 #[test]

@@ -513,7 +513,7 @@ mod call_key {
         schema["orbitals"][0]["entity"]["fields"]
             .as_array_mut()
             .unwrap()
-            .push(json!({ "name": "callKey", "type": "CallKey" }));
+            .push(json!({ "name": "callKey", "type": "CallKey", "required": true }));
         validate_comprehensive_without_services(&serde_json::from_value(schema).expect("schema"))
     }
 
@@ -531,6 +531,17 @@ mod call_key {
     #[test]
     fn a_cancel_on_a_call_key_needs_no_keyed_call_in_the_program() {
         let r = run(json!([["cancel-call", "@entity.callKey"]]));
+        assert!(!fires(&r, ErrorCode::CancelCallNoKeyedCall), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn a_cancel_on_a_call_key_field_that_may_be_absent_is_still_a_call_key_cancel() {
+        let mut schema = serde_json::to_value(program(ok_egress(), config(), json!([["cancel-call", "@entity.callKey"]]))).unwrap();
+        schema["orbitals"][0]["entity"]["fields"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "name": "callKey", "type": "CallKey" }));
+        let r = validate_comprehensive_without_services(&serde_json::from_value(schema).expect("schema"));
         assert!(!fires(&r, ErrorCode::CancelCallNoKeyedCall), "{:?}", r.errors);
     }
 

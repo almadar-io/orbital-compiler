@@ -1821,11 +1821,12 @@ fn register_named_type_children(fields: &[OirField], ctx: &NamedTypeCtx) -> Resu
 /// the alias's own BODY (not from a call site re-entering it), so the cycle
 /// guard triggers one level deeper. Structurally equivalent; not normalized.
 fn lookup_named_type_shape(name: &str, ctx: &NamedTypeCtx) -> Result<Option<OirType>, orbital_core_base::ir::types::ShapeError> {
-    ctx.schema.orbitals.iter().filter_map(|orbital| orbital.types.as_ref())
+    let declared = ctx.schema.orbitals.iter().filter_map(|orbital| orbital.types.as_ref())
         .chain(ctx.schema.types.iter())
         .find_map(|types| types.get(name))
         .map(|members| orbital_core_base::ir::types::declared_alias_shape(members))
-        .transpose()
+        .transpose()?;
+    Ok(declared.or_else(|| orbital_core_base::sealed::sealed_record(name)))
 }
 
 fn parse_payload_field_type(field_type: &str) -> Result<OirType, orbital_core_base::ir::types::ShapeError> {
@@ -2151,6 +2152,41 @@ mod tests {
             payload_field_to_oir_type(&field, &ctx).unwrap(),
             OirType::Struct { .. }
         ));
+    }
+
+    #[test]
+    fn a_verified_payload_field_stays_the_nominal_sealed_type_and_reads_its_record() {
+        let field = |field_type: &str| orbital_core_base::schema::PayloadField {
+            nullable: None,
+            additional_properties: None,
+            values: None,
+            name: "credential".to_string(),
+            field_type: field_type.to_string(),
+            required: Some(true),
+            description: None,
+            properties: None,
+            type_when: None,
+            entity: None,
+            projected_from: None,
+            items: None,
+            relation: None,
+        };
+        let schema = empty_schema();
+        let named_types = RefCell::new(BTreeMap::new());
+        let in_progress = RefCell::new(HashSet::new());
+        let entity_names = HashSet::new();
+        let ctx = NamedTypeCtx { schema: &schema, named_types: &named_types, in_progress: &in_progress, entity_names: &entity_names };
+        let shape = payload_field_to_oir_type(&field("Verified"), &ctx).unwrap();
+        assert_eq!(shape, orbital_core_base::sealed::sealed_type_ref("Verified"));
+        assert_eq!(
+            named_types.borrow().get("Verified"),
+            orbital_core_base::sealed::sealed_record("Verified").as_ref(),
+            "a read through the payload finds the record's fields"
+        );
+        assert!(
+            payload_field_to_oir_type(&field("Verifed"), &ctx).is_err() || !named_types.borrow().contains_key("Verifed"),
+            "control: a misspelt name is no sealed type"
+        );
     }
 
     /// The `PayloadField.entity` marker's whole reason to exist: an
