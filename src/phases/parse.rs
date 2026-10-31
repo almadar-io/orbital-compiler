@@ -3,7 +3,6 @@
 //! Reads schema files and deserializes them into OrbitalSchema types.
 
 use orbital_core_base::schema::OrbitalSchema;
-use std::fs;
 use std::path::Path;
 use thiserror::Error;
 
@@ -28,7 +27,7 @@ pub enum ParseError {
 /// Supports .json and .orb (JSON) files, and .lolo through the registered source lowerer.
 pub fn parse_file(path: impl AsRef<Path>) -> Result<OrbitalSchema, ParseError> {
     let path = path.as_ref();
-    let content = fs::read_to_string(path)?;
+    let content = orbital_core_base::read_set::read_to_string(path)?;
 
     // Determine format from extension
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("json");

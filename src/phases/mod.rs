@@ -269,6 +269,9 @@ pub(crate) fn resolve_schema_with_inline(
     inline: &inline::InlineConfig,
     source_path: Option<&Path>,
 ) -> CompileResult<OrbitalSchema> {
+    if let Some(path) = source_path {
+        crate::loader::anchor_relative_uses(&mut schema, path);
+    }
     if already_resolved(&schema, source_path)? {
         return Ok(schema);
     }

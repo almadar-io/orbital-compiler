@@ -247,6 +247,9 @@ pub fn resolve_program_with_path(
     options: &CompilerOptions,
     source_path: Option<&Path>,
 ) -> CompileResult<(OrbitalSchema, Vec<ResolvedLazy>)> {
+    if let Some(path) = source_path {
+        crate::loader::anchor_relative_uses(&mut schema, path);
+    }
     if super::already_resolved(&schema, source_path)? {
         return Ok((schema, Vec::new()));
     }

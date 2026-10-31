@@ -878,8 +878,7 @@ mod tests {
         .unwrap();
         assert_eq!(value.declared_knob_literal(), Some(&serde_json::from_value::<SExpression>(serde_json::json!(["list", "A"])).unwrap()));
         let leaves = value.value_leaves(&live_sources());
-        assert_eq!(leaves.len(), 1);
-        assert_eq!(leaves[0].operator(), Some("list"));
+        assert_eq!(leaves, vec![&s("A")], "the knob's literal is walked through `list`'s declared value slots");
         let plain: SExpression = serde_json::from_value(serde_json::json!(["let", [["x", 1, "{}"]], "@x"])).unwrap();
         assert!(plain.declared_knob_literal().is_none(), "control: only a knob_ local read back is a knob read");
     }

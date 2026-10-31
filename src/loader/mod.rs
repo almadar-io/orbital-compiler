@@ -771,10 +771,11 @@ impl ExternalOrbitalLoader {
         // Absolute paths
         let path = Path::new(import_path);
         if path.is_absolute() {
+            let absolute = self.add_orb_extension(path.to_path_buf());
             if !self.config.allow_outside_base_path {
-                return Err(LoaderError::PathTraversal(import_path.to_string()));
+                self.validate_path_within(&absolute, &self.config.base_path, import_path)?;
             }
-            return Ok(self.add_orb_extension(path.to_path_buf()));
+            return Ok(absolute);
         }
 
         // A bare `<package>/<behavior-name>` import is resolved by `load()`
@@ -959,6 +960,12 @@ impl ExternalOrbitalLoader {
     }
 
     fn load_file(&mut self, path: &Path, import_path: &str, chain: &mut ImportChain) -> Result<LoadedSchema, LoaderError> {
+        let mut loaded = self.read_file(path, import_path, chain)?;
+        anchor_relative_uses(&mut loaded.schema, &loaded.source_path);
+        Ok(loaded)
+    }
+
+    fn read_file(&mut self, path: &Path, import_path: &str, chain: &mut ImportChain) -> Result<LoadedSchema, LoaderError> {
         // A live package's behavior is its `.lolo` source, lowered on read.
         if path.extension().is_some_and(|e| e == "lolo") {
             orbital_core_base::read_set::note(path);
@@ -1085,6 +1092,31 @@ pub fn parse_import_path(import_path: &str) -> (&str, Option<&str>) {
     }
 }
 
+/// Every relative `uses` of `schema`, which was read from `file`, anchored to the file it names (G-CROSS-358): a relative
+/// import means "beside the file that wrote it", and a reader that holds the program anywhere else loads that same file.
+pub fn anchor_relative_uses(schema: &mut OrbitalSchema, file: &Path) {
+    let Some(dir) = file.parent().and_then(|dir| std::path::absolute(dir).ok()) else {
+        return;
+    };
+    for orbital in &mut schema.orbitals {
+        for decl in orbital.uses.iter_mut().flatten() {
+            if decl.from.starts_with("./") || decl.from.starts_with("../") {
+                let mut anchored = PathBuf::new();
+                for component in dir.join(&decl.from).components() {
+                    match component {
+                        std::path::Component::ParentDir => {
+                            anchored.pop();
+                        }
+                        std::path::Component::CurDir => {}
+                        other => anchored.push(other),
+                    }
+                }
+                decl.from = anchored.display().to_string();
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1194,6 +1226,28 @@ mod tests {
         assert!(error.to_string().contains("Circular import"), "{error}");
         assert!(error.to_string().contains("first.lolo") && error.to_string().contains("second.lolo"), "{error}");
         assert!(loader.cache.is_empty());
+    }
+
+    /// G-CROSS-358: a relative import is anchored to its file when that file loads, so whoever reads the program later
+    /// (compose, a written copy under `.orbital/`) loads the same file; the anchored spelling resolves inside the base.
+    #[test]
+    fn an_absolute_path_inside_the_base_resolves_as_its_relative_spelling_does() {
+        let loader = ExternalOrbitalLoader::new(LoaderConfig { base_path: fixtures_dir(), ..Default::default() });
+        let absolute = fixtures_dir().join("health.orb");
+        assert_eq!(
+            loader.resolve_path(&absolute.display().to_string(), None).unwrap(),
+            loader.resolve_path("./health.orb", None).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_relative_import_loads_the_same_file_from_any_reader_once_anchored() {
+        let mut loader = ExternalOrbitalLoader::new(LoaderConfig { base_path: fixtures_dir(), ..Default::default() });
+        let player = loader.load("./player.orb", None, &mut ImportChain::new()).unwrap();
+        let anchored = player.schema.orbitals[0].uses.as_ref().unwrap()[0].from.clone();
+        let elsewhere = std::env::temp_dir().join("a-copy-somewhere-else.orb");
+        let reloaded = loader.load(&anchored, Some(&elsewhere), &mut ImportChain::new()).unwrap();
+        assert_eq!(reloaded.schema.name, "HealthModule");
     }
 
     #[test]
@@ -1831,7 +1885,7 @@ mod tests {
         assert!(orbital.uses.is_some());
         let uses = orbital.uses.as_ref().unwrap();
         assert_eq!(uses.len(), 1);
-        assert_eq!(uses[0].from, "./health.orb");
+        assert_eq!(uses[0].from, fixtures_dir().join("health.orb").display().to_string(), "a relative import is anchored to the file that wrote it");
         assert_eq!(uses[0].alias, "Health");
 
         // Entity should be a reference

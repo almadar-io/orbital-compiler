@@ -26,7 +26,7 @@ pub fn merged_catalogs(
                 .join("locales")
                 .join(locale)
                 .join(format!("{name}.json"));
-            let Ok(text) = std::fs::read_to_string(&file) else {
+            let Ok(text) = orbital_core_base::read_set::read_to_string(&file) else {
                 continue;
             };
             let Ok(serde_json::Value::Object(map)) =
@@ -111,6 +111,20 @@ mod tests {
             None,
             "an absent catalog contributes nothing (validate reports it)"
         );
+    }
+
+    #[test]
+    fn every_catalog_read_and_every_absent_one_is_recorded() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write(dir.path(), "locales/en/site.json", r#"{"home.title":"Home"}"#);
+        orbital_core_base::read_set::begin();
+        merged_catalogs(&program(Some(vec!["en", "ar"]), &[("site", ".")]), dir.path());
+        let reads = orbital_core_base::read_set::end();
+        let absent = dir.path().join("locales/ar/site.json");
+        assert!(reads.paths().any(|p| p == &dir.path().join("locales/en/site.json")));
+        assert!(reads.paths().any(|p| p == &absent), "an absent catalog decided the result too");
+        write(dir.path(), "locales/ar/site.json", r#"{"home.title":"x"}"#);
+        assert!(!reads.is_current());
     }
 
     #[test]

@@ -141,13 +141,22 @@ fn without_ids(value: serde_json::Value) -> serde_json::Value {
     }
 }
 
-fn orbital_json(schema: &OrbitalSchema, name: &str) -> serde_json::Value {
+/// The orbital as JSON, its imports written relative to the program's directory: resolution anchors a relative import to
+/// the file it names (G-CROSS-358), and two programs in different directories name the same sibling.
+fn orbital_json(schema: &OrbitalSchema, name: &str, program: &Path) -> serde_json::Value {
     let orbital: &Orbital = schema
         .orbitals
         .iter()
         .find(|o| o.name == name)
         .expect("orbital present");
-    without_ids(serde_json::to_value(orbital).expect("serializes"))
+    let dir = format!("{}/", std::path::absolute(program.parent().expect("a program directory")).expect("absolute").display());
+    let mut json = without_ids(serde_json::to_value(orbital).expect("serializes"));
+    for decl in json["uses"].as_array_mut().into_iter().flatten() {
+        if let Some(from) = decl["from"].as_str().and_then(|f| f.strip_prefix(&dir)).map(|rest| format!("./{rest}")) {
+            decl["from"] = serde_json::Value::String(from);
+        }
+    }
+    json
 }
 
 fn blog(name: &str, to: &str) -> String {
@@ -159,8 +168,8 @@ fn an_orbital_that_reuses_an_import_resolves_as_it_would_alone() {
     let both = program(&[blog("BlogA", "/a"), blog("BlogB", "/b")], false);
     let only_b = program(&[blog("BlogB", "/b")], false);
     assert_eq!(
-        orbital_json(&resolved(&both.path), "BlogB"),
-        orbital_json(&resolved(&only_b.path), "BlogB")
+        orbital_json(&resolved(&both.path), "BlogB", &both.path),
+        orbital_json(&resolved(&only_b.path), "BlogB", &only_b.path)
     );
 }
 
@@ -169,8 +178,8 @@ fn control_the_first_user_of_an_import_is_unchanged_too() {
     let both = program(&[blog("BlogA", "/a"), blog("BlogB", "/b")], false);
     let only_a = program(&[blog("BlogA", "/a")], false);
     assert_eq!(
-        orbital_json(&resolved(&both.path), "BlogA"),
-        orbital_json(&resolved(&only_a.path), "BlogA")
+        orbital_json(&resolved(&both.path), "BlogA", &both.path),
+        orbital_json(&resolved(&only_a.path), "BlogA", &only_a.path)
     );
 }
 
