@@ -4352,6 +4352,23 @@ mod tests {
     }
 
     #[test]
+    fn a_cast_to_a_point_in_time_primitive_narrows_to_its_optional_and_never_mixes_implicitly() {
+        struct Parsed;
+        impl TypeCtx for Parsed {
+            fn binding_type(&self, binding: &OirBinding) -> Option<OirType> {
+                matches!(&binding.root, OirBindingRoot::Local(name) if name.as_str() == "v").then(|| {
+                    OirType::Union { variants: vec![OirField::new("date", OirType::Date), OirField::new("datetime", OirType::DateTime)].into() }
+                })
+            }
+        }
+        for (target, ty) in [("datetime", OirType::DateTime), ("instant", OirType::Instant), ("date", OirType::Date)] {
+            let cast = call("as", vec![local("v"), text(target)]);
+            assert_eq!(infer_oir_expr_type(&cast, &Parsed), Some(OirType::optional(ty)), "as {target}");
+            assert!(check_oir_expr(&cast, &Parsed).is_empty(), "{target} is a legal cast target");
+        }
+    }
+
+    #[test]
     fn a_cast_of_a_record_the_declared_union_admits_is_present() {
         let optional = |ctx: Declared| infer_oir_expr_type(&call("as", vec![local("v"), text("V")]), &ctx).map(|t| t.is_optional());
         struct Declared(OirType);

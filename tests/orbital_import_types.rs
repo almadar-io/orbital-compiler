@@ -1,6 +1,6 @@
-//! An orbital import carries the struct, dictionary and list aliases its upstream declares: the imported traits
-//! read them (a `json/parse x Name` shape, a type-parameter argument), so the importing orbital must know the same
-//! names. A name the importer declares itself wins.
+//! An orbital import carries the struct, dictionary and list aliases its upstream declares, qualified by the
+//! upstream behavior (R13: no type importing), and the imported traits read them under that qualified name. A name the
+//! importer declares itself stays its own.
 
 use orbital_compiler::phases::inline::{inline_schema_with_orbital_diagnostics, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
@@ -42,6 +42,10 @@ fn consumer(own_types: &str) -> String {
     )
 }
 
+fn qualified<'a>(types: &'a std::collections::BTreeMap<String, Vec<orbital_core_base::schema::PayloadField>>, short: &str) -> Option<&'a String> {
+    types.keys().find(|k| k.rsplit_once("::").is_some_and(|(_, name)| name == short))
+}
+
 fn inlined(own_types: &str) -> OrbitalSchema {
     let dir = tempfile::TempDir::new().expect("temp dir");
     std::fs::write(dir.path().join("upstream.orb"), upstream()).unwrap();
@@ -58,8 +62,9 @@ fn inlined(own_types: &str) -> OrbitalSchema {
 fn the_importer_knows_the_aliases_its_upstream_declares() {
     let schema = inlined("");
     let types = schema.orbitals[0].types.as_ref().expect("types carried");
-    assert!(types.contains_key("Point"));
-    assert_eq!(types["Row"][0].field_type, "Map<string,string>");
+    assert!(qualified(types, "Point").is_some() && !types.contains_key("Point"), "{:?}", types.keys());
+    let row = qualified(types, "Row").expect("Row arrives qualified");
+    assert_eq!(types[row][0].field_type, "Map<string,string>");
 }
 
 #[test]
@@ -67,7 +72,8 @@ fn a_name_the_importer_declares_wins_over_the_upstream_one() {
     let schema = inlined(r#", "types": { "Point": [{ "name": "y", "type": "string" }] }"#);
     let types = schema.orbitals[0].types.as_ref().unwrap();
     assert_eq!(types["Point"][0].name, "y");
-    assert!(types.contains_key("Row"), "control: the other upstream aliases still arrive");
+    assert_eq!(types[qualified(types, "Point").expect("the upstream Point stays beside it")][0].name, "x");
+    assert!(qualified(types, "Row").is_some(), "control: the other upstream aliases still arrive");
 }
 
 #[test]

@@ -494,7 +494,7 @@ fn field_type_str_to_binding(s: &str) -> BindingType {
         // fields. Strip optional `!` suffix.
         s => {
             let trimmed = s.trim_end_matches('!');
-            if trimmed
+            if orbital_core_base::type_compat::short_type_name(trimmed)
                 .chars()
                 .next()
                 .map(|c| c.is_uppercase())

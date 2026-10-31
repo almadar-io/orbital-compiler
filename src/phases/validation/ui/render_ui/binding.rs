@@ -720,7 +720,7 @@ fn primitive_event_compat(declared: &str, actual: &str) -> bool {
         "json" | "object" => a == "object" || a == "json",
         "date" | "datetime" | "instant" | "timestamp" => a == "string",
         "entity" | "relation" => a == "object" || a == "string",
-        s if s.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) => {
+        s if orbital_core_base::type_compat::short_type_name(s).chars().next().map(|c| c.is_uppercase()).unwrap_or(false) => {
             a == "object" || a == "string"
         }
         _ => false,

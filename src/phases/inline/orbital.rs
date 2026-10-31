@@ -501,7 +501,14 @@ pub(crate) fn resolve_orbital_reference(
     let ParsedReference::Orbital { alias, name } = parse_reference(&obj.reference)? else {
         return Err(InlineError::InvalidReference(obj.reference.clone()));
     };
-    let upstream = ctx.get_orbital(&alias, &name)?;
+    let mut upstream = ctx.get_orbital(&alias, &name)?;
+    if let Some(types) = upstream.types.as_ref() {
+        let behavior = ctx.get_entry(&alias)?.behavior_name.clone();
+        let local = super::qualify::LocalTypes::declared_by(&behavior, types);
+        if !local.is_empty() {
+            local.orbital(&mut upstream);
+        }
+    }
     if ctx.collect_references {
         let entry = ctx.get_entry(&alias)?;
         let orbitals = std::rc::Rc::clone(&entry.orbitals);
@@ -6193,5 +6200,66 @@ mod tests {
         let mut untouched = entity.clone();
         rewrite_entity_fields_in_entity(&mut untouched, &orbital_core_base::collections::IndexMap::new());
         assert_eq!(untouched.indexes, entity.indexes, "control: no substitutions, no change");
+    }
+
+    fn typed_upstream() -> Orbital {
+        serde_json::from_value(json!({
+            "name": "UpOrbital",
+            "id": "orb_UPSTREAMTYPEDORBITAL0000",
+            "types": {"Badge": [{"name": "id", "type": "string"}]},
+            "entity": {"name": "Widget", "persistence": "runtime", "fields": [
+                {"name": "id", "type": "string", "required": true},
+                {"name": "badge", "type": "union", "values": ["Badge"]}]},
+            "traits": [{"name": "A", "linkedEntity": "Widget", "stateMachine": {
+                "states": [{"name": "idle", "isInitial": true}],
+                "events": [{"key": "READ", "payloadSchema": [{"name": "badge", "type": "Badge"}]}],
+                "transitions": [{"from": "idle", "to": "idle", "event": "READ"}]}}]
+        }))
+        .expect("typed upstream fixture")
+    }
+
+    fn resolve_typed(behavior: Option<&str>, consumer_types: serde_json::Value) -> Orbital {
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &typed_upstream());
+        if let Some(behavior) = behavior {
+            ctx.set_behavior_name("Up", behavior.to_string());
+        }
+        let mut orbital: Orbital = serde_json::from_value(json!({
+            "name": "Local", "types": consumer_types, "entity": "Up.orbitals.UpOrbital.entity", "traits": []
+        }))
+        .expect("consumer");
+        let obj = OrbitalRefObject { reference: "Up.orbitals.UpOrbital".to_string(), ..Default::default() };
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &orbital_core_base::collections::IndexMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
+            &HashMap::new(),
+            None,
+            &mut Vec::new(),
+            None,
+            &mut Vec::new(),
+        )
+        .expect("resolves");
+        orbital
+    }
+
+    #[test]
+    fn an_orbital_level_uses_qualifies_the_behaviors_local_types() {
+        let orbital = resolve_typed(Some("Atom"), json!(null));
+        let types = orbital.types.as_ref().expect("types");
+        assert!(types.contains_key("Atom::Badge") && !types.contains_key("Badge"), "{:?}", types.keys());
+        let text = serde_json::to_string(&(&orbital.entity, &orbital.traits)).expect("json");
+        assert!(text.contains(r#""values":["Atom::Badge"]"#) && text.contains(r#""type":"Atom::Badge""#), "{text}");
+        assert!(!text.contains(r#""Badge""#), "{text}");
+    }
+
+    #[test]
+    fn control_an_orbital_level_uses_keeps_the_consumers_own_same_named_type_unqualified() {
+        let orbital = resolve_typed(Some("Atom"), json!({"Badge": [{"name": "code", "type": "string"}]}));
+        let types = orbital.types.as_ref().expect("types");
+        assert!(types.contains_key("Badge") && types.contains_key("Atom::Badge"), "{:?}", types.keys());
+        assert_eq!(types["Badge"][0].name, "code");
     }
 }

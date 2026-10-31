@@ -3054,7 +3054,7 @@ pub fn apply_compose_overrides(schema: &mut Value, overrides: &Value) -> Result<
             Value::String(_) => "string",
             Value::Array(_) => "array",
             Value::Object(_) => "object",
-            Value::Lambda { .. } => "lambda",
+            Value::Lambda(_) => "lambda",
         };
         if let Some(current) = field.get("default").filter(|d| !d.is_null()) {
             if kind(current) != kind(value) {

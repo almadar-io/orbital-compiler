@@ -2389,16 +2389,22 @@ pub(crate) fn inline_traits(
                                     // canvas reads them to bucket cards by
                                     // alias and populate mock rows for
                                     // imported entities.
-                                    if let Some(local) = ctx.local_types_for_trait_orbital(
+                                    let local_types = ctx.local_types_for_trait_orbital(
                                         &alias,
                                         &name,
                                         ref_id.as_deref(),
-                                    ) {
+                                    );
+                                    if let Some(local) = &local_types {
                                         local.trait_definition(&mut trait_def);
                                     }
                                     trait_def.source_behavior = Some(provenance);
                                     trait_def.source_entity_definition =
-                                        source_entity_def.map(Arc::new);
+                                        source_entity_def.map(|mut entity| {
+                                            if let Some(local) = &local_types {
+                                                local.entity(&mut entity);
+                                            }
+                                            Arc::new(entity)
+                                        });
                                     // Collision check happens AFTER
                                     // override application so
                                     // post-rename names are what we

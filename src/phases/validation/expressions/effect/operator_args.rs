@@ -1087,6 +1087,33 @@ mod tests {
         assert!(!undetermined(unbound, HashMap::new()).is_empty(), "control: an undetermined list stays undetermined");
     }
 
+    fn required(name: &str, ty: &str) -> HashMap<String, EntityFieldMeta> {
+        let mut m = field(name, ty);
+        m.get_mut(name).unwrap().required = true;
+        m
+    }
+
+    fn all_codes(json: &str, entity: HashMap<String, EntityFieldMeta>) -> Vec<String> {
+        validate_operator_arg_types(&parse(json), "p", &entity, &HashMap::new(), &no_types(), None)
+            .errors
+            .iter()
+            .map(|e| format!("{:?}: {}", e.code, e.message))
+            .collect()
+    }
+
+    #[test]
+    fn a_parsed_time_is_a_declared_union_that_a_null_test_narrows() {
+        let tested = r#"["let", [["tp", ["time/parse", "@entity.s"]]], ["if", ["=", "@tp", null], "", ["time/format", ["time/add", "@tp", 1000, "ms"], "YYYY"]]]"#;
+        let got = all_codes(tested, required("s", "string"));
+        assert!(got.is_empty(), "{got:?}");
+        let bare = r#"["let", [["tp", ["time/parse", "@entity.s"]]], ["time/format", "@tp", "YYYY"]]"#;
+        assert!(!all_codes(bare, required("s", "string")).is_empty(), "control: an untested optional is refused");
+        let wrong = r#"["let", [["tp", ["time/parse", "@entity.s"]]], ["if", ["=", "@tp", null], "", ["+", "@tp", 1]]]"#;
+        assert!(!all_codes(wrong, required("s", "string")).is_empty(), "control: a date or datetime is not a number");
+        let neither = r#"["time/format", "@entity.n", "YYYY"]"#;
+        assert!(!all_codes(neither, required("n", "number")).is_empty(), "control: a number is not a date");
+    }
+
     #[test]
     fn an_error_already_reported_is_not_reported_again_by_the_enclosing_call() {
         let got = undetermined(r#"["=", ["+", "a", 1], 3]"#, HashMap::new());

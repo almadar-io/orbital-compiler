@@ -1173,6 +1173,40 @@ mod tests {
         assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["or", ["!=", "@x", null], true], {emit}, {fail}]"#)), 1, "control: an or does not show it present");
     }
 
+    fn parsed_time_emit_findings(field: &str, value: &str) -> usize {
+        let ctx = check(
+            &format!(r#"{{ "event": "Parsed", "payloadSchema": [{{ "name": "n", {field} }}] }}"#),
+            &format!(
+                r#"["let", [["x", ["time/parse", "@entity.content"]]], ["if", ["=", "@x", null], ["log", "info", "none"], ["emit", "Parsed", {{ "n": {value} }}]]]"#
+            ),
+        );
+        ctx.result
+            .errors
+            .iter()
+            .filter(|e| matches!(e.code, ErrorCode::EmitPayloadFieldTypeMismatch | ErrorCode::OperatorNullOperand))
+            .count()
+    }
+
+    const DATE_OR_DATETIME: &str = r#""type": "union", "values": ["date", "datetime"], "properties": [{ "name": "date", "type": "date" }, { "name": "datetime", "type": "datetime" }]"#;
+
+    #[test]
+    fn a_union_field_accepts_a_value_whose_members_are_all_its_members() {
+        assert_eq!(parsed_time_emit_findings(DATE_OR_DATETIME, r#""@x""#), 0, "date | datetime into date | datetime");
+        assert_eq!(parsed_time_emit_findings(&format!(r#"{DATE_OR_DATETIME}, "nullable": true"#), r#""@x""#), 0, "into the optional union");
+        assert_eq!(parsed_time_emit_findings(r#""type": "number""#, r#""@x""#), 1, "control: a number refuses it");
+        assert_eq!(parsed_time_emit_findings(r#""type": "datetime""#, r#""@x""#), 1, "control: no implicit date | datetime into datetime");
+        assert_eq!(parsed_time_emit_findings(r#""type": "instant""#, r#""@x""#), 1, "control: no implicit date | datetime into instant");
+    }
+
+    #[test]
+    fn as_narrows_a_parsed_time_to_datetime_or_instant() {
+        assert_eq!(parsed_time_emit_findings(r#""type": "datetime", "nullable": true"#, r#"["as", "@x", "datetime"]"#), 0);
+        assert_eq!(parsed_time_emit_findings(r#""type": "instant", "nullable": true"#, r#"["as", "@x", "instant"]"#), 0);
+        assert_eq!(parsed_time_emit_findings(r#""type": "date", "nullable": true"#, r#"["as", "@x", "date"]"#), 0);
+        assert!(parsed_time_emit_findings(r#""type": "datetime""#, r#"["as", "@x", "datetime"]"#) > 0, "control: the narrowing can answer null, so a never-null field refuses it");
+        assert!(parsed_time_emit_findings(r#""type": "number", "nullable": true"#, r#"["as", "@x", "instant"]"#) > 0, "control: an instant is not a number");
+    }
+
     #[test]
     fn a_null_test_does_not_narrow_a_shadowing_let_in_the_branch() {
         let emit = r#"["emit", "Parsed", { "n": "@x" }]"#;
@@ -1718,6 +1752,67 @@ mod tests {
         let found = nested_findings(&check(emit, CREDENTIAL_LIST));
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].contains("'nope'") && !found[0].contains("[]"), "{found:?}");
+    }
+
+    const TICK: &str = r#"["program/tick", "@entity.program", { "emit": { "success": "Ticked" } }]"#;
+    const TICK_KEYED: &str = r#"["program/tick", "@entity.program", { "key": "k", "emit": { "success": "Ticked" } }]"#;
+    const CATALOG: &str = r#"["behavior/catalog", { "emit": { "success": "Ticked" } }]"#;
+
+    fn ticked(result_type: &str, items: &[(&str, &str)]) -> String {
+        let members: Vec<String> = items.iter().map(|(n, t)| format!(r#"{{ "name": "{n}", "type": "{t}" }}"#)).collect();
+        format!(
+            r#"{{ "event": "Ticked", "payloadSchema": [{{ "name": "result", "type": "object", "properties": [{{ "name": "ran", "type": "{result_type}", "properties": [{}] }}] }}] }}"#,
+            members.join(", ")
+        )
+    }
+
+    #[test]
+    fn a_program_op_result_item_field_the_return_type_lacks_is_refused() {
+        let emit = ticked("[WalkTick]", &[("trait", "string"), ("tick", "string"), ("guarded", "boolean")]);
+        let found = nested_findings(&check(&emit, TICK));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("'result.ran[].guarded'"), "{found:?}");
+    }
+
+    #[test]
+    fn a_program_op_result_declared_exactly_as_the_return_type_is_clean() {
+        let emit = ticked("[WalkTick]", &[("trait", "string"), ("tick", "string")]);
+        assert_eq!(nested_findings(&check(&emit, TICK)), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_program_op_result_declared_narrower_than_the_return_type_is_clean() {
+        let emit = ticked("[WalkTick]", &[("tick", "string")]);
+        assert_eq!(nested_findings(&check(&emit, TICK)), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_program_op_payload_field_beside_result_that_it_never_carries_is_refused() {
+        let emit = r#"{ "event": "Ticked", "payloadSchema": [{ "name": "rows", "type": "string" }] }"#;
+        let found = nested_findings(&check(emit, TICK));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("'rows'"), "{found:?}");
+    }
+
+    #[test]
+    fn a_program_op_key_is_carried_only_when_the_call_names_one() {
+        let emit = r#"{ "event": "Ticked", "payloadSchema": [{ "name": "key", "type": "string" }] }"#;
+        assert_eq!(nested_findings(&check(emit, TICK_KEYED)), Vec::<String>::new());
+        assert_eq!(nested_findings(&check(emit, TICK)).len(), 1);
+    }
+
+    #[test]
+    fn an_agent_port_op_carries_its_result_as_text_and_a_program_op_does_not() {
+        let dispatch = r#"["program/dispatch", "Api.Hook.CALLED", {}, { "emit": { "success": "Ticked" } }]"#;
+        let emit = r#"{ "event": "Ticked", "payloadSchema": [{ "name": "text", "type": "string" }] }"#;
+        assert_eq!(nested_findings(&check(emit, dispatch)), Vec::<String>::new());
+        assert_eq!(nested_findings(&check(emit, TICK)).len(), 1, "control: program/tick answers no text");
+    }
+
+    #[test]
+    fn a_program_op_whose_return_type_names_an_unspelled_type_is_not_judged() {
+        let schema = r#"{ "event": "Ticked", "payloadSchema": [{ "name": "result", "type": "[Anything]", "properties": [{ "name": "whatever", "type": "string" }] }] }"#;
+        assert_eq!(nested_findings(&check(schema, CATALOG)), Vec::<String>::new());
     }
 
     /// POSITIVE CONTROL — a wrapper naming a DIFFERENT entity is still a

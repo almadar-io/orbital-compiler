@@ -23,6 +23,8 @@ pub(crate) fn validate_set_value_type(
     entity_field_types: &HashMap<String, EntityFieldMeta>,
     payload_shapes: &HashMap<String, orbital_core_base::ir::OirType>,
     schema: Option<&OrbitalSchema>,
+    types: Option<&BindingTypes>,
+    guard: Option<&SExpression>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -49,7 +51,9 @@ pub(crate) fn validate_set_value_type(
     let entity_ty = &entity_meta.field_type;
 
     let resolve = |name: &str| schema.and_then(|s| crate::phases::resolve::declared_struct_type(s, name).ok().flatten());
-    if !orbital_core_base::type_compat::oir_type_satisfies_with_named(payload_shape, &entity_meta.shape, &resolve) {
+    if !orbital_core_base::type_compat::oir_type_satisfies_with_named(payload_shape, &entity_meta.shape, &resolve)
+        && !guard_narrows_into(payload_field, &entity_meta.shape, entity_field_types, types, schema, guard)
+    {
         result.add_error(
             ValidationError::error(
                 ErrorCode::SetValueTypeMismatch,
@@ -88,6 +92,33 @@ pub(crate) fn validate_set_value_type(
     }
 
     result
+}
+
+/// Whether the transition's `guard` makes the payload read `value` fit `declared`. Needs the full declared binding
+/// types: without them a payload field reads as its bare kind and would pass for the wrong reason.
+fn guard_narrows_into(
+    payload_field: &str,
+    declared: &orbital_core_base::ir::OirType,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+    types: Option<&BindingTypes>,
+    schema: Option<&OrbitalSchema>,
+    guard: Option<&SExpression>,
+) -> bool {
+    let (Some(types), Some(guard)) = (types, guard) else {
+        return false;
+    };
+    let Ok(condition) = orbital_core_eval::lower::lower_sexpr(guard) else {
+        return false;
+    };
+    let lowered = orbital_core_base::ir::OirExpr::Binding {
+        binding: orbital_core_base::ir::OirBinding {
+            root: orbital_core_base::ir::OirBindingRoot::Payload,
+            path: vec![payload_field.to_string()],
+        },
+    };
+    let payload = HashMap::new();
+    let ctx = ExprReturnCtx { entity: entity_field_types, payload: &payload, types: Some(types), schema };
+    crate::type_infer::admits(&lowered, declared, Some(&condition), &ctx)
 }
 
 /// REQUIRED-FIELD-FROM-OPTIONAL-KNOB backstop (rung 2, item 1 of the
@@ -878,6 +909,38 @@ mod return_type_tests {
         .unwrap()
     }
 
+    fn set_parsed_time_into(field: serde_json::Value, value: &str) -> usize {
+        let entity: EntityDefinition = serde_json::from_value(serde_json::json!({
+            "name": "E", "collection": "es", "fields": [field]
+        }))
+        .unwrap();
+        let fields = entity_field_type_map(&entity);
+        let source = |text: &str| -> SExpression { serde_json::from_str(text).unwrap() };
+        let arr = vec![
+            SExpression::String("set".into()),
+            SExpression::string("@entity.t"),
+            source(&format!(
+                r#"["let", [["x", ["time/parse", "@entity.s"]]], ["if", ["=", "@x", null], null, {value}]]"#
+            )),
+        ];
+        validate_set_return_type(&arr, "p", &fields, &HashMap::new(), None, None, None).errors.len()
+    }
+
+    #[test]
+    fn a_union_field_takes_a_parsed_time_and_never_mixes_implicitly() {
+        let union = |nullable: bool| {
+            serde_json::json!({
+                "name": "t", "type": "union", "nullable": nullable, "values": ["date", "datetime"],
+                "properties": { "date": { "name": "date", "type": "date" }, "datetime": { "name": "datetime", "type": "datetime" } }
+            })
+        };
+        assert_eq!(set_parsed_time_into(union(true), r#""@x""#), 0, "date | datetime into (date | datetime)?");
+        assert_eq!(set_parsed_time_into(serde_json::json!({ "name": "t", "type": "number", "nullable": true }), r#""@x""#), 1, "control: a number");
+        assert_eq!(set_parsed_time_into(serde_json::json!({ "name": "t", "type": "datetime", "nullable": true }), r#""@x""#), 1, "control: no implicit datetime");
+        assert_eq!(set_parsed_time_into(serde_json::json!({ "name": "t", "type": "instant", "nullable": true }), r#""@x""#), 1, "control: no implicit instant");
+        assert_eq!(set_parsed_time_into(serde_json::json!({ "name": "t", "type": "instant", "nullable": true }), r#"["as", "@x", "instant"]"#), 0, "as narrows to instant");
+    }
+
     #[test]
     fn json_parse_over_a_list_alias_into_a_list_field_is_not_an_error() {
         let schema = typed_schema();
@@ -1337,7 +1400,71 @@ mod set_value_type_tests {
             SExpression::String("@entity.out".into()),
             SExpression::String("?input".into()),
         ];
-        validate_set_value_type(&arr, "p", &entity, &payload, schema)
+        validate_set_value_type(&arr, "p", &entity, &payload, schema, None, None)
+    }
+
+    fn st(s: &str) -> SExpression {
+        SExpression::String(s.into())
+    }
+
+    fn call(items: Vec<SExpression>) -> SExpression {
+        SExpression::Array(items.into())
+    }
+
+    fn check_guarded(value: &str, guard: Option<SExpression>) -> ValidationResult {
+        let entity = HashMap::from([(
+            "out".to_string(),
+            EntityFieldMeta { field_type: "string".into(), shape: OirType::String, required: true, defaulted: false },
+        )]);
+        let payload = HashMap::from([
+            ("note".to_string(), OirType::optional(OirType::String)),
+            ("other".to_string(), OirType::optional(OirType::String)),
+        ]);
+        let types = BindingTypes {
+            payload: payload.clone(),
+            user: OirType::Struct { additional: None, fields: Default::default() },
+            config: HashMap::new(),
+            prev_payload: None,
+            optional_payload: Default::default(),
+            locals: HashMap::new(),
+            type_params: Default::default(),
+        };
+        let arr = vec![st("set"), st("@entity.out"), st(value)];
+        validate_set_value_type(&arr, "p", &entity, &payload, None, Some(&types), guard.as_ref())
+    }
+
+    fn present(field: &str) -> SExpression {
+        call(vec![st("!="), st(field), SExpression::Null])
+    }
+
+    #[test]
+    fn a_guard_proving_presence_narrows_a_payload_set() {
+        for value in ["?note", "@payload.note"] {
+            let r = check_guarded(value, Some(present("@payload.note")));
+            assert!(r.errors.is_empty(), "{value}: {:?}", r.errors);
+        }
+        let both = call(vec![st("and"), present("@payload.other"), present("@payload.note")]);
+        assert!(check_guarded("?note", Some(both)).errors.is_empty());
+    }
+
+    #[test]
+    fn control_an_unguarded_optional_payload_set_is_refused() {
+        let r = check_guarded("?note", None);
+        assert_eq!(r.errors.len(), 1, "{:?}", r.errors);
+        assert_eq!(r.errors[0].code, ErrorCode::SetValueTypeMismatch);
+    }
+
+    #[test]
+    fn control_a_guard_on_a_different_field_does_not_narrow() {
+        let r = check_guarded("?note", Some(present("@payload.other")));
+        assert_eq!(r.errors.len(), 1, "{:?}", r.errors);
+    }
+
+    #[test]
+    fn control_an_or_guard_that_does_not_prove_presence_does_not_narrow() {
+        let either = call(vec![st("or"), present("@payload.note"), present("@payload.other")]);
+        let r = check_guarded("?note", Some(either));
+        assert_eq!(r.errors.len(), 1, "{:?}", r.errors);
     }
 
     #[test]

@@ -460,6 +460,8 @@ fn validate_leaf_effect(
                             entity_field_types,
                             payload_shapes,
                             schema,
+                            types,
+                            condition,
                         ));
                         result.merge(validate_set_return_type(
                             arr,

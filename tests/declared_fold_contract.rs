@@ -631,3 +631,19 @@ fn a_fold_step_node_parameter_is_typed_as_the_node_alias() {
     let errors = set_errors(FOLD_PRELUDE, "out : number?", "node : LNode!", step);
     assert!(errors.is_empty(), "{errors:?}");
 }
+
+#[test]
+fn a_reduce_answers_the_start_type_and_optional_only_when_the_step_or_start_is() {
+    let prelude = "type Item = { v : number?  n : number! }";
+    let sum = "(array/reduce ?xs 0 (fn (acc x) (+ @acc @x.n)))";
+    let errors = set_errors(prelude, "out : number = 0", "xs : [Item]!", sum);
+    assert!(errors.is_empty(), "{errors:?}");
+    let maybe = "(array/reduce ?xs 0 (fn (acc x) @x.v))";
+    let errors = set_errors(prelude, "out : number = 0", "xs : [Item]!", maybe);
+    assert!(!errors.is_empty(), "control: an optional step result into a plain field is a finding");
+    let errors = set_errors(prelude, "out : number?", "xs : [Item]!", maybe);
+    assert!(errors.is_empty(), "{errors:?}");
+    let record = "(array/reduce ?xs {total: 0} (fn (acc x) {total: (+ @acc.total @x.n)}))";
+    let errors = set_errors(prelude, "out : { total : number } = {total: 0}", "xs : [Item]!", record);
+    assert!(errors.is_empty(), "{errors:?}");
+}

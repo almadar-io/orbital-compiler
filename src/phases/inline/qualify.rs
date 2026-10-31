@@ -7,8 +7,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use orbital_core_base::schema::{
-    ConfigField, EntityDefinition, FieldDefinition, FieldProjection, PayloadField, SExpression,
-    TraitDefinition,
+    ConfigField, EntityDefinition, EntityRef, FieldDefinition, FieldProjection, Orbital, PayloadField,
+    SExpression, TraitDefinition, TraitReference,
 };
 use orbital_core_base::type_compat::{
     qualified_type_name, rename_type_names, split_qualified_type_name,
@@ -166,6 +166,9 @@ impl LocalTypes {
 
     /// Every type-reference position of a trait cloned out of the behavior that declares the types.
     pub(crate) fn trait_definition(&self, definition: &mut TraitDefinition) {
+        if let Some(source) = definition.source_entity_definition.as_mut() {
+            self.entity(std::sync::Arc::make_mut(source));
+        }
         for emit in definition.emits.iter_mut().flatten() {
             emit.payload_schema
                 .iter_mut()
@@ -246,6 +249,28 @@ impl LocalTypes {
         match output {
             Ok(output) => *expr = output,
             Err(never) => match never {},
+        }
+    }
+}
+
+impl LocalTypes {
+    /// An upstream orbital pulled whole by `uses X.orbitals.Y`: its types table, entities and traits.
+    pub(crate) fn orbital(&self, orbital: &mut Orbital) {
+        if let Some(types) = orbital.types.as_mut() {
+            *types = self.types(types);
+        }
+        if let EntityRef::Inline(entity) = &mut orbital.entity {
+            self.entity(entity);
+        }
+        for entity in orbital.auxiliary_entities.iter_mut().flatten() {
+            if let EntityRef::Inline(entity) = entity {
+                self.entity(entity);
+            }
+        }
+        for reference in orbital.traits.iter_mut() {
+            if let TraitReference::Inline(definition) = reference {
+                self.trait_definition(std::sync::Arc::make_mut(definition));
+            }
         }
     }
 }

@@ -420,7 +420,13 @@ pub(crate) fn produced_payload(
     if op_name == "call-service" {
         return keyed_call_service_payload(args, registry);
     }
-    let produces = get_operator(op_name)?.effect.as_ref()?.produces.as_ref()?;
+    let operator = get_operator(op_name)?;
+    if operator.effect.as_ref().and_then(|e| e.produces.as_ref()).is_none()
+        && orbital_core_base::language::registry::is_program_host_effect(op_name)
+    {
+        return Some(program_result_payload(op_name, args, &operator.return_type));
+    }
+    let produces = operator.effect.as_ref()?.produces.as_ref()?;
     let narrowed = narrow(op_name, args, produces)?;
 
     let entity = call_site_entity(op_name, args).and_then(|n| entity_definitions.get(&n));
@@ -437,6 +443,48 @@ pub(crate) fn produced_payload(
         }
         // `any` (call-service, set) and anything else carries no shape to check.
         _ => None,
+    }
+}
+
+/// A program-host op's success payload is `{ result }` (plus `text`, the result as JSON text, for an agent-port op, and
+/// the call's `key` when it has one), as the kernel's `completion_result` builds it; `result` is the operator's declared
+/// return type. A return type naming a type the table does not spell out is undecidable: `any`.
+fn program_result_payload(op_name: &str, args: &[SExpression], return_type: &OperatorTypeRef) -> Vec<PayloadField> {
+    let (field_type, properties, open) = if names_unspelled_type(return_type) {
+        ("any".to_string(), None, false)
+    } else {
+        field_shape(return_type, None)
+    };
+    let mut fields = vec![PayloadField {
+        nullable: None,
+        additional_properties: open.then(|| Box::new(scalar_field("", "any"))),
+        values: None,
+        name: "result".to_string(),
+        field_type,
+        required: None,
+        description: None,
+        properties,
+        type_when: None,
+        entity: None,
+        projected_from: None,
+        items: None,
+        relation: None,
+    }];
+    if orbital_core_base::agent_ports::is_agent_port_operator(op_name) {
+        fields.push(scalar_field("text", "string"));
+    }
+    if call_has_key(op_name, args) {
+        fields.push(scalar_field("key", "string"));
+    }
+    fields
+}
+
+fn names_unspelled_type(type_ref: &OperatorTypeRef) -> bool {
+    match type_ref {
+        OperatorTypeRef::Primitive(name) => !matches!(name.as_str(), "string" | "number" | "boolean"),
+        OperatorTypeRef::Tagged(OperatorTypeRefKind::Array { of }) => names_unspelled_type(of),
+        OperatorTypeRef::Tagged(OperatorTypeRefKind::Object { fields, .. }) => fields.values().any(names_unspelled_type),
+        OperatorTypeRef::Tagged(_) => false,
     }
 }
 
