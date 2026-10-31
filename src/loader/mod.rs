@@ -545,6 +545,8 @@ impl ExternalOrbitalLoader {
         chain: &mut ImportChain,
     ) -> Result<&LoadedSchema, LoaderError> {
         let source = absolute_path.with_extension("lolo");
+        orbital_core_base::read_set::note(&absolute_path);
+        orbital_core_base::read_set::note(&source);
         let absolute_path = if !absolute_path.exists() && source.exists() && self.source_lowerer().is_some() {
             source
         } else {
@@ -959,6 +961,7 @@ impl ExternalOrbitalLoader {
     fn load_file(&mut self, path: &Path, import_path: &str, chain: &mut ImportChain) -> Result<LoadedSchema, LoaderError> {
         // A live package's behavior is its `.lolo` source, lowered on read.
         if path.extension().is_some_and(|e| e == "lolo") {
+            orbital_core_base::read_set::note(path);
             let schema = self.lower_source_file(path, chain)
                 .map_err(|e| LoaderError::SourceLowering(path.display().to_string(), e))?;
             return Ok(LoadedSchema {
@@ -984,7 +987,7 @@ impl ExternalOrbitalLoader {
         }
 
         // Read file
-        let content = std::fs::read_to_string(path)?;
+        let content = orbital_core_base::read_set::read_to_string(path)?;
 
         // Deserialize directly into the schema (single parse).
         let mut schema: OrbitalSchema = serde_json::from_str(&content)

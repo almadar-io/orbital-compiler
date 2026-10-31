@@ -615,3 +615,19 @@ fn a_nullable_result_into_a_plain_field_is_a_finding_unless_the_field_or_a_defau
     let errors = set_errors("", "out : [number] = []", "xs : [[number]]!", "(default (array/first ?xs) [])");
     assert!(errors.is_empty(), "default: {errors:?}");
 }
+
+const FOLD_PRELUDE: &str = "type LNode = string | number | boolean | [LNode?] | Map string LNode?\ntype LNodes = [LNode?]";
+
+#[test]
+fn a_fold_step_over_a_map_node_alias_reads_its_child_results_as_the_step_result() {
+    let step = r#"(tree/fold ?node (fn (hn hk) (if (validate/string @hn) (= @hn "persist") (if (validate/array @hk) (array/includes @hk true) (array/includes (object/values @hk) true)))) LNode)"#;
+    let errors = set_errors(FOLD_PRELUDE, "out : boolean?", "node : LNode!", step);
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[test]
+fn a_fold_step_node_parameter_is_typed_as_the_node_alias() {
+    let step = r#"(tree/fold ?node (fn (n k) (array/len (default (as @n LNodes) []))) LNode)"#;
+    let errors = set_errors(FOLD_PRELUDE, "out : number?", "node : LNode!", step);
+    assert!(errors.is_empty(), "{errors:?}");
+}

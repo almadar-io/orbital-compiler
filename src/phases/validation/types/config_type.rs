@@ -796,7 +796,8 @@ fn validate_config_field(
     // (`items` / `properties` / `values`) populated by the lolo lowerer.
     // Skips fields with no `default` and skips opaque types we don't
     // know how to validate (`object` / `unknown` / etc.).
-    if let Some(default) = &field.default {
+    let names_fields = matches!(ft, "field" | "[field]");
+    if let (Some(default), false) = (&field.default, names_fields) {
         result.merge(check_config_default_shape(
             field,
             default,
@@ -810,7 +811,7 @@ fn validate_config_field(
         let knob = event_ctx.map_or(path, |(_, name)| name);
         result.merge(check_field_ref_knob(field, knob, default, path, bctx));
     }
-    if matches!(ft, "field" | "[field]") {
+    if names_fields {
         return result;
     }
 
@@ -2732,6 +2733,29 @@ mod reference_binding_type_tests {
         // control: a string payload field satisfies the string knob; any-field accepts the number one.
         assert!(no_field_ref_errors(&knob(typed, "title")));
         assert!(no_field_ref_errors(&knob("", "rank")));
+    }
+
+    #[test]
+    fn a_field_knob_over_a_record_alias_is_not_shape_checked_as_the_record() {
+        let point = r#""properties": { "x": { "type": "number" }, "label": { "type": "string" } },"#;
+        let knob = |items: &str, name: &str| {
+            run(&field_knob_schema(
+                &format!(
+                    r#""column": {{ "type": "field", "record": "Point", {point} {items} "default": "{name}" }}"#
+                ),
+                "",
+            ))
+        };
+        let string = r#""items": { "type": "string" },"#;
+        let ok = knob(string, "label");
+        assert!(ok.errors.is_empty(), "{:?}", ok.errors);
+        let unknown = knob(string, "z");
+        assert!(field_ref_errors(&unknown, ErrorCode::ConfigFieldRefUnknown).len() == 1, "{:?}", unknown.errors);
+        assert!(field_ref_errors(&unknown, ErrorCode::TraitConfigShapeMismatch).is_empty(), "{:?}", unknown.errors);
+        let number = r#""items": { "type": "number" },"#;
+        let wrong = knob(number, "label");
+        assert!(field_ref_errors(&wrong, ErrorCode::ConfigFieldRefTypeMismatch).len() == 1, "{:?}", wrong.errors);
+        assert!(field_ref_errors(&wrong, ErrorCode::TraitConfigShapeMismatch).is_empty(), "{:?}", wrong.errors);
     }
 
     #[test]

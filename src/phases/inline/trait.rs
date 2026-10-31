@@ -2064,7 +2064,28 @@ pub(crate) fn inline_traits(
                                     let upstream_declaration =
                                         ctx.collect_references.then(|| Arc::clone(&trait_def));
                                     let mut trait_def = Arc::unwrap_or_clone(trait_def);
-                                    if let Some(declaration) = upstream_declaration {
+                                    if let Some(definition) = upstream_declaration {
+                                        let entry = ctx.get_entry(&alias)?;
+                                        let file = entry.source_path.clone().ok_or_else(|| {
+                                            InlineError::ReferenceFileUnknown(
+                                                entry.source_label.clone(),
+                                            )
+                                        })?;
+                                        let (orbital, index) = entry
+                                            .orbitals
+                                            .iter()
+                                            .enumerate()
+                                            .find_map(|(oi, o)| {
+                                                o.traits.iter().position(|t| matches!(t, TraitReference::Inline(a) if Arc::ptr_eq(a, &definition))).map(|ti| (oi, ti))
+                                            })
+                                            .ok_or_else(|| InlineError::TraitNotFound(name.clone(), entry.source_label.clone()))?;
+                                        let declaration = super::TraitDeclaration::new(
+                                            definition,
+                                            std::rc::Rc::clone(&entry.orbitals),
+                                            orbital,
+                                            index,
+                                            file,
+                                        );
                                         ctx.reference_pairs.borrow_mut().push(
                                             super::ReferencePair {
                                                 kind: super::ReferenceKind::Trait,
@@ -2077,7 +2098,6 @@ pub(crate) fn inline_traits(
                                                 declaration: super::ReferenceDeclaration::Trait(
                                                     declaration,
                                                 ),
-                                                alias_orbitals: None,
                                             },
                                         );
                                     }

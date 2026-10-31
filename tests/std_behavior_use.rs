@@ -896,3 +896,35 @@ fn std_queue_composes_with_a_job_entity_override() {
     let refs = producer.entity_ref_ids.clone().unwrap_or_default();
     assert!(!refs.contains_key("QueueJob"), "the atom's own QueueJob must not survive the override: {refs:?}");
 }
+
+/// An imported atom's pulled auxiliary entity (`NotificationPreference`) shares its name with a later sibling
+/// orbital's own entity: every trait `entityRefIds` id must still name a declared entity or a ledger row.
+#[test]
+fn imported_trait_entity_ref_ids_resolve_when_a_later_orbital_declares_the_same_entity_name() {
+    discovered_packages();
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-schemas/use-std-behavior/notify-preference-collision.lolo");
+    let mut schema = parse_file(&path).expect("fixture must lower");
+    inline_schema(&mut schema, &std_inline_config(), Some(&path)).expect("inline must succeed");
+    let mut declared = std::collections::HashSet::new();
+    for o in &schema.orbitals {
+        for e in std::iter::once(&o.entity).chain(o.auxiliary_entities.iter().flatten()) {
+            if let Some(id) = e.as_inline().and_then(|d| d.id.clone()) {
+                declared.insert(id);
+            }
+        }
+    }
+    let ledger = schema.ledger.as_ref().map(|l| format!("{l:?}")).unwrap_or_default();
+    let mut dangling = Vec::new();
+    for o in &schema.orbitals {
+        for tr in &o.traits {
+            if let TraitReference::Inline(td) = tr {
+                for (token, id) in td.entity_ref_ids.iter().flatten() {
+                    if !declared.contains(id) && !ledger.contains(id.as_str()) {
+                        dangling.push(format!("{}.{}[{token}]={id}", o.name, td.name));
+                    }
+                }
+            }
+        }
+    }
+    assert!(dangling.is_empty(), "entityRefIds naming no declared entity or ledger row: {dangling:?}");
+}

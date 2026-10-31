@@ -758,7 +758,8 @@ fn orbital_references_of(consumer_source: &str) -> Vec<Value> {
     let config = InlineConfig { session: Some(session.clone()), ..InlineConfig::default() };
     let mut schema = parse_file(&consumer_path).expect("consumer must parse");
     inline_schema(&mut schema, &config, Some(&consumer_path)).expect("inline must succeed");
-    serde_json::to_value(session.take_references())
+    let root = std::fs::canonicalize(consumer_path.parent().unwrap()).unwrap();
+    serde_json::to_value(session.take_reference_answer(&root).references)
         .expect("serializes")
         .as_array()
         .expect("a list")
@@ -781,8 +782,8 @@ fn an_orbital_reference_with_extend_is_paired_with_its_upstream_orbital() {
     assert_eq!(pair["path"], "orbitals[0]");
     assert_eq!(pair["callSite"]["ref"], "Up.orbitals.WidgetOrbital");
     assert_eq!(pair["callSite"]["extend"][0]["name"], "tier");
-    assert_eq!(pair["declaration"]["name"], "WidgetOrbital");
-    assert_eq!(pair["declaration"]["entity"]["name"], "Widget");
+    assert_eq!(pair["declaration"]["index"], 0);
+    assert!(pair["declaration"]["file"].is_string(), "{pair}");
 }
 
 #[test]

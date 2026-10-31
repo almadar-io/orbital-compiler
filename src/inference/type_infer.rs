@@ -966,6 +966,10 @@ impl<'c> Inferer<'c> {
                     }
                     return Some(expected.clone());
                 }
+                ("array/flatten", [source]) => {
+                    self.infer_contextual(source, &OirType::array(expected.clone()), named, &mut Vec::new())?;
+                    return Some(expected.clone());
+                }
                 ("list", items) => {
                     for item in items {
                         self.infer_contextual(item, inner, named, &mut Vec::new())?;
@@ -999,6 +1003,7 @@ impl<'c> Inferer<'c> {
             }
         }
         match (expr, expected) {
+            (OirExpr::Number { value }, OirType::Integer) if value.fract() == 0.0 => Some(expected.clone()),
             (OirExpr::Null, _)
                 if !orbital_core_base::type_compat::is_unknowable(expected)
                     && !matches!(
@@ -1263,9 +1268,34 @@ impl<'c> Inferer<'c> {
         (failable && matches!(ty.cloned().map(|t| self.unfold(t)), Some(OirType::Optional { .. }))).then(|| function.to_string())
     }
 
+    /// Whether a call to a cast-like operator (`as`: its value is any type, its result the named shape or null) is proved
+    /// to answer the shape: the value's type is admitted by the declared type of that name, read as an initializer is.
+    fn narrowing_is_proved(&self, signature: &Signature<'_>, args: &[&OirExpr], arg_types: &[Option<OirType>]) -> bool {
+        use orbital_core_base::language::registry::{OperatorTypeRef as Ref, OperatorTypeRefKind as Kind};
+        let Ref::Tagged(Kind::Union { of }) = signature.returns() else {
+            return false;
+        };
+        let nullable = of.iter().any(|member| matches!(member, Ref::Tagged(Kind::Literal { value }) if value.is_null()));
+        let names_shape = matches!(shape_return(signature.returns()), Ref::Tagged(Kind::Shape));
+        let unbound_value = names_shape && matches!(signature.formal(0), Some(Ref::Tagged(Kind::Var { bound: None, each: false, .. })));
+        let Some(at) = signature.shape_position().filter(|_| nullable && unbound_value) else {
+            return false;
+        };
+        let Some(text) = args.get(at).and_then(|arg| Self::literal_text(arg)) else {
+            return false;
+        };
+        let name = orbital_core_base::ir::types::DeclaredShape::name_of(&text).to_string();
+        let Some(Some(value)) = arg_types.first() else {
+            return false;
+        };
+        let resolve = |name: &str| self.named_types.borrow().get(name).cloned().or_else(|| self.ctx.named_type(name));
+        resolve(&name).is_some()
+            && orbital_core_base::type_compat::checked_sub_with_named(value, &OirType::TypeRef { name }, &resolve)
+                .is_some_and(|coercion| coercion.is_static())
+    }
+
     /// Whether a call to a failable operator is proved not to fail: every `unlessLiteral` argument is a literal (a
-    /// literal zero denominator is not), or a structural write's keyed arguments declare their keys (an object
-    /// literal, or a closed struct or entity row).
+    /// literal zero denominator is not).
     fn failable_call_cannot_fail(&self, name: &str, args: &[&OirExpr], arg_types: &[Option<OirType>]) -> bool {
         let Some(failable) = orbital_core_base::language::registry::get_operator(name).and_then(|op| op.failable.as_ref())
         else {
@@ -1322,21 +1352,7 @@ impl<'c> Inferer<'c> {
         {
             return true;
         }
-        if !failable.unless_literal.is_empty() {
-            return failable.unless_literal.iter().all(|&index| literal(index));
-        }
-        let declared_keys = |index: usize| match args.get(index) {
-            Some(OirExpr::Object { .. }) => true,
-            Some(_) => matches!(
-                arg_types.get(index).cloned().flatten().map(|t| self.unfold(t)),
-                Some(OirType::Struct { additional: None, .. } | OirType::Row { .. })
-            ),
-            None => false,
-        };
-        match name {
-            "object/merge" | "object/deepMerge" => !args.is_empty() && (0..args.len()).all(declared_keys),
-            _ => false,
-        }
+        !failable.unless_literal.is_empty() && failable.unless_literal.iter().all(|&index| literal(index))
     }
 
     fn literal_text(expr: &OirExpr) -> Option<String> {
@@ -1863,6 +1879,10 @@ impl<'c> Inferer<'c> {
                 },
                 _ => None,
             })?;
+        let result = match result {
+            OirType::Optional { inner } if self.narrowing_is_proved(signature, args, &arg_types) => *inner,
+            other => other,
+        };
         // A failable operator's result is optional unless this call cannot fail (owner ruling 2026-10-25).
         let result = match result {
             OirType::Optional { inner }
@@ -3434,14 +3454,36 @@ mod tests {
     }
 
     #[test]
-    fn a_merge_of_declared_keys_is_present_and_one_of_map_data_is_optional() {
+    fn a_merge_is_present_whatever_its_operands_declare() {
         let literal = |key: &str| OirExpr::Object { fields: [(key.to_string(), num(1.0))].into_iter().collect() };
         let used = |merged: OirExpr| call("object/keys", vec![merged]);
         assert_eq!(missing_results(&used(call("object/merge", vec![literal("a"), literal("b")]))), 0, "object literals declare their keys");
         let map = |key: &str| checked_local(literal(key), OirType::Map { key: Box::new(OirType::String), value: Box::new(OirType::Number) });
         let data = infer_oir_expr_type(&call("object/merge", vec![map("a"), map("b")]), &NoCtx);
-        assert!(matches!(data, Some(OirType::Optional { .. })), "control: a Map's keys are data: {data:?}");
-        assert_eq!(missing_results(&used(call("object/merge", vec![map("a"), map("b")]))), 1, "control: so its merge can be missing");
+        assert!(matches!(data, Some(OirType::Map { .. })), "a Map's merge is a Map, never optional: {data:?}");
+        assert_eq!(missing_results(&used(call("object/merge", vec![map("a"), map("b")]))), 0, "so its merge is never missing");
+    }
+
+    #[test]
+    fn merge_of_a_string_map_field_and_a_literal_is_admitted_by_the_string_map() {
+        let strings = OirType::map(OirType::String, OirType::String);
+        let row = ExactRow(Row(vec![("m", strings.clone())]));
+        for name in ["object/merge", "object/deepMerge"] {
+            let sexpr: orbital_core_base::schema::SExpression =
+                serde_json::from_value(serde_json::json!([name, "@entity.m", { "k": "v" }])).expect("s-expression");
+            let lowered = orbital_core_eval::lower::lower_sexpr(&sexpr).expect("lowers");
+            assert!(admits(&lowered, &strings, None, &row), "{name} of a Map string string and a literal is a Map string string");
+        }
+        let numbers: orbital_core_base::schema::SExpression =
+            serde_json::from_value(serde_json::json!(["object/merge", "@entity.m", { "k": 1 }])).expect("s-expression");
+        assert!(
+            !admits(&orbital_core_eval::lower::lower_sexpr(&numbers).expect("lowers"), &strings, None, &row),
+            "control: a number member is not a string map"
+        );
+        let optional = OirType::Optional { inner: Box::new(strings.clone()) };
+        let control: orbital_core_base::schema::SExpression =
+            serde_json::from_value(serde_json::json!(["object/merge", "@entity.m", { "k": "v" }])).expect("s-expression");
+        assert!(admits(&orbital_core_eval::lower::lower_sexpr(&control).expect("lowers"), &optional, None, &row), "control: the optional slot admits it too");
     }
 
     #[test]
@@ -4310,6 +4352,79 @@ mod tests {
     }
 
     #[test]
+    fn a_cast_of_a_record_the_declared_union_admits_is_present() {
+        let optional = |ctx: Declared| infer_oir_expr_type(&call("as", vec![local("v"), text("V")]), &ctx).map(|t| t.is_optional());
+        struct Declared(OirType);
+        impl TypeCtx for Declared {
+            fn binding_type(&self, binding: &OirBinding) -> Option<OirType> {
+                matches!(&binding.root, OirBindingRoot::Local(name) if name.as_str() == "v").then(|| self.0.clone())
+            }
+            fn named_type(&self, name: &str) -> Option<OirType> {
+                let own = || OirType::optional(OirType::TypeRef { name: "V".into() });
+                (name == "V").then(|| OirType::Union {
+                    variants: vec![
+                        OirField::new("text", OirType::String),
+                        OirField::new("count", OirType::Number),
+                        OirField::new("flag", OirType::Boolean),
+                        OirField::new("list", OirType::array(own())),
+                        OirField::new("map", OirType::map(OirType::String, own())),
+                    ]
+                    .into(),
+                })
+            }
+            fn declared_type(&self, name: &str) -> Option<bool> {
+                Some(name == "V")
+            }
+        }
+        let record = |fields: Vec<OirField>| OirType::Struct { fields: fields.into(), additional: None };
+        let admitted = record(vec![
+            OirField::new("name", OirType::String),
+            OirField::new("tags", OirType::array(OirType::String)),
+            OirField::new("meta", OirType::map(OirType::String, OirType::Number)),
+            OirField::new("nested", record(vec![OirField::new("xs", OirType::array(record(vec![OirField::new("a", OirType::Number)])))])),
+            OirField::new("loose", OirType::optional(OirType::Boolean)),
+        ]);
+        assert_eq!(optional(Declared(admitted.clone())), Some(false), "every field type is a member of the union");
+        let foreign = record(vec![OirField::new("name", OirType::String), OirField::new("body", OirType::Node)]);
+        assert_eq!(
+            optional(Declared(foreign)),
+            Some(true),
+            "control: a field outside the union leaves the cast a narrowing"
+        );
+        let deep = record(vec![OirField::new("nested", record(vec![OirField::new("xs", OirType::array(OirType::Node))]))]);
+        assert_eq!(
+            optional(Declared(deep)),
+            Some(true),
+            "control: the foreign type is found inside a nested list"
+        );
+        assert_eq!(
+            optional(Declared(OirType::optional(admitted))),
+            Some(true),
+            "control: a value that may be null is not admitted"
+        );
+    }
+
+    #[test]
+    fn a_cast_of_a_value_that_may_be_null_to_its_own_record_stays_optional() {
+        struct Declared(OirType);
+        impl TypeCtx for Declared {
+            fn binding_type(&self, binding: &OirBinding) -> Option<OirType> {
+                matches!(&binding.root, OirBindingRoot::Local(name) if name.as_str() == "v").then(|| self.0.clone())
+            }
+            fn named_type(&self, name: &str) -> Option<OirType> {
+                (name == "R").then(|| OirType::Struct { fields: vec![OirField::new("key", OirType::String)].into(), additional: None })
+            }
+            fn declared_type(&self, name: &str) -> Option<bool> {
+                Some(name == "R")
+            }
+        }
+        let optional = |ctx: Declared| infer_oir_expr_type(&call("as", vec![local("v"), text("R")]), &ctx).map(|t| t.is_optional());
+        let own = OirType::TypeRef { name: "R".into() };
+        assert_eq!(optional(Declared(OirType::optional(own.clone()))), Some(true), "the first of an empty list is null at run time");
+        assert_eq!(optional(Declared(own)), Some(false), "control: a present value of the record is the record");
+    }
+
+    #[test]
     fn a_key_the_record_is_shown_to_hold_reads_a_value() {
         let m = || checked_local(OirExpr::Object { fields: Default::default() }, OirType::map(OirType::String, OirType::Number));
         let keys = || checked_local(list_of(vec![]), OirType::array(OirType::String));
@@ -4755,6 +4870,126 @@ mod tests {
         assert_eq!(at(0.0), Some(OirType::String));
         assert_eq!(at(1.0), Some(OirType::array(OirType::Number)));
         assert_eq!(at(2.0), None, "control: past the tuple nothing is read");
+    }
+
+    #[test]
+    fn a_zip_pairs_read_by_position_in_a_lambda_are_typed() {
+        let row = Row(vec![
+            ("xs", OirType::array(OirType::String)),
+            ("ys", OirType::array(OirType::Number)),
+        ]);
+        let zipped = || call("array/zip", vec![entity(&["xs"]), entity(&["ys"])]);
+        assert_eq!(
+            infer_oir_expr_type(&zipped(), &row),
+            Some(OirType::array(OirType::Tuple { items: vec![OirType::String, OirType::Number] }))
+        );
+        let at = |index: u32| {
+            lowered(serde_json::json!([
+                "array/map",
+                ["array/zip", "@entity.xs", "@entity.ys"],
+                ["fn", "p", ["array/nth", "@p", index]]
+            ]))
+        };
+        assert_eq!(infer_oir_expr_type(&at(0), &row), Some(OirType::array(OirType::String)));
+        assert_eq!(infer_oir_expr_type(&at(1), &row), Some(OirType::array(OirType::Number)));
+        assert_eq!(infer_oir_expr_type(&at(2), &row), None, "control: past the pair nothing is read");
+    }
+
+    #[test]
+    fn a_mapped_record_literal_is_proved_as_a_declared_list_of_that_record() {
+        let shape_ref = || OirType::TypeRef { name: "Sh".into() };
+        let sh = OirType::Union {
+            variants: vec![
+                OirField::new("text", OirType::String),
+                OirField::new("count", OirType::Number),
+                OirField::new("list", OirType::array(OirType::optional(shape_ref()))),
+                OirField::new("map", OirType::map(OirType::String, OirType::optional(shape_ref()))),
+            ]
+            .into(),
+        };
+        let mut x = OirField::new("x", OirType::optional(shape_ref()));
+        x.required = false;
+        let root = OirType::Struct {
+            additional: None,
+            fields: vec![x, OirField::new("w", OirType::String), OirField::new("c", OirType::String)].into(),
+        };
+        let definitions = std::collections::BTreeMap::from([("Sh", sh.clone()), ("Root", root)]);
+        let declared_as = |ty: OirType| {
+            serde_json::to_string(
+                &orbital_core_base::ir::types::DeclaredShape::with_resolver(None, ty, |name| {
+                    Ok(definitions.get(name).cloned())
+                })
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        let shape = declared_as(OirType::array(OirType::TypeRef { name: "Root".into() }));
+        let named = |ty: OirType| {
+            struct Named(OirType, std::collections::BTreeMap<&'static str, OirType>);
+            impl TypeCtx for Named {
+                fn binding_type(&self, binding: &OirBinding) -> Option<OirType> {
+                    let whole = OirType::Struct {
+                        additional: None,
+                        fields: vec![OirField::new("invs", self.0.clone())].into(),
+                    };
+                    type_at_path(&whole, &binding.path)
+                }
+                fn named_type(&self, name: &str) -> Option<OirType> {
+                    self.1.get(name).cloned()
+                }
+            }
+            Named(ty, definitions.clone())
+        };
+        let ctx = named(OirType::array(shape_ref()));
+        let mapped = |fields: serde_json::Value| {
+            serde_json::json!(["array/map", "@entity.invs", ["fn", "iv", fields]])
+        };
+        let good = mapped(serde_json::json!({ "x": "@iv", "w": "k", "c": "invariant" }));
+        let declared = |body: serde_json::Value| {
+            lowered(serde_json::json!(["let", [["r", body, shape.clone()]], "@r"]))
+        };
+        let found = check_oir_expr(&declared(good.clone()), &ctx);
+        assert!(found.is_empty(), "{:?}", found.iter().map(|d| (&d.expression, &d.mismatch)).collect::<Vec<_>>());
+        let concatenated = lowered(serde_json::json!([
+            "array/concat",
+            ["let", [["r", good, shape.clone()]], "@r"],
+            ["let", [["e", [], shape.clone()]], "@e"]
+        ]));
+        let found = check_oir_expr(&concatenated, &ctx);
+        assert!(found.is_empty(), "{:?}", found.iter().map(|d| (&d.expression, &d.mismatch)).collect::<Vec<_>>());
+        let declared_body = |body: serde_json::Value| {
+            lowered(serde_json::json!(["let", [["e", [], shape.clone()], ["r", body, shape.clone()]], "@r"]))
+        };
+        let branch = serde_json::json!(["if", ["validate/object", "@entity.invs"], good.clone(), "@e"]);
+        let found = check_oir_expr(&declared_body(branch), &ctx);
+        assert!(found.is_empty(), "if-branch: {:?}", found.iter().map(|d| (&d.expression, &d.mismatch)).collect::<Vec<_>>());
+        let joined = serde_json::json!(["array/concat", good.clone(), "@e"]);
+        let found = check_oir_expr(&declared_body(joined), &ctx);
+        assert!(found.is_empty(), "concat: {:?}", found.iter().map(|d| (&d.expression, &d.mismatch)).collect::<Vec<_>>());
+        let ifcat = serde_json::json!(["array/concat", ["if", ["validate/object", "@entity.invs"], good.clone(), "@e"], "@e"]);
+        let found = check_oir_expr(&declared_body(ifcat), &ctx);
+        assert!(found.is_empty(), "ifcat: {:?}", found.iter().map(|d| (&d.expression, &d.mismatch)).collect::<Vec<_>>());
+        let flatmap = serde_json::json!(["array/flatten", ["array/map", "@entity.invs", ["fn", "o", good.clone()]]]);
+        let found = check_oir_expr(&declared_body(flatmap), &ctx);
+        assert!(found.is_empty(), "flatmap: {:?}", found.iter().map(|d| (&d.expression, &d.mismatch)).collect::<Vec<_>>());
+        let nested = serde_json::json!([
+            "array/flatten",
+            ["array/map", "@entity.invs", ["fn", "o", [
+                "array/concat",
+                ["if", ["validate/object", "@o"], good.clone(), "@e"],
+                "@e"
+            ]]]
+        ]);
+        let found = check_oir_expr(&declared_body(nested), &ctx);
+        assert!(found.is_empty(), "nested: {:?}", found.iter().map(|d| (&d.expression, &d.mismatch)).collect::<Vec<_>>());
+        let missing = mapped(serde_json::json!({ "x": "@iv", "c": "invariant" }));
+        let flat_missing = serde_json::json!(["array/flatten", ["array/map", "@entity.invs", ["fn", "o", missing.clone()]]]);
+        assert_eq!(check_oir_expr(&declared(flat_missing), &ctx).len(), 1, "control: refused through a flatten too");
+        assert_eq!(
+            check_oir_expr(&declared(missing), &ctx).len(),
+            1,
+            "control: a literal without a required field is refused"
+        );
     }
 
     #[test]
@@ -5438,6 +5673,25 @@ mod tests {
     }
 
     #[test]
+    fn a_fold_over_optional_children_reads_each_child_result_as_possibly_null() {
+        let own = || OirType::TypeRef { name: "Tree".to_string() };
+        let tree = OirType::Struct {
+            additional: None,
+            fields: vec![OirField::new("kids".to_string(), OirType::array(OirType::optional(own())))].into(),
+        };
+        let ctx = Row(vec![("tree", tree), ("out", OirType::Number)]);
+        let total = |step: serde_json::Value| {
+            lowered(fold_over_tree(serde_json::json!(["+", 1, ["array/sum", ["array/map", ["object/get", "@k", "kids", []], ["fn", "r", step]]]])))
+        };
+        let raw = reported(&total(serde_json::json!(["+", "@r", 1])), &ctx);
+        assert!(!raw.is_empty(), "a null child result reaches the arithmetic unguarded: {raw:?}");
+        let narrowed = total(serde_json::json!(["if", ["!=", "@r", null], "@r", 0]));
+        assert_eq!(reported(&narrowed, &ctx), Vec::<String>::new(), "a null test on the child result narrows it");
+        let plain = Row(vec![("tree", tree_row().0[0].1.clone()), ("out", OirType::String)]);
+        assert_eq!(reported(&total(serde_json::json!(["+", "@r", 1])), &plain), Vec::<String>::new(), "control: non-optional children stay non-null");
+    }
+
+    #[test]
     fn a_fold_step_that_reads_its_child_results_as_another_type_is_a_mismatch() {
         let ctx = tree_row();
         let step = serde_json::json!([
@@ -5877,5 +6131,88 @@ mod tests {
         let fold = call("array/reduce", vec![entity(&["tags"]), init, step]);
         assert_eq!(infer_oir_expr_type(&fold, &tags_row()), Some(counts()));
         assert_eq!(missing_results(&call("object/keys", vec![fold])), 0);
+    }
+
+    fn roster_declaration(hp: OirType) -> String {
+        let stat = OirType::Struct {
+            additional: None,
+            fields: vec![{
+                let mut f = OirField::new("hp".to_string(), hp);
+                f.required = true;
+                f
+            }].into(),
+        };
+        serde_json::to_string(&orbital_core_base::ir::types::DeclaredShape {
+            version: Some(1),
+            name: None,
+            ty: OirType::map(OirType::String, stat),
+            named: Default::default(),
+        })
+        .unwrap()
+    }
+
+    fn roster_local(hp: OirType, value: serde_json::Value) -> Option<OirType> {
+        let declaration = OirExpr::String { value: roster_declaration(hp) };
+        let sexpr: orbital_core_base::schema::SExpression = serde_json::from_value(value).expect("s-expression");
+        let initializer = orbital_core_eval::lower::lower_sexpr(&sexpr).expect("lowers");
+        local_initializer_type(&initializer, Some(&declaration), &Row(vec![]))
+    }
+
+    #[test]
+    fn an_integer_literal_fits_an_int_field_of_a_declared_initializer() {
+        let roster = |hp: f64| serde_json::json!({ "goblin": { "hp": hp } });
+        assert!(roster_local(OirType::Integer, roster(12.0)).is_some());
+        assert!(roster_local(OirType::Number, roster(12.0)).is_some(), "control: 12 into number");
+        assert!(roster_local(OirType::Number, roster(12.5)).is_some(), "control: 12.5 into number");
+        assert!(roster_local(OirType::Integer, roster(12.5)).is_none(), "control: a fractional literal is refused by int");
+        assert!(
+            roster_local(OirType::Integer, serde_json::json!({ "goblin": { "hp": "12" } })).is_none(),
+            "control: a string is refused by int"
+        );
+    }
+
+    #[test]
+    fn an_if_of_a_record_and_null_is_the_optional_record_and_narrows() {
+        let record = OirType::Struct { additional: None, fields: vec![OirField::new("hp".to_string(), OirType::Number)].into() };
+        let row = Row(vec![("rec", record.clone()), ("rec2", record.clone()), ("flag", OirType::Boolean)]);
+        let join = |then: serde_json::Value, otherwise: serde_json::Value| {
+            infer_oir_expr_type(&lowered(serde_json::json!(["if", "@entity.flag", then, otherwise])), &row)
+        };
+        assert_eq!(join("@entity.rec".into(), serde_json::Value::Null), Some(OirType::optional(record.clone())));
+        assert_eq!(join(serde_json::Value::Null, "@entity.rec".into()), Some(OirType::optional(record.clone())));
+        assert_eq!(join("@entity.rec".into(), "@entity.rec2".into()), Some(record.clone()), "control: two records stay non-null");
+        assert_eq!(
+            join(serde_json::json!(["if", "@entity.flag", "@entity.rec", serde_json::Value::Null]), "@entity.rec2".into()),
+            Some(OirType::optional(record.clone())),
+            "nested if"
+        );
+        let narrowed = lowered(serde_json::json!([
+            "let",
+            [["x", ["if", "@entity.flag", "@entity.rec", null]]],
+            ["if", ["!=", "@x", null], ["object/get", "@x", "hp"], 0]
+        ]));
+        assert!(check_oir_expr(&narrowed, &row).is_empty(), "{:?}", check_oir_expr(&narrowed, &row));
+        let unguarded = lowered(serde_json::json!([
+            "let",
+            [["x", ["if", "@entity.flag", "@entity.rec", null]]],
+            ["object/get", "@x", "hp"]
+        ]));
+        assert!(!check_oir_expr(&unguarded, &row).is_empty(), "control: reading the maybe-null record unguarded is refused");
+    }
+
+    #[test]
+    fn path_reachable_answers_a_list_of_cells_whose_fields_read() {
+        let row = Row(vec![]);
+        let cells = lowered(serde_json::json!(["path/reachable", { "x": 1, "y": 1 }, 2, [], 5, 5]));
+        let cell = OirType::Struct {
+            additional: None,
+            fields: vec![OirField::new("x".to_string(), OirType::Number), OirField::new("y".to_string(), OirType::Number)].into(),
+        };
+        assert_eq!(infer_oir_expr_type(&cells, &row), Some(OirType::array(cell)));
+        let read = lowered(serde_json::json!([
+            "array/len",
+            ["array/filter", ["path/reachable", { "x": 1, "y": 1 }, 2, [], 5, 5], ["fn", "c", ["==", ["object/get", "@c", "x"], 1]]]
+        ]));
+        assert!(check_oir_expr(&read, &row).is_empty(), "{:?}", check_oir_expr(&read, &row));
     }
 }

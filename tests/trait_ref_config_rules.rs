@@ -76,17 +76,19 @@ fn k_consumer(from: &str, reference: &str) -> String {
     )
 }
 
-fn references_of(path: &std::path::Path) -> Vec<serde_json::Value> {
+fn reference_answer_of(path: &std::path::Path) -> serde_json::Value {
     let session = InlineSession::default();
     session.collect_references();
     let config = InlineConfig { session: Some(session.clone()), ..InlineConfig::default() };
     let mut schema = parse_file(path).expect("must parse");
     inline_schema(&mut schema, &config, Some(path)).expect("inline must succeed");
-    serde_json::to_value(session.take_references())
-        .expect("serializes")
-        .as_array()
-        .cloned()
-        .expect("a list")
+    let root = std::fs::canonicalize(path.parent().unwrap()).unwrap();
+    let answer = session.take_reference_answer(&root);
+    serde_json::json!({ "files": serde_json::to_value(&answer.files).expect("serializes"), "references": serde_json::to_value(&answer.references).expect("serializes") })
+}
+
+fn references_of(path: &std::path::Path) -> Vec<serde_json::Value> {
+    reference_answer_of(path)["references"].as_array().cloned().expect("a list")
 }
 
 fn k_dir(consumer: &str) -> (tempfile::TempDir, std::path::PathBuf) {
@@ -115,12 +117,7 @@ fn a_trait_reference_is_paired_with_its_deferred_upstream_declaration() {
     assert_eq!(pair["path"], "orbitals[name=Composer].traits[0]");
     assert_eq!(pair["callSite"]["ref"], "Up.traits.Widget");
     assert_eq!(pair["callSite"]["config"]["k"]["default"].as_f64(), Some(1.0));
-    assert_eq!(pair["declaration"]["name"], "Widget");
-    assert!(
-        pair["declaration"].to_string().contains("@config.k"),
-        "the declaration keeps `@config.k` deferred: {}",
-        pair["declaration"]
-    );
+    assert_eq!(pair["declaration"], serde_json::json!({ "file": "atom.orb", "orbital": 0, "trait": 0 }));
 }
 
 #[test]
@@ -144,7 +141,8 @@ fn control_collection_is_off_until_the_session_asks() {
 #[test]
 fn a_ref_trait_inside_the_import_is_expanded_in_the_declaration() {
     let (_dir, path) = k_dir(&k_consumer("./middle.orb", "Up.traits.Mid"));
-    let all = references_of(&path);
+    let answer = reference_answer_of(&path);
+    let all = answer["references"].as_array().cloned().expect("a list");
     let uses: Vec<_> = all.iter().filter(|r| r["kind"] == "uses").collect();
     assert_eq!(uses.len(), 1, "only the compiled file's own import is answered, not the middle file's: {all:#?}");
     assert_eq!(uses[0]["callSite"]["from"], "./middle.orb");
@@ -153,8 +151,10 @@ fn a_ref_trait_inside_the_import_is_expanded_in_the_declaration() {
     let consumer = &references[0];
     assert_eq!(consumer["alias"], "Up");
     assert_eq!(consumer["name"], "Mid");
-    assert_eq!(consumer["declaration"]["name"], "Mid");
-    let declaration = consumer["declaration"].to_string();
+    let at = &consumer["declaration"];
+    let declared = &answer["files"][at["file"].as_str().expect("a file key")]["orbitals"][at["orbital"].as_u64().expect("an orbital") as usize]["traits"][at["trait"].as_u64().expect("a trait") as usize];
+    assert_eq!(declared["name"], "Mid");
+    let declaration = declared.to_string();
     assert!(declaration.contains("LEAF_PING"), "the leaf's body is expanded: {declaration}");
     assert!(declaration.contains("@config.k"), "still deferred: {declaration}");
 }
@@ -181,7 +181,7 @@ fn two_references_to_one_upstream_trait_share_one_declaration() {
         .iter()
         .filter(|p| matches!(p.kind, ReferenceKind::Trait))
         .map(|p| match &p.declaration {
-            ReferenceDeclaration::Trait(t) => t.clone(),
+            ReferenceDeclaration::Trait(t) => t.definition().clone(),
             other => panic!("a trait pair holds a trait declaration: {other:?}"),
         })
         .collect();

@@ -129,6 +129,9 @@ pub enum InlineError {
     #[error("Orbital '{0}' not found in imported behavior '{1}'")]
     OrbitalNotFound(String, String),
 
+    #[error("The import '{0}' has no source file to address a reference declaration in")]
+    ReferenceFileUnknown(String),
+
     #[error("Theme not found in schema '{0}'")]
     ThemeNotFound(String),
 
@@ -460,6 +463,38 @@ impl InlineSession {
     pub fn take_references(&self) -> Vec<ReferencePair> {
         std::mem::take(&mut self.0.borrow_mut().references.pairs)
     }
+
+    /// The references recorded so far, answered with each imported file's orbitals once under a key (its canonical
+    /// path relative to `root`, the program's canonical directory); the record is emptied.
+    pub fn take_reference_answer(&self, root: &Path) -> ReferenceAnswer {
+        let mut keys = FileKeys { root, keys: Vec::new() };
+        let mut files = std::collections::BTreeMap::new();
+        let mut references = Vec::new();
+        for pair in self.take_references() {
+            let declaration = match pair.declaration {
+                ReferenceDeclaration::Orbital(d) => {
+                    let file = keys.key(&d.file, &d.orbitals);
+                    files.entry(file.clone()).or_insert_with(|| ImportedFile { orbitals: d.orbitals });
+                    DeclarationAddress::Orbital { file, index: d.index }
+                }
+                ReferenceDeclaration::Trait(d) => {
+                    let file = keys.key(&d.file, &d.orbitals);
+                    files.entry(file.clone()).or_insert_with(|| ImportedFile { orbitals: d.orbitals });
+                    DeclarationAddress::Trait { file, orbital: d.orbital, r#trait: d.index }
+                }
+                ReferenceDeclaration::AliasConfig(config) => DeclarationAddress::AliasConfig(config),
+            };
+            references.push(ReferenceEntry {
+                kind: pair.kind,
+                alias: pair.alias,
+                name: pair.name,
+                path: pair.path,
+                call_site: pair.call_site,
+                declaration,
+            });
+        }
+        ReferenceAnswer { files, references }
+    }
 }
 
 #[derive(Default)]
@@ -487,10 +522,9 @@ pub enum ReferenceCallSite {
 
 /// The upstream declaration a reference resolves to, as the inliner holds it:
 /// loaded as an import, with `@config.X` still deferred.
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum ReferenceDeclaration {
-    Trait(Arc<TraitDefinition>),
+    Trait(TraitDeclaration),
     Orbital(OrbitalDeclaration),
     /// A `uses` import: the app-level `config {}` the imported file declares (empty when it declares none).
     AliasConfig(orbital_core_base::collections::IndexMap<String, ConfigField>),
@@ -501,11 +535,12 @@ pub enum ReferenceDeclaration {
 pub struct OrbitalDeclaration {
     orbitals: std::rc::Rc<Vec<Orbital>>,
     index: usize,
+    file: PathBuf,
 }
 
 impl OrbitalDeclaration {
-    pub(crate) fn new(orbitals: std::rc::Rc<Vec<Orbital>>, index: usize) -> Self {
-        Self { orbitals, index }
+    pub(crate) fn new(orbitals: std::rc::Rc<Vec<Orbital>>, index: usize, file: PathBuf) -> Self {
+        Self { orbitals, index, file }
     }
 
     pub fn orbital(&self) -> &Orbital {
@@ -517,43 +552,36 @@ impl OrbitalDeclaration {
     }
 }
 
-impl serde::Serialize for OrbitalDeclaration {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.orbital().serialize(serializer)
-    }
-}
-
-/// The other orbitals of an imported file: the import's shared list without the orbital a reference resolved to.
+/// One trait of an inlined import, held with the position of its orbital in the import's shared list and its own
+/// position in that orbital's traits.
 #[derive(Debug, Clone)]
-pub struct AliasOrbitals {
+pub struct TraitDeclaration {
+    definition: Arc<TraitDefinition>,
     orbitals: std::rc::Rc<Vec<Orbital>>,
-    except: usize,
+    orbital: usize,
+    index: usize,
+    file: PathBuf,
 }
 
-impl AliasOrbitals {
-    pub(crate) fn new(orbitals: std::rc::Rc<Vec<Orbital>>, except: usize) -> Self {
-        Self { orbitals, except }
+impl TraitDeclaration {
+    pub(crate) fn new(
+        definition: Arc<TraitDefinition>,
+        orbitals: std::rc::Rc<Vec<Orbital>>,
+        orbital: usize,
+        index: usize,
+        file: PathBuf,
+    ) -> Self {
+        Self { definition, orbitals, orbital, index, file }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Orbital> {
-        self.orbitals.iter().enumerate().filter(|(i, _)| *i != self.except).map(|(_, o)| o)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.iter().next().is_none()
-    }
-}
-
-impl serde::Serialize for AliasOrbitals {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_seq(self.iter())
+    pub fn definition(&self) -> &Arc<TraitDefinition> {
+        &self.definition
     }
 }
 
 /// One reference paired with the declaration it resolves to; `path` is the
 /// call-site path the reference diagnostics use.
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct ReferencePair {
     pub kind: ReferenceKind,
     pub alias: String,
@@ -561,10 +589,69 @@ pub struct ReferencePair {
     pub path: String,
     pub call_site: ReferenceCallSite,
     pub declaration: ReferenceDeclaration,
-    /// An orbital reference: the other orbitals of the imported file, as the inliner holds them (the out-of-orbital
-    /// universe `entities {}` and `roles {}` resolve against).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub alias_orbitals: Option<AliasOrbitals>,
+}
+
+/// `program/read { references: true }`: each imported file's orbitals once, and the references naming them by key.
+#[derive(Debug, serde::Serialize)]
+pub struct ReferenceAnswer {
+    pub files: std::collections::BTreeMap<String, ImportedFile>,
+    pub references: Vec<ReferenceEntry>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ImportedFile {
+    pub orbitals: std::rc::Rc<Vec<Orbital>>,
+}
+
+/// Where a reference's declaration sits: the orbital at `index` of `files.<file>.orbitals`, or the trait at `trait`
+/// of `files.<file>.orbitals[orbital].traits`. An import's other orbitals are `files.<file>.orbitals` without `index`.
+#[derive(Debug, serde::Serialize)]
+#[serde(untagged)]
+pub enum DeclarationAddress {
+    Orbital { file: String, index: usize },
+    Trait { file: String, orbital: usize, r#trait: usize },
+    AliasConfig(orbital_core_base::collections::IndexMap<String, ConfigField>),
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceEntry {
+    pub kind: ReferenceKind,
+    pub alias: String,
+    pub name: String,
+    pub path: String,
+    pub call_site: ReferenceCallSite,
+    pub declaration: DeclarationAddress,
+}
+
+/// `file` relative to `root` (both canonical), `/`-separated, with `..` for each step up.
+fn relative_file_key(root: &Path, file: &Path) -> String {
+    let root: Vec<_> = root.components().collect();
+    let file: Vec<_> = file.components().collect();
+    let shared = root.iter().zip(&file).take_while(|(a, b)| a == b).count();
+    let mut parts: Vec<String> = root[shared..].iter().map(|_| "..".to_string()).collect();
+    parts.extend(file[shared..].iter().map(|c| c.as_os_str().to_string_lossy().into_owned()));
+    parts.join("/")
+}
+
+struct FileKeys<'a> {
+    root: &'a Path,
+    keys: Vec<(PathBuf, std::rc::Rc<Vec<Orbital>>, String)>,
+}
+
+impl FileKeys<'_> {
+    /// The key of the import `orbitals` came from: its path relative to the program's directory, with `#2`, `#3`, ...
+    /// appended to the later allocations of a file imported under differing `config` (resolution order).
+    fn key(&mut self, file: &Path, orbitals: &std::rc::Rc<Vec<Orbital>>) -> String {
+        if let Some((_, _, key)) = self.keys.iter().find(|(_, o, _)| std::rc::Rc::ptr_eq(o, orbitals)) {
+            return key.clone();
+        }
+        let base = relative_file_key(self.root, file);
+        let same = self.keys.iter().filter(|(f, _, _)| f == file).count();
+        let key = if same == 0 { base } else { format!("{base}#{}", same + 1) };
+        self.keys.push((file.to_path_buf(), std::rc::Rc::clone(orbitals), key.clone()));
+        key
+    }
 }
 
 /// An imported behavior inlined once (keyed by its canonical file): its
@@ -1914,7 +2001,6 @@ fn inline_orbital(
                 },
                 call_site: ReferenceCallSite::Uses(use_decl.clone()),
                 declaration: ReferenceDeclaration::AliasConfig(loaded_schema_config.clone().unwrap_or_default()),
-                alias_orbitals: None,
             });
         }
         if use_decl.config.is_some() {
@@ -9712,15 +9798,84 @@ pub(crate) fn drop_shadowed_auxiliaries(orbitals: &mut [Orbital]) {
                     .any(|o| o.name == f.name && o.field_type == f.field_type)
             })
     };
+    let mut dropped_ids: HashMap<String, String> = HashMap::new();
     for orbital in orbitals.iter_mut() {
         let Some(aux) = orbital.auxiliary_entities.as_mut() else {
             continue;
         };
         aux.retain(|a| {
-            !matches!(a, EntityRef::Inline(e) if owned.get(&e.name).is_some_and(|owner| narrower_view(e, owner)))
+            let EntityRef::Inline(e) = a else {
+                return true;
+            };
+            let Some(owner) = owned.get(&e.name).filter(|owner| narrower_view(e, owner)) else {
+                return true;
+            };
+            if let (Some(from), Some(to)) = (&e.id, &owner.id) {
+                dropped_ids.insert(from.clone(), to.clone());
+            }
+            false
         });
         if aux.is_empty() {
             orbital.auxiliary_entities = None;
+        }
+    }
+    repoint_entity_ids(orbitals, &dropped_ids);
+}
+
+/// A dropped auxiliary copy's id names no node any more; every id reference to it lands on the owner it was a view of.
+fn repoint_entity_ids(orbitals: &mut [Orbital], map: &HashMap<String, String>) {
+    if map.is_empty() {
+        return;
+    }
+    fn fix(id: &mut Option<String>, map: &HashMap<String, String>) {
+        if let Some(to) = id.as_ref().and_then(|i| map.get(i)) {
+            *id = Some(to.clone());
+        }
+    }
+    fn fix_field(f: &mut orbital_core_base::schema::FieldDefinition, map: &HashMap<String, String>) {
+        if let Some(rel) = f.relation.as_mut() {
+            fix(&mut rel.entity_id, map);
+        }
+        if let Some(items) = f.items.as_mut() {
+            fix_field(items, map);
+        }
+        for (_, p) in f.properties.iter_mut().flatten() {
+            fix_field(p, map);
+        }
+    }
+    fn fix_trait(tr: &mut TraitReference, map: &HashMap<String, String>) {
+        if let TraitReference::Inline(td) = tr {
+            let td = Arc::make_mut(td);
+            fix(&mut td.linked_entity_id, map);
+            for id in td.entity_ref_ids.iter_mut().flat_map(|m| m.values_mut()) {
+                if let Some(to) = map.get(id.as_str()) {
+                    *id = to.clone();
+                }
+            }
+        }
+    }
+    use orbital_core_base::schema::PageRef;
+    for orbital in orbitals.iter_mut() {
+        let entities = std::iter::once(&mut orbital.entity).chain(orbital.auxiliary_entities.iter_mut().flatten());
+        for e in entities {
+            if let EntityRef::Inline(def) = e {
+                for f in &mut def.fields {
+                    fix_field(f, map);
+                }
+            }
+        }
+        for tr in &mut orbital.traits {
+            fix_trait(tr, map);
+        }
+        for page in orbital.pages.iter_mut().flatten() {
+            match page {
+                PageRef::Inline(p) => p.traits.iter_mut().flatten().for_each(|tr| fix_trait(tr, map)),
+                PageRef::Object(o) => {
+                    fix(&mut o.linked_entity_id, map);
+                    o.traits.iter_mut().flatten().for_each(|tr| fix_trait(tr, map));
+                }
+                PageRef::Reference(_) => {}
+            }
         }
     }
 }
@@ -9753,6 +9908,49 @@ mod shadowed_auxiliary_tests {
                 _ => None,
             })
             .collect()
+    }
+
+    fn with_ids() -> Vec<Orbital> {
+        serde_json::from_value(serde_json::json!([
+            { "name": "OrderDesk", "entity": { "id": "ent_OWNER", "name": "OrderRecord", "fields": [
+                { "name": "id", "type": "string" }, { "name": "title", "type": "string" } ] },
+              "traits": [] },
+            { "name": "MyOrdersPage", "entity": { "id": "ent_VISIT", "name": "Visit", "fields": [ { "name": "id", "type": "string" } ] },
+              "auxiliaryEntities": [
+                { "id": "ent_COPY", "name": "OrderRecord", "fields": [ { "name": "id", "type": "string" } ] },
+                { "id": "ent_KEEP", "name": "ExportPanel", "fields": [ { "name": "id", "type": "string" } ] }
+              ],
+              "traits": [ { "name": "T", "stateMachine": { "states": [ { "name": "s", "isInitial": true } ], "events": [], "transitions": [] }, "entityRefIds": { "OrderRecord": "ent_COPY", "ExportPanel": "ent_KEEP", "Ghost": "ent_GHOST" }, "linkedEntityId": "ent_COPY" } ] }
+        ]))
+        .expect("orbitals")
+    }
+
+    fn trait_refs(o: &Orbital) -> (Vec<(String, String)>, Option<String>) {
+        match &o.traits[0] {
+            TraitReference::Inline(td) => (
+                td.entity_ref_ids.iter().flatten().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                td.linked_entity_id.clone(),
+            ),
+            _ => panic!("inline trait"),
+        }
+    }
+
+    #[test]
+    fn a_dropped_auxiliary_copys_id_references_land_on_the_owner() {
+        let mut o = with_ids();
+        drop_shadowed_auxiliaries(&mut o);
+        let (refs, linked) = trait_refs(&o[1]);
+        assert!(refs.contains(&("OrderRecord".to_string(), "ent_OWNER".to_string())), "{refs:?}");
+        assert_eq!(linked.as_deref(), Some("ent_OWNER"));
+    }
+
+    #[test]
+    fn control_a_kept_entity_and_an_unknown_id_keep_their_references() {
+        let mut o = with_ids();
+        drop_shadowed_auxiliaries(&mut o);
+        let (refs, _) = trait_refs(&o[1]);
+        assert!(refs.contains(&("ExportPanel".to_string(), "ent_KEEP".to_string())), "{refs:?}");
+        assert!(refs.contains(&("Ghost".to_string(), "ent_GHOST".to_string())), "{refs:?}");
     }
 
     #[test]
