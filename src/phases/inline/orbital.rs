@@ -40,6 +40,15 @@ use orbital_core_base::schema::{
 };
 use std::collections::{HashMap, HashSet};
 
+/// An orbital that hosts an import takes the import's `os/` grants (EXEC-GRANTS-2): they stay on the orbital the
+/// code runs in and never reach a sibling or the app level.
+pub(crate) fn take_os_grants(orbital: &mut Orbital, grants: Option<&orbital_core_base::os_grants::OsGrants>) {
+    let Some(grants) = grants.filter(|g| !g.is_empty()) else {
+        return;
+    };
+    orbital.os_grants.get_or_insert_with(Default::default).union(grants);
+}
+
 /// Every entity name the orbital's `expects` declarations license, a named `expects entity [identity]` included.
 pub(crate) fn expected_entity_names(orbital: &Orbital) -> Vec<&str> {
     orbital
@@ -502,6 +511,7 @@ pub(crate) fn resolve_orbital_reference(
         return Err(InlineError::InvalidReference(obj.reference.clone()));
     };
     let mut upstream = ctx.get_orbital(&alias, &name)?;
+    take_os_grants(orbital, upstream.os_grants.as_ref());
     if let Some(types) = upstream.types.as_ref() {
         let behavior = ctx.get_entry(&alias)?.behavior_name.clone();
         let local = super::qualify::LocalTypes::declared_by(&behavior, types);

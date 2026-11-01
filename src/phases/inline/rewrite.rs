@@ -2068,6 +2068,12 @@ fn rewrite_config_bindings_inner(
             let reads_as_operand = head
                 .as_deref()
                 .is_some_and(crate::type_infer::is_value_operator);
+            let lambda_positions: Vec<usize> = items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| matches!(item.as_array().and_then(|form| form.first()).and_then(|h| h.as_str()), Some("fn" | "lambda")))
+                .map(|(at, _)| at)
+                .collect();
             for (at, item) in items.iter_mut().enumerate() {
                 if reads_as_operand && is_empty_list_knob(item, config_subs) {
                     continue;
@@ -2100,15 +2106,16 @@ fn rewrite_config_bindings_inner(
                         continue;
                     }
                 }
+                let read_by_lambda = items_after_are_lambdas(&lambda_positions, at);
                 if reads_as_operand
-                    && !(at >= 1 && result_operands.contains(&(at - 1)) && !consumed)
+                    && !(at >= 1 && result_operands.contains(&(at - 1)) && !consumed && !read_by_lambda)
                     && take_declared(item, config_subs, declared)
                 {
                     continue;
                 }
                 let handed_on = at >= 1 && result_operands.contains(&(at - 1));
                 let written = head.as_deref() == Some("set") && at == 2;
-                let item_consumed = if reads_as_operand { !handed_on || consumed } else { written || (is_let && consumed) };
+                let item_consumed = if reads_as_operand { !handed_on || consumed || read_by_lambda } else { written || (is_let && consumed) };
                 rewrite_config_bindings_inner(item, config_subs, declared, item_consumed, in_progress);
             }
         }
@@ -2147,6 +2154,12 @@ fn take_declared(
     };
     *expr = declared_read(knob, literal, &shape);
     true
+}
+
+/// Whether a lambda follows the operand at `at`: the lambda reads each element of it, so the operand is read as its
+/// declared type whatever the operator's result is handed to.
+fn items_after_are_lambdas(lambda_positions: &[usize], at: usize) -> bool {
+    lambda_positions.iter().any(|lambda| *lambda > at)
 }
 
 fn is_empty_list_knob(
@@ -3924,6 +3937,38 @@ mod literal_list_tests {
         assert_eq!(declared_lets(&effect), 1, "{effect}");
     }
 
+    fn prop_lets(effect: &serde_json::Value) -> usize {
+        effect.to_string().matches("\"knob_cues\"").count()
+    }
+
+    #[test]
+    fn a_record_list_knob_a_lambda_iterates_keeps_its_declared_type_even_when_the_result_goes_to_a_prop() {
+        let filtered = serde_json::json!([
+            "render-ui", "main",
+            { "type": "data-list", "entities": ["array/filter", "@config.cues", ["fn", "c", ["=", ["object/get", "@c", "a", 0], 1]]] }
+        ]);
+        let mut t = cue_list_trait(filtered, true);
+        apply_inline_config_defaults(&mut t, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&t)).unwrap();
+        assert_eq!(prop_lets(&effect), 1, "the lambda reads the elements as the declared type: {effect}");
+
+        let mut exact = cue_list_trait(
+            serde_json::json!(["render-ui", "main", { "type": "data-list", "entities": ["array/filter", "@config.cues", ["fn", "c", true]] }]),
+            false,
+        );
+        apply_inline_config_defaults(&mut exact, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&exact)).unwrap();
+        assert_eq!(prop_lets(&effect), 0, "control: records with no optional field read as written: {effect}");
+
+        let mut handed = cue_list_trait(
+            serde_json::json!(["render-ui", "main", { "type": "data-list", "entities": ["array/concat", "@config.cues", []] }]),
+            true,
+        );
+        apply_inline_config_defaults(&mut handed, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&handed)).unwrap();
+        assert_eq!(prop_lets(&effect), 0, "control: no lambda, a result handed to a prop stays the literal: {effect}");
+    }
+
     #[test]
     fn a_record_list_knob_concatenated_into_a_written_field_keeps_its_declared_type() {
         let written = serde_json::json!([
@@ -4000,6 +4045,42 @@ mod literal_list_tests {
             effect[2][1][0], "let",
             "control: a literal that fills every field reads as itself: {effect}"
         );
+    }
+
+    fn tagged_items(tags_required: bool) -> serde_json::Value {
+        serde_json::json!({ "type": "object", "properties": {
+            "from": { "name": "from", "type": "string", "required": true },
+            "tags": { "name": "tags", "type": "array", "required": tags_required, "items": { "type": "string" } }
+        } })
+    }
+
+    fn lambda_read_in_prop() -> serde_json::Value {
+        serde_json::json!(["render-ui", "main", { "type": "data-list", "itemActions": [
+            "array/filter", "@config.knob",
+            ["fn", "item", ["=", ["array/len", ["object/get", "@item", "tags", []]], 0]]
+        ] }])
+    }
+
+    #[test]
+    fn a_knob_a_lambda_reads_keeps_its_declared_type_even_when_the_result_is_handed_to_a_prop() {
+        let knob = |required: bool| serde_json::json!({
+            "type": "[Edge]", "default": [{ "from": "a" }], "items": tagged_items(required)
+        });
+        let mut optional = knob_trait(knob(false), lambda_read_in_prop());
+        apply_inline_config_defaults(&mut optional, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&optional)).unwrap();
+        assert!(effect.to_string().contains("knob_knob"), "{effect}");
+        let mut required = knob_trait(knob(true), lambda_read_in_prop());
+        apply_inline_config_defaults(&mut required, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&required)).unwrap();
+        assert!(!effect.to_string().contains("knob_knob"), "control: a literal that fills every field reads as itself: {effect}");
+        let mut plain = knob_trait(
+            knob(false),
+            serde_json::json!(["render-ui", "main", { "type": "data-list", "itemActions": ["if", true, "@config.knob", []] }]),
+        );
+        apply_inline_config_defaults(&mut plain, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&plain)).unwrap();
+        assert!(!effect.to_string().contains("knob_knob"), "control: no lambda reads it, the prop gets the literal: {effect}");
     }
 
     fn null_probe_value(knob: serde_json::Value) -> serde_json::Value {

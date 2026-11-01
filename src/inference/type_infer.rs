@@ -159,6 +159,9 @@ struct Inferer<'c> {
     proven: RefCell<std::collections::HashMap<ProvenKey, Vec<bool>>>,
     /// Whether calls record [`Self::proven`]; off for validation, which only reports.
     record: std::cell::Cell<bool>,
+    /// Set while a literal list of record literals that a later lambda iterates is read: nothing compares those
+    /// literals with a declared type, so each is exactly the record it writes.
+    iterated_literals: std::cell::Cell<bool>,
     /// The first declared slot a literal `null` reached in a contextual read that admits no null.
     null_slot: RefCell<Option<OirType>>,
     /// The type each node was last inferred as, by node address; on only for [`trace_types_under`].
@@ -195,6 +198,7 @@ impl<'c> Inferer<'c> {
             named_types: RefCell::new(std::sync::Arc::default()),
             proven: RefCell::new(std::collections::HashMap::new()),
             record: std::cell::Cell::new(false),
+            iterated_literals: std::cell::Cell::new(false),
             null_slot: RefCell::new(None),
             trace: RefCell::new(None),
         }
@@ -202,6 +206,35 @@ impl<'c> Inferer<'c> {
 
     /// What the checker knows of `expr` as an argument: a type, the null value, an effect (void), an empty list, or
     /// nothing (undetermined).
+    /// A pattern prop is data until an array in it is headed by a value operator, the same rule the kernel resolves
+    /// it by: that call is checked in the scope of every `let` around the `render-ui`. A bare `fn` prop is
+    /// beta-reduced by the renderer per row, so its parameter has no type here and it is not walked.
+    fn check_pattern_value(&self, value: &orbital_core_base::ir::OirValue) {
+        use orbital_core_base::ir::OirValue;
+        match value {
+            OirValue::Object(fields) => fields.values().for_each(|field| self.check_pattern_value(field)),
+            OirValue::Array(items) => {
+                if let Some(OirValue::String(head)) = items.first() {
+                    if matches!(head.as_str(), "fn" | "lambda" | "quote" | "quasiquote") {
+                        return;
+                    }
+                    if is_value_operator(head) {
+                        let lowered = serde_json::to_value(value)
+                            .and_then(serde_json::from_value::<orbital_core_base::schema::SExpression>)
+                            .ok()
+                            .and_then(|sexpr| orbital_core_eval::lower::lower_sexpr(&sexpr).ok());
+                        if let Some(call) = lowered {
+                            self.infer(&call);
+                            return;
+                        }
+                    }
+                }
+                items.iter().for_each(|item| self.check_pattern_value(item));
+            }
+            _ => {}
+        }
+    }
+
     fn known(&self, expr: &OirExpr) -> Option<Known> {
         if let Some((live, dead)) = live_branch(expr) {
             let mark = self.diagnostics.borrow().len();
@@ -249,6 +282,12 @@ impl<'c> Inferer<'c> {
                 }
                 if let orbital_core_base::ir::OirEffect::Set { target, value, .. } = effect.as_ref() {
                     self.infer_set_value(target, value);
+                    return Some(Known::Void);
+                }
+                if let orbital_core_base::ir::OirEffect::RenderUi { pattern, .. } = effect.as_ref() {
+                    for value in pattern.config.values() {
+                        self.check_pattern_value(value);
+                    }
                     return Some(Known::Void);
                 }
                 for child in effect.child_exprs() {
@@ -495,7 +534,7 @@ impl<'c> Inferer<'c> {
                     .iter()
                     .map(|(name, value)| (name.clone(), self.infer(value)))
                     .collect();
-                if !self.ctx.object_literals_are_exact() {
+                if !self.ctx.object_literals_are_exact() && !self.iterated_literals.get() {
                     return Some(OirType::Row {
                         entity: "{ … }".to_string(),
                     });
@@ -1642,7 +1681,12 @@ impl<'c> Inferer<'c> {
                         .unwrap_or(Ok(()))
                 }
                 other => {
+                    let iterated = matches!(other, OirExpr::Array { items }
+                        if items.iter().all(|item| matches!(item, OirExpr::Object { .. })))
+                        && args.iter().skip(index + 1).any(|later| matches!(later, OirExpr::Lambda { .. }));
+                    let outer = self.iterated_literals.replace(iterated || self.iterated_literals.get());
                     let known = self.known(other);
+                    self.iterated_literals.set(outer);
                     if let Some(Known::Type(ty)) = &known {
                         self.register_named_types(ty, &mut bindings);
                     }
@@ -6356,5 +6400,55 @@ mod tests {
             ["array/filter", ["path/reachable", { "x": 1, "y": 1 }, 2, [], 5, 5], ["fn", "c", ["==", ["object/get", "@c", "x"], 1]]]
         ]));
         assert!(check_oir_expr(&read, &row).is_empty(), "{:?}", check_oir_expr(&read, &row));
+    }
+    fn action_roles(list: serde_json::Value, key: &str, default: bool) -> OirExpr {
+        let read = if default { serde_json::json!(["object/get", "@action", key, []]) } else { serde_json::json!(["object/get", "@action", key]) };
+        lowered(serde_json::json!(["array/filter", list, ["fn", "action", ["==", ["array/len", read], 1]]]))
+    }
+
+    fn differing_actions() -> serde_json::Value {
+        serde_json::json!([
+            { "event": "VIEW", "label": "Open" },
+            { "event": "DELETE", "label": "Withdraw", "roles": ["admin"] }
+        ])
+    }
+
+    #[test]
+    fn a_lambda_over_a_literal_list_of_differing_records_reads_their_fields_with_a_default() {
+        let row = ExactRow(Row(vec![]));
+        let found = check_oir_expr(&action_roles(differing_actions(), "roles", true), &row);
+        assert!(found.is_empty(), "{found:?}");
+        let same = serde_json::json!([{ "event": "A", "label": "a" }, { "event": "B", "label": "b" }]);
+        let held = serde_json::json!([{ "event": "A", "roles": ["x"] }, { "event": "B", "roles": ["y"] }]);
+        assert!(check_oir_expr(&action_roles(held, "roles", true), &NoCtx).is_empty(), "uniform, field present");
+        let found = check_oir_expr(&action_roles(same, "roles", true), &NoCtx);
+        assert!(
+            found.iter().any(|d| matches!(&d.mismatch, Mismatch::Undetermined { reason } if reason.contains("empty list"))),
+            "control: a field no variant has reads only its empty default, which nothing types: {found:?}"
+        );
+        let found = check_oir_expr(&action_roles(differing_actions(), "roles", true), &NoCtx);
+        assert!(found.is_empty(), "a context whose literals are not exact: {found:?}");
+        let label = lowered(serde_json::json!(["array/map", differing_actions(), ["fn", "a", ["object/get", "@a", "label"]]]));
+        assert_eq!(
+            infer_oir_expr_type(&label, &row),
+            Some(OirType::array(OirType::String)),
+            "control: a field every variant has is read without a default"
+        );
+    }
+
+    #[test]
+    fn a_field_only_some_literal_variants_have_stays_optional_without_a_default() {
+        let row = ExactRow(Row(vec![]));
+        let read = lowered(serde_json::json!(["array/map", differing_actions(), ["fn", "a", ["object/get", "@a", "roles"]]]));
+        let Some(OirType::Array { inner }) = infer_oir_expr_type(&read, &row) else { panic!("a list") };
+        assert!(matches!(*inner, OirType::Optional { .. }), "{inner:?}");
+    }
+
+    #[test]
+    fn a_uniform_literal_list_keeps_its_one_record_type() {
+        let row = ExactRow(Row(vec![]));
+        let list = lowered(serde_json::json!([{ "a": 1 }, { "a": 2 }]));
+        let record = OirType::Struct { additional: None, fields: vec![OirField::new("a".to_string(), OirType::Number)].into() };
+        assert_eq!(infer_oir_expr_type(&list, &row), Some(OirType::array(record)));
     }
 }

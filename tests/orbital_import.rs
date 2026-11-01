@@ -2181,3 +2181,137 @@ fn a_single_import_keeps_its_atom_internal_child_name() {
     let post = trait_names(&schema, 0);
     assert!(post.contains(&"LoadingSpinner".to_string()), "{post:?}");
 }
+
+mod os_grants_follow_the_importing_orbital {
+    use super::*;
+    use orbital_core_base::os_grants::{os_grant_findings, OsGrantFindingCode, OsGrantPass};
+    use orbital_core_base::schema::OrbitalSchema;
+
+    const NET: &str = r#"{ "net": [ { "target": "api.stripe.com:443", "kinds": ["tcp"] } ] }"#;
+
+    fn caller(trait_name: &str, entity: &str) -> String {
+        format!(
+            r#"{{
+          "name": "{trait_name}", "linkedEntity": "{entity}",
+          "stateMachine": {{
+            "states": [ {{ "name": "idle", "isInitial": true }} ],
+            "events": [ {{ "key": "INIT" }} ],
+            "transitions": [ {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [ ["os/tcp-connect", "api.stripe.com", 443] ] }} ]
+          }}
+        }}"#
+        )
+    }
+
+    fn entity(name: &str) -> String {
+        format!(r#"{{ "name": "{name}", "persistence": "runtime", "fields": [ {{ "name": "id", "type": "string", "required": true }} ] }}"#)
+    }
+
+    fn atom(file_grants: &str, orbital_grants: &str) -> String {
+        format!(
+            r#"{{ "name": "atom-net", "version": "1.0.0", {file_grants}
+          "orbitals": [ {{ "name": "NetOrbital", {orbital_grants} "entity": {entity}, "traits": [ {trait_} ], "pages": [] }} ] }}"#,
+            entity = entity("NetRow"),
+            trait_ = caller("NetCall", "NetRow"),
+        )
+    }
+
+    fn app(app_grants: &str, orbitals: &[String]) -> String {
+        format!(
+            r#"{{ "name": "app", "version": "1.0.0", {app_grants} "orbitals": [ {} ] }}"#,
+            orbitals.join(",")
+        )
+    }
+
+    fn sibling() -> String {
+        format!(
+            r#"{{ "name": "Team", "entity": {}, "traits": [ {} ], "pages": [] }}"#,
+            entity("TeamRow"),
+            caller("TeamCall", "TeamRow")
+        )
+    }
+
+    fn billing_by_orbital() -> String {
+        r#"{ "name": "Billing", "uses": [ { "from": "./atom.orb", "as": "Net" } ], "entity": "Net.orbitals.NetOrbital.entity", "traits": [],
+              "reference": { "ref": "Net.orbitals.NetOrbital" } }"#
+            .to_string()
+    }
+
+    fn billing_by_trait() -> String {
+        format!(
+            r#"{{ "name": "Billing", "uses": [ {{ "from": "./atom.orb", "as": "Net" }} ], "entity": {}, "traits": [ {{ "ref": "Net.traits.NetCall", "linkedEntity": "BillingRow" }} ], "pages": [] }}"#,
+            entity("BillingRow")
+        )
+    }
+
+    fn inlined(atom: &str, app: &str) -> OrbitalSchema {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        std::fs::write(dir.path().join("atom.orb"), atom).expect("write atom");
+        let path = dir.path().join("app.orb");
+        std::fs::write(&path, app).expect("write app");
+        let mut schema = parse_file(&path).expect("app parses");
+        inline_schema(&mut schema, &InlineConfig::default(), Some(&path)).expect("inline succeeds");
+        schema
+    }
+
+    fn missing_in(schema: &OrbitalSchema) -> Vec<String> {
+        os_grant_findings(schema, OsGrantPass::Written)
+            .into_iter()
+            .filter(|f| f.code == OsGrantFindingCode::Missing)
+            .filter_map(|f| f.orbital)
+            .collect()
+    }
+
+    fn assert_host_covered_sibling_not(schema: &OrbitalSchema) {
+        let missing = missing_in(schema);
+        assert!(!missing.iter().any(|p| p == "Billing"), "the host orbital carries the atom's grant: {missing:?}");
+        assert!(missing.iter().any(|p| p == "Team"), "a sibling does not gain it: {missing:?}");
+        let team = schema.orbitals.iter().find(|o| o.name == "Team").expect("Team");
+        assert!(team.os_grants.is_none(), "{:?}", team.os_grants);
+        assert!(schema.os_grants.is_none(), "composing never writes the app level: {:?}", schema.os_grants);
+    }
+
+    #[test]
+    fn an_orbital_import_carries_the_atom_file_header_grants_onto_its_orbital_only() {
+        let schema = inlined(
+            &atom(&format!(r#""osGrants": {NET},"#), ""),
+            &app("", &[billing_by_orbital(), sibling()]),
+        );
+        assert_host_covered_sibling_not(&schema);
+    }
+
+    #[test]
+    fn an_imported_trait_carries_the_atom_file_header_grants_onto_its_host_orbital_only() {
+        let schema = inlined(
+            &atom(&format!(r#""osGrants": {NET},"#), ""),
+            &app("", &[billing_by_trait(), sibling()]),
+        );
+        assert_host_covered_sibling_not(&schema);
+    }
+
+    #[test]
+    fn an_atom_orbitals_own_grants_travel_with_it_too() {
+        let schema = inlined(
+            &atom("", &format!(r#""osGrants": {NET},"#)),
+            &app("", &[billing_by_orbital(), sibling()]),
+        );
+        assert_host_covered_sibling_not(&schema);
+        let schema = inlined(
+            &atom("", &format!(r#""osGrants": {NET},"#)),
+            &app("", &[billing_by_trait(), sibling()]),
+        );
+        assert_host_covered_sibling_not(&schema);
+    }
+
+    #[test]
+    fn control_an_atom_without_grants_leaves_its_host_missing() {
+        let schema = inlined(&atom("", ""), &app("", &[billing_by_trait(), sibling()]));
+        let missing = missing_in(&schema);
+        assert!(missing.iter().any(|p| p == "Billing"), "{missing:?}");
+    }
+
+    #[test]
+    fn control_an_app_header_grant_still_applies_to_every_orbital() {
+        let schema = inlined(&atom("", ""), &app(&format!(r#""osGrants": {NET},"#), &[billing_by_trait(), sibling()]));
+        assert!(missing_in(&schema).is_empty(), "{:?}", missing_in(&schema));
+    }
+}

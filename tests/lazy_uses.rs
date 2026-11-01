@@ -482,3 +482,23 @@ fn the_importer_records_a_lazy_traits_declared_dispatch_mode_and_where_the_orbit
     let (schema, _) = split(&first).expect("split");
     assert_eq!(schema.lazy_pages.as_ref().unwrap()[0].after, None, "control: a lazy orbital that came first follows nothing");
 }
+
+#[test]
+fn a_lazy_child_carries_the_atom_header_grants_on_its_orbital_and_the_importer_does_not() {
+    let net = r#""osGrants": { "net": [ { "target": "api.stripe.com:443", "kinds": ["tcp"] } ] },"#;
+    let post = POST.replacen(r#""version": "1.0.0","#, &format!(r#""version": "1.0.0", {net}"#), 1);
+    let s = site_with(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], Some(&post));
+    let (schema, lazy) = split(&s).expect("split");
+    let child = &lazy[0].schema;
+    let granted = child.orbitals[0].os_grants.as_ref().expect("the lazy orbital carries the grant");
+    assert!(granted.net_allows("api.stripe.com", 443, orbital_core_base::os_grants::NetKind::Tcp));
+    assert!(child.os_grants.is_none(), "{:?}", child.os_grants);
+    assert!(schema.os_grants.is_none() && schema.orbitals[0].os_grants.is_none());
+}
+
+#[test]
+fn control_a_lazy_atom_without_header_grants_leaves_its_orbital_without_any() {
+    let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
+    let (_, lazy) = split(&s).expect("split");
+    assert!(lazy[0].schema.orbitals[0].os_grants.is_none());
+}

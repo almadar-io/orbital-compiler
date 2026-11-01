@@ -89,14 +89,6 @@ fn narrow<'a>(
         };
         return of.get(idx);
     }
-    // http's union is ordered [reply, presigned url]; a request carrying `presign` signs a url and sends nothing.
-    if op_name == "http" {
-        let presigned = matches!(
-            args.get(4),
-            Some(SExpression::Object(request)) if !matches!(request.get("presign"), None | Some(SExpression::Null))
-        );
-        return of.get(usize::from(presigned));
-    }
     None
 }
 
@@ -104,19 +96,16 @@ fn narrow<'a>(
 mod tests {
     use super::*;
 
-    fn union_of_two() -> OperatorTypeRef {
+    fn union_of_three() -> OperatorTypeRef {
         let table: OperatorTypeRef = serde_json::from_str(
-            r#"{"kind":"union","of":[{"kind":"object","fields":{"status":"number"},"open":false},{"kind":"object","fields":{"url":"string"},"open":false}]}"#,
+            r#"{"kind":"union","of":[{"kind":"object","fields":{"row":"string"},"open":false},{"kind":"object","fields":{"deleted":"boolean"},"open":false},{"kind":"object","fields":{"count":"number"},"open":false}]}"#,
         )
-        .expect("a union of two shapes");
+        .expect("a union of three shapes");
         table
     }
 
-    fn call(request: &str) -> Vec<SExpression> {
-        let json: serde_json::Value = serde_json::from_str(&format!(
-            r#"["http","GET","https://a.test","/p",{request},{{"emit":{{"success":"OK"}}}}]"#
-        ))
-        .expect("a call");
+    fn call(action: &str) -> Vec<SExpression> {
+        let json: serde_json::Value = serde_json::from_str(&format!(r#"["persist","{action}","Row",{{}}]"#)).expect("a call");
         match serde_json::from_value::<SExpression>(json).expect("an s-expression") {
             SExpression::Array(items) => items.into_iter().collect(),
             other => panic!("a call is an array, got {other:?}"),
@@ -133,30 +122,19 @@ mod tests {
     }
 
     #[test]
-    fn an_http_request_with_presign_narrows_to_the_signed_url_branch() {
-        let union = union_of_two();
-        assert_eq!(
-            names(narrow(
-                "http",
-                &call(r#"{"presign":{"expiresSec":60}}"#),
-                &union
-            )),
-            ["url"]
-        );
+    fn a_persist_action_narrows_to_the_branch_it_selects() {
+        let union = union_of_three();
+        assert_eq!(names(narrow("persist", &call("create"), &union)), ["row"]);
+        assert_eq!(names(narrow("persist", &call("update"), &union)), ["row"]);
+        assert_eq!(names(narrow("persist", &call("delete"), &union)), ["deleted"]);
+        assert_eq!(names(narrow("persist", &call("batch"), &union)), ["count"]);
     }
 
     #[test]
-    fn an_http_request_without_presign_narrows_to_the_reply_branch() {
-        let union = union_of_two();
-        assert_eq!(
-            names(narrow("http", &call(r#"{"query":{"a":"b"}}"#), &union)),
-            ["status"]
-        );
-        assert_eq!(
-            names(narrow("http", &call(r#"{"presign":null}"#), &union)),
-            ["status"]
-        );
-        assert_eq!(names(narrow("http", &call("{}"), &union)), ["status"]);
+    fn control_an_unknown_action_or_another_operator_is_not_narrowed() {
+        let union = union_of_three();
+        assert!(narrow("persist", &call("frobnicate"), &union).is_none());
+        assert!(narrow("fetch", &call("create"), &union).is_none());
     }
 
     fn stepping() -> orbital_core_base::language::registry::EmbeddedOperator {
@@ -236,7 +214,7 @@ mod tests {
 
     #[test]
     fn a_union_of_another_operator_is_still_undecidable() {
-        assert!(narrow("fetch", &call("{}"), &union_of_two()).is_none());
+        assert!(narrow("fetch", &call("create"), &union_of_three()).is_none());
     }
 }
 
@@ -636,7 +614,6 @@ fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
             .is_some_and(|options| !matches!(options.get("key"), None | Some(SExpression::Null)));
     }
     match op_name {
-        "http" => true,
         "browser/page-facts" | "random-bytes" | "fetch" => matches!(
             args.get(2),
             Some(SExpression::Object(options)) if !matches!(options.get("key"), None | Some(SExpression::Null))

@@ -2133,11 +2133,12 @@ fn inline_orbital(
                 loader.mark_loaded(&done.loaded_files);
                 std::rc::Rc::clone(&done.orbitals)
             } else {
-                let mut inlined_orbitals = loader
-                    .load(&use_decl.from, source_path, chain)?
-                    .schema
-                    .orbitals
-                    .clone();
+                let loaded_import = loader.load(&use_decl.from, source_path, chain)?;
+                let file_grants = loaded_import.schema.os_grants.clone();
+                let mut inlined_orbitals = loaded_import.schema.orbitals.clone();
+                for imported in &mut inlined_orbitals {
+                    orbital::take_os_grants(imported, file_grants.as_ref());
+                }
                 let marks = (
                     recorder.len(),
                     orbital_ref_diagnostics.len(),
@@ -2974,6 +2975,7 @@ fn inline_orbital(
     // declared here.
     let mut entity_ids = consumer_entity_ids.clone();
     entity_ids.extend(collect_orbital_entity_ids(orbital));
+    let mut trait_home_grants: Vec<orbital_core_base::os_grants::OsGrants> = Vec::new();
     for tr in &orbital.traits {
         let source = match tr {
             TraitReference::Reference { reference: Some(r), ref_id, .. } => match parse_reference(r) {
@@ -2987,10 +2989,15 @@ fn inline_orbital(
             _ => None,
         };
         if let Some((alias, name, ref_id)) = source {
-            if let Some(owner) = ctx.get_trait_orbital(&alias, &name, ref_id.as_deref()).map(|o| o.name.clone()) {
+            if let Some(home) = ctx.get_trait_orbital(&alias, &name, ref_id.as_deref()) {
+                let (owner, grants) = (home.name.clone(), home.os_grants.clone());
+                trait_home_grants.extend(grants);
                 ctx.reference_orbital(&alias, &owner);
             }
         }
+    }
+    for grants in &trait_home_grants {
+        orbital::take_os_grants(orbital, Some(grants));
     }
     if let EntityRef::Reference(r) = &orbital.entity {
         if let Ok(ParsedReference::Entity { alias }) = parse_reference(r) {

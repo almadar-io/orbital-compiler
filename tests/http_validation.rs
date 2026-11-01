@@ -1,5 +1,5 @@
-//! `orb validate` rules of the `http` effect (`docs/Almadar_Embedded_Kernel.md` H.5):
-//! every code has a positive case and a control that stays silent.
+//! `orb validate` rules of the keyed host calls: every code has a positive case and a control that stays silent.
+//! The `http` effect is retired (EXEC-HTTP-1): HTTP is `std-http-client` over `os/*`, so `(http …)` is an unknown operator.
 
 use orbital_compiler::embedded::parse_service_registry_data;
 use orbital_compiler::phases::validation::{
@@ -8,9 +8,6 @@ use orbital_compiler::phases::validation::{
 use orbital_compiler::SchemaLanguage;
 use orbital_core_base::language::registry::baked_service_registry;
 use orbital_core_base::schema::OrbitalSchema;
-use orbital_core_base::secrets::{
-    secret_flow_violations, CREDENTIAL_NOT_SECRET_CODE, SECRET_OUTSIDE_AUTH_CODE,
-};
 use serde_json::{json, Value};
 
 const ORIGIN: &str = "https://api.iconify.design";
@@ -56,10 +53,6 @@ fn program(egress: Value, config: Value, effects: Value) -> OrbitalSchema {
     .expect("schema")
 }
 
-fn check(egress: Value, config: Value, effects: Value) -> ValidationResult {
-    validate_comprehensive_without_services(&program(egress, config, effects))
-}
-
 fn check_with_installed_services(effects: Value) -> ValidationResult {
     validate_comprehensive_full(
         &program(ok_egress(), config(), effects),
@@ -74,37 +67,8 @@ fn fires(r: &ValidationResult, code: ErrorCode) -> bool {
     r.errors.iter().chain(r.warnings.iter()).any(|e| e.code == code)
 }
 
-fn emit() -> Value {
-    json!({ "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } })
-}
-
-fn call(origin: Value, request: Value) -> Value {
-    json!([["http", "GET", origin, "/search", request, emit()]])
-}
-
 fn ok_egress() -> Value {
     json!([ORIGIN])
-}
-
-fn secret_codes(cfg: Value, effects: Value) -> Vec<&'static str> {
-    let program = serde_json::to_value(program(ok_egress(), cfg, effects)).unwrap();
-    secret_flow_violations(&program).iter().map(|v| v.code()).collect()
-}
-
-fn secrets(effects: Value) -> Vec<&'static str> {
-    secret_codes(config(), effects)
-}
-
-fn keyed(key: bool, cancelled: bool) -> Value {
-    let mut emit = json!({ "success": "SEARCHED", "failure": "SEARCH_FAILED" });
-    if cancelled {
-        emit["cancelled"] = json!("SEARCH_CANCELLED");
-    }
-    let mut options = json!({ "emit": emit });
-    if key {
-        options["key"] = json!("@entity.id");
-    }
-    json!([["http", "GET", ORIGIN, "/s", {}, options]])
 }
 
 fn call_service(service: &str, action: &str, options: Value) -> Value {
@@ -164,9 +128,25 @@ fn field(name: &str, ty: &str) -> Value {
     json!({ "name": name, "type": ty })
 }
 
-fn http_with(extra_request: Value) -> Value {
-    json!([["http", "GET", ORIGIN, "/s", extra_request,
-        { "key": "@entity.id", "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED", "onMessage": "CHUNK" } }]])
+fn http_call() -> Value {
+    json!([["http", "GET", ORIGIN, "/s", {}, { "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }]])
+}
+
+#[test]
+fn an_http_effect_is_an_unknown_operator() {
+    let r = check_with_installed_services(http_call());
+    assert!(
+        r.errors.iter().any(|e| e.code == ErrorCode::EffectUnknownType && e.message.contains("'http'")),
+        "{:?}",
+        r.errors
+    );
+}
+
+#[test]
+fn control_a_call_service_of_the_same_shape_is_a_known_operator() {
+    let known = json!([["call-service", "test-svc", "run", {}, { "emit": { "success": "SEARCHED", "failure": "SEARCH_FAILED" } }]]);
+    let r = check_with_installed_services(known);
+    assert!(!fires(&r, ErrorCode::EffectUnknownType), "{:?}", r.errors);
 }
 
 #[test]
@@ -184,46 +164,6 @@ fn a_keyed_call_service_failure_is_error_and_key() {
     assert!(!fires(&r, ErrorCode::EmitPayloadNotProduced), "control: an unkeyed failure shape is not decided");
 }
 
-
-fn post(origin: Value, request: Value) -> Value {
-    json!([["http", "POST", origin, "/s", request, emit()]])
-}
-
-fn exchange(extra: Value) -> Value {
-    let mut auth = json!({
-        "scheme": "token-exchange", "tokenUrl": format!("{ORIGIN}/oauth/token"), "grant": "refresh_token",
-        "body": { "form": { "refresh_token": { "credential": "@config.apiKey", "scope": "user" }, "scope": "read" } },
-        "clientAuth": "post", "clientId": "@config.apiKey", "clientSecret": "@config.apiKey",
-        "accessField": "access_token", "expiresField": "expires_in", "expiresMarginMs": 1000,
-        "storeAs": { "name": "drive:access", "scope": "user" }
-    });
-    auth.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-    json!({ "auth": auth })
-}
-
-fn grant_auths() -> [Value; 3] {
-    [
-        exchange(json!({}))["auth"].clone(),
-        json!({"scheme":"oauth2-client","tokenUrl":format!("{ORIGIN}/token"),
-            "clientId":"@config.apiKey","clientSecret":"@config.apiKey","scope":"read"}),
-        json!({"scheme":"jwt-bearer","tokenUrl":format!("{ORIGIN}/token"),
-            "key":"@config.apiKey","alg":"RS256",
-            "claims":{"aud":format!("{ORIGIN}/token"),"iat":1000,"exp":4600}}),
-    ]
-}
-
-fn dynamic_retry_config() -> Value {
-    let mut cfg = config();
-    cfg["backoff"] = json!({"type":"number","default":0});
-    cfg["retryCap"] = json!({"type":"number","default":1});
-    cfg["wideLimit"] = json!({"type":"number","default":3});
-    cfg["retryOn"] = json!({"type":"[string]","items":{"type":"string"},"default":["5xx"]});
-    cfg["retryDelays"] = json!({"type":"[number]","items":{"type":"number"},"default":[0]});
-    cfg["threeDelays"] = json!({"type":"[number]","items":{"type":"number"},"default":[10,20,30]});
-    cfg
-}
-
-// --- token-exchange rotate / onUnauthorized / queryEncoding ---------------------------------------------------
 
 mod browser_effects_validation {
     // `orb validate` rules of `browser/page-facts` and `browser/beacon` (G-CROSS-221): every code has a positive case

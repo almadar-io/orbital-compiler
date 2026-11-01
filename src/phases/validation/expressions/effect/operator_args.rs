@@ -449,6 +449,21 @@ mod tests {
     }
 
     #[test]
+    fn a_semantic_string_field_in_a_message_params_map_fits_its_string_member() {
+        for ty in ["string", "email", "url", "phone"] {
+            let mut fields = field("value", ty);
+            fields.get_mut("value").unwrap().required = true;
+            let got = mismatches(r#"["i18n/t", "invite.sent", {"who": "@entity.value"}]"#, fields);
+            assert!(got.is_empty(), "{ty}: {got:?}");
+        }
+        let got = mismatches(
+            r#"["i18n/t", "invite.sent", {"who": "@entity.value"}]"#,
+            field("value", "object"),
+        );
+        assert_eq!(got.len(), 1, "control: an object is no message value: {got:?}");
+    }
+
+    #[test]
     fn a_mismatch_inside_an_object_value_is_found() {
         let got = mismatches(r#"{"content": ["str/upper", 5]}"#, HashMap::new());
         assert_eq!(got.len(), 1, "{got:?}");
@@ -925,6 +940,32 @@ mod tests {
             .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
             .map(|e| e.message.clone())
             .collect()
+    }
+
+    fn render_ui_with(prop: &str) -> Vec<String> {
+        effect_findings(&format!(r#"["render-ui", "main", {{ "type": "data-grid", "entity": {prop} }}]"#))
+    }
+
+    fn rows_mapped(body: &str) -> String {
+        format!(r#"["array/map", ["list", {{ "s1": "a", "s2": "b", "f1": true, "f2": false }}], ["fn", "r", {body}]]"#)
+    }
+
+    #[test]
+    fn g_orb_627_a_pattern_prop_lambda_body_is_type_checked() {
+        let strings = render_ui_with(&rows_mapped(r#"{ "a": ["or", "@r.s1", "@r.s2"] }"#));
+        assert_eq!(strings.len(), 2, "or over two strings in a lambda body: {strings:?}");
+        assert!(strings[0].contains("or"), "{strings:?}");
+        assert_eq!(render_ui_with(&rows_mapped(r#"{ "a": ["or", "@r.f1", "@r.f2"] }"#)).len(), 0, "control: booleans");
+        assert_eq!(render_ui_with(&rows_mapped(r#"{ "a": ["default", "@r.s1", "@r.s2"] }"#)).len(), 0, "control: default on strings");
+        let nested = render_ui_with(&rows_mapped(
+            r#"{ "a": ["array/map", ["list", 1], ["fn", "q", ["or", "@r.s1", "@r.s2"]]] }"#,
+        ));
+        assert_eq!(nested.len(), 2, "nested lambda: {nested:?}");
+        assert_eq!(
+            effect_findings(r#"["set", "@entity.headId", ["or", "x", "y"]]"#).len(),
+            1,
+            "control: the same call outside a lambda is checked"
+        );
     }
 
     #[test]
