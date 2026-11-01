@@ -13,7 +13,7 @@
 //!    rewrite the listen source through the rename map instead of dropping the
 //!    route as "source not imported".
 
-use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
+use orbital_compiler::phases::inline::{inline_schema, InlineConfig, InlineError};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_core_base::schema::{ListenSource, TraitDefinition, TraitReference};
 
@@ -557,4 +557,171 @@ fn control_a_host_composed_once_listens_to_its_sibling_by_name() {
     );
     let traits = inline_traits_of(&schema);
     assert_eq!(listen_source_of(&traits, "TourA"), "Clock");
+}
+
+const DESK_ATOM: &str = r#"{
+  "name": "test-desk",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "DeskA",
+      "entity": {
+        "name": "Task", "persistence": "persistent",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "title", "type": "string" },
+          { "name": "aOnly", "type": "string", "mergedFrom": "BoardView" }
+        ]
+      },
+      "traits": [{
+        "name": "TraitA", "entityRebindable": true, "linkedEntity": "Task",
+        "stateMachine": {
+          "states": [ { "name": "idle", "isInitial": true } ],
+          "events": [ { "key": "INIT" } ],
+          "transitions": [ { "from": "idle", "to": "idle", "event": "INIT",
+            "effects": [ ["render-ui", "main", { "type": "typography", "content": "@entity.aOnly" }] ] } ]
+        }
+      }],
+      "pages": [ { "name": "DeskAPage", "path": "/deska", "traits": [ { "ref": "TraitA" } ] } ]
+    },
+    {
+      "name": "DeskB",
+      "entity": {
+        "name": "Other", "persistence": "persistent",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "otherOnly", "type": "string", "mergedFrom": "Elsewhere" }
+        ]
+      },
+      "traits": [{
+        "name": "TraitB", "linkedEntity": "Other",
+        "stateMachine": {
+          "states": [ { "name": "idle", "isInitial": true } ],
+          "events": [ { "key": "INIT" } ],
+          "transitions": [ { "from": "idle", "to": "idle", "event": "INIT",
+            "effects": [ ["render-ui", "main", { "type": "typography", "content": "@entity.otherOnly" }] ] } ]
+        }
+      }],
+      "pages": [ { "name": "DeskBPage", "path": "/deskb", "traits": [ { "ref": "TraitB" } ] } ]
+    }
+  ]
+}"#;
+
+fn desk_consumer(extra_traits: &[&str]) -> String {
+    let extra: String = extra_traits
+        .iter()
+        .enumerate()
+        .map(|(i, r)| format!(r#", {{ "ref": "{r}", "linkedEntity": "Task", "name": "DeskUse{i}" }}"#))
+        .collect();
+    let page_extra: String = (0..extra_traits.len()).map(|i| format!(r#", {{ "ref": "DeskUse{i}" }}"#)).collect();
+    format!(
+        r#"{{
+  "name": "test-desk-consumer",
+  "version": "1.0.0",
+  "orbitals": [
+    {{
+      "name": "OwnerOrbital",
+      "entity": {{
+        "name": "Task", "persistence": "persistent",
+        "fields": [ {{ "name": "id", "type": "string", "required": true }}, {{ "name": "title", "type": "string" }} ]
+      }},
+      "traits": [],
+      "pages": []
+    }},
+    {{
+      "name": "ComposeOrbital",
+      "uses": [ {{ "from": "./atom-host.orb", "as": "Host" }}, {{ "from": "./desk.orb", "as": "Desk" }} ],
+      "entity": {{ "name": "Visit", "persistence": "runtime", "fields": [ {{ "name": "id", "type": "string", "required": true }} ] }},
+      "traits": [ {{ "ref": "Host.traits.HostMain", "linkedEntity": "Task", "name": "ThingHost" }}{extra} ],
+      "pages": [ {{ "name": "ComposePage", "path": "/compose", "traits": [ {{ "ref": "ThingHost" }}{page_extra} ] }} ]
+    }}
+  ]
+}}"#
+    )
+}
+
+/// An orbital declaring its own `Task` with `field` merged in, read by trait `trait_name`.
+fn desk_orbital_with_task(name: &str, trait_name: &str, field: &str) -> serde_json::Value {
+    serde_json::json!({
+      "name": name,
+      "entity": {
+        "name": "Task", "persistence": "persistent",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "title", "type": "string" },
+          { "name": field, "type": "string", "mergedFrom": "Elsewhere" }
+        ]
+      },
+      "traits": [{
+        "name": trait_name, "entityRebindable": true, "linkedEntity": "Task",
+        "stateMachine": {
+          "states": [ { "name": "idle", "isInitial": true } ],
+          "events": [ { "key": "INIT" } ],
+          "transitions": [ { "from": "idle", "to": "idle", "event": "INIT",
+            "effects": [ ["render-ui", "main", { "type": "typography", "content": format!("@entity.{field}") }] ] } ]
+        }
+      }],
+      "pages": [ { "name": format!("{name}Page"), "path": format!("/{}", name.to_lowercase()), "traits": [ { "ref": trait_name } ] } ]
+    })
+}
+
+fn desk_with_orbital_first(first: serde_json::Value) -> String {
+    let mut v: serde_json::Value = serde_json::from_str(DESK_ATOM).expect("desk json");
+    v["orbitals"].as_array_mut().expect("orbitals").insert(0, first);
+    v.to_string()
+}
+
+fn inline_desk(extra_traits: &[&str], desk: String) -> Result<orbital_core_base::schema::OrbitalSchema, InlineError> {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("atom-host.orb"), atom_with_button("atom-host", "HostMain", "FIRE")).expect("write host");
+    std::fs::write(dir.path().join("desk.orb"), desk).expect("write desk");
+    let consumer_path = dir.path().join("consumer.orb");
+    std::fs::write(&consumer_path, desk_consumer(extra_traits)).expect("write consumer");
+    let mut schema = parse_file(&consumer_path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path))?;
+    Ok(schema)
+}
+
+fn owner_task_fields_in(schema: &orbital_core_base::schema::OrbitalSchema) -> Vec<String> {
+    match &schema.orbitals[0].entity {
+        orbital_core_base::schema::EntityRef::Inline(e) => {
+            e.fields.iter().filter_map(|f| f.name.clone()).collect()
+        }
+        other => panic!("expected an inline entity, got {other:?}"),
+    }
+}
+
+fn owner_task_fields(extra_traits: &[&str]) -> Vec<String> {
+    owner_task_fields_in(&inline_desk(extra_traits, DESK_ATOM.to_string()).expect("inline succeeds"))
+}
+
+/// EXEC-LANG-4 (proposed, exec-doc.patch): a `uses` alias contributes only through what the call site references.
+#[test]
+fn a_bare_uses_merges_no_fields_into_a_same_named_entity() {
+    let fields = owner_task_fields(&[]);
+    assert!(!fields.contains(&"aOnly".to_string()), "{fields:?}");
+    assert!(fields.contains(&"title".to_string()), "{fields:?}");
+}
+
+#[test]
+fn a_referenced_orbitals_trait_merges_only_its_own_entity_fields() {
+    let fields = owner_task_fields(&["Desk.traits.TraitA"]);
+    assert!(fields.contains(&"aOnly".to_string()), "{fields:?}");
+    assert!(!fields.contains(&"otherOnly".to_string()), "{fields:?}");
+}
+
+#[test]
+fn an_unreferenced_earlier_orbital_with_the_same_entity_name_contributes_nothing() {
+    let desk = desk_with_orbital_first(desk_orbital_with_task("DeskShadow", "TraitS", "bExtra"));
+    let fields = owner_task_fields_in(&inline_desk(&["Desk.traits.TraitA"], desk).expect("inline succeeds"));
+    assert!(fields.contains(&"aOnly".to_string()), "{fields:?}");
+    assert!(!fields.contains(&"bExtra".to_string()), "{fields:?}");
+}
+
+#[test]
+fn two_referenced_orbitals_declaring_the_entity_differently_are_ambiguous() {
+    let desk = desk_with_orbital_first(desk_orbital_with_task("DeskShadow", "TraitS", "bExtra"));
+    let err = inline_desk(&["Desk.traits.TraitA", "Desk.traits.TraitS"], desk)
+        .expect_err("two differing declarations are ambiguous");
+    assert_eq!(err.structured_code(), "ORB_O_SIBLING_ENTITY_AMBIGUOUS", "{err}");
 }

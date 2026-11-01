@@ -8,6 +8,7 @@
 //! so field order and optional-field presence are the program's own; golden cases recorded from the original
 //! live in `tests/fixtures/compose-app/`.
 
+use orbital_core_base::os_grants::OsGrants;
 use orbital_core_base::value::{Shared, Value, ValueMap as Map};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -2646,102 +2647,59 @@ pub fn compose_orbital_surface_owned(
     Ok(Value::object(out))
 }
 
-/// The union of two os grant sets: lists deduplicated in first-seen order, an fs glob or net target named by both
-/// with its modes or kinds unioned.
-pub fn union_os_grants(a: Option<&Value>, b: Option<&Value>) -> Value {
-    let list = |key: &str| -> Vec<Value> {
-        let mut out: Vec<Value> = Vec::new();
-        for v in a.into_iter().chain(b).flat_map(|g| arr_of(g, key)) {
-            if !out.contains(v) {
-                out.push(v.clone());
-            }
-        }
-        out
+/// The union of two os grant sets, the one `OsGrants::union` of orbital-core. A set that is not an `osGrants` object is
+/// refused; empty families are left out of the result.
+pub fn union_os_grants(a: Option<&Value>, b: Option<&Value>) -> Result<Value, String> {
+    let typed = |v: &Value| -> Result<OsGrants, String> {
+        let json = serde_json::to_value(v).map_err(|e| e.to_string())?;
+        serde_json::from_value(json).map_err(|e| format!("osGrants: {e}"))
     };
-    let anchored: Vec<&Value> = a.into_iter().chain(b).filter_map(|g| g.get("anchored")).collect();
-    let keyed_in = |sets: &[&Value], key: &str, ids: &[&str], items: &str| -> Vec<Value> {
-        let mut out: Vec<Value> = Vec::new();
-        for g in sets.iter().flat_map(|g| arr_of(g, key)) {
-            match out.iter_mut().find(|o| ids.iter().all(|id| o.get(id) == g.get(id))) {
-                Some(seen) => {
-                    let mut merged = arr_of(seen, items).to_vec();
-                    for x in arr_of(g, items) {
-                        if !merged.contains(x) {
-                            merged.push(x.clone());
-                        }
-                    }
-                    seen[items] = Value::array(merged);
-                }
-                None => out.push(g.clone()),
-            }
-        }
-        out
-    };
-    let mut anchored_out = Map::default();
-    let anchored_fs = keyed_in(&anchored, "fs", &["anchor", "glob"], "modes");
-    let anchored_net = keyed_in(&anchored, "net", &["host", "port"], "kinds");
-    let mut anchored_exec: Vec<Value> = Vec::new();
-    for v in anchored.iter().flat_map(|g| arr_of(g, "exec")) {
-        if !anchored_exec.contains(v) {
-            anchored_exec.push(v.clone());
-        }
+    let mut union = OsGrants::default();
+    for set in a.into_iter().chain(b) {
+        union.union(&typed(set)?);
     }
-    for (key, items) in [("fs", anchored_fs), ("exec", anchored_exec), ("net", anchored_net)] {
-        if !items.is_empty() {
-            anchored_out.insert(key.to_string().into(), Value::array(items));
-        }
+    let mut json = serde_json::to_value(&union).map_err(|e| e.to_string())?;
+    if let Some(map) = json.as_object_mut() {
+        map.retain(|_, family| !family.as_array().is_some_and(Vec::is_empty));
     }
-    let mut out = Map::default();
-    let sets: Vec<&Value> = a.into_iter().chain(b).collect();
-    let fs = keyed_in(&sets, "fs", &["glob"], "modes");
-    let net = keyed_in(&sets, "net", &["target"], "kinds");
-    let dev = keyed_in(&sets, "dev", &["target"], "kinds");
-    if !fs.is_empty() {
-        out.insert("fs".into(), Value::array(fs));
-    }
-    if !net.is_empty() {
-        out.insert("net".into(), Value::array(net));
-    }
-    if !dev.is_empty() {
-        out.insert("dev".into(), Value::array(dev));
-    }
-    for key in ["exec", "env", "stdio", "sys", "desktop", "credentials"] {
-        let l = list(key);
-        if !l.is_empty() {
-            out.insert(key.to_string().into(), Value::array(l));
-        }
-    }
-    if !anchored_out.is_empty() {
-        out.insert("anchored".into(), Value::object(anchored_out));
-    }
-    Value::object(out)
+    serde_json::from_value(json).map_err(|e| e.to_string())
 }
 
 fn with_upstream_os_grants(
     files: Vec<Value>,
     imported: Option<&dyn Fn(&Value) -> Option<Value>>,
-) -> Vec<Value> {
-    let grant = |o: &mut Value| {
+) -> Result<Vec<Value>, String> {
+    let grant = |o: &mut Value| -> Result<(), String> {
         if o.get("reference").is_none() {
-            return;
+            return Ok(());
         }
         let Some(upstream) = imported.and_then(|f| f(o)) else {
-            return;
+            return Ok(());
         };
         let Some(up) = upstream.get("osGrants") else {
-            return;
+            return Ok(());
         };
-        let merged = union_os_grants(o.get("osGrants"), Some(up));
+        let merged = union_os_grants(o.get("osGrants"), Some(up))?;
         o["osGrants"] = merged;
+        Ok(())
     };
     files
         .into_iter()
         .map(|mut f| {
+            let app_level = if is_schema(&f) { f.as_object_mut().and_then(|o| o.shift_remove("osGrants")) } else { None };
             match f.get_mut("orbitals").and_then(Value::as_array_mut) {
-                Some(orbitals) => orbitals.iter_mut().for_each(grant),
-                None => grant(&mut f),
+                Some(orbitals) => {
+                    orbitals.iter_mut().try_for_each(grant)?;
+                    if let Some(app_level) = &app_level {
+                        for orbital in orbitals.iter_mut() {
+                            let merged = union_os_grants(orbital.get("osGrants"), Some(app_level))?;
+                            orbital["osGrants"] = merged;
+                        }
+                    }
+                }
+                None => grant(&mut f)?,
             }
-            f
+            Ok(f)
         })
         .collect()
 }
@@ -2789,13 +2747,8 @@ pub fn compose_app_from_owned_files(
     options: &ComposeAppOptions,
     lookups: &ComposeLookups,
 ) -> Result<Value, String> {
-    let files = with_upstream_os_grants(inputs, lookups.imported_orbital_of);
+    let files = with_upstream_os_grants(inputs, lookups.imported_orbital_of)?;
     let (inbound, egress) = declared_reach(&files, lookups.imported_program_of);
-    let file_grants: Vec<Value> = files
-        .iter()
-        .filter(|f| is_schema(f))
-        .filter_map(|f| f.get("osGrants").cloned())
-        .collect();
     let mut surface = compose_orbital_surface_owned(files, lookups, &options.now)?;
     let orbitals = match surface["orbitals"].take() {
         Value::Array(items) => items.into_inner(),
@@ -2821,12 +2774,6 @@ pub fn compose_app_from_owned_files(
     }
     if !egress.is_empty() {
         schema["egress"] = Value::array(egress);
-    }
-    let program_grants = file_grants
-        .iter()
-        .fold(schema.get("osGrants").cloned(), |acc: Option<Value>, g| Some(union_os_grants(acc.as_ref(), Some(g))));
-    if let Some(grants) = program_grants {
-        schema["osGrants"] = grants;
     }
     let mut out = Map::default();
     out.insert("schema".into(), schema);
@@ -3010,7 +2957,7 @@ pub fn apply_compose_overrides(schema: &mut Value, overrides: &Value) -> Result<
             if !value.is_object() {
                 return Err("overrides.grants must be an osGrants object".to_string());
             }
-            schema["osGrants"] = union_os_grants(schema.get("osGrants"), Some(value));
+            schema["osGrants"] = union_os_grants(schema.get("osGrants"), Some(value))?;
             continue;
         }
         let Some((trait_name, knob)) = key.split_once('.').filter(|(t, k)| !t.is_empty() && !k.is_empty() && !k.contains('.')) else {
@@ -3311,10 +3258,22 @@ mod tests {
         let a = jv!({ "fs": [{ "glob": "~/.a/**", "modes": ["read"] }], "env": ["A", "B"] });
         let b = jv!({ "fs": [{ "glob": "~/.a/**", "modes": ["write", "read"] }, { "glob": "./x", "modes": ["meta"] }], "env": ["B", "C"] });
         assert_eq!(
-            union_os_grants(Some(&a), Some(&b)),
+            union_os_grants(Some(&a), Some(&b)).expect("grants"),
             jv!({ "fs": [{ "glob": "~/.a/**", "modes": ["read", "write"] }, { "glob": "./x", "modes": ["meta"] }], "env": ["A", "B", "C"] })
         );
-        assert_eq!(union_os_grants(None, None), jv!({}));
+        assert_eq!(union_os_grants(None, None).expect("grants"), jv!({}));
+        assert!(union_os_grants(Some(&a), Some(&jv!({ "fs": [], "bogus": 1 }))).is_err(), "an unknown family is refused, not dropped");
+    }
+
+    #[test]
+    fn os_grants_union_keeps_kv_grants_from_both_sets_and_unions_modes_on_a_shared_store() {
+        let a = jv!({ "kv": { "sessions": ["read"] }, "exec": ["git"] });
+        let b = jv!({ "kv": { "sessions": ["write", "read"], "cache-*": ["read"] } });
+        assert_eq!(
+            union_os_grants(Some(&a), Some(&b)).expect("grants"),
+            jv!({ "exec": ["git"], "kv": { "sessions": ["read", "write"], "cache-*": ["read"] } })
+        );
+        assert!(union_os_grants(Some(&jv!({ "exec": ["git"] })), Some(&jv!({ "exec": ["git"] }))).expect("grants").get("kv").is_none(), "control: no kv key without kv entries");
     }
 
     #[test]
@@ -3325,13 +3284,13 @@ mod tests {
             "exec": [{ "anchor": "exe-dir", "path": "bun" }],
             "net": [{ "host": { "anchor": { "env": "HOST" } }, "port": { "anchor": { "env": "PORT" } }, "kinds": ["listen"] }] } });
         assert_eq!(
-            union_os_grants(Some(&a), Some(&b)),
+            union_os_grants(Some(&a), Some(&b)).expect("grants"),
             jv!({ "exec": ["bun"], "anchored": {
                 "fs": [{ "anchor": "cwd", "glob": "docs/**", "modes": ["read", "write"] }, { "anchor": "exe-dir", "glob": "docs/**", "modes": ["read"] }],
                 "exec": [{ "anchor": "exe-dir", "path": "bun" }],
                 "net": [{ "host": { "anchor": { "env": "HOST" } }, "port": { "anchor": { "env": "PORT" } }, "kinds": ["listen"] }] } })
         );
-        assert!(union_os_grants(Some(&jv!({ "exec": ["git"] })), None).get("anchored").is_none(), "control: no anchored key without anchored entries");
+        assert!(union_os_grants(Some(&jv!({ "exec": ["git"] })), None).expect("grants").get("anchored").is_none(), "control: no anchored key without anchored entries");
     }
 
     fn composable(name: &str, orbital: &str, grants: Option<Value>, effect: Option<Value>, config: Option<Value>) -> Value {
@@ -3363,11 +3322,14 @@ mod tests {
     }
 
     #[test]
-    fn composing_keeps_each_programs_top_level_grants() {
+    fn composing_keeps_each_programs_top_level_grants_on_its_own_orbitals() {
         let server = composable("server", "Http", Some(jv!({ "env": ["NODE_ENV"] })), Some(getenv("NODE_ENV")), None);
         let app = composable("app", "Notes", None, None, None);
         let composed = compose(&[app, server], None).unwrap();
-        assert_eq!(composed["osGrants"]["env"], jv!(["NODE_ENV"]), "the server's env grant survives: {}", composed["osGrants"]);
+        let orbital = |name: &str| composed["orbitals"].as_array().unwrap().iter().find(|o| o["name"] == jv!(name)).unwrap().clone();
+        assert_eq!(orbital("Http")["osGrants"]["env"], jv!(["NODE_ENV"]), "the server's env grant stays on its orbital: {composed}");
+        assert!(orbital("Notes").get("osGrants").is_none(), "a sibling orbital gains nothing: {}", orbital("Notes"));
+        assert!(composed.get("osGrants").is_none(), "the app level declares nothing: {}", composed["osGrants"]);
     }
 
     #[test]
@@ -3412,6 +3374,23 @@ mod tests {
         let plain = compose(&[knobbed()], None).unwrap();
         assert_eq!(plain["orbitals"][0]["traits"][0]["config"]["port"]["default"], jv!(3000), "control: no overrides keeps the default");
         assert!(plain.get("osGrants").is_none(), "control: and widens no grant");
+    }
+
+    #[test]
+    fn an_override_keeps_kv_grants_and_leaves_the_other_families_as_they_were() {
+        let mut schema = jv!({ "orbitals": [], "osGrants": { "kv": { "sessions": ["read"] }, "fs": [{ "glob": "/a/**", "modes": ["read"] }], "net": [{ "target": "a.test:443", "kinds": ["tcp"] }], "exec": ["git"], "env": ["HOME"] } });
+        let overrides = jv!({ "grants": { "kv": { "sessions": ["write"], "cache": ["read"] }, "fs": [{ "glob": "/a/**", "modes": ["write"] }], "exec": ["git", "gh"] } });
+        apply_compose_overrides(&mut schema, &overrides).unwrap();
+        assert_eq!(
+            schema["osGrants"],
+            jv!({ "kv": { "sessions": ["read", "write"], "cache": ["read"] }, "fs": [{ "glob": "/a/**", "modes": ["read", "write"] }], "net": [{ "target": "a.test:443", "kinds": ["tcp"] }], "exec": ["git", "gh"], "env": ["HOME"] })
+        );
+        let mut program = knobbed();
+        program["osGrants"] = jv!({ "kv": { "sessions": ["read"] } });
+        let composed = compose(&[program], Some(&jv!({ "grants": { "kv": { "cache": ["read"] } } }))).unwrap();
+        assert_eq!(composed["orbitals"][0]["osGrants"]["kv"], jv!({ "sessions": ["read"] }), "control: the program's own kv stays on its orbital");
+        assert_eq!(composed["osGrants"]["kv"], jv!({ "cache": ["read"] }), "the override's kv survives compose");
+        assert!(compose(&[knobbed()], Some(&jv!({ "grants": { "bogus": [] } }))).is_err(), "an unknown grant family is refused");
     }
 
     #[test]

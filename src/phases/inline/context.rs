@@ -142,6 +142,10 @@ pub(crate) struct InlineContext {
     pub(crate) reference_pairs: std::cell::RefCell<Vec<super::ReferencePair>>,
     /// Type names a reference-form orbital took from its upstream, with the file that declares them.
     pub(crate) pulled_type_files: std::cell::RefCell<Vec<(String, std::path::PathBuf)>>,
+    /// The imported orbitals this orbital's call sites reference, as (alias, orbital name), in
+    /// declaration order: `Alias.orbitals.Y`, the source orbital of each `Alias.traits.X`, and the
+    /// orbital behind `Alias.entity`. An orbital nothing references contributes nothing.
+    pub(crate) referenced_orbitals: Vec<(String, String)>,
 }
 
 impl InlineContext {
@@ -154,6 +158,7 @@ impl InlineContext {
             collect_references: false,
             reference_pairs: Default::default(),
             pulled_type_files: Default::default(),
+            referenced_orbitals: Vec::new(),
         }
     }
 
@@ -586,52 +591,72 @@ impl InlineContext {
     /// step-flow's `ProgressVerticalView`): that entity lives in the source
     /// behavior's auxiliary list after the source was recursively inlined, and
     /// must be carried into the consumer that pulls the sibling.
-    /// Find an entity definition by NAME across EVERY alias in scope, not just
-    /// one. A pulled sibling REBOUND by its embedder can be retargeted to an
-    /// entity that came from a DIFFERENT `uses` alias than the one the sibling
-    /// was pulled from — e.g. `AuditBrowseList = Browse.traits.BrowseItemBrowse
-    /// -> AuditEntry`, where `AuditEntry` belongs to `std-audit-capture`, not
-    /// to `std-browse`. Searching only the pull's own alias misses it, and the
-    /// consumer orbital then holds a trait bound to an entity it does not have.
-    pub(crate) fn get_entity_by_name_any_alias(
-        &self,
-        entity_name: &str,
-    ) -> Option<EntityDefinition> {
-        let mut aliases: Vec<&String> = self.aliases.keys().collect();
-        // Deterministic: two aliases can expose the same entity name, and the
-        // pick must not depend on HashMap iteration order.
-        aliases.sort();
-        for alias in aliases {
-            if let Some(found) = self.get_entity_by_name_for_alias(alias, entity_name) {
-                return Some(found);
-            }
+    pub(crate) fn reference_orbital(&mut self, alias: &str, orbital: &str) {
+        let key = (alias.to_string(), orbital.to_string());
+        if !self.referenced_orbitals.contains(&key) {
+            self.referenced_orbitals.push(key);
         }
-        None
     }
 
-    pub(crate) fn get_entity_by_name_for_alias(
+    /// The entity `bound` a sibling pulled beside `parent` in `alias` is bound to, found by declared
+    /// linkage: the orbital that declares `parent`, then the other orbitals the call site references.
+    /// Two referenced orbitals declaring `bound` with different fields are ambiguous.
+    pub(crate) fn sibling_bound_entity(
         &self,
         alias: &str,
-        entity_name: &str,
-    ) -> Option<EntityDefinition> {
-        let entry = self.aliases.get(alias)?;
-        for orbital in entry.orbitals.iter() {
-            if let EntityRef::Inline(e) = &orbital.entity {
-                if e.name == entity_name {
-                    return Some(e.clone());
-                }
+        parent: &str,
+        sibling: &str,
+        bound: &str,
+        path: &str,
+    ) -> Result<Option<EntityDefinition>, InlineError> {
+        let Some(entry) = self.aliases.get(alias) else {
+            return Ok(None);
+        };
+        let declared = |orbital: &Orbital| -> Option<EntityDefinition> {
+            std::iter::once(&orbital.entity)
+                .chain(orbital.auxiliary_entities.iter().flatten())
+                .find_map(|e| match e {
+                    EntityRef::Inline(e) if e.name == bound => Some(e.clone()),
+                    _ => None,
+                })
+        };
+        let declares_trait = |orbital: &Orbital, name: &str| {
+            orbital.traits.iter().any(|t| matches!(t, TraitReference::Inline(td) if td.name == name))
+        };
+        let home = entry
+            .orbitals
+            .iter()
+            .find(|o| declares_trait(o, parent))
+            .or_else(|| entry.orbitals.iter().find(|o| declares_trait(o, sibling)));
+        if let Some(found) = home.and_then(declared) {
+            return Ok(Some(found));
+        }
+        let mut found: Vec<(&str, &str, EntityDefinition)> = Vec::new();
+        for (a, name) in &self.referenced_orbitals {
+            if a == alias && home.is_some_and(|h| &h.name == name) {
+                continue;
             }
-            if let Some(aux) = &orbital.auxiliary_entities {
-                for a in aux {
-                    if let EntityRef::Inline(e) = a {
-                        if e.name == entity_name {
-                            return Some(e.clone());
-                        }
-                    }
-                }
+            let Some(orbital) = self.aliases.get(a).and_then(|e| e.orbitals.iter().find(|o| &o.name == name)) else {
+                continue;
+            };
+            if let Some(def) = declared(orbital) {
+                found.push((a.as_str(), name.as_str(), def));
             }
         }
-        None
+        let Some((first_alias, first_name, first)) = found.first() else {
+            return Ok(None);
+        };
+        let shape = |d: &EntityDefinition| serde_json::to_value(&d.fields).expect("fields serialize");
+        let first_shape = shape(first);
+        if let Some((second_alias, second_name, _)) = found.iter().skip(1).find(|(_, _, d)| shape(d) != first_shape) {
+            return Err(InlineError::AmbiguousSiblingEntity {
+                entity: bound.to_string(),
+                first: format!("{first_alias}.orbitals.{first_name}"),
+                second: format!("{second_alias}.orbitals.{second_name}"),
+                path: path.to_string(),
+            });
+        }
+        Ok(Some(first.clone()))
     }
 
     pub(crate) fn get_entity(&self, alias: &str) -> Result<EntityRef, InlineError> {

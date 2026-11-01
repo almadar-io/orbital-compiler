@@ -223,6 +223,21 @@ pub enum InlineError {
     },
 
     #[error(
+        "Entity '{entity}' bound by a pulled sibling at {path} is declared by both {first} and {second} with DIFFERENT fields; \
+         reference only the orbital whose entity is meant, or rename one of the two."
+    )]
+    AmbiguousSiblingEntity {
+        /// The entity name both referenced orbitals declare.
+        entity: String,
+        /// The first referenced orbital declaring it.
+        first: String,
+        /// The second, differing one.
+        second: String,
+        /// Source-tagged path to the composing orbital.
+        path: String,
+    },
+
+    #[error(
         "Orbital import `listens` at {path} routes into '{target}', which is not a trait of the imported set (after omit/only)"
     )]
     OrbitalRefListenTargetUnknown {
@@ -340,6 +355,7 @@ impl InlineError {
             InlineError::EmitMergeConflict { path, .. } => path,
             InlineError::ConflictingTypeAlias { path, .. } => path,
             InlineError::AmbiguousTypeName { path, .. } => path,
+            InlineError::AmbiguousSiblingEntity { path, .. } => path,
             InlineError::TypeImportRefused { path, .. } => path,
             InlineError::DuplicateUseAlias { path, .. } => path,
             InlineError::OrbitalRefListenTargetUnknown { path, .. } => path,
@@ -365,6 +381,7 @@ impl InlineError {
             InlineError::EmitMergeConflict { .. } => "ORB_T_EMIT_MERGE_CONFLICT",
             InlineError::ConflictingTypeAlias { .. } => "ORB_T_CONFLICTING_TYPE_ALIAS",
             InlineError::AmbiguousTypeName { .. } => "ORB_T_AMBIGUOUS_TYPE_NAME",
+            InlineError::AmbiguousSiblingEntity { .. } => "ORB_O_SIBLING_ENTITY_AMBIGUOUS",
             InlineError::TypeImportRefused { .. } => "ORB_T_TYPE_IMPORT_REFUSED",
             InlineError::DuplicateUseAlias { .. } => "ORB_O_DUPLICATE_USE_ALIAS",
             InlineError::OrbitalRefListenTargetUnknown { .. } => "ORB_O_LISTEN_TARGET_UNKNOWN",
@@ -2243,6 +2260,11 @@ fn inline_orbital(
     // every other reference form uses, and BEFORE the entity-field auto-merge
     // below (which reads `orbital.entity`/`orbital.traits` and must see the
     // materialized ones, not the reference-form placeholder).
+    if let Some(reference) = orbital.reference.as_ref() {
+        if let Ok(ParsedReference::Orbital { alias, name }) = parse_reference(&reference.reference) {
+            ctx.reference_orbital(&alias, &name);
+        }
+    }
     if let Some(reference) = orbital.reference.take() {
         resolve_orbital_reference(
             orbital,
@@ -2952,6 +2974,32 @@ fn inline_orbital(
     // declared here.
     let mut entity_ids = consumer_entity_ids.clone();
     entity_ids.extend(collect_orbital_entity_ids(orbital));
+    for tr in &orbital.traits {
+        let source = match tr {
+            TraitReference::Reference { reference: Some(r), ref_id, .. } => match parse_reference(r) {
+                Ok(ParsedReference::Trait { alias, name }) => Some((alias, name, ref_id.clone())),
+                _ => None,
+            },
+            TraitReference::Inline(td) => td
+                .source_behavior
+                .as_ref()
+                .map(|sb| (sb.alias.clone(), sb.original_name.clone(), None)),
+            _ => None,
+        };
+        if let Some((alias, name, ref_id)) = source {
+            if let Some(owner) = ctx.get_trait_orbital(&alias, &name, ref_id.as_deref()).map(|o| o.name.clone()) {
+                ctx.reference_orbital(&alias, &owner);
+            }
+        }
+    }
+    if let EntityRef::Reference(r) = &orbital.entity {
+        if let Ok(ParsedReference::Entity { alias }) = parse_reference(r) {
+            let first = ctx.get_entry(&alias).ok().and_then(|e| e.orbitals.first().map(|o| o.name.clone()));
+            if let Some(first) = first {
+                ctx.reference_orbital(&alias, &first);
+            }
+        }
+    }
     let (
         inlined_traits,
         // V4: the returned name→name map was consumed only by the deleted

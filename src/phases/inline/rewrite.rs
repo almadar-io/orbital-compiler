@@ -2088,7 +2088,8 @@ fn rewrite_config_bindings_inner(
                     continue;
                 }
                 let handed_on = at >= 1 && result_operands.contains(&(at - 1));
-                let item_consumed = if reads_as_operand { !handed_on || consumed } else { is_let && consumed };
+                let written = head.as_deref() == Some("set") && at == 2;
+                let item_consumed = if reads_as_operand { !handed_on || consumed } else { written || (is_let && consumed) };
                 rewrite_config_bindings_inner(item, config_subs, declared, item_consumed, in_progress);
             }
         }
@@ -3902,6 +3903,24 @@ mod literal_list_tests {
         apply_inline_config_defaults(&mut t, &mut Vec::new());
         let effect = serde_json::to_value(first_effect(&t)).unwrap();
         assert_eq!(declared_lets(&effect), 1, "{effect}");
+    }
+
+    #[test]
+    fn a_record_list_knob_concatenated_into_a_written_field_keeps_its_declared_type() {
+        let written = serde_json::json!([
+            "set", "@entity.rows",
+            ["array/concat", "@config.cues", ["array/concat", "@entity.extra", "@config.cues"]]
+        ]);
+        let mut t = cue_list_trait(written, true);
+        apply_inline_config_defaults(&mut t, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&t)).unwrap();
+        assert_eq!(declared_lets(&effect), 2, "a written field is a typed sink: {effect}");
+
+        let prop = serde_json::json!(["render-ui", "main", { "type": "data-list", "entities": ["array/concat", "@config.cues", []] }]);
+        let mut t = cue_list_trait(prop, true);
+        apply_inline_config_defaults(&mut t, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&t)).unwrap();
+        assert_eq!(declared_lets(&effect), 0, "control: a result handed to a prop is the literal: {effect}");
     }
 
     #[test]

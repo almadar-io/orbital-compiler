@@ -2771,9 +2771,8 @@ pub(crate) fn inline_traits(
             // Duplicates are harmless: the merge in `inline_orbital` dedupes
             // against the primary entity and existing auxiliaries.
             if let Some(bound) = &sibling_def.linked_entity {
-                if let Some(aux) = ctx
-                    .get_entity_by_name_for_alias(&alias, bound)
-                    .or_else(|| ctx.get_entity_by_name_any_alias(bound))
+                if let Some(aux) =
+                    ctx.sibling_bound_entity(&alias, &parent_source, &sibling_name, bound, path_prefix)?
                 {
                     pulled_aux_entities.push(aux);
                 }

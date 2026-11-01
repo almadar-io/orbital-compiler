@@ -3992,6 +3992,22 @@ mod tests {
     }
 
     #[test]
+    fn a_literal_key_over_a_map_is_optional_without_a_default_and_the_value_type_with_one() {
+        let row = Row(vec![("m", OirType::map(OirType::String, OirType::String))]);
+        let bare = call("object/get", vec![entity(&["m"]), text("K")]);
+        assert_eq!(infer_oir_expr_type(&bare, &row), Some(OirType::optional(OirType::String)));
+        let defaulted = call("object/get", vec![entity(&["m"]), text("K"), text("")]);
+        assert_eq!(infer_oir_expr_type(&defaulted, &row), Some(OirType::String), "control: a default answers the miss");
+        let null_default = call("object/get", vec![entity(&["m"]), text("K"), OirExpr::Null]);
+        assert_eq!(infer_oir_expr_type(&null_default, &row), Some(OirType::optional(OirType::String)), "control: a null default is no answer");
+        assert_eq!(
+            infer_oir_expr_type(&call("object/get", vec![entity(&[]), text("b")]), &keyed_row()),
+            Some(OirType::Number),
+            "control: a literal key on a closed record reads exactly its field"
+        );
+    }
+
+    #[test]
     fn a_runtime_key_read_compares_against_a_string() {
         let compared = call("=", vec![call("object/get", vec![entity(&[]), entity(&["key"])]), text("x")]);
         let found = check_oir_expr(&compared, &keyed_row());
