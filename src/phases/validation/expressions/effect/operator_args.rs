@@ -1445,6 +1445,26 @@ mod tests {
         }
 
         #[test]
+        fn std_browse_scope_filter_with_the_scope_knob_substituted_to_null_is_not_flagged() {
+            let filter = |scope: &str, search: &str| {
+                format!(
+                    r#"["and", ["or", ["not", ["validate/required", {scope}]], ["=", ["object/get", "@entity", {scope}], "@user.id"]],
+                        ["or", ["=", "@payload.q", ""], ["if", ["=", {search}, null], false, ["str/includes", ["default", ["object/get", "@entity", {search}], ""], "@payload.q"]]]]"#
+                )
+            };
+            assert_eq!(null_findings(&filter("null", "null"), entity(false, false)), 0, "both knobs unset");
+            assert_eq!(null_findings(&filter(r#""""#, "null"), entity(false, false)), 0, "an empty scope is missing too");
+            assert!(
+                null_findings(&filter(r#""@entity.q""#, "null"), entity(false, false)) == 0,
+                "control: a bound scope reads"
+            );
+            assert!(
+                null_findings(r#"["and", ["or", ["not", ["validate/required", "@entity.p"]], ["=", ["object/get", "@entity", null], 1]], true]"#, entity(false, false)) > 0,
+                "control: a non-literal presence test decides nothing, so the null read is checked"
+            );
+        }
+
+        #[test]
         fn a_divisor_that_can_be_missing_makes_the_result_missing_where_a_value_is_needed() {
             for json in [
                 r#"["+", ["/", 1, "@entity.p"], 1]"#,

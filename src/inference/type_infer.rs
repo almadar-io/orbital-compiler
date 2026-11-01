@@ -5083,6 +5083,78 @@ mod tests {
         assert_eq!(ty("math/round", vec![ratio(), num(2.0)]), Some(OirType::Number), "decimals keep a fraction");
     }
 
+    /// std-browse's related filter at a call site that sets no `relatedField`: the knob substitutes to null, so the
+    /// guard `(not (validate/required null))` always takes its first branch and the read under it never runs.
+    #[test]
+    fn a_null_operand_under_a_branch_its_validate_required_guard_rules_out_is_not_flagged() {
+        let row = Row(vec![("id", OirType::String)]);
+        let read = serde_json::json!([
+            "array/includes",
+            ["array/map", ["list", "a"], ["fn", "r", "@r"]],
+            ["object/get", "@entity", null]
+        ]);
+        let guarded = lowered(serde_json::json!([
+            "if",
+            ["not", ["validate/required", null]],
+            false,
+            read.clone()
+        ]));
+        assert!(
+            check_oir_expr(&guarded, &row).is_empty(),
+            "{:?}",
+            check_oir_expr(&guarded, &row)
+        );
+        let bare = lowered(serde_json::json!(["object/get", "@entity", null]));
+        assert!(
+            check_oir_expr(&bare, &row)
+                .iter()
+                .any(|d| matches!(d.mismatch, Mismatch::NullOperand { .. })),
+            "control: unguarded, the null key still raises"
+        );
+        let live = lowered(serde_json::json!([
+            "if",
+            ["not", ["validate/required", "relatedId"]],
+            false,
+            ["object/get", "@entity", null]
+        ]));
+        assert!(
+            check_oir_expr(&live, &row)
+                .iter()
+                .any(|d| matches!(d.mismatch, Mismatch::NullOperand { .. })),
+            "control: a present literal leaves the read live, so it is checked"
+        );
+    }
+
+    #[test]
+    fn std_browse_scope_filter_with_the_scope_knob_unset_does_not_check_the_dead_read() {
+        let row = Row(vec![("id", OirType::String)]);
+        let filter = |scope: serde_json::Value| {
+            lowered(serde_json::json!([
+                "and",
+                ["or", ["not", ["validate/required", scope.clone()]],
+                    ["=", ["object/get", "@entity", scope], "@user.id"]],
+                true
+            ]))
+        };
+        let unset = filter(serde_json::Value::Null);
+        assert!(check_oir_expr(&unset, &row).is_empty(), "{:?}", check_oir_expr(&unset, &row));
+        let empty = filter(serde_json::json!(""));
+        assert!(check_oir_expr(&empty, &row).is_empty(), "{:?}", check_oir_expr(&empty, &row));
+        let bare = lowered(serde_json::json!(["and", true, ["=", ["object/get", "@entity", null], "@user.id"]]));
+        assert!(
+            check_oir_expr(&bare, &row).iter().any(|d| matches!(d.mismatch, Mismatch::NullOperand { .. })),
+            "control: `and` with a literal true still checks the rest"
+        );
+        let live = lowered(serde_json::json!([
+            "or", ["not", ["validate/required", "@entity.id"]],
+            ["=", ["object/get", "@entity", null], "@user.id"]
+        ]));
+        assert!(
+            check_oir_expr(&live, &row).iter().any(|d| matches!(d.mismatch, Mismatch::NullOperand { .. })),
+            "control: a non-literal validate/required decides nothing"
+        );
+    }
+
     #[test]
     fn an_object_has_guard_shows_the_map_present() {
         let row = Row(vec![
