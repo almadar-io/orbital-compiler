@@ -107,17 +107,6 @@ fn fix_loop_overrides_fixture_path() -> PathBuf {
         .join("../../test-schemas/use-std-behavior/fix-loop-overrides.orb")
 }
 
-/// Phase 3.5.G.F.8 fixture — exercises the per-transition `effects` override.
-/// References `Modal.traits.ModalRecordModal` and supplies an `effects` map
-/// that REPLACES the OPEN (renamed to ADD_ITEM) transition's effect list with
-/// a `[fetch, render-ui]` pair containing cart-specific content. The lowered
-/// OIR's ADD_ITEM transition must carry the override effects, not the
-/// upstream's defaults.
-fn cart_effects_override_fixture_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../test-schemas/use-std-behavior/cart-effects-override.orb")
-}
-
 /// Ordering-gap regression fixture — imports `UIButton.traits.ButtonRender`
 /// (the std atom whose `emits { @config.action -> external {...} } }` and
 /// `config { action : string = "ACTION" }` mirror `std-trait-wars.orb`'s
@@ -745,70 +734,6 @@ fn cart_events_lowered_output_renames_event_keys_on_transitions() {
 // trait declares external-scoped emits AND a non-empty listens array) and
 // passes `listens: []` + `emitsScope: "internal"`. The lowered OIR must
 // show the trait's listeners cleared AND every emit's scope set to internal.
-
-// ---------------------------------------------------------------------------
-// Phase 3.5.G.F.8 — Per-transition effects override
-// ---------------------------------------------------------------------------
-//
-// `cart-effects-override.orb` references std-modal and supplies an `effects`
-// map keyed by the (renamed) ADD_ITEM event. The lowered OIR's CartItemAddItem
-// trait must have its ADD_ITEM transition's effects REPLACED by the override
-// list — confirming the unified content + effect customization mechanism.
-
-#[test]
-#[ignore = "feature removed in Phase 9.5.H — trait-ref `effects:` overrides no longer exist (effects now live only in the inlined trait's transitions). Test predates the removal; keep as a historical marker of the old feature's behaviour."]
-fn cart_effects_override_replaces_transition_effects() {
-    let path = cart_effects_override_fixture_path();
-    let oir = compile_file(&path, &lowered_oir_options())
-        .expect("compile_file must succeed on the cart-effects-override fixture");
-
-    let trait_def = oir
-        .find_trait("CartItemAddItem")
-        .expect("lowered OIR must contain the renamed trait CartItemAddItem");
-
-    // Find the (closed → open) transition triggered by ADD_ITEM. The
-    // upstream OPEN was renamed to ADD_ITEM via `events`, then the override
-    // replaced its effects array.
-    let add_item_transition = trait_def
-        .transitions
-        .iter()
-        .find(|t| t.event == "ADD_ITEM")
-        .expect("must find a transition with event ADD_ITEM after rename");
-
-    // The override produced exactly 2 effects: a fetch + a render-ui block.
-    assert_eq!(
-        add_item_transition.effects.len(),
-        2,
-        "override must replace the transition's effects with the 2-element list, got {} effects",
-        add_item_transition.effects.len()
-    );
-
-    // Spot-check that the first effect is the fetch operator. The OirExpr
-    // form is the lowered SExpression — operator name lives in the head
-    // position of an Array variant.
-    let serialized = serde_json::to_string(&add_item_transition.effects[0])
-        .expect("first effect must serialize");
-    assert!(
-        serialized.contains("\"fetch\""),
-        "first effect must be the [\"fetch\", ...] override; got {}",
-        serialized
-    );
-
-    // Spot-check that the second effect is the render-ui block carrying the
-    // cart-specific typography content.
-    let render_serialized = serde_json::to_string(&add_item_transition.effects[1])
-        .expect("second effect must serialize");
-    assert!(
-        render_serialized.contains("\"render-ui\""),
-        "second effect must be the [\"render-ui\", ...] override; got {}",
-        render_serialized
-    );
-    assert!(
-        render_serialized.contains("Add to Cart"),
-        "render-ui override must carry the cart-specific typography content; got {}",
-        render_serialized
-    );
-}
 
 #[test]
 fn fix_loop_trait_clears_listens_via_listens_override() {

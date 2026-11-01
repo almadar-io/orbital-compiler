@@ -2397,6 +2397,8 @@ pub(crate) fn inline_traits(
                                     if let Some(local) = &local_types {
                                         local.trait_definition(&mut trait_def);
                                     }
+                                    // The call-site `::` args are the composer's own names, never the behavior's.
+                                    trait_def.type_args = type_args_override.clone();
                                     trait_def.source_behavior = Some(provenance);
                                     trait_def.source_entity_definition =
                                         source_entity_def.map(|mut entity| {

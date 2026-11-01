@@ -746,6 +746,30 @@ mod tests {
     }
 
     #[test]
+    fn the_anonymous_viewer_id_validates_as_string_and_role_as_optional_string_exec_seed_5() {
+        use orbital_core_base::ir::OirType;
+        let schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
+            "name": "App",
+            "orbitals": [{
+                "name": "DocOrbital",
+                "entity": { "name": "Doc", "persistence": "persistent", "collection": "docs",
+                            "fields": [{ "name": "id", "type": "string", "required": true }] },
+                "traits": [{ "name": "DocView", "linkedEntity": "Doc",
+                            "stateMachine": { "events": [], "states": [], "transitions": [] } }],
+                "pages": []
+            }]
+        }))
+        .expect("schema fixture");
+        let OirType::Struct { fields, .. } = crate::phases::validation::user_identity::identity_type(&schema, "DocView") else {
+            panic!("@user is a record");
+        };
+        let field = |name: &str| fields.iter().find(|f| f.name == name).unwrap_or_else(|| panic!("@user.{name} undeclared"));
+        assert_eq!(field("id").field_type, OirType::String, "@user.id is string, and the anonymous row carries \"anonymous\"");
+        assert_eq!(field("role").field_type, OirType::optional(OirType::String), "@user.role is string?: the anonymous row carries \"anonymous\", a bound row may declare no role");
+        assert!(field("email").field_type.is_optional(), "control: a member the anonymous viewer lacks stays optional");
+    }
+
+    #[test]
     fn a_substituted_config_list_carrying_its_declared_type_is_typed() {
         let mixed = serde_json::json!(["list", { "anchor": "exe-dir", "path": "tool" }, "tool"]);
         let ty = crate::phases::resolve::config_field_carried_type(&serde_json::from_value(serde_json::json!({
@@ -1751,7 +1775,7 @@ mod tests {
         }
 
         #[test]
-        #[ignore]
+        #[ignore = "tool: census of provable argument positions over the .lolo files named by K2_CENSUS_FILES"]
         fn k2_census_provable_argument_positions() {
             let files = std::env::var("K2_CENSUS_FILES").expect("K2_CENSUS_FILES");
             let out = std::env::var("K2_CENSUS_OUT").expect("K2_CENSUS_OUT");

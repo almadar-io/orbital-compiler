@@ -151,7 +151,7 @@ fn filter_group_with_valid_field_validates_clean() {
 // ============================================================================
 
 #[test]
-#[ignore = "pre-existing: filter-group.filters not tagged itemKind:field-ref in patterns-registry.json — validator has no hook to resolve the field name against the entity. Fix needs a pattern-registry regeneration (TS Props → JSON pipeline), out of scope for the codegen-only refactor."]
+#[ignore = "G-ORB-615: filter-group.filters is not tagged itemKind:field-ref in patterns-registry.json, so the validator never resolves its field names against the entity"]
 fn filter_group_with_typo_warns() {
     let mut entity_defs = HashMap::new();
     entity_defs.insert(
@@ -197,7 +197,7 @@ fn filter_group_with_typo_warns() {
 // ============================================================================
 
 #[test]
-#[ignore = "pre-existing: filter-group.filters not tagged itemKind:field-ref in patterns-registry.json — same root cause as filter_group_with_typo_warns."]
+#[ignore = "G-ORB-615: same root cause as filter_group_with_typo_warns"]
 fn filter_group_with_mixed_fields_warns_per_bad_element() {
     let mut entity_defs = HashMap::new();
     entity_defs.insert(
@@ -346,7 +346,7 @@ fn data_grid_image_field_valid_scalar() {
 }
 
 #[test]
-#[ignore = "pre-existing: data-grid.imageField not tagged kind:field-ref in patterns-registry.json — same root cause as filter_group_with_typo_warns."]
+#[ignore = "G-ORB-615: data-grid.imageField is not tagged kind:field-ref in patterns-registry.json, same root cause as filter_group_with_typo_warns"]
 fn data_grid_image_field_invalid_scalar_warns() {
     let mut entity_defs = HashMap::new();
     entity_defs.insert(
