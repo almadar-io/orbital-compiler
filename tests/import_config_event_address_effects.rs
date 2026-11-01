@@ -107,8 +107,12 @@ fn consumer(tool: &str) -> String {
 }
 
 fn inline(tool: &str) -> OrbitalSchema {
+    inline_with(tool, THINGS)
+}
+
+fn inline_with(tool: &str, things: &str) -> OrbitalSchema {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    std::fs::write(dir.path().join("things.orb"), THINGS).expect("write things");
+    std::fs::write(dir.path().join("things.orb"), things).expect("write things");
     std::fs::write(dir.path().join("assistant.orb"), ASSISTANT).expect("write assistant");
     let path = dir.path().join("consumer.orb");
     std::fs::write(&path, consumer(tool)).expect("write consumer");
@@ -350,4 +354,43 @@ fn control_a_string_typed_member_and_a_foreign_address_stay_as_written() {
         panic!("tool entry")
     };
     assert_eq!(string_at(second.get("event")), "Elsewhere.Gen.CHOOSE");
+}
+
+fn prove_tool_names(event_key: &str) -> Vec<orbital_core_eval::proof::Finding> {
+    let long_key = THINGS.replace("DO_SAVE", event_key);
+    let mut schema = inline_with(&format!("Things.ThingPersistor.{event_key}"), &long_key);
+    let loop_name = assistant_loop(&schema).name.clone();
+    let holds = serde_json::json!(["array/every", "@config.tools", ["fn", "t",
+        ["if", ["object/has", "@t", "event"],
+            ["validate/pattern", ["str/replaceAll", ["object/get", "@t", "event"], ".", "__"], "^[a-zA-Z0-9_-]{1,64}$"],
+            true]]]);
+    let expect = serde_json::from_value(serde_json::json!({
+        "kind": "state", "traitName": loop_name, "state": "idle", "holds": holds, "strict": true
+    }))
+    .expect("expectation");
+    schema.orbitals[1].expects.get_or_insert_with(Default::default).push(expect);
+    orbital_core_eval::proof::prove(&schema)
+}
+
+#[test]
+fn a_short_literal_whose_resolved_address_is_over_64_chars_violates_the_tool_name_proposition() {
+    let key = "DO_SAVE_THE_THING_WITH_A_VERY_LONG_KEY";
+    let schema = inline_with(&format!("Things.ThingPersistor.{key}"), &THINGS.replace("DO_SAVE", key));
+    let resolved = config_tool_event(&schema);
+    assert!(resolved.len() > 64 - 2 && format!("Things.ThingPersistor.{key}").replace('.', "__").len() <= 64, "{resolved}");
+    let findings = prove_tool_names(key);
+    assert!(
+        findings.iter().any(|f| matches!(f.verdict, orbital_core_eval::proof::Verdict::Violated { .. }))
+            && findings.iter().all(|f| !matches!(f.verdict, orbital_core_eval::proof::Verdict::Unproved { .. })),
+        "{findings:#?}"
+    );
+}
+
+#[test]
+fn control_a_short_resolved_address_proves_the_tool_name_proposition() {
+    let findings = prove_tool_names("DO_SAVE");
+    assert!(
+        findings.iter().all(|f| matches!(f.verdict, orbital_core_eval::proof::Verdict::Proved)) && !findings.is_empty(),
+        "{findings:#?}"
+    );
 }

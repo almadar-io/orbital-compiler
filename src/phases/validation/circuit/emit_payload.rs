@@ -1177,6 +1177,60 @@ mod tests {
         assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["or", ["!=", "@x", null], true], {emit}, {fail}]"#)), 1, "control: an or does not show it present");
     }
 
+    fn type_var_emit_findings(body: &str) -> Vec<String> {
+        let json = format!(
+            r#"{{
+                "name": "gate-app",
+                "orbitals": [{{
+                    "name": "GateOrbital",
+                    "entity": {{ "name": "GateRequest", "fields": [{{ "name": "id", "type": "string" }}, {{ "name": "content", "type": "string" }}] }},
+                    "traits": [{{
+                        "name": "GateReview",
+                        "linkedEntity": "GateRequest",
+                        "typeParams": [{{ "name": "p", "kind": "Entity" }}],
+                        "emits": [{{ "event": "Granted", "payloadSchema": [{{ "name": "payload", "type": "$p", "projectedFrom": {{ "type": "p" }} }}] }}],
+                        "stateMachine": {{
+                            "states": [{{ "name": "idle", "isInitial": true }}],
+                            "transitions": [{{
+                                "from": "idle", "to": "idle", "event": "APPROVE",
+                                "effects": [["let", [["held", ["json/parse", "@entity.content", "p"]]], {body}]]
+                            }}]
+                        }}
+                    }}]
+                }}]
+            }}"#
+        );
+        let mut schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
+        for orbital in &mut schema.orbitals {
+            crate::phases::inline::rewrite::resolve_orbital_type_param_sentinels(orbital);
+        }
+        let mut ctx = ctx_with_seeded_entities(&schema);
+        validate_all_emit_payloads(&schema, &mut ctx);
+        ctx.result
+            .errors
+            .iter()
+            .filter(|e| matches!(e.code, ErrorCode::EmitPayloadFieldTypeMismatch | ErrorCode::OperatorNullOperand))
+            .map(|e| e.message.clone())
+            .collect()
+    }
+
+    #[test]
+    fn a_null_test_narrows_a_type_variable_value_into_a_field_of_the_same_variable() {
+        let emit = r#"["emit", "Granted", { "payload": "@held" }]"#;
+        let fail = r#"["log", "info", "none"]"#;
+        assert_eq!(type_var_emit_findings(emit).len(), 1, "control: untested, the value may be null");
+        assert_eq!(type_var_emit_findings(&format!(r#"["if", ["=", "@held", null], {fail}, {emit}]"#)), Vec::<String>::new(), "else of an equality test");
+        assert_eq!(type_var_emit_findings(&format!(r#"["if", ["!=", "@held", null], {emit}, {fail}]"#)), Vec::<String>::new(), "then of an inequality test");
+        assert_eq!(type_var_emit_findings(&format!(r#"["if", ["validate/required", "@held"], {emit}, {fail}]"#)), Vec::<String>::new(), "validate/required");
+        assert_eq!(
+            type_var_emit_findings(&format!(r#"["if", true, ["if", ["!=", "@held", null], {emit}, {fail}], {fail}]"#)),
+            Vec::<String>::new(),
+            "nested if"
+        );
+        assert_eq!(type_var_emit_findings(&format!(r#"["if", ["=", "@held", null], {emit}, {fail}]"#)).len(), 1, "control: the null branch is not narrowed");
+        assert_eq!(type_var_emit_findings(&format!(r#"["if", ["!=", "@held", null], {fail}, {emit}]"#)).len(), 1, "control: else of an inequality test");
+    }
+
     fn parsed_time_emit_findings(field: &str, value: &str) -> usize {
         let ctx = check(
             &format!(r#"{{ "event": "Parsed", "payloadSchema": [{{ "name": "n", {field} }}] }}"#),

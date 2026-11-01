@@ -945,7 +945,12 @@ pub fn inline_schema_with_orbital_diagnostics(
     // import in the same orbital, or a sibling orbital's own entity. A
     // target still unresolved after this is left unmerged; there is no
     // further fallback, and `ORB_T_REBIND_TARGET_UNRESOLVED` reports it.
-    settle_shadowed_auxiliaries(&mut schema.orbitals, &deferred_merges);
+    let shadow_dropped = settle_shadowed_auxiliaries(&mut schema.orbitals, &deferred_merges);
+    if let Some(ledger) = schema.ledger.as_mut() {
+        for id in shadow_dropped.keys() {
+            ledger.entries.remove(id);
+        }
+    }
 
     uniquify_cross_orbital_pulled_siblings(&mut schema.orbitals, schema.ledger.as_mut(), &pulled_by_orbital);
 
@@ -1154,17 +1159,19 @@ fn differing_members(first: &[PayloadField], second: &[PayloadField]) -> String 
 /// correct: two different shapes under one name, both live, is a real conflict
 /// only the consumer can resolve.
 fn drop_unreferenced_colliding_auxiliaries(schema: &mut OrbitalSchema) {
-    let primary_names: HashSet<String> = schema
+    let primary_ids: HashMap<String, Option<String>> = schema
         .orbitals
         .iter()
         .filter_map(|o| match &o.entity {
-            EntityRef::Inline(def) => Some(def.name.clone()),
+            EntityRef::Inline(def) => Some((def.name.clone(), def.id.clone())),
             _ => None,
         })
         .collect();
-    if primary_names.is_empty() {
+    if primary_ids.is_empty() {
         return;
     }
+    let primary_names: HashSet<&String> = primary_ids.keys().collect();
+    let mut dropped_ids: HashMap<String, String> = HashMap::new();
 
     for orbital in schema.orbitals.iter_mut() {
         let own_primary = match &orbital.entity {
@@ -1193,8 +1200,58 @@ fn drop_unreferenced_colliding_auxiliaries(schema: &mut OrbitalSchema) {
             }
             // `retain` KEEPS on true: hold the entity only while something
             // still names it. Unreferenced + colliding is the drop case.
-            trait_blob_mentions(&traits_blob, &def.name)
+            let kept = trait_blob_mentions(&traits_blob, &def.name);
+            if !kept {
+                if let (Some(dropped), Some(Some(owner))) = (&def.id, primary_ids.get(&def.name)) {
+                    dropped_ids.insert(dropped.clone(), owner.clone());
+                }
+            }
+            kept
         });
+    }
+    retarget_dropped_entity_ids(schema, &dropped_ids);
+}
+
+/// A dropped auxiliary's id names the same-named primary from now on: every entity-typed config value that carried
+/// the dropped id re-points at the primary, and the dropped declaration's ledger row (now carried by no node) goes.
+fn retarget_dropped_entity_ids(schema: &mut OrbitalSchema, dropped_ids: &HashMap<String, String>) {
+    use orbital_core_base::schema::{PageRef, TraitReference};
+    if dropped_ids.is_empty() {
+        return;
+    }
+    let retarget = |config: &mut orbital_core_base::collections::IndexMap<String, orbital_core_base::schema::ConfigField>| {
+        for field in config.values_mut() {
+            if let Some(owner) = field.ref_id.as_ref().and_then(|id| dropped_ids.get(id)) {
+                field.ref_id = Some(owner.clone());
+            }
+        }
+    };
+    let retarget_trait = |tr: &mut TraitReference| match tr {
+        TraitReference::Inline(td) => {
+            if td.config.as_ref().is_some_and(|c| c.values().any(|f| f.ref_id.as_ref().is_some_and(|id| dropped_ids.contains_key(id)))) {
+                if let Some(config) = Arc::make_mut(td).config.as_mut() {
+                    retarget(config);
+                }
+            }
+        }
+        TraitReference::Reference { config: Some(config), .. } => retarget(config),
+        TraitReference::Reference { .. } => {}
+    };
+    for orbital in schema.orbitals.iter_mut() {
+        orbital.traits.iter_mut().for_each(retarget_trait);
+        for page in orbital.pages.iter_mut().flatten() {
+            let traits = match page {
+                PageRef::Inline(pd) => pd.traits.as_mut(),
+                PageRef::Object(po) => po.traits.as_mut(),
+                PageRef::Reference(_) => None,
+            };
+            traits.into_iter().flatten().for_each(retarget_trait);
+        }
+    }
+    if let Some(ledger) = schema.ledger.as_mut() {
+        for id in dropped_ids.keys() {
+            ledger.entries.remove(id);
+        }
     }
 }
 
@@ -9724,9 +9781,9 @@ mod tests {
 /// Drop shadowed auxiliary copies, run the deferred merges onto the owners, then drop again: a
 /// copy that only lacked a field a deferred merge brings to the owner is a narrower view once the
 /// merge lands, while a copy with a shape no merge supplies stays a reported conflict.
-fn settle_shadowed_auxiliaries(orbitals: &mut [Orbital], deferred_merges: &[DeferredMerge]) {
+fn settle_shadowed_auxiliaries(orbitals: &mut [Orbital], deferred_merges: &[DeferredMerge]) -> HashMap<String, String> {
     move_copy_merges_to_owners(orbitals);
-    drop_shadowed_auxiliaries(orbitals);
+    let mut dropped = drop_shadowed_auxiliaries(orbitals);
     for dm in deferred_merges {
         merge_into_named_entity(
             orbitals,
@@ -9737,7 +9794,8 @@ fn settle_shadowed_auxiliaries(orbitals: &mut [Orbital], deferred_merges: &[Defe
             &dm.referenced_fields,
         );
     }
-    drop_shadowed_auxiliaries(orbitals);
+    dropped.extend(drop_shadowed_auxiliaries(orbitals));
+    dropped
 }
 
 /// A merge that landed on an auxiliary copy of an entity another orbital owns (the copy
@@ -9778,7 +9836,7 @@ fn move_copy_merges_to_owners(orbitals: &mut [Orbital]) {
     }
 }
 
-pub(crate) fn drop_shadowed_auxiliaries(orbitals: &mut [Orbital]) {
+pub(crate) fn drop_shadowed_auxiliaries(orbitals: &mut [Orbital]) -> HashMap<String, String> {
     let owned: orbital_core_base::collections::IndexMap<String, EntityDefinition> = orbitals
         .iter()
         .filter_map(|o| match &o.entity {
@@ -9820,6 +9878,7 @@ pub(crate) fn drop_shadowed_auxiliaries(orbitals: &mut [Orbital]) {
         }
     }
     repoint_entity_ids(orbitals, &dropped_ids);
+    dropped_ids
 }
 
 /// A dropped auxiliary copy's id names no node any more; every id reference to it lands on the owner it was a view of.
@@ -9844,9 +9903,17 @@ fn repoint_entity_ids(orbitals: &mut [Orbital], map: &HashMap<String, String>) {
         }
     }
     fn fix_trait(tr: &mut TraitReference, map: &HashMap<String, String>) {
+        if let TraitReference::Reference { config: Some(config), .. } = tr {
+            for field in config.values_mut() {
+                fix(&mut field.ref_id, map);
+            }
+        }
         if let TraitReference::Inline(td) = tr {
             let td = Arc::make_mut(td);
             fix(&mut td.linked_entity_id, map);
+            for field in td.config.iter_mut().flat_map(|c| c.values_mut()) {
+                fix(&mut field.ref_id, map);
+            }
             for id in td.entity_ref_ids.iter_mut().flat_map(|m| m.values_mut()) {
                 if let Some(to) = map.get(id.as_str()) {
                     *id = to.clone();
