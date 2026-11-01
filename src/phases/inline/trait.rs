@@ -683,11 +683,7 @@ pub(crate) fn apply_overrides_to_trait(
                 .and_then(|c| c.get(knob))
                 .is_some_and(|f| f.field_type == crate::phases::inline::rewrite::SECRET_KNOB_TYPE)
         };
-        let subst_config: orbital_core_base::schema::SObject = effective_config
-            .iter()
-            .filter(|(k, v)| !secret(k) && !orbital_core_base::schema::contains_callsite_payload(v))
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
+        let subst_config = crate::phases::inline::rewrite::without_callsite_captures(&effective_config, |k| !secret(k));
         let declared = crate::phases::inline::rewrite::declared_list_types(
             trait_def.config.as_ref(),
             &subst_config,

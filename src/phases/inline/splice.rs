@@ -26,7 +26,7 @@ use super::rewrite::trait_ref_name;
 use super::InlineError;
 use crate::phases::validation::render_ui::is_render_ui_effect;
 use orbital_core_base::schema::{
-    EmitDefinition, Orbital, PageRef, SExpression, StringOrArray, TraitDefinition, TraitReference,
+    ConfigField, EmitDefinition, Orbital, PageRef, SExpression, StringOrArray, TraitDefinition, TraitReference,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -40,7 +40,7 @@ type SpliceEntry = Option<(SExpression, Vec<EmitDefinition>)>;
 pub(crate) fn splice_lambda_trait_refs(
     orbital: &mut Orbital,
     orbital_path: &str,
-) -> Result<(), InlineError> {
+) -> Result<Vec<String>, InlineError> {
     let mut templates: HashMap<String, SpliceEntry> = HashMap::new();
     // V4 leverage-ids side indexes, built once from the sibling set:
     //   `id_to_name`      — embedded trait id → its CURRENT name (the
@@ -64,7 +64,7 @@ pub(crate) fn splice_lambda_trait_refs(
         }
     }
     if templates.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     let mut spliced: HashSet<String> = HashSet::new();
@@ -80,6 +80,7 @@ pub(crate) fn splice_lambda_trait_refs(
         let host_embed = td.trait_embed_ids.clone();
         // Seed with the host itself so a self-reference never self-splices.
         let mut visiting: Vec<String> = vec![td.name.clone()];
+        let mut scope: Vec<String> = Vec::new();
         let mut merged: Vec<(String, EmitDefinition)> = Vec::new();
         let mut outcome: Result<(), InlineError> = Ok(());
         td.state_machine.edit(|machine| {
@@ -95,6 +96,7 @@ pub(crate) fn splice_lambda_trait_refs(
                                 &id_to_name,
                                 host_embed.as_ref(),
                                 &path,
+                                &mut scope,
                                 &mut visiting,
                                 &mut merged,
                                 &mut spliced,
@@ -117,6 +119,7 @@ pub(crate) fn splice_lambda_trait_refs(
                         &id_to_name,
                         host_embed.as_ref(),
                         &path,
+                        &mut scope,
                         &mut visiting,
                         &mut merged,
                         &mut spliced,
@@ -129,10 +132,10 @@ pub(crate) fn splice_lambda_trait_refs(
         }
     }
 
-    if !spliced.is_empty() {
-        remove_consumed_wrappers(orbital, &spliced);
+    if spliced.is_empty() {
+        return Ok(Vec::new());
     }
-    Ok(())
+    Ok(remove_consumed_wrappers(orbital, &spliced))
 }
 
 /// The structural render-only test. Returns the single render-ui pattern
@@ -172,7 +175,46 @@ fn render_only_template(td: &TraitDefinition) -> Option<SExpression> {
             template = Some(pattern.clone());
         }
     }
-    template
+    let mut template = template?;
+    if let Some(config) = td.config.as_ref() {
+        resolve_wrapper_config(&mut template, config);
+    }
+    Some(template)
+}
+
+/// The wrapper's own `@config.<knob>` forwards, resolved as the wrapper
+/// trait's config substitution does: the knob's value (the call-site prop is
+/// already folded into its default), else absent — an object field is
+/// omitted, any other position reads null.
+fn resolve_wrapper_config(
+    expr: &mut SExpression,
+    config: &orbital_core_base::collections::IndexMap<String, ConfigField>,
+) {
+    let knob_field = |e: &SExpression| match e {
+        SExpression::String(s) => s
+            .strip_prefix("@config.")
+            .filter(|k| !k.contains('.'))
+            .and_then(|k| config.get(k)),
+        _ => None,
+    };
+    if let Some(field) = knob_field(expr) {
+        *expr = field.default.clone().unwrap_or(SExpression::Null);
+        return;
+    }
+    match expr {
+        SExpression::Array(items) => {
+            for item in items.iter_mut() {
+                resolve_wrapper_config(item, config);
+            }
+        }
+        SExpression::Object(map) => {
+            map.retain(|_, v| !matches!(knob_field(v), Some(field) if field.default.is_none()));
+            for v in map.values_mut() {
+                resolve_wrapper_config(v, config);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Recursive in-place splice walker. `in_lambda` becomes true inside the
@@ -190,12 +232,13 @@ fn splice_expr(
     // map when recursing into its expanded template.
     cur_embed_ids: Option<&orbital_core_base::collections::IndexMap<String, String>>,
     path: &str,
+    scope: &mut Vec<String>,
     visiting: &mut Vec<String>,
     merged: &mut Vec<(String, EmitDefinition)>,
     spliced: &mut HashSet<String>,
 ) -> Result<(), InlineError> {
     match expr {
-        SExpression::String(s) if in_lambda => {
+        SExpression::String(s) if in_lambda || !scope.is_empty() => {
             let Some(token) = s.strip_prefix("@trait.") else {
                 return Ok(());
             };
@@ -215,6 +258,11 @@ fn splice_expr(
                 .unwrap_or(token);
             match templates.get(name) {
                 Some(Some((template, emits))) => {
+                    if !in_lambda
+                        && !template_reads_scope(template, scope, templates, &mut vec![name.to_string()])
+                    {
+                        return Ok(());
+                    }
                     if visiting.iter().any(|v| v == name) {
                         // Reference cycle — leave the string for the
                         // validator rather than looping.
@@ -235,6 +283,7 @@ fn splice_expr(
                         id_to_name,
                         child_embed,
                         path,
+                        scope,
                         visiting,
                         merged,
                         spliced,
@@ -247,10 +296,11 @@ fn splice_expr(
                     *expr = expanded;
                     Ok(())
                 }
-                Some(None) => Err(InlineError::LambdaStatefulTrait {
+                Some(None) if in_lambda => Err(InlineError::LambdaStatefulTrait {
                     name: name.to_string(),
                     path: path.to_string(),
                 }),
+                Some(None) => Ok(()),
                 // Unknown reference — the binding validator owns that error.
                 None => Ok(()),
             }
@@ -267,10 +317,68 @@ fn splice_expr(
                     id_to_name,
                     cur_embed_ids,
                     path,
+                    scope,
                     visiting,
                     merged,
                     spliced,
                 )
+            } else if matches!(arr.first(), Some(SExpression::String(op)) if op == "let")
+                && matches!(arr.get(1), Some(SExpression::Array(_)))
+            {
+                let depth = scope.len();
+                let mut outcome = Ok(());
+                for index in 1..arr.len() {
+                    if index == 1 {
+                        let SExpression::Array(bindings) = &mut arr[1] else {
+                            continue;
+                        };
+                        for binding in bindings.iter_mut() {
+                            let SExpression::Array(pair) = binding else {
+                                continue;
+                            };
+                            if let Some(value) = pair.get_mut(1) {
+                                outcome = splice_expr(
+                                    value,
+                                    in_lambda,
+                                    templates,
+                                    embed_ids_by_name,
+                                    id_to_name,
+                                    cur_embed_ids,
+                                    path,
+                                    scope,
+                                    visiting,
+                                    merged,
+                                    spliced,
+                                );
+                                if outcome.is_err() {
+                                    break;
+                                }
+                            }
+                            if let Some(SExpression::String(bound)) = pair.first() {
+                                scope.push(bound.to_string());
+                            }
+                        }
+                    } else {
+                        outcome = splice_expr(
+                            &mut arr[index],
+                            in_lambda,
+                            templates,
+                            embed_ids_by_name,
+                            id_to_name,
+                            cur_embed_ids,
+                            path,
+                            scope,
+                            visiting,
+                            merged,
+                            spliced,
+                        );
+                    }
+                    if outcome.is_err() {
+                        break;
+                    }
+                }
+                scope.truncate(depth);
+                outcome
             } else {
                 for item in arr.iter_mut() {
                     splice_expr(
@@ -281,6 +389,7 @@ fn splice_expr(
                         id_to_name,
                         cur_embed_ids,
                         path,
+                        scope,
                         visiting,
                         merged,
                         spliced,
@@ -299,6 +408,7 @@ fn splice_expr(
                     id_to_name,
                     cur_embed_ids,
                     path,
+                    scope,
                     visiting,
                     merged,
                     spliced,
@@ -307,6 +417,40 @@ fn splice_expr(
             Ok(())
         }
         _ => Ok(()),
+    }
+}
+
+/// Whether a render template (nested wrapper references included) reads a binding of `scope`.
+fn template_reads_scope(
+    expr: &SExpression,
+    scope: &[String],
+    templates: &HashMap<String, SpliceEntry>,
+    seen: &mut Vec<String>,
+) -> bool {
+    match expr {
+        SExpression::String(s) => {
+            if let Some(token) = s.strip_prefix("@trait.") {
+                let Some(Some((template, _))) = templates.get(token) else {
+                    return false;
+                };
+                if seen.iter().any(|v| v == token) {
+                    return false;
+                }
+                seen.push(token.to_string());
+                return template_reads_scope(template, scope, templates, seen);
+            }
+            s.strip_prefix('@').is_some_and(|rest| {
+                let root = rest.split('.').next().unwrap_or_default();
+                scope.iter().any(|bound| bound == root)
+            })
+        }
+        SExpression::Array(items) => items
+            .iter()
+            .any(|item| template_reads_scope(item, scope, templates, seen)),
+        SExpression::Object(map) => map
+            .values()
+            .any(|v| template_reads_scope(v, scope, templates, seen)),
+        _ => false,
     }
 }
 
@@ -346,7 +490,8 @@ fn merge_wrapper_emits(
 /// remaining `@trait.<name>` string in any trait body or config default, and
 /// no page lists them. A wrapper still referenced outside a lambda keeps its
 /// declaration (normal composition continues to own it).
-fn remove_consumed_wrappers(orbital: &mut Orbital, spliced: &HashSet<String>) {
+fn remove_consumed_wrappers(orbital: &mut Orbital, spliced: &HashSet<String>) -> Vec<String> {
+    let mut removed_ids: Vec<String> = Vec::new();
     // Fixpoint: removing an outer wrapper can strand the reference that kept
     // an inner wrapper alive (nested JSX children), so re-scan survivors
     // until nothing more drops.
@@ -415,6 +560,13 @@ fn remove_consumed_wrappers(orbital: &mut Orbital, spliced: &HashSet<String>) {
             break;
         }
         let removable: HashSet<String> = removable.into_iter().map(String::from).collect();
+        for tr in &orbital.traits {
+            if let TraitReference::Inline(td) = tr {
+                if removable.contains(&td.name) {
+                    removed_ids.extend(td.id.clone());
+                }
+            }
+        }
 
         for page in orbital.pages.iter_mut().flatten() {
             if let PageRef::Inline(def) = page {
@@ -428,6 +580,7 @@ fn remove_consumed_wrappers(orbital: &mut Orbital, spliced: &HashSet<String>) {
             .traits
             .retain(|tr| trait_ref_name(tr).is_none_or(|n| !removable.contains(n)));
     }
+    removed_ids
 }
 
 #[cfg(test)]
@@ -876,5 +1029,67 @@ mod tests {
 
         // Must terminate; the cycle edge stays a reference for the validator.
         splice_lambda_trait_refs(&mut orbital, "orbitals[0]").expect("cycle must not loop");
+    }
+
+    fn host_with_let(label_binding: &str, wrapper_label: &str) -> Orbital {
+        let wrapper = render_only_trait(
+            "InlineW1",
+            obj(vec![("type", s("badge")), ("label", s(wrapper_label))]),
+        );
+        let mut host = host_with_render("Host", obj(vec![("type", s("stack"))]));
+        host.state_machine.edit(|machine| {
+            machine.transitions[0].effects = Some(vec![arr(vec![
+                s("let"),
+                arr(vec![arr(vec![s(label_binding), SExpression::Number(1.into())])]),
+                arr(vec![s("render-ui"), s("main"), s("@trait.InlineW1")]),
+            ])]);
+        });
+        make_orbital(vec![host, wrapper])
+    }
+
+    #[test]
+    fn splices_wrapper_reading_a_let_binding_into_the_let_body() {
+        let mut orbital = host_with_let("total", "@total");
+        splice_lambda_trait_refs(&mut orbital, "orbitals[0]").expect("splice must succeed");
+        let json = serde_json::to_string(&host_pattern_of_effect(&orbital, "Host")).unwrap();
+        assert!(json.contains("@total") && !json.contains("@trait.InlineW1"), "{json}");
+        let names: Vec<&str> = orbital.traits.iter().filter_map(trait_ref_name).collect();
+        assert_eq!(names, vec!["Host"], "consumed wrapper must be removed");
+    }
+
+    #[test]
+    fn control_a_wrapper_reading_no_let_binding_stays_a_reference() {
+        let mut orbital = host_with_let("total", "@unbound");
+        splice_lambda_trait_refs(&mut orbital, "orbitals[0]").expect("splice must succeed");
+        let json = serde_json::to_string(&host_pattern_of_effect(&orbital, "Host")).unwrap();
+        assert!(json.contains("@trait.InlineW1"), "{json}");
+        assert_eq!(orbital.traits.len(), 2, "wrapper must be kept");
+    }
+
+    #[test]
+    fn control_a_binding_is_not_visible_outside_its_let() {
+        let mut orbital = host_with_let("total", "@total");
+        let TraitReference::Inline(host) = &mut orbital.traits[0] else { panic!() };
+        Arc::make_mut(host).state_machine.edit(|machine| {
+            machine.transitions[0].effects = Some(vec![arr(vec![
+                s("let"),
+                arr(vec![arr(vec![s("total"), SExpression::Number(1.into())])]),
+                s("@total"),
+            ]), arr(vec![s("render-ui"), s("main"), s("@trait.InlineW1")])]);
+        });
+        splice_lambda_trait_refs(&mut orbital, "orbitals[0]").expect("splice must succeed");
+        let json = serde_json::to_string(&host_pattern_of_effect(&orbital, "Host")).unwrap();
+        assert!(json.contains("@trait.InlineW1"), "{json}");
+    }
+
+    fn host_pattern_of_effect(orbital: &Orbital, name: &str) -> serde_json::Value {
+        for tr in &orbital.traits {
+            if let TraitReference::Inline(td) = tr {
+                if td.name == name {
+                    return serde_json::to_value(td.state_machine.transitions[0].effects.as_ref().unwrap()).unwrap();
+                }
+            }
+        }
+        panic!("trait {name} not found");
     }
 }

@@ -1655,6 +1655,18 @@ pub(crate) fn bind_unset_optional_knobs(
     }
 }
 
+/// The knobs of `cfg` that may be baked into a body: `keep` admits a knob by name, and a knob whose value is a
+/// `@callsitePayload.<field>` capture is never baked (the callsite resolves it against the composing payload).
+pub(crate) fn without_callsite_captures(
+    cfg: &orbital_core_base::schema::SObject,
+    keep: impl Fn(&str) -> bool,
+) -> orbital_core_base::schema::SObject {
+    cfg.iter()
+        .filter(|(k, v)| keep(k) && !orbital_core_base::schema::contains_callsite_payload(v))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
+}
+
 pub(crate) fn apply_inline_config_defaults(
     trait_def: &mut TraitDefinition,
     recorder: &mut Vec<ConfigProvenanceRecord>,
@@ -1693,7 +1705,7 @@ pub(crate) fn apply_inline_config_defaults(
     let declared_types = declared_list_types(trait_def.config.as_ref(), &effective_config);
     let cfg = &effective_config;
     record_config_provenance(trait_def, cfg, recorder);
-    rewrite_trait_config_bindings(trait_def, cfg, &declared_types);
+    rewrite_trait_config_bindings(trait_def, &without_callsite_captures(cfg, |_| true), &declared_types);
     // Standalone atom (no call site): `@config.<knob>` emit-name refs
     // resolve to the declared defaults collected above (Option B).
     super::r#trait::resolve_config_ref_emit_names(trait_def, cfg);
@@ -1915,9 +1927,80 @@ pub(crate) fn rewrite_trait_config_bindings(
     cfg: &orbital_core_base::schema::SObject,
     declared: &orbital_core_base::schema::SObject,
 ) {
+    let fields = trait_def.config.clone();
     rewrite_trait_expressions(trait_def, &mut |expr| {
+        if let Some(wrapped) = wrapped_os_targets(expr, cfg, declared, fields.as_ref()) {
+            *expr = wrapped;
+        }
         rewrite_config_bindings(expr, cfg, declared)
     });
+}
+
+/// `expr` with every bare `@config.<knob>` read in an `os/` call's target position (the positions the kernel's
+/// requirement table names) whose value is a plain literal replaced by the declared-knob read, so the grant check
+/// can tell a composer-set target from one the atom wrote itself. `None` when nothing changes.
+fn wrapped_os_targets(
+    expr: &SExpression,
+    cfg: &orbital_core_base::schema::SObject,
+    declared: &orbital_core_base::schema::SObject,
+    fields: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+) -> Option<SExpression> {
+    let SExpression::Array(items) = expr else {
+        return None;
+    };
+    let targets = items
+        .first()
+        .and_then(SExpression::as_str)
+        .and_then(orbital_core_base::os::OsOp::from_name)
+        .map(orbital_core_base::os_grants::requirement_target_positions)
+        .unwrap_or_default();
+    let mut changed: Option<Vec<SExpression>> = None;
+    for (at, item) in items.iter().enumerate() {
+        let replacement = at
+            .checked_sub(1)
+            .filter(|position| targets.contains(position))
+            .and_then(|_| target_knob_read(item, cfg, declared, fields))
+            .or_else(|| wrapped_os_targets(item, cfg, declared, fields));
+        if let Some(replacement) = replacement {
+            changed.get_or_insert_with(|| items.iter().cloned().collect())[at] = replacement;
+        }
+    }
+    changed.map(|items| SExpression::Array(items.into()))
+}
+
+fn target_knob_read(
+    item: &SExpression,
+    cfg: &orbital_core_base::schema::SObject,
+    declared: &orbital_core_base::schema::SObject,
+    fields: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+) -> Option<SExpression> {
+    let SExpression::String(text) = item else {
+        return None;
+    };
+    let knob = text.strip_prefix("@config.")?;
+    if declared.contains_key(knob) {
+        return None;
+    }
+    let literal = cfg.get(knob)?;
+    if !matches!(literal, SExpression::String(_) | SExpression::Number(_)) || sexpr_tree_contains_binding(literal) {
+        return None;
+    }
+    let ty = target_knob_type(fields?.get(knob)?)?;
+    let shape = SExpression::string(serde_json::to_string(&ty).ok()?);
+    Some(declared_read(knob, literal, &shape))
+}
+
+/// The type an os target knob is read as. A knob naming a type alias (`host : HostPart`) lowers the alias's name
+/// beside its members' shapes, which cannot say whether the alias is a record or a union, so it is read by name and
+/// the recording pass gives it the alias's own definition; any other knob is the type its carriers spell out.
+fn target_knob_type(field: &ConfigField) -> Option<orbital_core_base::ir::OirType> {
+    use orbital_core_base::ir::OirType;
+    let named = field.values.is_none() && field.properties.is_some() && field.items.is_none() && field.field_type != "object";
+    if !named {
+        return crate::phases::resolve::config_field_carried_type(field).ok();
+    }
+    let name = OirType::TypeRef { name: field.field_type.clone() };
+    Some(if field.nullable == Some(true) { OirType::optional(name) } else { name })
 }
 
 pub(super) fn rewrite_trait_expressions(
@@ -5973,6 +6056,97 @@ mod unchanged_rewrite_tests {
                 a.listens.as_ref().expect("listens"),
                 b.listens.as_ref().expect("listens"),
             )
+    }
+
+    #[test]
+    fn a_scalar_knob_read_in_an_os_target_position_becomes_the_declared_knob_read() {
+        let mut trait_def: TraitDefinition = serde_json::from_value(json!({
+            "name": "T",
+            "linkedEntity": "Task",
+            "config": {
+                "host": { "type": "string", "default": "api.example.test" },
+                "port": { "type": "number", "default": 80 }
+            },
+            "stateMachine": {
+                "states": [ { "name": "idle", "isInitial": true } ],
+                "events": [ { "key": "GO" } ],
+                "transitions": [ {
+                    "from": "idle", "to": "idle", "event": "GO",
+                    "effects": [
+                        ["os/tcp-connect", "@config.host", "@config.port", { "key": "c" }],
+                        ["os/tcp-connect", "literal.test", 80, { "key": "d" }],
+                        ["set", "@entity.h", "@config.host"]
+                    ]
+                } ]
+            }
+        }))
+        .expect("trait fixture deserializes");
+        let mut subs = orbital_core_base::schema::SObject::new();
+        subs.insert("host".into(), SExpression::string("api.example.test"));
+        subs.insert("port".into(), SExpression::Number(80.0));
+        rewrite_trait_config_bindings(&mut trait_def, &subs, &orbital_core_base::schema::SObject::new());
+        let machine = serde_json::to_value(&trait_def.state_machine).expect("machine");
+        let effects = &machine["transitions"][0]["effects"];
+        assert_eq!(
+            effects[0][1],
+            json!(["let", [["knob_host", "api.example.test", "{\"kind\":\"string\"}"]], "@knob_host"]),
+            "{effects}"
+        );
+        assert_eq!(
+            effects[0][2],
+            json!(["let", [["knob_port", 80.0, "{\"kind\":\"number\"}"]], "@knob_port"]),
+            "{effects}"
+        );
+        assert_eq!(effects[1], json!(["os/tcp-connect", "literal.test", 80.0, { "key": "d" }]), "control: a literal host stays plain");
+        assert_eq!(effects[2], json!(["set", "@entity.h", "api.example.test"]), "control: another position reads the plain literal");
+    }
+
+    #[test]
+    fn a_union_knob_read_in_an_os_target_position_is_read_as_its_declared_union() {
+        let members = json!({
+            "string": { "name": "string", "type": "string" },
+            "Env": { "name": "Env", "type": "object", "properties": {
+                "anchor": { "name": "anchor", "type": "string", "required": true } } }
+        });
+        let mut trait_def: TraitDefinition = serde_json::from_value(json!({
+            "name": "T",
+            "linkedEntity": "Task",
+            "config": {
+                "inline": { "type": "string", "default": "a.test", "values": ["string", "Env"], "properties": members },
+                "named": { "type": "HostPart", "default": "b.test", "properties": members },
+                "plain": { "type": "string", "default": "c.test" }
+            },
+            "stateMachine": {
+                "states": [ { "name": "idle", "isInitial": true } ],
+                "events": [ { "key": "GO" } ],
+                "transitions": [ {
+                    "from": "idle", "to": "idle", "event": "GO",
+                    "effects": [
+                        ["os/tcp-connect", "@config.inline", 80, { "key": "a" }],
+                        ["os/tcp-connect", "@config.named", 80, { "key": "b" }],
+                        ["os/tcp-connect", ["str/concat", "@config.plain", ".x"], 80, { "key": "c" }],
+                        ["os/tcp-connect", "literal.test", 80, { "key": "d" }]
+                    ]
+                } ]
+            }
+        }))
+        .expect("trait fixture deserializes");
+        let mut subs = orbital_core_base::schema::SObject::new();
+        subs.insert("inline".into(), SExpression::string("a.test"));
+        subs.insert("named".into(), SExpression::string("b.test"));
+        subs.insert("plain".into(), SExpression::string("c.test"));
+        rewrite_trait_config_bindings(&mut trait_def, &subs, &orbital_core_base::schema::SObject::new());
+        let machine = serde_json::to_value(&trait_def.state_machine).expect("machine");
+        let effects = &machine["transitions"][0]["effects"];
+        let slot = |at: usize| -> serde_json::Value {
+            let text = effects[at][1][1][0][2].as_str().unwrap_or_else(|| panic!("no declared type in {effects}"));
+            serde_json::from_str(text).expect("declared type is JSON")
+        };
+        assert_eq!(slot(0)["kind"], "union", "{effects}");
+        assert_eq!(slot(0)["variants"].as_array().map(Vec::len), Some(2), "{effects}");
+        assert_eq!(slot(1), json!({ "kind": "typeref", "name": "HostPart" }), "{effects}");
+        assert_eq!(effects[2][1], json!(["str/concat", "c.test", ".x"]), "control: a call that builds the target is not the knob read: {effects}");
+        assert_eq!(effects[3], json!(["os/tcp-connect", "literal.test", 80.0, { "key": "d" }]), "control: a literal host stays plain");
     }
 
     #[test]

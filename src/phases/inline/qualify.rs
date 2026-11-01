@@ -144,6 +144,9 @@ impl LocalTypes {
     fn config_field(&self, field: &mut ConfigField) {
         self.rename_in_place(&mut field.field_type);
         self.record(&mut field.record);
+        if let Some(default) = field.default.as_mut() {
+            self.shape_arguments(default);
+        }
         if let Some(items) = field.items.as_mut() {
             self.field_definition(items);
         }

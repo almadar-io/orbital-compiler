@@ -1011,6 +1011,27 @@ impl<'a> Resolver<'a> {
         if let Some(items) = &field.items {
             return Ok(OirType::array(self.resolve_field_shape(items)?));
         }
+        // Union slot: `host : string | Env` lowers `values` (the variant names, in declaration order) beside
+        // `properties` (their shapes), the carrier a field definition's union uses.
+        if let (Some(names), Some(props)) = (&field.values, &field.properties) {
+            let mut variants: Vec<OirField> = Vec::new();
+            for name in names {
+                let Some(def) = props.get(name) else { continue };
+                let mut v = self.resolve_field(def)?;
+                if v.name.is_empty() {
+                    v.name = name.clone();
+                }
+                if let OirType::Optional { inner } = &v.field_type {
+                    v.field_type = (**inner).clone();
+                }
+                v.required = true;
+                variants.push(v);
+            }
+            if variants.is_empty() {
+                return Err(ResolveError::InvalidType("a union type names no variant that has a shape".to_string()));
+            }
+            return Ok(OirType::Union { variants: variants.into() });
+        }
         // Object slot with inline / named struct: `prefs : { theme: string }`
         // lowers to `field_type: "object"` plus `properties: {...}`. Walk each
         // property via the existing resolver.
@@ -2007,6 +2028,27 @@ mod tests {
             os_grants: None,
             deployment: None,
         }
+    }
+
+    /// A config knob declared `string | Env` carries its variant names in `values` and their shapes in `properties`
+    /// (the union carrier a field definition uses): reading `properties` alone made a record of optional members.
+    #[test]
+    fn a_config_knob_carrying_values_and_properties_resolves_to_a_union_not_a_struct() {
+        let knob = |carrier: serde_json::Value| -> OirType {
+            let field: orbital_core_base::schema::ConfigField = serde_json::from_value(carrier).expect("knob");
+            config_field_carried_type(&field).expect("resolves")
+        };
+        let members = serde_json::json!({
+            "string": { "name": "string", "type": "string" },
+            "Env": { "name": "Env", "type": "object", "properties": { "anchor": { "name": "anchor", "type": "string", "required": true } } }
+        });
+        let OirType::Union { variants } = knob(serde_json::json!({ "type": "string", "values": ["string", "Env"], "properties": members })) else {
+            panic!("a union knob is a union");
+        };
+        assert_eq!(variants.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["string", "Env"], "declaration order");
+        assert!(variants.iter().all(|v| v.required), "a member is never optional");
+        assert!(matches!(knob(serde_json::json!({ "type": "Env", "properties": { "anchor": { "name": "anchor", "type": "string" } } })), OirType::Struct { .. }), "control: properties alone is a record");
+        assert_eq!(knob(serde_json::json!({ "type": "string", "values": ["a", "b"] })), OirType::String, "control: a literal union has no properties and stays a string");
     }
 
     /// A payload field tagged `union` carries VARIANTS in `properties`, not the

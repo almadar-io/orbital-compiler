@@ -803,6 +803,34 @@ mod tests {
     }
 
     #[test]
+    fn a_union_knob_read_at_an_os_target_carrying_its_declared_type_raises_no_arg_type_mismatch() {
+        let knob: orbital_core_base::schema::ConfigField = serde_json::from_value(serde_json::json!({
+            "type": "string",
+            "values": ["string", "Env"],
+            "properties": {
+                "string": { "name": "string", "type": "string" },
+                "Env": { "name": "Env", "type": "object", "properties": {
+                    "anchor": { "name": "anchor", "type": "object", "required": true, "properties": {
+                        "env": { "name": "env", "type": "string", "required": true } } } } }
+            }
+        })).expect("knob");
+        let ty = crate::phases::resolve::config_field_carried_type(&knob).unwrap();
+        let wrap = |literal: &str, ty: &str| {
+            serde_json::json!(["os/tcp-connect", ["let", [["knob_host", literal, ty]], "@knob_host"], 80, { "key": "c" }]).to_string()
+        };
+        let typed = wrap("api.github.com", &serde_json::to_string(&ty).unwrap());
+        assert!(mismatches(&typed, HashMap::new()).is_empty(), "{:?}", mismatches(&typed, HashMap::new()));
+        let plain = serde_json::json!(["os/tcp-connect", "api.github.com", 80, { "key": "c" }]).to_string();
+        assert!(mismatches(&plain, HashMap::new()).is_empty(), "control: a literal host is accepted");
+        let record_of_optionals = orbital_core_base::ir::OirType::Struct {
+            additional: None,
+            fields: vec![orbital_core_base::ir::OirField::new("string".to_string(), orbital_core_base::ir::OirType::optional(orbital_core_base::ir::OirType::String))].into(),
+        };
+        let as_struct = wrap("api.github.com", &serde_json::to_string(&record_of_optionals).unwrap());
+        assert_eq!(mismatches(&as_struct, HashMap::new()).len(), 1, "control: the record-of-optionals reading is the refused shape: {:?}", mismatches(&as_struct, HashMap::new()));
+    }
+
+    #[test]
     fn a_sequential_let_over_an_entity_list_is_typed() {
         use orbital_core_base::ir::{OirField, OirType};
         let band = OirType::Struct {

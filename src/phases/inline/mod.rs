@@ -824,6 +824,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // schema-wide once every orbital below has finished inlining — see
     // `DeferredMerge`.
     let mut deferred_merges: Vec<DeferredMerge> = Vec::new();
+    let mut spliced_wrapper_ids: Vec<String> = Vec::new();
     for (idx, orbital) in schema.orbitals.iter_mut().enumerate() {
         let mut pulled: Vec<String> = Vec::new();
         let mut provenance: Vec<ConfigProvenanceRecord> = Vec::new();
@@ -856,6 +857,7 @@ pub fn inline_schema_with_orbital_diagnostics(
             &mut deferred_merges,
             imports,
             references,
+            &mut spliced_wrapper_ids,
         ) {
             let e = match e {
                 InlineError::UnknownAlias(alias) if lazy_aliases.contains(&alias) => {
@@ -968,6 +970,8 @@ pub fn inline_schema_with_orbital_diagnostics(
             ledger.entries.remove(id);
         }
     }
+
+    drop_spliced_wrapper_ledger_rows(schema, &spliced_wrapper_ids);
 
     uniquify_cross_orbital_pulled_siblings(&mut schema.orbitals, schema.ledger.as_mut(), &pulled_by_orbital);
 
@@ -1227,6 +1231,26 @@ fn drop_unreferenced_colliding_auxiliaries(schema: &mut OrbitalSchema) {
         });
     }
     retarget_dropped_entity_ids(schema, &dropped_ids);
+}
+
+/// A spliced-away wrapper trait is carried by no node any more, so its ledger row and its events' rows (carried by
+/// the trait as their parent) go, unless another live node still declares or references the id.
+fn drop_spliced_wrapper_ledger_rows(schema: &mut OrbitalSchema, removed_trait_ids: &[String]) {
+    if removed_trait_ids.is_empty() || schema.ledger.is_none() {
+        return;
+    }
+    let live: HashSet<String> = collect_declared_ids(schema)
+        .union(&collect_referenced_ids(schema))
+        .cloned()
+        .collect();
+    let removed: HashSet<&str> = removed_trait_ids.iter().map(String::as_str).collect();
+    if let Some(ledger) = schema.ledger.as_mut() {
+        ledger.entries.retain(|id, row| {
+            let carried_by_removed = removed.contains(id.as_str())
+                || row.parent.as_deref().is_some_and(|parent| removed.contains(parent));
+            !carried_by_removed || live.contains(id)
+        });
+    }
 }
 
 /// A dropped auxiliary's id names the same-named primary from now on: every entity-typed config value that carried
@@ -1933,6 +1957,7 @@ fn inline_orbital(
     deferred_merges: &mut Vec<DeferredMerge>,
     imports: &mut ImportMemo,
     references: &mut ReferenceSink,
+    spliced_wrapper_ids: &mut Vec<String>,
 ) -> Result<(), InlineError> {
     for reference in &mut orbital.traits {
         if let TraitReference::Inline(definition) = reference {
@@ -1996,7 +2021,8 @@ fn inline_orbital(
                 // carry the author's expressions, and only once every
                 // `@config.X` is final (an import load defers substitution,
                 // so splicing there would freeze pre-override templates).
-                splice_lambda_trait_refs(orbital, &format!("orbitals[name={}]", orbital.name))?;
+                spliced_wrapper_ids
+                    .extend(splice_lambda_trait_refs(orbital, &format!("orbitals[name={}]", orbital.name))?);
                 page::resolve_page_addresses(&mut orbital.pages, orbital.config.as_ref(), schema_config);
             }
             return Ok(());
@@ -2188,6 +2214,7 @@ fn inline_orbital(
                             deferred_merges,
                             imports,
                             references,
+                            &mut Vec::new(),
                         )?;
                         // As at the top level: an orbital's final entities (an import's
                         // materialized auxiliaries included) are targets the alias's later
@@ -3083,7 +3110,7 @@ fn inline_orbital(
     // templates are not final yet — the consumer's own top-level pass splices
     // them after its overrides apply).
     if is_top_level {
-        splice_lambda_trait_refs(orbital, &orbital_path_prefix)?;
+        spliced_wrapper_ids.extend(splice_lambda_trait_refs(orbital, &orbital_path_prefix)?);
     }
 
     // Inline theme if it's a reference. Only `Alias.theme` import-form

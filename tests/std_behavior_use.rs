@@ -853,3 +853,71 @@ fn imported_trait_entity_ref_ids_resolve_when_a_later_orbital_declares_the_same_
     }
     assert!(dangling.is_empty(), "entityRefIds naming no declared entity or ledger row: {dangling:?}");
 }
+
+const CALLSITE_BASE: &str = r#"app badge-base [version: "1.0.0"]
+uses Badge from "std/behaviors/ui-badge"
+orbital BaseOrbital {
+  entity Row [persistent: rows] {
+    id : string!
+    status : "open" | "done" = open
+  }
+  trait Show -> Row [client] {
+    initial: idle
+    state idle {
+      INIT -> idle
+      ROW_LOADED -> idle
+        (render-ui main <Stack direction={vertical} gap={none}><Badge.traits.BadgeRender linkedEntity={Row} label={"Open"} variant={(if (= ?data.FIELD open) primary success)} /></Stack>)
+    }
+    listens {
+      ROW_LOADED { data : Row! }
+    }
+  }
+  page "/" as BasePage -> Show
+}
+"#;
+
+const CALLSITE_APP: &str = r#"app badge-app-noext [version: "1.0.0"]
+uses Base from "./badge-base"
+orbital RowOrbital = Base.orbitals.BaseOrbital {
+  entity Row
+}
+"#;
+
+fn callsite_capture_errors(field: &str, app: Option<&str>) -> Vec<String> {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("badge-base.lolo");
+    std::fs::write(&base, CALLSITE_BASE.replace("FIELD", field)).unwrap();
+    let entry = match app {
+        Some(app) => {
+            let entry = dir.path().join("badge-app.lolo");
+            std::fs::write(&entry, app).unwrap();
+            entry
+        }
+        None => base,
+    };
+    let mut options = CompilerOptions::default();
+    options.inline.loader_config.packages = discovered_packages();
+    let schema = orbital_test_support::lower_lolo_file(&entry).expect("source lowers");
+    let resolved = orbital_compiler::phases::resolve_schema_with_path(schema, &options, Some(&entry)).expect("source resolves");
+    orbital_compiler::phases::validation::validate_comprehensive_without_services(&resolved)
+        .errors
+        .iter()
+        .map(|e| format!("{:?} {}", e.code, e.message))
+        .collect()
+}
+
+/// EXEC-RENDER-8: a lifted inline render trait reads `@callsitePayload.<field>` typed by the composing transition's
+/// payload, composed as an orbital the same as uncomposed.
+#[test]
+fn callsite_capture_types_the_composing_payload_when_the_atom_is_composed_as_an_orbital() {
+    assert!(callsite_capture_errors("status", None).is_empty(), "control: the uncomposed atom validates");
+    let composed = callsite_capture_errors("status", Some(CALLSITE_APP));
+    assert!(composed.is_empty(), "{composed:?}");
+}
+
+/// The undeclared-field finding belongs to the `.lolo` binding lint, not this validator: composing must change neither
+/// side, so the composed and uncomposed verdicts for a field the payload lacks are the same.
+#[test]
+fn callsite_capture_of_an_undeclared_payload_field_has_the_same_verdict_composed_and_uncomposed() {
+    assert_eq!(callsite_capture_errors("nope", None), callsite_capture_errors("nope", Some(CALLSITE_APP)));
+}

@@ -6272,6 +6272,83 @@ mod tests {
         assert!(types.contains_key("Badge") && types.contains_key("Atom::Badge"), "{:?}", types.keys());
         assert_eq!(types["Badge"][0].name, "code");
     }
+    fn parsing_upstream() -> Orbital {
+        serde_json::from_value(json!({
+            "name": "UpOrbital",
+            "id": "orb_UPSTREAMPARSINGORBITAL00",
+            "types": {"Badge": [{"name": "id", "type": "string"}]},
+            "entity": {"name": "Widget", "persistence": "runtime", "fields": [
+                {"name": "id", "type": "string", "required": true},
+                {"name": "draft", "type": "string"}]},
+            "traits": [{"name": "A", "linkedEntity": "Widget",
+              "config": {"view": {"type": "render-ui", "default": {"type": "box", "schema": ["json/parse", "@entity.draft", "Badge"]}}},
+              "stateMachine": {
+                "states": [{"name": "idle", "isInitial": true}],
+                "events": [{"key": "READ"}],
+                "transitions": [{"from": "idle", "to": "idle", "event": "READ", "effects": [
+                    ["render-ui", "main", {"type": "box", "children": [["if", ["=", "@entity.draft", ""], {"type": "empty-state"}, {"type": "flow-canvas", "schema": ["json/parse", "@entity.draft", "Badge"]}]]}],
+                    ["set", "@entity.draft", ["json/parse", "@entity.draft", "Badge"]]]}]}}]
+        }))
+        .expect("parsing upstream fixture")
+    }
+
+    fn resolve_parsing(behavior: &str, consumer_types: serde_json::Value) -> Orbital {
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &parsing_upstream());
+        ctx.set_behavior_name("Up", behavior.to_string());
+        let mut orbital: Orbital = serde_json::from_value(json!({
+            "name": "Local", "types": consumer_types, "entity": "Up.orbitals.UpOrbital.entity", "traits": []
+        }))
+        .expect("consumer");
+        let obj = OrbitalRefObject { reference: "Up.orbitals.UpOrbital".to_string(), ..Default::default() };
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &orbital_core_base::collections::IndexMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
+            &HashMap::new(),
+            None,
+            &mut Vec::new(),
+            None,
+            &mut Vec::new(),
+        )
+        .expect("resolves");
+        orbital
+    }
+
+    #[test]
+    fn an_orbital_level_uses_qualifies_a_json_parse_shape_in_effects_and_pattern_props() {
+        let orbital = resolve_parsing("Atom", json!(null));
+        let text = serde_json::to_string(&orbital.traits).expect("json");
+        assert_eq!(text.matches(r#""Atom::Badge""#).count(), 3, "{text}");
+        assert_eq!(text.matches(r#""Badge""#).count(), 0, "{text}");
+    }
+
+    #[test]
+    fn control_an_orbital_level_uses_leaves_a_json_parse_shape_of_an_undeclared_name_alone() {
+        let mut upstream = parsing_upstream();
+        let text = serde_json::to_string(&upstream).expect("json").replace("\"Badge\"]", "\"Nowhere\"]");
+        upstream = serde_json::from_str(&text).expect("fixture");
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &upstream);
+        ctx.set_behavior_name("Up", "Atom".to_string());
+        let mut orbital: Orbital = serde_json::from_value(json!({
+            "name": "Local", "entity": "Up.orbitals.UpOrbital.entity", "traits": []
+        }))
+        .expect("consumer");
+        let obj = OrbitalRefObject { reference: "Up.orbitals.UpOrbital".to_string(), ..Default::default() };
+        resolve_orbital_reference(
+            &mut orbital, &obj, &ctx,
+            &orbital_core_base::collections::IndexMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
+            &HashMap::new(), None, &mut Vec::new(), None, &mut Vec::new(),
+        )
+        .expect("resolves");
+        let out = serde_json::to_string(&orbital.traits).expect("json");
+        assert!(out.contains(r#""Nowhere""#) && !out.contains("Atom::Nowhere"), "{out}");
+    }
+
     fn parameterised_upstream(with_params: bool) -> Orbital {
         let mut def = json!({
             "name": "UpOrbital",
