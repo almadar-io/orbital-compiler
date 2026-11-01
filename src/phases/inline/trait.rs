@@ -269,6 +269,9 @@ pub(crate) fn apply_overrides_to_trait(
             }
         }
     }
+    if let Some(declared) = trait_def.config.as_ref() {
+        super::rewrite::bind_unset_optional_knobs(declared, &mut effective_config);
+    }
     // A call-site override of an `entity`-typed knob retargets every effect that names `@config.<knob>`; the
     // `entity_ref_ids` side-map still carries the knob DEFAULT's entity, which names no node in the consumer's
     // program. Follow the override like a rebind: the old key goes, the override's entity joins under its current id.
@@ -4376,6 +4379,55 @@ mod unbound_trait_knob_override_tests {
             err.to_string().contains("mode") && err.to_string().contains("unknown"),
             "{err}"
         );
+    }
+
+    fn call_site_null_probe(knob: serde_json::Value, overrides: Option<&str>) -> String {
+        let mut td: TraitDefinition = serde_json::from_value(serde_json::json!({
+            "name": "Body",
+            "config": { "knob": knob },
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "RUN", "effects": [
+                    ["set", "@entity.n", ["if", ["=", "@config.knob", null], 1, 2]]
+                ] }]
+            }
+        }))
+        .expect("trait");
+        let site = overrides.map(|v| {
+            let field: ConfigField =
+                serde_json::from_value(serde_json::json!({ "type": "string", "default": v }))
+                    .expect("override");
+            orbital_core_base::collections::IndexMap::from([("knob".to_string(), field)])
+        });
+        apply_overrides_to_trait(
+            &mut td,
+            None,
+            &orbital_core_base::collections::IndexMap::new(),
+            site.as_ref(),
+            None,
+            None,
+            None,
+            false,
+            &mut Vec::new(),
+            None,
+        )
+        .expect("folds");
+        serde_json::to_string(&td.state_machine).expect("machine")
+    }
+
+    #[test]
+    fn a_call_site_that_leaves_an_optional_knob_unset_folds_it_as_null() {
+        let optional = serde_json::json!({ "type": "string", "nullable": true });
+        let unset = call_site_null_probe(optional.clone(), None);
+        assert!(!unset.contains("@config.knob"), "{unset}");
+        let required = call_site_null_probe(
+            serde_json::json!({ "type": "string", "nullable": true, "required": true }),
+            None,
+        );
+        assert!(required.contains("@config.knob"), "control: a required knob is not folded: {required}");
+        let set = call_site_null_probe(optional, Some("x"));
+        assert!(!set.contains("@config.knob"), "{set}");
+        assert_ne!(set, unset, "control: a set value takes the other arm");
     }
 
     #[test]

@@ -1637,6 +1637,24 @@ fn sexpr_tree_contains_binding(value: &SExpression) -> bool {
 /// knob's effective value is its declared default, which the kernel binds at run time.
 pub(crate) const SECRET_KNOB_TYPE: &str = "secret";
 
+/// An optional knob (`T?`, not `!`) with no default that nothing bound is null at run time (EXEC-STEP-1, EXEC-EVAL-2);
+/// binding it null here lets `(= @config.knob null)` fold like an explicit `knob: null`.
+pub(crate) fn bind_unset_optional_knobs(
+    declared: &orbital_core_base::collections::IndexMap<String, orbital_core_base::schema::ConfigField>,
+    effective_config: &mut orbital_core_base::schema::SObject,
+) {
+    for (k, field) in declared.iter() {
+        let optional = field.nullable == Some(true)
+            && field.required != Some(true)
+            && field.default.is_none()
+            && field.field_type != SECRET_KNOB_TYPE
+            && field.field_type != "trait";
+        if optional && effective_config.get(k.as_str()).is_none() {
+            effective_config.insert(k.as_str().into(), SExpression::Null);
+        }
+    }
+}
+
 pub(crate) fn apply_inline_config_defaults(
     trait_def: &mut TraitDefinition,
     recorder: &mut Vec<ConfigProvenanceRecord>,
@@ -1660,6 +1678,7 @@ pub(crate) fn apply_inline_config_defaults(
             effective_config.insert(k.as_str().into(), v);
         }
     }
+    bind_unset_optional_knobs(declared, &mut effective_config);
     if effective_config.is_empty() {
         return;
     }
@@ -3981,6 +4000,43 @@ mod literal_list_tests {
             effect[2][1][0], "let",
             "control: a literal that fills every field reads as itself: {effect}"
         );
+    }
+
+    fn null_probe_value(knob: serde_json::Value) -> serde_json::Value {
+        let mut t = knob_trait(
+            knob,
+            serde_json::json!(["set", "@entity.n", ["if", ["=", "@config.knob", null], 1, 2]]),
+        );
+        apply_inline_config_defaults(&mut t, &mut Vec::new());
+        serde_json::to_value(first_effect(&t)).unwrap()
+    }
+
+    #[test]
+    fn an_unset_optional_knob_with_no_default_folds_as_null_like_an_explicit_null() {
+        let unset = null_probe_value(serde_json::json!({ "type": "string", "nullable": true }));
+        let explicit =
+            null_probe_value(serde_json::json!({ "type": "string", "nullable": true, "default": null }));
+        assert_eq!(unset, explicit, "unset {unset} vs explicit null {explicit}");
+        assert!(!unset.to_string().contains("@config.knob"), "{unset}");
+    }
+
+    #[test]
+    fn a_set_optional_knob_keeps_its_value_and_a_required_unset_knob_stays_unbound() {
+        let set = null_probe_value(
+            serde_json::json!({ "type": "string", "nullable": true, "default": "x" }),
+        );
+        let unset = null_probe_value(serde_json::json!({ "type": "string", "nullable": true }));
+        assert_ne!(set, unset, "control: a set value picks the other arm: {set}");
+        for knob in [
+            serde_json::json!({ "type": "string", "nullable": false }),
+            serde_json::json!({ "type": "string", "nullable": true, "required": true }),
+        ] {
+            let effect = null_probe_value(knob);
+            assert!(
+                effect.to_string().contains("@config.knob"),
+                "a required knob is not folded: {effect}"
+            );
+        }
     }
 
     #[test]
