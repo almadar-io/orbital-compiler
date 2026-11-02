@@ -2263,6 +2263,16 @@ fn language_binding(
         | OirBindingRoot::Locale
         | OirBindingRoot::CurrentTheme => OirType::String,
         OirBindingRoot::PrevStates => OirType::array(OirType::String),
+        // The navigation entries `@pages` resolves to (phases::resolve `substitute_schema_sigils`).
+        OirBindingRoot::Pages => OirType::array(OirType::Struct {
+            additional: None,
+            fields: vec![
+                field("href", OirType::String),
+                field("label", OirType::String),
+                OirField::optional("icon".to_string(), OirType::String),
+                OirField::optional("roles".to_string(), OirType::array(OirType::String)),
+            ].into(),
+        }),
         OirBindingRoot::Event => {
             let mut fields = vec![field("event", OirType::String), field("source", source())];
             if let Some(payload) = payload {
@@ -3453,6 +3463,21 @@ mod tests {
                 },
             ],
         )
+    }
+
+    #[test]
+    fn pages_is_a_list_of_navigation_entries_and_a_lambda_over_it_reads_their_fields() {
+        let pages = OirExpr::Binding { binding: OirBinding { root: OirBindingRoot::Pages, path: Vec::new() } };
+        let Some(OirType::Array { inner }) = infer_oir_expr_type(&pages, &NoCtx) else {
+            panic!("@pages has a list type");
+        };
+        let OirType::Struct { fields, .. } = *inner else {
+            panic!("each entry is a record");
+        };
+        let required: Vec<(&str, bool)> = fields.iter().map(|f| (f.name.as_str(), f.required)).collect();
+        assert_eq!(required, vec![("href", true), ("label", true), ("icon", false), ("roles", false)]);
+        let theme = OirExpr::Binding { binding: OirBinding { root: OirBindingRoot::CurrentTheme, path: Vec::new() } };
+        assert_eq!(infer_oir_expr_type(&theme, &NoCtx), Some(OirType::String), "control: a sibling sigil keeps its own type");
     }
 
     #[test]

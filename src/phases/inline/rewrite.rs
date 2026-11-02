@@ -1863,7 +1863,15 @@ pub(crate) fn declared_list_types(
             SExpression::Object(_) => true,
             _ => false,
         };
-        if !literal || sexpr_tree_contains_binding(value) {
+        // A list or record knob whose default reads a context binding (`@pages`) is read as its declared type, like a
+        // literal; a scalar knob reads the binding as it is.
+        let binding = value.is_binding()
+            && !value.as_str().is_some_and(|text| text.starts_with("@config."))
+            && (matches!(field.field_type.as_str(), "array" | "object" | "list")
+                || field.field_type.starts_with('[')
+                || field.items.is_some()
+                || field.properties.is_some());
+        if !binding && (!literal || sexpr_tree_contains_binding(value)) {
             continue;
         }
         let mut field = field.clone();
@@ -1888,9 +1896,10 @@ pub(crate) fn declared_list_types(
         };
         let list_type = matches!(&ty, orbital_core_base::ir::OirType::Array { .. })
             || matches!(&ty, orbital_core_base::ir::OirType::Optional { inner } if matches!(**inner, orbital_core_base::ir::OirType::Array { .. }));
-        if matches!(value, SExpression::Array(_)) != list_type
-            || (!crate::phases::validation::effect::needs_declaration(&ty)
-                && !literal_reads_narrower(&ty))
+        if !binding
+            && (matches!(value, SExpression::Array(_)) != list_type
+                || (!crate::phases::validation::effect::needs_declaration(&ty)
+                    && !literal_reads_narrower(&ty)))
         {
             continue;
         }
@@ -4164,6 +4173,31 @@ mod literal_list_tests {
         apply_inline_config_defaults(&mut plain, &mut Vec::new());
         let effect = serde_json::to_value(first_effect(&plain)).unwrap();
         assert!(!effect.to_string().contains("knob_knob"), "control: no lambda reads it, the prop gets the literal: {effect}");
+    }
+
+    #[test]
+    fn a_knob_defaulting_to_pages_is_read_as_its_declared_type_where_a_lambda_reads_it() {
+        // std-app-layout's navItems (NavItem carries children : [NavItem]) and its INIT render effect.
+        let knob: serde_json::Value = serde_json::from_str(r#"{"nullable": false, "type": "[NavItem]", "default": "@pages", "items": {"nullable": false, "type": "object", "properties": {"label": {"nullable": false, "name": "label", "type": "string", "required": true}, "href": {"nullable": false, "name": "href", "type": "string", "required": true}, "icon": {"nullable": false, "name": "icon", "type": "string", "required": false}, "badge": {"nullable": false, "name": "badge", "type": "string", "required": false}, "children": {"nullable": false, "name": "children", "type": "array", "required": false, "items": {"nullable": false, "type": "union", "values": ["NavItem"], "projectedFrom": {"type": "NavItem"}}}, "roles": {"nullable": false, "name": "roles", "type": "array", "required": false, "items": {"nullable": false, "type": "string"}}}, "projectedFrom": {"type": "NavItem"}}}"#).unwrap();
+        let read: serde_json::Value = serde_json::from_str(r#"["render-ui", "main", {"data-theme": "@config.theme", "className": "min-h-screen w-full", "fullHeight": true, "type": "box", "children": [{"appName": "@config.appName", "logo": ["if", ["==", "@config.logoSrc", ""], null, {"type": "image", "src": "@config.logoSrc", "alt": "", "fit": "contain", "className": "h-8 w-8"}], "children": [{"children": ["@config.contentTrait"], "className": "@config.contentClassName", "direction": "vertical", "gap": "lg", "type": "stack"}], "currentPath": "@config.currentPath", "layoutMode": "@config.layoutMode", "fullBleed": "@config.fullBleed", "navItems": ["array/map", ["array/filter", "@config.knob", ["fn", "item", ["or", ["=", ["array/len", ["object/get", "@item", "roles", []]], 0], ["array/includes", ["object/get", "@item", "roles", []], "@config.viewerRole"]]]], ["fn", "item", ["if", ["object/has", "@item", "children"], ["object/merge", "@item", {"children": ["array/filter", ["object/get", "@item", "children", []], ["fn", "child", ["or", ["=", ["array/len", ["object/get", "@child", "roles", []]], 0], ["array/includes", ["object/get", "@child", "roles", []], "@config.viewerRole"]]]]}], "@item"]]], "notificationClickEvent": "@config.notificationClickEvent", "notifications": ["if", "@config.showNotifications", "@config.notifications", null], "searchEvent": ["if", "@config.showSearch", "@config.searchEvent", null], "showThemeToggle": "@config.showThemeToggle", "sidebarContent": "@config.sidebarTrait", "topBarActions": ["array/filter", "@config.topBarActions", ["fn", "action", ["or", ["=", ["array/len", ["object/get", "@action", "roles", []]], 0], ["array/includes", ["object/get", "@action", "roles", []], "@config.viewerRole"]]]], "userMenuItems": ["array/filter", "@config.userMenuItems", ["fn", "action", ["or", ["=", ["array/len", ["object/get", "@action", "roles", []]], 0], ["array/includes", ["object/get", "@action", "roles", []], "@config.viewerRole"]]]], "type": "@config.layoutPattern", "user": ["if", ["validate/required", "@config.viewerName"], {"avatar": "@config.viewerAvatar", "email": "@config.viewerEmail", "name": "@config.viewerName"}, null]}]}]"#).unwrap();
+        let mut t = knob_trait(knob.clone(), read);
+        apply_inline_config_defaults(&mut t, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&t)).unwrap();
+        assert!(effect.to_string().contains("knob_knob") && effect.to_string().contains("@pages"), "{effect}");
+        let mut plain = knob_trait(
+            knob,
+            serde_json::json!(["render-ui", "main", { "type": "data-list", "itemActions": ["if", true, "@config.knob", []] }]),
+        );
+        apply_inline_config_defaults(&mut plain, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&plain)).unwrap();
+        assert!(!effect.to_string().contains("knob_knob"), "control: no lambda reads it, the prop gets the binding: {effect}");
+        let role = serde_json::json!({ "type": "string", "default": "@user.role" });
+        let mut scalar = knob_trait(role, serde_json::json!(["render-ui", "main", { "type": "data-list", "itemActions": [
+            "array/filter", ["str/split", "@config.knob", ","], ["fn", "r", ["!=", "@r", ""]]
+        ] }]));
+        apply_inline_config_defaults(&mut scalar, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&scalar)).unwrap();
+        assert!(!effect.to_string().contains("knob_knob") && effect.to_string().contains("@user.role"), "control: a scalar knob reads its binding as it is (std-studio viewerRole = @user.role): {effect}");
     }
 
     fn null_probe_value(knob: serde_json::Value) -> serde_json::Value {
