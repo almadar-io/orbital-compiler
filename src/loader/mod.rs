@@ -1390,6 +1390,14 @@ mod tests {
         ));
     }
 
+    /// A core providing language 1.0.0: discovery reads only its language version.
+    fn write_core(node_modules: &std::path::Path) {
+        let dir = node_modules.join("@almadar/core");
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = serde_json::json!({ "name": "@almadar/core", "version": "10.1.0", "orbLanguage": { "version": "1.0.0" } });
+        std::fs::write(dir.join("package.json"), manifest.to_string()).unwrap();
+    }
+
     fn tempdir_registry() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let nested = dir.path().join("app/organisms");
@@ -1439,7 +1447,7 @@ mod tests {
             lolo_source: None,
             vectors: None,
             sidecars: vec![],
-            compiler_range: ">=0.0.0".to_string(),
+            language_range: ">=0.0.0".to_string(),
             std_peer_range: None,
             core_range: None,
             is_link: false,
@@ -1479,6 +1487,7 @@ mod tests {
         version: &str,
         behaviors: &[&str],
     ) -> BehaviorPackage {
+        write_core(&tmp.join("node_modules"));
         let pkg_dir = tmp.join("node_modules").join(name);
         let registry_dir = pkg_dir.join("behaviors/registry");
         std::fs::create_dir_all(&registry_dir).unwrap();
@@ -1493,7 +1502,7 @@ mod tests {
             "orb": {
                 "prefix": prefix,
                 "registry": "behaviors/registry",
-                "compiler": ">=0.0.0",
+                "language": ">=0.0.0",
             },
         });
         std::fs::write(
@@ -1627,6 +1636,7 @@ mod tests {
     #[test]
     fn installed_std_package_is_authoritative() {
         let tmp = tempfile::tempdir().unwrap();
+        write_core(&tmp.path().join("node_modules"));
         let pkg_dir = tmp.path().join("node_modules/@almadar/std");
         let registry_dir = pkg_dir.join("behaviors/registry");
         std::fs::create_dir_all(&registry_dir).unwrap();
@@ -1647,7 +1657,7 @@ mod tests {
                 "orb": {
                     "prefix": "almadar-std",
                     "registry": "behaviors/registry",
-                        "compiler": ">=0.0.0",
+                        "language": ">=0.0.0",
                 },
             })
             .to_string(),

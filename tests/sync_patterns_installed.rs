@@ -14,7 +14,7 @@ fn validator_tables_come_from_the_installed_registry() {
     fs::create_dir_all(&data).unwrap();
     fs::write(
         core.join("package.json"),
-        r#"{"name":"@almadar/core","version":"0.0.1","orbLanguage":{"compiler":">=0.0.0",
+        r#"{"name":"@almadar/core","version":"0.0.1","orbLanguage":{"version":"1.0.0",
             "patterns":"dist/patterns/patterns-registry.json",
             "componentMapping":"dist/patterns/component-mapping.json",
             "eventContracts":"dist/patterns/event-contracts.json",

@@ -181,16 +181,7 @@ pub fn discovery_refusal(options: &CompilerOptions) -> Option<Finding> {
 }
 
 fn discovery_error_code(e: &orbital_core_base::behavior_packages::DiscoverError) -> &'static str {
-    use orbital_core_base::behavior_packages::DiscoverError;
-    match e {
-        DiscoverError::DuplicateBehaviorName { .. } => "ORB_BEHAVIOR_NAME_DUPLICATE",
-        DiscoverError::PrefixConflict { .. } => "ORB_BEHAVIOR_PREFIX_CONFLICT",
-        DiscoverError::IncompatibleCompiler { .. } => orbital_core_base::language_data::CODE_INCOMPATIBLE,
-        DiscoverError::MissingDeclaredPath { .. }
-        | DiscoverError::InvalidSidecarLock { .. }
-        | DiscoverError::InvalidPackageJson { .. }
-        | DiscoverError::Io { .. } => "ORB_BEHAVIOR_PACKAGE_INVALID",
-    }
+    e.code()
 }
 
 /// True when an inline error names a real `uses` import nothing on the `discover()` walk answers, as opposed to a
