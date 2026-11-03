@@ -6,8 +6,8 @@ license.workspace = true
 description = "Compiler for Orbital schemas to Rust code"
 
 [dependencies]
-orbital-core-base = { path = "../orbital-core/crates/base" }
-orbital-core-eval = { path = "../orbital-core/crates/eval" }
+orbital-core-base = { git = "https://github.com/almadar-io/orbital-core", branch = "main" }
+orbital-core-eval = { git = "https://github.com/almadar-io/orbital-core", branch = "main" }
 serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 thiserror.workspace = true
@@ -21,7 +21,7 @@ syn = { version = "2", features = ["full"] }
 [dev-dependencies]
 pretty_assertions.workspace = true
 tempfile = "3.10"
-orbital-test-support = { package = "orbital-integration-tests", path = "../orbital-integration-tests" }
+orbital-test-support = { package = "orbital-integration-tests", git = "https://github.com/almadar-io/orbital-integration-tests", branch = "main" }
 
 [[bin]]
 name = "compose_only"
