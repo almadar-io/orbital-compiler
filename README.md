@@ -8,7 +8,7 @@
 
 </div>
 
-<p align="center"><sub>Part of <a href="https://github.com/almadar-io/orb"><b>Orb</b></a>: the language where the rule is the program. <a href="https://orb.almadar.io">orb.almadar.io</a></sub></p>
+<p align="center"><sub>Part of <a href="https://github.com/almadar-io/orb"><b>Orb</b></a>: a programming language of composable state machines. <a href="https://orb.almadar.io">orb.almadar.io</a></sub></p>
 
 `orbital-compiler` takes a parsed schema through Parse, Validate, Enrich, Inline, Compose and Resolve, produces the OIR, and drives code generation through a shell backend. It validates and generates; it never decides runtime behavior, which lives in `orbital-core`.
 
