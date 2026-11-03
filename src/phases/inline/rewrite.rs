@@ -1560,6 +1560,7 @@ fn element_admits_string(shape: &FieldDefinition) -> bool {
         shape.field_type,
         FieldType::Number
             | FieldType::Int
+            | FieldType::Sized(_)
             | FieldType::Instant
             | FieldType::Boolean
             | FieldType::Money
@@ -3183,6 +3184,16 @@ const PRIMITIVE_TYPE_ARG_NAMES: &[&str] = &[
     "relation",
     "int",
     "float",
+    "i8",
+    "i16",
+    "i32",
+    "i64",
+    "u8",
+    "u16",
+    "u32",
+    "u64",
+    "f32",
+    "f64",
     "number",
     "duration",
     "bool",

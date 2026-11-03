@@ -1094,6 +1094,9 @@ impl<'a> Resolver<'a> {
             "date" => OirType::Date,
             "datetime" | "timestamp" => OirType::DateTime,
             "instant" => OirType::Instant,
+            width if orbital_core_base::num_width::NumWidth::from_name(width).is_some() => {
+                orbital_core_base::num_width::NumWidth::from_name(width).map_or(OirType::Number, |w| w.oir_type())
+            }
             "array" | "list" => return Err(orbital_core_base::ir::types::ShapeError::at(orbital_core_base::ir::types::ShapeGap::BareArrayText).into()),
             "object" => OirType::Struct { fields: orbital_core_base::ir::types::no_fields(), additional: None },
             "json" | "tensor" => return Err(orbital_core_base::ir::types::ShapeError::at(orbital_core_base::ir::types::ShapeGap::GenericText(trimmed.to_string())).into()),

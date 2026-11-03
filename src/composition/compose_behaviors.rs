@@ -259,7 +259,7 @@ pub fn compose_behaviors(
     let schema_version = raw_inputs
         .iter()
         .filter(|i| i.get("orbitals").is_some_and(Value::is_array))
-        .filter_map(|i| i.get("schemaVersion").filter(|v| matches!(v, Value::Number(_))))
+        .filter_map(|i| i.get("schemaVersion").filter(|v| v.is_numeric()))
         .fold(None, |max: Option<&Value>, v| match max {
             Some(m) if m.as_number() >= v.as_number() => Some(m),
             _ => Some(v),

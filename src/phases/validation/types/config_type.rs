@@ -461,6 +461,7 @@ pub(crate) fn config_declared_kind(field_type: &str) -> Option<&str> {
     match field_type {
         "event" | "field" | "slot" | "pattern" | "icon" | "component" | "secret" | "asset" => Some("string"),
         "int" | "float" => Some("number"),
+        width if orbital_core_base::num_width::NumWidth::from_name(width).is_some() => Some("number"),
         "trait" => None,
         // `Map K V` is a real dictionary type, not an opaque generic: it lowers
         // to a `Map<K,V>` tag with the VALUE shape in `items`, and codegen
@@ -1194,6 +1195,7 @@ fn union_member_tag(member: &OrbitalOirType) -> Option<&'static str> {
         OrbitalOirType::String => Some("string"),
         OrbitalOirType::Number => Some("number"),
         OrbitalOirType::Integer => Some("int"),
+        OrbitalOirType::Sized { width } => Some(width.name()),
         OrbitalOirType::Boolean => Some("boolean"),
         _ => None,
     }
@@ -2084,6 +2086,7 @@ pub(crate) fn check_field_def_shape(
                 FieldType::String => "string",
                 FieldType::Number => "number",
                 FieldType::Int => "int",
+                FieldType::Sized(width) => width.name(),
                 FieldType::Boolean => "boolean",
                 FieldType::Date => "date",
                 FieldType::Datetime => "datetime",
@@ -2138,6 +2141,7 @@ pub(crate) fn check_primitive_shape(
         // catch-all below and accept anything, so `float` took a string or a
         // bool silently.
         "int" | "float" => actual == "number",
+        width if orbital_core_base::num_width::NumWidth::from_name(width).is_some() => actual == "number",
         // Name-carrying scalar tags: a Lucide icon name, a slot key, a pattern
         // name, a component name. Each is a STRING in every emitted program, so
         // a number or boolean here is decidably wrong. They also fell through

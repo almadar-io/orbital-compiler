@@ -232,7 +232,12 @@ pub(crate) fn validate_set_return_type(
         return result;
     };
     let reads_entity_field = matches!(&arr[2], SExpression::String(s) if s.strip_prefix("@entity.").is_some_and(|rest| !rest.is_empty()));
-    if !reads_entity_field && !matches!(&arr[2], SExpression::Array(_) | SExpression::Object(_) | SExpression::Null) {
+    let numeric_literal = matches!(&arr[2], SExpression::Number(_))
+        && orbital_core_base::type_compat::is_number_kind(match &meta.shape {
+            orbital_core_base::ir::OirType::Optional { inner } => inner,
+            declared => declared,
+        });
+    if !reads_entity_field && !numeric_literal && !matches!(&arr[2], SExpression::Array(_) | SExpression::Object(_) | SExpression::Null) {
         return result;
     }
     let ctx = ExprReturnCtx {
@@ -256,7 +261,7 @@ pub(crate) fn validate_set_return_type(
             .with_suggestion("Write a value of the declared type, or declare the field optional (`T?`)"),
         );
     }
-    if !reads_entity_field && !matches!(&arr[2], SExpression::Array(_)) {
+    if !reads_entity_field && !numeric_literal && !matches!(&arr[2], SExpression::Array(_)) {
         return result;
     }
     if let orbital_core_base::ir::OirType::Reference { entity } = &meta.shape {
@@ -625,7 +630,9 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
                 let mut names: Vec<&String> = self
                     .payload
                     .iter()
-                    .filter(|(_, kind)| PRIMITIVE_KINDS.contains(&kind.as_str()))
+                    .filter(|(_, kind)| {
+                        PRIMITIVE_KINDS.contains(&kind.as_str()) || orbital_core_base::num_width::NumWidth::from_name(kind).is_some()
+                    })
                     .map(|(n, _)| n)
                     .collect();
                 names.sort();
@@ -845,6 +852,7 @@ fn field_type_str(ft: &FieldType) -> std::borrow::Cow<'static, str> {
         FieldType::String => "string".into(),
         FieldType::Number => "number".into(),
         FieldType::Int => "int".into(),
+        FieldType::Sized(width) => width.name().into(),
         FieldType::Boolean => "boolean".into(),
         FieldType::Date => "date".into(),
         FieldType::Datetime => "datetime".into(),
@@ -938,6 +946,25 @@ mod return_type_tests {
             )),
         ];
         validate_set_return_type(&arr, "p", &fields, &HashMap::new(), None, None, None).errors.len()
+    }
+
+    #[test]
+    fn a_numeric_literal_set_into_a_number_field_must_fit_its_type() {
+        let errors = |ty: &str, literal: f64| {
+            let entity: EntityDefinition = serde_json::from_value(serde_json::json!({
+                "name": "E", "collection": "es", "fields": [{ "name": "n", "type": ty, "nullable": true }]
+            }))
+            .unwrap();
+            let arr = vec![SExpression::String("set".into()), SExpression::string("@entity.n"), SExpression::Number(literal)];
+            validate_set_return_type(&arr, "p", &entity_field_type_map(&entity), &HashMap::new(), None, None, None).errors.len()
+        };
+        assert_eq!(errors("u8", 255.0), 0);
+        assert_eq!(errors("u8", 300.0), 1);
+        assert_eq!(errors("u8", -1.0), 1);
+        assert_eq!(errors("int", 2.5), 1, "a fraction is no int");
+        assert_eq!(errors("int", 2.0), 0);
+        assert_eq!(errors("number", 2.5), 0, "control: any number fits number");
+        assert_eq!(errors("string", 3.0), 0, "control: a non-numeric field is left to its own check");
     }
 
     #[test]

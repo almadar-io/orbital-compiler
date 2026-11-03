@@ -521,7 +521,7 @@ impl<'c> Inferer<'c> {
         match expr {
             OirExpr::Null => None,
             OirExpr::Bool { .. } => Some(OirType::Boolean),
-            OirExpr::Number { .. } => Some(OirType::Number),
+            OirExpr::Number { value } => Some(literal_number_type(*value)),
             OirExpr::String { .. } => Some(OirType::String),
             OirExpr::Array { items } if items.is_empty() => {
                 Some(OirType::Tuple { items: Vec::new() })
@@ -1043,6 +1043,11 @@ impl<'c> Inferer<'c> {
         }
         match (expr, expected) {
             (OirExpr::Number { value }, OirType::Integer) if value.fract() == 0.0 => Some(expected.clone()),
+            (OirExpr::Number { value }, OirType::Sized { width })
+                if width.fits(&orbital_core_base::value::Value::Number(*value)) =>
+            {
+                Some(expected.clone())
+            }
             (OirExpr::Null, _)
                 if !orbital_core_base::type_compat::is_unknowable(expected)
                     && !matches!(
@@ -1696,7 +1701,8 @@ impl<'c> Inferer<'c> {
                     };
                     integral[index] = match other {
                         OirExpr::Number { value } => value.fract() == 0.0,
-                        _ => matches!(&known, Some(Known::Type(OirType::Integer))),
+                        _ => matches!(&known, Some(Known::Type(OirType::Integer)))
+                            || matches!(&known, Some(Known::Type(OirType::Sized { width })) if !width.is_float()),
                     };
                     // An optional value at a position that excludes null is refused once, by the null rule; the value it
                     // holds is then checked against the declared type like any other.
@@ -1908,6 +1914,16 @@ impl<'c> Inferer<'c> {
                     }
                 }
             }
+        }
+        if signature.semantics() == Some("applied-operator<0,1>") {
+            // The result is the named operator's over the list's elements; a name or list that is not a literal is undetermined.
+            let name = args.first().and_then(|arg| Self::literal_text(arg))?;
+            let operands = match args.get(1)? {
+                OirExpr::Array { items } => items.iter().collect::<Vec<_>>(),
+                OirExpr::Call { function, args } if function == "list" => args.iter().collect(),
+                _ => return None,
+            };
+            return self.call(&name, &operands);
         }
         let result =
             signature.result_with_options(&bindings, |index, field| match args.get(index) {
@@ -2325,12 +2341,18 @@ fn quoted_literal(
     }
 }
 
+/// A numeric literal that is exactly an integer is an `int`, which widens to `number` wherever one is expected
+/// (EXEC-EVAL-11); any other numeric literal is a `number`.
+fn literal_number_type(value: f64) -> OirType {
+    orbital_core_base::value::exact_int(value).map_or(OirType::Number, |_| OirType::Integer)
+}
+
 /// `(quote <string|number|boolean literal>)` is that scalar; a quote of anything else stays `SExpr`.
 fn quoted_scalar(function: &str, args: &[OirExpr]) -> Option<OirType> {
     use orbital_core_base::schema::SExpression as S;
     match quoted_literal(function, args)? {
         S::String(_) => Some(OirType::String),
-        S::Number(_) => Some(OirType::Number),
+        S::Number(n) => Some(literal_number_type(n)),
         S::Bool(_) => Some(OirType::Boolean),
         _ => None,
     }
@@ -3688,6 +3710,74 @@ mod tests {
     }
 
     #[test]
+    fn checked_local_annotations_prove_a_list_of_a_union_with_a_sealed_member() {
+        let borrow = orbital_core_base::sealed::sealed_type_ref("Borrow");
+        let array = OirType::array(OirType::Union {
+            variants: vec![OirField::new("number", OirType::Number), OirField::new("Borrow", borrow.clone())].into(),
+        });
+        let row = Row(vec![("b", borrow)]);
+        for (items, accepted) in [
+            (vec![num(4.0), num(2.5)], true),
+            (vec![entity(&["b"]), num(4.0)], true),
+            (vec![entity(&["b"]), text("x")], false),
+        ] {
+            let expr = checked_local(list_of(items), array.clone());
+            assert_eq!(check_oir_expr(&expr, &row).is_empty(), accepted, "{expr:?}");
+        }
+    }
+
+    #[test]
+    fn a_width_annotation_takes_a_literal_in_range_and_refuses_one_outside() {
+        let u8_ty = OirType::Sized { width: orbital_core_base::num_width::NumWidth::U8 };
+        for (literal, accepted) in [(255.0, true), (0.0, true), (256.0, false), (-1.0, false), (1.5, false)] {
+            let expr = checked_local(num(literal), u8_ty.clone());
+            assert_eq!(check_oir_expr(&expr, &NoCtx).is_empty(), accepted, "{literal} as u8");
+        }
+        let int_into_u8 = checked_local(entity(&["n"]), u8_ty.clone());
+        assert!(!check_oir_expr(&int_into_u8, &Row(vec![("n", OirType::Integer)])).is_empty(), "control: an int does not narrow");
+    }
+
+    #[test]
+    fn arithmetic_over_integer_widths_is_an_int() {
+        let row = Row(vec![
+            ("a", OirType::Sized { width: orbital_core_base::num_width::NumWidth::U8 }),
+            ("b", OirType::Sized { width: orbital_core_base::num_width::NumWidth::U8 }),
+            ("f", OirType::Sized { width: orbital_core_base::num_width::NumWidth::F32 }),
+        ]);
+        let sum = |x: &str, y: &str| call("+", vec![entity(&[x]), entity(&[y])]);
+        assert_eq!(infer_oir_expr_type(&sum("a", "b"), &row), Some(OirType::Integer));
+        assert_eq!(infer_oir_expr_type(&sum("a", "f"), &row), Some(OirType::Number), "control: a float width makes a number");
+    }
+
+    struct SealedAlias(OirType);
+    impl TypeCtx for SealedAlias {
+        fn binding_type(&self, binding: &OirBinding) -> Option<OirType> {
+            Row(vec![("b", orbital_core_base::sealed::sealed_type_ref("Borrow"))]).binding_type(binding)
+        }
+        fn named_type(&self, name: &str) -> Option<OirType> {
+            (name == "FfiArg").then(|| self.0.clone())
+        }
+    }
+
+    #[test]
+    fn a_list_annotated_with_a_named_union_alias_of_a_sealed_member_is_proved() {
+        let ctx = SealedAlias(OirType::Union {
+            variants: vec![
+                OirField::new("int", OirType::Integer),
+                OirField::new("number", OirType::Number),
+                OirField::new("Borrow", orbital_core_base::sealed::sealed_type_ref("Borrow")),
+            ]
+            .into(),
+        });
+        let array = OirType::array(OirType::TypeRef { name: "FfiArg".into() });
+        for (items, accepted) in [(vec![entity(&["b"]), num(4.0)], true), (vec![entity(&["b"]), text("x")], false)] {
+            let expr = checked_local(list_of(items), array.clone());
+            let found = check_oir_expr(&expr, &ctx);
+            assert_eq!(found.is_empty(), accepted, "{expr:?}: {found:?}");
+        }
+    }
+
+    #[test]
     fn checked_local_annotations_preserve_recursive_aliases_and_plain_list_rules() {
         let ty = OirType::array(OirType::TypeRef {
             name: "Alias".into(),
@@ -3794,8 +3884,9 @@ mod tests {
     fn literals_and_binops() {
         assert_eq!(
             infer_oir_expr_type(&num(1.0), &NoCtx),
-            Some(OirType::Number)
+            Some(OirType::Integer)
         );
+        assert_eq!(infer_oir_expr_type(&num(1.5), &NoCtx), Some(OirType::Number), "control: a fraction is a number");
         assert_eq!(
             infer_oir_expr_type(
                 &OirExpr::BinaryOp {
@@ -3858,7 +3949,7 @@ mod tests {
         );
         assert_eq!(
             infer_oir_expr_type(&quoted(S::Number(3.0)), &NoCtx),
-            Some(OirType::Number)
+            Some(OirType::Integer)
         );
         assert_eq!(
             infer_oir_expr_type(&quoted(S::Bool(true)), &NoCtx),
@@ -3930,7 +4021,7 @@ mod tests {
         );
         assert_eq!(
             infer_oir_expr_type(&call("array/first", vec![list_of(vec![num(1.0)])]), &NoCtx),
-            Some(OirType::optional(OirType::Number))
+            Some(OirType::optional(OirType::Integer))
         );
     }
 
@@ -3940,7 +4031,7 @@ mod tests {
         assert_eq!(infer_oir_expr_type(&blob, &NoCtx), Some(OirType::Bytes));
         assert_eq!(
             infer_oir_expr_type(&call("bytes/length", vec![blob.clone()]), &NoCtx),
-            Some(OirType::Number)
+            Some(OirType::Integer)
         );
         assert_eq!(
             infer_oir_expr_type(&call("bytes/to-string", vec![blob.clone()]), &NoCtx),
@@ -4110,7 +4201,7 @@ mod tests {
         };
         assert_eq!(
             infer_oir_expr_type(&call("array/map", vec![entity(&["tags"]), lambda]), &row),
-            Some(OirType::array(OirType::Number))
+            Some(OirType::array(OirType::Integer))
         );
     }
 
@@ -4891,7 +4982,7 @@ mod tests {
                 },
             ],
         );
-        assert_eq!(infer_oir_expr_type(&ok, &NoCtx), Some(OirType::Number));
+        assert_eq!(infer_oir_expr_type(&ok, &NoCtx), Some(OirType::Integer));
         assert!(check_oir_expr(&ok, &NoCtx).is_empty());
         let bad = call(
             "let",
@@ -5150,6 +5241,25 @@ mod tests {
             assert_eq!(ty(name, vec![ratio()]), Some(OirType::Integer), "{name}");
         }
         assert_eq!(ty("math/round", vec![ratio(), num(2.0)]), Some(OirType::Number), "decimals keep a fraction");
+    }
+
+    #[test]
+    fn kernel_apply_types_as_the_named_operator_over_the_listed_elements() {
+        let row = Row(vec![("name", OirType::String)]);
+        let ty = |args: Vec<OirExpr>| infer_oir_expr_type(&call("kernel/apply", args), &row);
+        let text = |value: &str| OirExpr::String { value: value.to_string() };
+        assert_eq!(ty(vec![text("+"), call("list", vec![num(1.0), num(2.0)])]), Some(OirType::Integer));
+        assert_eq!(ty(vec![text("str/len"), call("list", vec![text("a")])]), Some(OirType::Integer));
+        assert_eq!(
+            ty(vec![text("str/concat"), call("list", vec![text("a"), text("b")])]),
+            Some(OirType::String),
+            "control: the result follows the named operator"
+        );
+        assert_eq!(
+            ty(vec![entity(&["name"]), call("list", vec![num(1.0), num(2.0)])]),
+            None,
+            "control: a computed name is undetermined"
+        );
     }
 
     /// std-browse's related filter at a call site that sets no `relatedField`: the knob substitutes to null, so the
@@ -5425,7 +5535,7 @@ mod tests {
             assert!(found.is_empty(), "{shape}: {found:?}");
             assert_eq!(
                 infer_oir_expr_type(&fold, &DeclaredFold),
-                Some(OirType::Number),
+                Some(OirType::Integer),
                 "a fold of a present value answers the step's type"
             );
         }
@@ -5770,7 +5880,7 @@ mod tests {
             panic!("both raw types remain")
         };
         assert!(variants.iter().any(|v| v.field_type == OirType::String));
-        assert!(variants.iter().any(|v| v.field_type == OirType::Number));
+        assert!(variants.iter().any(|v| v.field_type == OirType::Integer));
         for item in [serde_json::json!({"kind":3}), serde_json::json!(3)] {
             let expr = lowered(serde_json::json!(["array/append", "@entity.cells", item]));
             assert!(
@@ -5867,9 +5977,9 @@ mod tests {
             Vec::<String>::new(),
             "the provisional reading's findings are dropped"
         );
-        assert_eq!(infer_oir_expr_type(&sum, &ctx), Some(OirType::Number), "a fold of a present value answers the step's type");
+        assert_eq!(infer_oir_expr_type(&sum, &ctx), Some(OirType::Integer), "a fold of a present value answers the step's type");
         let absent = Row(vec![("tree", OirType::optional(ctx.0[0].1.clone())), ("out", OirType::String)]);
-        assert_eq!(infer_oir_expr_type(&sum, &absent), Some(OirType::optional(OirType::Number)), "control: an absent value folds to null");
+        assert_eq!(infer_oir_expr_type(&sum, &absent), Some(OirType::optional(OirType::Integer)), "control: an absent value folds to null");
         let joined = lowered(fold_over_tree(serde_json::json!([
             "str/concat",
             "@n.label",
@@ -5913,7 +6023,7 @@ mod tests {
         let found = reported(&lowered(fold_over_tree(step)), &ctx);
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(
-            found[0].contains("parent") && found[0].contains("expected number, got string"),
+            found[0].contains("parent") && found[0].contains("expected int, got string"),
             "the child result is the step's number, read with a string default: {found:?}"
         );
     }
@@ -6473,7 +6583,7 @@ mod tests {
     fn a_uniform_literal_list_keeps_its_one_record_type() {
         let row = ExactRow(Row(vec![]));
         let list = lowered(serde_json::json!([{ "a": 1 }, { "a": 2 }]));
-        let record = OirType::Struct { additional: None, fields: vec![OirField::new("a".to_string(), OirType::Number)].into() };
+        let record = OirType::Struct { additional: None, fields: vec![OirField::new("a".to_string(), OirType::Integer)].into() };
         assert_eq!(infer_oir_expr_type(&list, &row), Some(OirType::array(record)));
     }
 }

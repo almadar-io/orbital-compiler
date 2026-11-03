@@ -393,7 +393,7 @@ fn resolve_config_field(field: &str, ctx: &BindingContext) -> BindingType {
 fn field_type_to_binding(ft: &FieldType) -> BindingType {
     match ft {
         FieldType::String => BindingType::String,
-        FieldType::Number | FieldType::Int => BindingType::Number,
+        FieldType::Number | FieldType::Int | FieldType::Sized(_) => BindingType::Number,
         FieldType::Boolean => BindingType::Boolean,
         FieldType::Date | FieldType::Datetime | FieldType::Timestamp | FieldType::Instant => BindingType::Datetime,
         // Semantic domains bind as strings — a render slot treats them as text.

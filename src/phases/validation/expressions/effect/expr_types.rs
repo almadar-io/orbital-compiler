@@ -316,7 +316,7 @@ mod tests {
         assert_eq!(at(".guard[1][1]"), Some("number"));
         assert_eq!(at(".guard[2][1]"), Some("boolean"));
         assert_eq!(at(".guard[3]"), Some("boolean"));
-        assert_eq!(at(".effects[0][2]"), Some("number"));
+        assert_eq!(at(".effects[0][2]"), Some("int"));
         assert_eq!(at(".effects[0][2][1]"), Some("[string]"));
         assert_eq!(at(".effects[0][2][1][1]"), Some("[string]"));
         assert_eq!(at(".effects[0][2][1][2][2]"), Some("boolean"));
@@ -339,10 +339,10 @@ mod tests {
         );
         let types = expression_types(&schema);
         let at = |rest: &str| types.get(&format!("{AT}{rest}")).map(String::as_str);
-        assert_eq!(at(".effects[0][2][1][0][1]"), Some("number"));
-        assert_eq!(at(".effects[0][2].body[0]"), Some("number"));
+        assert_eq!(at(".effects[0][2][1][0][1]"), Some("int"));
+        assert_eq!(at(".effects[0][2].body[0]"), Some("int"));
         assert_eq!(at(".effects[0][2].body[0][1]"), Some("boolean"));
-        assert_eq!(at(".effects[0][2].body[0].then"), Some("number"));
+        assert_eq!(at(".effects[0][2].body[0].then"), Some("int"));
         assert!(types.keys().all(|path| !path.contains(".guard")));
     }
 }

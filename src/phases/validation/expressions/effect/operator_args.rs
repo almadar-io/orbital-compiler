@@ -1297,7 +1297,7 @@ mod tests {
     fn an_element_of_another_type_appended_to_a_list_is_an_error() {
         let got = mismatches(r#"["array/append", "@entity.tags", 1]"#, tags());
         assert_eq!(got.len(), 1, "{got:?}");
-        assert!(got[0].contains("argument 2 is a number"), "{got:?}");
+        assert!(got[0].contains("argument 2 is a int"), "{got:?}");
         assert!(got[0].contains("an earlier argument is a string"), "{got:?}");
         assert!(mismatches(r#"["array/append", "@entity.tags", "x"]"#, tags()).is_empty());
     }

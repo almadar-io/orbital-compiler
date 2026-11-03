@@ -2997,8 +2997,8 @@ pub fn apply_compose_overrides(schema: &mut Value, overrides: &Value) -> Result<
         let kind = |v: &Value| match v {
             Value::Null => "null",
             Value::Bool(_) => "boolean",
-            Value::Number(_) => "number",
-            Value::String(_) => "string",
+            Value::Number(_) | Value::Int(_) => "number",
+            Value::String(_) | Value::Bytes(_) => "string",
             Value::Array(_) => "array",
             Value::Object(_) => "object",
             Value::Lambda(_) => "lambda",

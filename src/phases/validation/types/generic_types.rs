@@ -14,8 +14,8 @@ fn is_value_kind(name: &str) -> bool {
     serde_json::from_value::<FieldType>(serde_json::Value::String(name.to_string())).is_ok()
 }
 
-/// Every name a type export's shape refers to must be a declared alias, an entity, a language program type or a
-/// value kind.
+/// Every name a type export's shape refers to must be a declared alias, an entity, a language program type, a sealed
+/// type or a value kind.
 fn check_alias_references(
     types: &std::collections::BTreeMap<String, Vec<PayloadField>>,
     is_entity: &dyn Fn(&str) -> bool,
@@ -33,6 +33,7 @@ fn check_alias_references(
             if !types.contains_key(&name)
                 && !is_entity(&name)
                 && !is_value_kind(&name)
+                && !orbital_core_base::sealed::is_sealed_type(&name)
                 && orbital_core_base::language::program_types::program_type(&name).is_none()
             {
                 result.add_error(ValidationError::error(
@@ -87,6 +88,17 @@ mod tests {
                 [("T".to_string(), vec![payload(word, None)])]
                     .into_iter()
                     .collect();
+            let mut result = ValidationResult::new();
+            check_alias_references(&types, &|_| false, &mut result);
+            assert!(result.errors.is_empty(), "{word}: {:?}", result.errors);
+        }
+    }
+
+    #[test]
+    fn a_type_export_may_name_a_sealed_type() {
+        for word in ["Arena", "Block", "Borrow", "Verified"] {
+            let types: std::collections::BTreeMap<String, Vec<PayloadField>> =
+                [("T".to_string(), vec![payload(word, None)])].into_iter().collect();
             let mut result = ValidationResult::new();
             check_alias_references(&types, &|_| false, &mut result);
             assert!(result.errors.is_empty(), "{word}: {:?}", result.errors);

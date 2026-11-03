@@ -59,12 +59,12 @@ impl ToValue for f64 {
 }
 impl ToValue for i32 {
     fn to_value(self) -> Value {
-        Value::Number(self as f64)
+        Value::Int(self.into())
     }
 }
 impl ToValue for usize {
     fn to_value(self) -> Value {
-        Value::Number(self as f64)
+        i64::try_from(self).map_or(Value::Number(self as f64), Value::Int)
     }
 }
 impl<T: ToValue> ToValue for Option<T> {
