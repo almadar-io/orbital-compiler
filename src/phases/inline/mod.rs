@@ -825,6 +825,11 @@ pub fn inline_schema_with_orbital_diagnostics(
     // `DeferredMerge`.
     let mut deferred_merges: Vec<DeferredMerge> = Vec::new();
     let mut spliced_wrapper_ids: Vec<String> = Vec::new();
+    let written_os_grants: orbital_core_base::collections::IndexMap<String, orbital_core_base::os_grants::OsGrants> = schema
+        .orbitals
+        .iter()
+        .filter_map(|o| o.os_grants.clone().map(|g| (o.name.clone(), g)))
+        .collect();
     for (idx, orbital) in schema.orbitals.iter_mut().enumerate() {
         let mut pulled: Vec<String> = Vec::new();
         let mut provenance: Vec<ConfigProvenanceRecord> = Vec::new();
@@ -1021,6 +1026,11 @@ pub fn inline_schema_with_orbital_diagnostics(
     // the same reason `resolve_sigil_types` is: a rebind target entity can
     // live on a sibling orbital.
     r#trait::rewrite_narrowed_number_display_writes(schema);
+
+    // EXEC-GRANTS-2: composition stamps an import's grants onto every orbital it brings, but a grant belongs on the
+    // orbital whose `os/` call uses it. With every trait inlined and every knob folded, drop the stamped entries no
+    // call of their orbital uses; what the program wrote on an orbital stays.
+    orbital_core_base::os_grants::prune_composed_unused_grants(schema, &written_os_grants);
 
     // Emit the config→knob provenance into `_metadata.configProvenance` so a
     // consumer (Studio contextual edit) can trace a substituted render-ui
