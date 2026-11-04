@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitReference};
+use orbital_core_base::schema::{ListenSource, OrbitalSchema, SExpression, TraitReference};
 
 use super::fired_events::collect_schema_fired_events;
 use super::produced_shape::produced_failure_payload;
@@ -117,7 +117,14 @@ fn one_round(
                     continue;
                 }
                 // A route delivers what its emitter declares; an emitter this program does not hold guarantees nothing.
-                let Some(required) = declared.get(&listen.event) else {
+                let emitter = match &listen.source {
+                    Some(ListenSource::Trait { trait_name, .. } | ListenSource::Orbital { trait_name, .. }) => {
+                        declared.get(&format!("{trait_name}.{}", listen.event))
+                    }
+                    Some(ListenSource::Any) => None,
+                    None => declared.get(&listen.event),
+                };
+                let Some(required) = emitter else {
                     producers.unguaranteed.insert(trigger);
                     continue;
                 };
@@ -350,7 +357,7 @@ mod tests {
                     "transitions": [{{ "from": "idle", "to": "idle", "event": "GO",
                       "effects": [["emit", "STORE_FAILED", {{ "message": "refused" }}]] }}] }} }},
                 {{ "name": "Page", "linkedEntity": "Doc",
-                  "listens": [{{ "event": "Store.STORE_FAILED", "triggers": "LocalFailed" }}],
+                  "listens": [{{ "event": "STORE_FAILED", "source": {{ "kind": "trait", "trait": "Store" }}, "triggers": "LocalFailed" }}],
                   "stateMachine": {{ "states": [{{ "name": "idle", "isInitial": true }}],
                     "events": [{{ "key": "LocalFailed", "payloadSchema": [{{ "name": "message", "type": "string" }}] }}],
                     "transitions": [{{ "from": "idle", "to": "idle", "event": "LocalFailed",
@@ -399,7 +406,7 @@ mod tests {
     #[test]
     fn a_mapped_route_carries_a_field_copied_from_a_required_source_field() {
         // std-service-research-assistant: `BEARER_API_FAILED -> ResearchCustomBearerApiFailed with { error: ?message }`.
-        let listen = r#"{ "event": "Store.STORE_FAILED", "triggers": "LoadFailed", "payloadMapping": { "error": "@payload.message" } }"#;
+        let listen = r#"{ "event": "STORE_FAILED", "source": { "kind": "trait", "trait": "Store" }, "triggers": "LoadFailed", "payloadMapping": { "error": "@payload.message" } }"#;
         let none = r#"{ "from": "idle", "to": "idle", "event": "LocalFailed", "effects": [] }"#;
         assert_eq!(forwarded(listen, none, true), 0);
         assert_eq!(forwarded(listen, none, false), 1, "control: the source field may be missing");
@@ -408,7 +415,7 @@ mod tests {
     #[test]
     fn an_emit_forwarding_a_guaranteed_payload_field_keeps_the_guarantee() {
         // std-wiki-page: `WikiAttachmentStorageFailed -> (emit WikiAttachmentLoadFailed { error: ?message })`.
-        let listen = r#"{ "event": "Store.STORE_FAILED", "triggers": "LocalFailed" }"#;
+        let listen = r#"{ "event": "STORE_FAILED", "source": { "kind": "trait", "trait": "Store" }, "triggers": "LocalFailed" }"#;
         let forward = r#"{ "from": "idle", "to": "idle", "event": "LocalFailed", "effects": [["emit", "LoadFailed", { "error": "@payload.message" }]] }"#;
         assert_eq!(forwarded(listen, forward, true), 0);
         assert_eq!(forwarded(listen, forward, false), 1, "control: forwarding a field that may be missing guarantees nothing");
@@ -418,6 +425,17 @@ mod tests {
     fn a_routed_event_carries_the_fields_its_emitter_declares_required() {
         assert_eq!(routed(true), 0);
         assert_eq!(routed(false), 1, "control: an emitter that leaves the field optional guarantees nothing");
+    }
+
+    #[test]
+    fn a_route_names_its_emitter_by_source_not_by_a_dotted_event() {
+        // The composed program carries `event: "STORE_FAILED"` with `source: { trait: "Store" }`; a listen with no
+        // source could come from any trait, so it guarantees nothing.
+        let sourced = r#"{ "event": "STORE_FAILED", "source": { "kind": "trait", "trait": "Store" }, "triggers": "LoadFailed", "payloadMapping": { "error": "@payload.message" } }"#;
+        let unsourced = r#"{ "event": "STORE_FAILED", "triggers": "LoadFailed", "payloadMapping": { "error": "@payload.message" } }"#;
+        let none = r#"{ "from": "idle", "to": "idle", "event": "LocalFailed", "effects": [] }"#;
+        assert_eq!(forwarded(sourced, none, true), 0);
+        assert_eq!(forwarded(unsourced, none, true), 1, "control: an unsourced listen has no known emitter");
     }
 
     #[test]

@@ -373,7 +373,10 @@ fn rename_imported_obligation(
             }
             true
         }
-        E::Entity { shape, invariants, read_policy, create_policy, update_policy, delete_policy, .. } => {
+        E::Entity { name, shape, invariants, read_policy, create_policy, update_policy, delete_policy, .. } => {
+            if entity_expect_orphaned_by_trim(name, upstream, kept_traits) {
+                return false;
+            }
             if let Some(subs) = obj.fields.as_ref() {
                 for f in shape.iter_mut().flatten() {
                     if let Some(to) = f.name.as_ref().and_then(|n| subs.get(n)) {
@@ -389,6 +392,27 @@ fn rename_imported_obligation(
         }
         _ => true,
     }
+}
+
+/// An `expects entity N` an upstream owes on behalf of the traits linked to `N`: once `omit`/`only` removes every
+/// trait linked to it (and at least one was removed), nothing the import keeps needs it.
+fn entity_expect_orphaned_by_trim(
+    name: &str,
+    upstream: &Orbital,
+    kept_traits: &HashMap<String, (String, String)>,
+) -> bool {
+    let mut linked_removed = false;
+    for tr in &upstream.traits {
+        let TraitReference::Inline(td) = tr else { continue };
+        if td.linked_entity.as_deref() != Some(name) {
+            continue;
+        }
+        if kept_traits.contains_key(td.name.as_str()) {
+            return false;
+        }
+        linked_removed = true;
+    }
+    linked_removed
 }
 
 pub(crate) fn materialized_trait_subs(
@@ -4633,6 +4657,43 @@ mod tests {
         };
         assert_eq!(target("courseId").as_deref(), Some("LearnSharedCourse"), "a relation to an expected entity follows the binding");
         assert_eq!(target("otherId").as_deref(), Some("Elsewhere"), "control: a relation to an unbound entity is left as declared");
+    }
+
+    #[test]
+    fn an_only_import_drops_the_entity_expectation_only_its_omitted_traits_linked() {
+        let upstream: Orbital = serde_json::from_value(json!({
+            "name": "FlightOrbital",
+            "entity": { "name": "Widget", "persistence": "runtime", "fields": [
+                { "name": "id", "type": "string", "required": true }
+            ] },
+            "expects": [
+                { "kind": "entity", "name": "HttpFlight", "shape": [{ "name": "id", "type": "string", "required": true }] }
+            ],
+            "traits": [
+                { "name": "Keep", "linkedEntity": "Widget", "stateMachine": {
+                    "states": [ { "name": "idle", "isInitial": true } ], "events": [], "transitions": [] } },
+                { "name": "Flight", "linkedEntity": "HttpFlight", "stateMachine": {
+                    "states": [ { "name": "idle", "isInitial": true } ], "events": [], "transitions": [] } }
+            ]
+        }))
+        .unwrap();
+        let mut ctx = InlineContext::new();
+        ctx.add_alias_multi("Up", vec![upstream], "flight".to_string());
+        let resolve = |only: &[&str]| {
+            let mut orbital: Orbital = serde_json::from_value(json!({ "name": "Local", "entity": "Up.orbitals.FlightOrbital.entity", "traits": [] })).unwrap();
+            orbital.uses = Some(vec![UseDeclaration { lazy: None, from: "flight".to_string(), alias: "Up".to_string(), config: None }]);
+            let obj = OrbitalRefObject {
+                reference: "Up.orbitals.FlightOrbital".to_string(),
+                only: Some(only.iter().map(|n| n.to_string()).collect()),
+                ..Default::default()
+            };
+            resolve_orbital_reference(&mut orbital, &obj, &ctx, &orbital_core_base::collections::IndexMap::new(), &orbital_core_base::collections::IndexMap::new(), &HashMap::new(), None, &mut Vec::new(), None, &mut Vec::new())
+                .expect("resolves");
+            orbital
+        };
+        let expects_flight = |o: &Orbital| o.expects.iter().flatten().any(|e| matches!(e, orbital_core_base::schema::ExpectDeclaration::Entity { name, .. } if name == "HttpFlight"));
+        assert!(expects_flight(&resolve(&["Keep", "Flight"])), "control: the trait linked to the entity is kept, so its expectation travels");
+        assert!(!expects_flight(&resolve(&["Keep"])), "an import that omits every trait linked to the entity does not owe it");
     }
 
     fn stage_b_ctx() -> InlineContext {

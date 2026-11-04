@@ -825,8 +825,12 @@ pub(crate) struct EntityFieldMeta {
 /// vocabulary) so the two sides compare on the same alphabet. Fields without a
 /// name (nested item/property carriers) are skipped.
 pub(crate) fn entity_field_type_map(entity: &EntityDefinition) -> HashMap<String, EntityFieldMeta> {
-    entity
-        .fields
+    field_type_map(&entity.fields)
+}
+
+/// The same map over the fields an `expects entity` promises: the shape of a trait's linked entity no orbital declares.
+pub(crate) fn field_type_map(fields: &[orbital_core_base::schema::FieldDefinition]) -> HashMap<String, EntityFieldMeta> {
+    fields
         .iter()
         .filter_map(|f| {
             let name = f.name.clone()?;

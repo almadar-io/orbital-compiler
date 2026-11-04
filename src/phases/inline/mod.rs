@@ -49,7 +49,7 @@ const RENAME_UNSTAMPED: &str = "";
 use context::{parse_reference, InlineContext, ParsedReference};
 use entity::{
     collect_trait_referenced_entity_fields, inline_entity, merge_imported_entity_fields,
-    merge_into_named_entity, trait_referenced_fields_of_entity_recursive,
+    merge_into_expected_entity_shape, merge_into_named_entity, trait_referenced_fields_of_entity_recursive,
 };
 use page::inline_pages;
 use r#trait::inline_traits;
@@ -7133,6 +7133,36 @@ mod tests {
     }
 
     #[test]
+    fn an_expected_entity_shape_takes_the_intrinsic_fields_of_a_composed_atom_and_no_data_field() {
+        let mut orbitals: Vec<Orbital> = vec![serde_json::from_value(serde_json::json!({
+            "name": "O",
+            "entity": { "name": "Own", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
+            "expects": [{ "kind": "entity", "name": "Post", "shape": [{ "name": "likes", "type": "number" }] }],
+            "traits": [],
+            "pages": []
+        }))
+        .expect("orbital")];
+        let imported: EntityDefinition = serde_json::from_value(serde_json::json!({
+            "name": "BrowseItem",
+            "persistence": "runtime",
+            "fields": [
+                { "name": "browseTotalCount", "type": "number", "intrinsic": true },
+                { "name": "title", "type": "string" }
+            ]
+        }))
+        .expect("entity");
+        let referenced: HashSet<String> = ["browseTotalCount", "title"].into_iter().map(String::from).collect();
+        assert!(!merge_into_named_entity(&mut orbitals, "Post", &imported, false, &HashSet::new(), &referenced));
+        assert!(merge_into_expected_entity_shape(&mut orbitals, "Post", &imported, false, &referenced));
+        let Some(ExpectDeclaration::Entity { shape: Some(shape), .. }) = orbitals[0].expects.as_ref().and_then(|e| e.first()) else {
+            panic!("the expectation keeps its shape")
+        };
+        let names: Vec<_> = shape.iter().filter_map(|f| f.name.as_deref()).collect();
+        assert_eq!(names, vec!["likes", "browseTotalCount"], "the intrinsic field joins, the data field does not");
+        assert!(!merge_into_expected_entity_shape(&mut orbitals, "Nobody", &imported, false, &referenced), "control: a name nothing expects");
+    }
+
+    #[test]
     fn merge_entity_fields_no_collision() {
         // Caller has [id, title], imported has [description, status].
         // After merge: [id, title, description, status].
@@ -9867,7 +9897,7 @@ fn settle_shadowed_auxiliaries(orbitals: &mut [Orbital], deferred_merges: &[Defe
     move_copy_merges_to_owners(orbitals);
     let mut dropped = drop_shadowed_auxiliaries(orbitals);
     for dm in deferred_merges {
-        merge_into_named_entity(
+        let landed = merge_into_named_entity(
             orbitals,
             &dm.target,
             &dm.imported,
@@ -9875,6 +9905,9 @@ fn settle_shadowed_auxiliaries(orbitals: &mut [Orbital], deferred_merges: &[Defe
             &dm.required_data,
             &dm.referenced_fields,
         );
+        if !landed {
+            merge_into_expected_entity_shape(orbitals, &dm.target, &dm.imported, dm.intrinsic_only, &dm.referenced_fields);
+        }
     }
     dropped.extend(drop_shadowed_auxiliaries(orbitals));
     dropped

@@ -46,6 +46,14 @@ pub(crate) use utils::{
     extract_emit_object_ref, persist_entity_index,
 };
 
+/// The shape an `expects entity` promises for `name`, when no orbital declares an entity of that name.
+fn expected_entity_shape<'a>(schema: &'a OrbitalSchema, name: &str) -> Option<&'a [orbital_core_base::schema::FieldDefinition]> {
+    schema.orbitals.iter().flat_map(|orbital| orbital.expects.iter().flatten()).find_map(|expectation| match expectation {
+        orbital_core_base::schema::ExpectDeclaration::Entity { name: n, shape: Some(shape), .. } if n == name => Some(shape.as_slice()),
+        _ => None,
+    })
+}
+
 /// Validate all effects in a schema
 pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     // Validate effects in orbital inline traits
@@ -87,8 +95,10 @@ impl TraitScopes {
         let entity_field_types = trait_def
             .linked_entity
             .as_ref()
-            .and_then(|e| entity_definitions.get(e))
-            .map(|entity| entity_field_type_map(entity.borrow()))
+            .and_then(|e| match entity_definitions.get(e) {
+                Some(entity) => Some(entity_field_type_map(entity.borrow())),
+                None => expected_entity_shape(schema, e).map(set::field_type_map),
+            })
             .unwrap_or_default();
         let per_event_payloads = collect_per_event_payload_field_types(trait_def);
         let payload_field_types = collect_payload_field_types(trait_def);

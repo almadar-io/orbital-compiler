@@ -235,6 +235,14 @@ impl<'c> Inferer<'c> {
         }
     }
 
+    /// The type of a value written in an object literal's field: a lambda there is a held expression, `SExpr`.
+    fn field_value_type(&self, value: &OirExpr) -> Option<OirType> {
+        match value {
+            OirExpr::Lambda { .. } => Some(OirType::SExpr),
+            other => self.infer(other),
+        }
+    }
+
     fn known(&self, expr: &OirExpr) -> Option<Known> {
         if let Some((live, dead)) = live_branch(expr) {
             let mark = self.diagnostics.borrow().len();
@@ -257,7 +265,7 @@ impl<'c> Inferer<'c> {
                     if matches!(value, OirExpr::Null) {
                         nulls.push(name.clone());
                     } else {
-                        present.push(OirField::new(name.clone(), self.infer(value)?));
+                        present.push(OirField::new(name.clone(), self.field_value_type(value)?));
                     }
                 }
                 present.sort_by(|a, b| a.name.cmp(&b.name));
@@ -532,7 +540,7 @@ impl<'c> Inferer<'c> {
             OirExpr::Object { fields } => {
                 let typed: Vec<(String, Option<OirType>)> = fields
                     .iter()
-                    .map(|(name, value)| (name.clone(), self.infer(value)))
+                    .map(|(name, value)| (name.clone(), self.field_value_type(value)))
                     .collect();
                 if !self.ctx.object_literals_are_exact() && !self.iterated_literals.get() {
                     return Some(OirType::Row {
@@ -569,6 +577,9 @@ impl<'c> Inferer<'c> {
                     match (self.known(live), dead_known) {
                         (Some(Known::Type(ty)), _) => Some(ty),
                         (Some(Known::EmptyList), Some(Known::Type(ty))) => Some(ty),
+                        // A decided null still has the type the other branch gives it: a call-site knob that picks
+                        // the null branch must not make the `if` untyped, so the record that holds it stays one.
+                        (Some(Known::Absent), Some(Known::Type(ty))) => Some(OirType::optional(ty)),
                         (Some(Known::EmptyList), _) => Some(OirType::Tuple { items: Vec::new() }),
                         (Some(Known::Void), _) => {
                             self.void.set(true);
@@ -4337,6 +4348,17 @@ mod tests {
     }
 
     #[test]
+    fn a_power_fails_only_for_a_negative_base_so_a_non_negative_base_is_a_value() {
+        let n = || checked_local(num(3.0), OirType::Number);
+        let missing = |expr: OirExpr| check_oir_expr(&expr, &NoCtx).iter().filter(|d| matches!(d.mismatch, Mismatch::MissingResult { .. })).count();
+        let less_one = |e: OirExpr| call("-", vec![e, num(1.0)]);
+        assert_eq!(missing(less_one(call("math/pow", vec![num(2.0), call("*", vec![num(0.5), n()])]))), 0, "a positive literal base never fails, whatever the exponent");
+        assert_eq!(missing(less_one(call("math/pow", vec![call("*", vec![n(), n()]), num(0.5)]))), 0, "a square as the base is non-negative");
+        assert_eq!(missing(less_one(call("math/pow", vec![n(), num(0.5)]))), 1, "control: a base of unknown sign can be negative");
+        assert_eq!(missing(less_one(call("math/pow", vec![num(-8.0), num(0.5)]))), 1, "edge: a negative literal base with a fractional exponent fails");
+    }
+
+    #[test]
     fn a_read_through_a_failable_result_is_missing_with_it() {
         let parsed = || call("json/parse", vec![checked_local(text("{}"), OirType::String), text("Pt")]);
         let read = |default: Option<OirExpr>| {
@@ -5875,6 +5897,33 @@ mod tests {
     }
 
     #[test]
+    fn a_lambda_field_of_an_object_literal_is_a_held_expression_so_the_record_is_typed() {
+        struct Flag;
+        impl TypeCtx for Flag {
+            fn binding_type(&self, _: &OirBinding) -> Option<OirType> {
+                Some(OirType::Boolean)
+            }
+            fn object_literals_are_exact(&self) -> bool {
+                true
+            }
+        }
+        let branches = lowered(serde_json::json!([
+            "if", "@entity.flag",
+            { "kind": "carousel", "renderItem": ["fn", "item", "@item"] },
+            { "kind": "empty" }
+        ]));
+        let found = check_oir_expr(&branches, &Flag);
+        assert!(found.is_empty(), "{:?}", found.iter().map(|d| &d.mismatch).collect::<Vec<_>>());
+        let record = lowered(serde_json::json!({ "kind": "carousel", "renderItem": ["fn", "item", "@item"] }));
+        let Some(OirType::Struct { fields, .. }) = infer_oir_expr_type(&record, &Flag) else { panic!("a record") };
+        let render = fields.iter().find(|f| f.name == "renderItem").expect("the lambda field");
+        assert_eq!(render.field_type, OirType::SExpr);
+        let plain = lowered(serde_json::json!({ "kind": "carousel", "count": 1 }));
+        let Some(OirType::Struct { fields, .. }) = infer_oir_expr_type(&plain, &Flag) else { panic!("a record") };
+        assert!(fields.iter().all(|f| f.field_type != OirType::SExpr), "control: no lambda, no held expression");
+    }
+
+    #[test]
     fn branch_records_keep_each_known_field_type_and_named_rows_reject_bad_fields() {
         struct Cells;
         impl TypeCtx for Cells {
@@ -6606,6 +6655,30 @@ mod tests {
         let read = lowered(serde_json::json!(["array/map", differing_actions(), ["fn", "a", ["object/get", "@a", "roles"]]]));
         let Some(OirType::Array { inner }) = infer_oir_expr_type(&read, &row) else { panic!("a list") };
         assert!(matches!(*inner, OirType::Optional { .. }), "{inner:?}");
+    }
+
+    #[test]
+    fn a_literal_list_of_unlike_records_nested_in_a_list_is_typed_when_a_knob_decides_a_null_field() {
+        let row = ExactRow(Row(vec![("id", OirType::String)]));
+        let capsule = || serde_json::json!({
+            "type": "draw-mesh", "shape": "capsule",
+            "material": ["if", ["==", "glossy", "flat"], { "kind": "basic", "color": "a" },
+                ["if", ["==", "glossy", "toon"], { "kind": "toon", "color": "b" }, { "kind": "standard", "color": "c", "metalness": 0.1 }]],
+            "outline": ["if", ["==", "glossy", "cartoon"], { "color": "k", "width": 0.03 }, null]
+        });
+        let sphere = serde_json::json!({ "type": "draw-mesh", "shape": "sphere", "pivot": "center" });
+        let bone = serde_json::json!({ "type": "draw-mesh", "shape": "box", "width": 1 });
+        let group = serde_json::json!({
+            "type": "draw-group",
+            "items": ["if", ["==", "@entity.id", "h"], ["list", capsule(), sphere.clone()],
+                ["if", ["==", "@entity.id", "f"], ["list", capsule(), bone], ["list", capsule()]]]
+        });
+        let items = lowered(serde_json::json!(["list", capsule(), sphere, group]));
+        let found = check_oir_expr(&items, &row);
+        assert!(found.is_empty(), "{:?}", found.iter().map(|d| &d.mismatch).collect::<Vec<_>>());
+        let Some(OirType::Struct { fields, .. }) = infer_oir_expr_type(&lowered(capsule()), &row) else { panic!("a record") };
+        let outline = fields.iter().find(|f| f.name == "outline").expect("the outline field");
+        assert!(matches!(outline.field_type, OirType::Optional { .. }), "a decided null keeps the other branch's type: {outline:?}");
     }
 
     #[test]

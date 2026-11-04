@@ -6,7 +6,7 @@ use crate::phases::validation::effect::{
     parse_fetch_include_literals, persist_entity_index, resolve_fetch_include_field,
 };
 use orbital_core_base::schema::{
-    EntityDefinition, EntityRef, EntityRefExtends, FieldDefinition, Orbital, SExpression,
+    EntityDefinition, EntityRef, EntityRefExtends, ExpectDeclaration, FieldDefinition, Orbital, SExpression,
     TraitDefinition, TraitReference,
 };
 use std::collections::HashSet;
@@ -203,6 +203,46 @@ pub(crate) fn merge_into_named_entity(
         }
     }
     false
+}
+
+/// A target only an `expects entity` names has no entity to land on: the composed atom's `@intrinsic` machinery
+/// (never data, so the provider owes none of it) joins the promised shape, where the trait's `@entity` reads find its
+/// type. Tried after every entity of every orbital has had its chance.
+pub(crate) fn merge_into_expected_entity_shape(
+    orbitals: &mut [Orbital],
+    target: &str,
+    imported: &EntityDefinition,
+    intrinsic_only: bool,
+    referenced_fields: &HashSet<String>,
+) -> bool {
+    for expectation in orbitals.iter_mut().flat_map(|orbital| orbital.expects.iter_mut().flatten()) {
+        if let ExpectDeclaration::Entity { name, shape: Some(shape), .. } = expectation {
+            if name == target {
+                merge_intrinsic_into_expected_shape(shape, imported, referenced_fields, intrinsic_only);
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn merge_intrinsic_into_expected_shape(
+    shape: &mut Vec<FieldDefinition>,
+    imported: &EntityDefinition,
+    referenced_fields: &HashSet<String>,
+    intrinsic_only: bool,
+) {
+    for field in &imported.fields {
+        let Some(name) = field.name.as_ref() else { continue };
+        if field.intrinsic != Some(true) || (!intrinsic_only && !referenced_fields.contains(name)) {
+            continue;
+        }
+        if !shape.iter().any(|existing| existing.name.as_ref() == Some(name)) {
+            let mut carried = field.clone();
+            carried.merged_from = Some(imported.name.clone());
+            shape.push(carried);
+        }
+    }
 }
 
 /// Every field of `imported_entity` that `trait_def` — or a hoisted
