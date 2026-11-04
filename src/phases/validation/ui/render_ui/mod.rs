@@ -69,6 +69,93 @@ pub fn validate_all_render_ui(schema: &OrbitalSchema, ctx: &mut ValidationContex
     // and verify the resolved type is in the prop's declared `types`
     // from the registry.
     validate_all_render_ui_bindings(schema, ctx);
+    validate_row_action_routes(schema, ctx);
+}
+
+fn quoted_row_lambda(route: &SExpression) -> bool {
+    let SExpression::Array(parts) = route else { return false; };
+    let [SExpression::String(op), SExpression::String(encoded)] = parts.as_slice() else { return false; };
+    if op.as_str() != "quote" { return false; }
+    let Ok(serde_json::Value::Array(lambda)) = serde_json::from_str::<serde_json::Value>(encoded) else { return false; };
+    lambda.len() == 3
+        && lambda[0] == "fn"
+        && lambda[1].as_str().is_some_and(|param| !param.is_empty())
+}
+
+fn inspect_row_action_routes(expr: &SExpression, path: &str, result: &mut ValidationResult) {
+    match expr {
+        SExpression::Object(fields) => {
+            if let Some(actions) = fields.get("itemActions") {
+                inspect_action_routes(actions, &format!("{path}.itemActions"), result);
+            }
+            for (key, value) in fields {
+                inspect_row_action_routes(value, &format!("{path}.{key}"), result);
+            }
+        }
+        SExpression::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                inspect_row_action_routes(item, &format!("{path}[{index}]"), result);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn inspect_action_routes(expr: &SExpression, path: &str, result: &mut ValidationResult) {
+    match expr {
+        SExpression::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                inspect_action_routes(item, &format!("{path}[{index}]"), result);
+            }
+        }
+        SExpression::Object(fields) => {
+            if let Some(route) = fields.get("navigatesTo") {
+                let valid = match route {
+                    SExpression::String(path) => !path.contains("{{row."),
+                    other => quoted_row_lambda(other),
+                };
+                if !valid {
+                    result.add_error(ValidationError::error(
+                        ErrorCode::RenderUIInvalidRowRoute,
+                        format!("{path}.navigatesTo"),
+                        "row navigatesTo must be a literal path or (quote (fn row <string-expression>))",
+                    ));
+                }
+            }
+            for (key, value) in fields {
+                if key != "navigatesTo" {
+                    inspect_action_routes(value, &format!("{path}.{key}"), result);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn validate_row_action_routes(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    let mut result = ValidationResult::new();
+    for (trait_def, path) in super::inline_traits(schema) {
+        if let Some(config) = &trait_def.config {
+            for (name, field) in config {
+                if let Some(default) = &field.default {
+                    if name == "itemActions" {
+                        inspect_action_routes(default, &format!("{path}.config.{name}.default"), &mut result);
+                    }
+                    inspect_row_action_routes(default, &format!("{path}.config.{name}.default"), &mut result);
+                }
+            }
+        }
+        for (transition_index, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+            if let Some(effects) = &transition.effects {
+                for (effect_index, effect) in effects.iter().enumerate() {
+                    if is_render_ui_effect(effect) {
+                        inspect_row_action_routes(effect, &format!("{path}.stateMachine.transitions[{transition_index}].effects[{effect_index}]"), &mut result);
+                    }
+                }
+            }
+        }
+    }
+    ctx.merge(result);
 }
 
 /// Validate render_ui effects in a trait.
@@ -160,6 +247,56 @@ pub fn validate_render_ui_effect(
 mod tests {
     use super::*;
 
+    #[test]
+    fn row_action_routes_require_literal_or_quoted_row_lambda() {
+        let route = |value| SExpression::object([
+            ("itemActions".into(), SExpression::Array(vec![SExpression::object([
+                ("navigatesTo".into(), value),
+            ].into_iter().collect())].into())),
+        ].into_iter().collect());
+        let quoted = SExpression::Array(vec![
+            SExpression::string("quote"),
+            SExpression::string(r#"["fn","row",["str/concat","/tasks/","@row.id"]]"#),
+        ].into());
+        for valid in [SExpression::string("/tasks"), quoted] {
+            let mut result = ValidationResult::new();
+            inspect_row_action_routes(&route(valid), "source", &mut result);
+            assert!(result.errors.is_empty(), "{:?}", result.errors);
+        }
+        let mut config_result = ValidationResult::new();
+        inspect_action_routes(
+            &SExpression::Array(vec![SExpression::object([
+                ("navigatesTo".into(), SExpression::string("/tasks")),
+            ].into_iter().collect())].into()),
+            "source.config.itemActions.default",
+            &mut config_result,
+        );
+        assert!(config_result.errors.is_empty());
+        for invalid in [
+            SExpression::string("/tasks/{{row.id}}"),
+            SExpression::Array(vec![SExpression::string("fn"), SExpression::string("row"), SExpression::string("/tasks")].into()),
+        ] {
+            let mut result = ValidationResult::new();
+            inspect_row_action_routes(&route(invalid), "source", &mut result);
+            assert_eq!(result.errors.len(), 1);
+            assert_eq!(result.errors[0].code, ErrorCode::RenderUIInvalidRowRoute);
+            assert_eq!(result.errors[0].path, "source.itemActions[0].navigatesTo");
+        }
+        let filtered = SExpression::object([(
+            "itemActions".into(),
+            SExpression::Array(vec![
+                SExpression::string("array/filter"),
+                SExpression::Array(vec![SExpression::object([(
+                    "navigatesTo".into(),
+                    SExpression::string("/tasks/{{row.id}}"),
+                )].into_iter().collect())].into()),
+                SExpression::string("@config.condition"),
+            ].into()),
+        )].into_iter().collect());
+        let mut result = ValidationResult::new();
+        inspect_row_action_routes(&filtered, "source", &mut result);
+        assert_eq!(result.errors[0].path, "source.itemActions[1][0].navigatesTo");
+    }
     #[test]
     fn test_valid_render_ui_effect() {
         let effect = SExpression::Array(vec![
