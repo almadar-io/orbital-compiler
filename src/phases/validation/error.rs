@@ -91,6 +91,8 @@ pub enum ErrorCode {
     RenderUIInvalidPattern,
     /// Invalid prop for pattern
     RenderUIInvalidProp,
+    /// A data-grid/data-list row action `navigatesTo` is neither a literal path nor a quoted single-row lambda.
+    RenderUIInvalidRowRoute,
     /// Unknown itemAction prop (e.g., hallucinated 'condition')
     RenderUIUnknownItemActionProp,
     /// Nested field path references invalid relation or field
@@ -361,6 +363,7 @@ impl ErrorCode {
             // Render-UI
             ErrorCode::RenderUIInvalidPattern => "ORB_RUI_INVALID_PATTERN",
             ErrorCode::RenderUIInvalidProp => "ORB_RUI_INVALID_PROP",
+            ErrorCode::RenderUIInvalidRowRoute => "ORB_RUI_INVALID_ROW_ROUTE",
             ErrorCode::RenderUIUnknownItemActionProp => "ORB_RUI_UNKNOWN_ITEM_ACTION_PROP",
             ErrorCode::RenderUIInvalidFieldPath => "ORB_RUI_INVALID_FIELD_PATH",
             ErrorCode::RenderUIBindingTypeMismatch => "ORB_RUI_BINDING_TYPE_MISMATCH",
@@ -484,6 +487,7 @@ impl ErrorCode {
 
             ErrorCode::RenderUIInvalidPattern
             | ErrorCode::RenderUIInvalidProp
+            | ErrorCode::RenderUIInvalidRowRoute
             | ErrorCode::RenderUIUnknownItemActionProp
             | ErrorCode::RenderUIInvalidFieldPath
             | ErrorCode::RenderUIBindingTypeMismatch

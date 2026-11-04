@@ -17,6 +17,7 @@ use self::binding::validate_all_render_ui_bindings;
 pub(crate) mod node_fields;
 use self::sync::ExtraPatterns;
 
+use orbital_core_base::schema::row_route::parse_row_route;
 use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitDefinition};
 use std::collections::{HashMap, HashSet};
 
@@ -69,6 +70,105 @@ pub fn validate_all_render_ui(schema: &OrbitalSchema, ctx: &mut ValidationContex
     // and verify the resolved type is in the prop's declared `types`
     // from the registry.
     validate_all_render_ui_bindings(schema, ctx);
+    validate_row_action_routes(schema, ctx);
+}
+
+const ROW_ACTION_PATTERNS: [&str; 2] = ["data-grid", "data-list"];
+
+fn inspect_action_routes(expr: &SExpression, path: &str, result: &mut ValidationResult) {
+    match expr {
+        SExpression::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                inspect_action_routes(item, &format!("{path}[{index}]"), result);
+            }
+        }
+        SExpression::Object(fields) => {
+            for (key, value) in fields.iter() {
+                if key.as_str() == "navigatesTo" {
+                    if let Err(error) = parse_row_route(value) {
+                        result.add_error(ValidationError::error(
+                            ErrorCode::RenderUIInvalidRowRoute,
+                            format!("{path}.navigatesTo"),
+                            format!(
+                                "row navigatesTo must be a literal path (starting with `/`, no `{{` or `}}`) or a quoted single-row lambda `(quote (fn row <string-expression>))`: {error}"
+                            ),
+                        ));
+                    }
+                } else {
+                    inspect_action_routes(value, &format!("{path}.{key}"), result);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Visit every data-grid/data-list pattern object once and check its `itemActions` routes.
+type ConfigFields = orbital_core_base::collections::IndexMap<String, orbital_core_base::schema::ConfigField>;
+
+fn inspect_row_action_patterns(
+    expr: &SExpression,
+    path: &str,
+    config: Option<(&ConfigFields, &str)>,
+    result: &mut ValidationResult,
+) {
+    match expr {
+        SExpression::Object(fields) => {
+            let row_pattern = fields
+                .get("type")
+                .and_then(SExpression::as_str)
+                .is_some_and(|ty| ROW_ACTION_PATTERNS.contains(&ty));
+            for (key, value) in fields.iter() {
+                let child = format!("{path}.{key}");
+                if row_pattern && key.as_str() == "itemActions" {
+                    match (value.as_str().and_then(|v| v.strip_prefix("@config.")), config) {
+                        (Some(name), Some((fields, trait_path))) => {
+                            if let Some(default) = fields.get(name).and_then(|f| f.default.as_ref()) {
+                                inspect_action_routes(default, &format!("{trait_path}.config.{name}.default"), result);
+                            }
+                        }
+                        _ => inspect_action_routes(value, &child, result),
+                    }
+                } else {
+                    inspect_row_action_patterns(value, &child, config, result);
+                }
+            }
+        }
+        SExpression::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                inspect_row_action_patterns(item, &format!("{path}[{index}]"), config, result);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn validate_row_action_routes(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    let mut result = ValidationResult::new();
+    for (trait_def, path) in super::inline_traits(schema) {
+        if let Some(config) = &trait_def.config {
+            for (name, field) in config {
+                if let Some(default) = &field.default {
+                    let default_path = format!("{path}.config.{name}.default");
+                    inspect_row_action_patterns(default, &default_path, None, &mut result);
+                }
+            }
+        }
+        for (transition_index, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+            let Some(effects) = &transition.effects else { continue };
+            for (effect_index, effect) in effects.iter().enumerate() {
+                if is_render_ui_effect(effect) {
+                    inspect_row_action_patterns(
+                        effect,
+                        &format!("{path}.stateMachine.transitions[{transition_index}].effects[{effect_index}]"),
+                        trait_def.config.as_ref().map(|fields| (fields, path.as_str())),
+                        &mut result,
+                    );
+                }
+            }
+        }
+    }
+    ctx.merge(result);
 }
 
 /// Validate render_ui effects in a trait.
@@ -159,6 +259,82 @@ pub fn validate_render_ui_effect(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sx(json: &str) -> SExpression {
+        serde_json::from_str(json).unwrap()
+    }
+
+    fn row_route_errors(expr: &SExpression) -> Vec<String> {
+        let mut result = ValidationResult::new();
+        inspect_row_action_patterns(expr, "source", None, &mut result);
+        assert!(result.errors.iter().all(|e| e.code == ErrorCode::RenderUIInvalidRowRoute));
+        result.errors.iter().map(|e| e.path.clone()).collect()
+    }
+
+    fn grid_with_route(route: &str) -> SExpression {
+        sx(&format!(r#"["render-ui","main",{{"type":"data-grid","itemActions":[{{"navigatesTo":{route}}}]}}]"#))
+    }
+
+    #[test]
+    fn row_action_routes_accept_literal_path_and_quoted_row_lambda() {
+        assert!(row_route_errors(&grid_with_route(r#""/tasks""#)).is_empty());
+        let quoted = r#"["quote","[\"fn\",\"row\",[\"str/concat\",\"/tasks/\",\"\\u0040row.id\"]]"]"#;
+        assert!(row_route_errors(&grid_with_route(quoted)).is_empty());
+    }
+
+    #[test]
+    fn row_action_routes_reject_templates_and_malformed_lambdas() {
+        for bad in [
+            r#""/tasks/{{row.id}}""#,
+            r#""/tasks/{{ row.id }}""#,
+            r#""/tasks/{{item.id}}""#,
+            r#"["fn","row","/tasks"]"#,
+            r#"["quote","[\"fn\",[\"a\",\"b\"],\"/tasks\"]"]"#,
+            r#"["quote","[\"str/concat\",\"/tasks\"]"]"#,
+        ] {
+            assert_eq!(
+                row_route_errors(&grid_with_route(bad)),
+                vec!["source[2].itemActions[0].navigatesTo".to_string()],
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn row_action_routes_ignore_patterns_without_row_actions() {
+        let other = sx(r#"["render-ui","main",{"type":"stack","itemActions":[{"navigatesTo":"/tasks/{{row.id}}"}]}]"#);
+        assert!(row_route_errors(&other).is_empty());
+    }
+
+    #[test]
+    fn row_action_routes_in_a_config_default_are_reported_once() {
+        let mut result = ValidationResult::new();
+        inspect_row_action_patterns(
+            &sx(r#"{"type":"data-list","itemActions":[{"navigatesTo":"/a/{{row.id}}"}]}"#),
+            "source.config.view.default",
+            None,
+            &mut result,
+        );
+        assert_eq!(result.errors.len(), 1);
+    }
+
+    #[test]
+    fn row_action_routes_bound_from_config_check_the_bound_default() {
+        let fields: ConfigFields = serde_json::from_str(
+            r#"{"actions":{"type":"[ItemAction]","default":[{"navigatesTo":"/a/{{row.id}}"}]},
+                "itemActions":{"type":"[ItemAction]","default":[{"navigatesTo":"/b/{{row.id}}"}]}}"#,
+        )
+        .unwrap();
+        let mut result = ValidationResult::new();
+        inspect_row_action_patterns(
+            &sx(r#"["render-ui","main",{"type":"data-grid","itemActions":"@config.actions"}]"#),
+            "source",
+            Some((&fields, "trait")),
+            &mut result,
+        );
+        let paths: Vec<_> = result.errors.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(paths, ["trait.config.actions.default[0].navigatesTo"]);
+    }
 
     #[test]
     fn test_valid_render_ui_effect() {
