@@ -949,11 +949,15 @@ impl<'c> Inferer<'c> {
             if matches!(expr, OirExpr::Null) {
                 return Some(expected.clone());
             }
-            if expr.is_literal() || matches!(as_call(expr), Some(("list", _))) {
+            if expr.is_literal() || matches!(as_call(expr), Some(("list", _))) || matches!(expr, OirExpr::Lambda { .. }) {
                 return self
                     .infer_contextual(expr, inner, named, expanding)
                     .map(|_| expected.clone());
             }
+        }
+        // A lambda written where an expression is declared (`when : SExpr`) is that expression.
+        if matches!((expr, expected), (OirExpr::Lambda { .. }, OirType::SExpr)) {
+            return Some(expected.clone());
         }
         if let Some((condition, then_branch, else_branch)) = conditional_parts(expr) {
             for (branch, truth) in [(then_branch, true), (else_branch, false)] {
@@ -5123,6 +5127,31 @@ mod tests {
         assert_eq!(infer_oir_expr_type(&at(0), &row), Some(OirType::array(OirType::String)));
         assert_eq!(infer_oir_expr_type(&at(1), &row), Some(OirType::array(OirType::Number)));
         assert_eq!(infer_oir_expr_type(&at(2), &row), None, "control: past the pair nothing is read");
+    }
+
+    #[test]
+    fn a_lambda_in_a_declared_sexpr_field_is_proved() {
+        // std-data-grid's itemActions: `when : SExpr`, written at a call site as `(fn row …)`.
+        let mut when = OirField::new("when", OirType::optional(OirType::SExpr));
+        when.required = false;
+        let mut roles = OirField::new("roles", OirType::optional(OirType::array(OirType::String)));
+        roles.required = false;
+        let action = OirType::Struct {
+            additional: None,
+            fields: vec![OirField::new("label", OirType::String), when, roles].into(),
+        };
+        let shape = serde_json::to_string(
+            &orbital_core_base::ir::types::DeclaredShape::with_resolver(None, OirType::array(action), |_| Ok(None)).unwrap(),
+        )
+        .unwrap();
+        let declared = |items: serde_json::Value| lowered(serde_json::json!(["let", [["a", items, shape.clone()]], "@a"]));
+        let lambda = serde_json::json!([{ "label": "Edit", "when": ["fn", "row", ["==", "@row.assignee", "@user.id"]] }, { "label": "Open" }]);
+        let found = check_oir_expr(&declared(lambda), &NoCtx);
+        assert!(found.is_empty(), "{:?}", found.iter().map(|d| (&d.expression, &d.mismatch)).collect::<Vec<_>>());
+        let plain = serde_json::json!([{ "label": "Open" }, { "label": "Delete", "roles": ["manager"] }]);
+        assert!(check_oir_expr(&declared(plain), &NoCtx).is_empty(), "control: literals without a lambda were already proved");
+        let wrong = serde_json::json!([{ "label": 3, "when": ["fn", "row", true] }]);
+        assert!(!check_oir_expr(&declared(wrong), &NoCtx).is_empty(), "control: the record's other fields are still checked");
     }
 
     #[test]

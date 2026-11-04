@@ -51,6 +51,8 @@ pub mod user_identity;
 pub mod emit_payload;
 #[path = "circuit/fired_events.rs"]
 pub mod fired_events;
+#[path = "circuit/guaranteed_payload.rs"]
+pub mod guaranteed_payload;
 #[path = "circuit/produced_shape.rs"]
 pub mod produced_shape;
 

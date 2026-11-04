@@ -358,6 +358,9 @@ fn shape_fields(shape: &[ShapeField]) -> Vec<PayloadField> {
         .iter()
         .map(|f| {
             let mut field = scalar_field(f.name, f.field_type);
+            if f.required {
+                field.required = Some(true);
+            }
             if !f.fields.is_empty() {
                 field.properties = Some(shape_fields(f.fields));
             }

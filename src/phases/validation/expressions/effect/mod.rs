@@ -75,6 +75,7 @@ pub(crate) struct TraitScopes {
     pub(crate) payload_field_types: HashMap<String, String>,
     per_event_shapes: HashMap<String, HashMap<String, orbital_core_base::ir::OirType>>,
     pub(crate) tick_types: set::BindingTypes,
+    guaranteed: std::sync::OnceLock<HashMap<String, HashSet<String>>>,
 }
 
 impl TraitScopes {
@@ -101,6 +102,7 @@ impl TraitScopes {
             payload_field_types,
             per_event_shapes,
             tick_types,
+            guaranteed: std::sync::OnceLock::new(),
         }
     }
 
@@ -124,6 +126,14 @@ impl TraitScopes {
                 let shapes = hydrate_included_relations(schema, trait_def, event, shapes.clone());
                 let mut types = binding_types(trait_def, schema, shapes, &self.per_event_shapes);
                 types.optional_payload = optional_payload_fields(trait_def, Some(event));
+                if !types.optional_payload.is_empty() {
+                    let guaranteed = self.guaranteed.get_or_init(|| {
+                        crate::phases::validation::guaranteed_payload::guaranteed_payload_fields(schema)
+                    });
+                    if let Some(fields) = guaranteed.get(event) {
+                        types.optional_payload.retain(|f| !fields.contains(f));
+                    }
+                }
                 types
             }
             None => self.tick_types.clone(),

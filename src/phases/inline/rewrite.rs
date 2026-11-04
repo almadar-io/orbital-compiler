@@ -1872,7 +1872,7 @@ pub(crate) fn declared_list_types(
                 || field.field_type.starts_with('[')
                 || field.items.is_some()
                 || field.properties.is_some());
-        if !binding && (!literal || sexpr_tree_contains_binding(value)) {
+        if !binding && !literal {
             continue;
         }
         let mut field = field.clone();
@@ -4184,6 +4184,22 @@ mod literal_list_tests {
         apply_inline_config_defaults(&mut plain, &mut Vec::new());
         let effect = serde_json::to_value(first_effect(&plain)).unwrap();
         assert!(!effect.to_string().contains("knob_knob"), "control: no lambda reads it, the prop gets the literal: {effect}");
+    }
+
+    #[test]
+    fn a_literal_holding_a_binding_is_still_read_as_its_declared_type_where_a_lambda_reads_it() {
+        // rawi-chrome's navItems: `href: (str/concat @config.navPrefix "/companion")` inside the literal.
+        let knob = |required: bool| serde_json::json!({
+            "type": "[Edge]", "default": [{ "from": ["str/concat", "@config.prefix", "/x"] }], "items": tagged_items(required)
+        });
+        let mut optional = knob_trait(knob(false), lambda_read_in_prop());
+        apply_inline_config_defaults(&mut optional, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&optional)).unwrap();
+        assert!(effect.to_string().contains("knob_knob"), "{effect}");
+        let mut required = knob_trait(knob(true), lambda_read_in_prop());
+        apply_inline_config_defaults(&mut required, &mut Vec::new());
+        let effect = serde_json::to_value(first_effect(&required)).unwrap();
+        assert!(!effect.to_string().contains("knob_knob"), "control: a literal that fills every field reads as itself: {effect}");
     }
 
     #[test]
