@@ -1442,6 +1442,7 @@ pub(crate) fn resolve_orbital_reference(
                 parent_configs.values().any(|cfg| {
                     cfg.values().any(|f| {
                         f.default.as_ref() == Some(&forward)
+                            || f.default.as_ref().is_some_and(|d| super::r#trait::sexpr_references_config(d, &token))
                             || f.forwarded_from.as_deref() == Some(token.as_str())
                             || f.nested_forwarded_from.contains(&token)
                     })
@@ -3539,6 +3540,123 @@ mod tests {
             folded.get("pageSize").and_then(|f| f.default.clone()),
             Some(SExpression::Number(10.0))
         );
+    }
+
+    fn self_read_knob_upstream() -> Orbital {
+        let mut upstream = upstream_orbital(Some(json!({
+            "headline": { "type": "string", "default": "" },
+            "href": { "type": "string", "default": "/" }
+        })));
+        if let TraitReference::Inline(a) = &mut upstream.traits[0] {
+            let a = Arc::make_mut(a);
+            a.config = Some(orbital_core_base::collections::IndexMap::from([
+                (
+                    "headline".to_string(),
+                    serde_json::from_value::<ConfigField>(json!({
+                        "type": "string",
+                        "default": ["if", ["=", "@config.headline", ""], "fallback", "@config.headline"]
+                    }))
+                    .unwrap(),
+                ),
+                (
+                    "href".to_string(),
+                    serde_json::from_value::<ConfigField>(json!({
+                        "type": "string", "default": "@config.href"
+                    }))
+                    .unwrap(),
+                ),
+            ]));
+        }
+        upstream
+    }
+
+    fn resolve_self_read_reference(
+        omit: Option<Vec<String>>,
+        only: Option<Vec<String>>,
+        config: Option<serde_json::Value>,
+    ) -> Orbital {
+        let upstream = self_read_knob_upstream();
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Up", &upstream);
+        let mut orbital = consumer_orbital("Local");
+        let obj = OrbitalRefObject {
+            reference: "Up.orbitals.UpOrbital".to_string(),
+            omit,
+            only,
+            config: config.map(|c| serde_json::from_value(c).expect("override config")),
+            ..Default::default()
+        };
+        resolve_orbital_reference(
+            &mut orbital,
+            &obj,
+            &ctx,
+            &orbital_core_base::collections::IndexMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
+            &HashMap::new(),
+            None,
+            &mut Vec::new(),
+            None,
+            &mut Vec::new(),
+        )
+        .expect("resolves");
+        orbital
+    }
+
+    fn trait_default(orbital: &Orbital, name: &str, key: &str) -> Option<SExpression> {
+        kept_trait(orbital, name)
+            .config
+            .as_ref()
+            .and_then(|c| c.get(key))
+            .and_then(|f| f.default.clone())
+    }
+
+    /// Refusal: a trait knob whose default is an expression reading its own
+    /// name (the orbital's knob of that name) must not drop the orbital's
+    /// `config` when the orbital is referenced.
+    #[test]
+    fn orbital_reference_keeps_config_read_inside_an_expression_default() {
+        let orbital = resolve_self_read_reference(None, None, None);
+        let cfg = orbital.config.as_ref().expect("referenced orbital keeps its config");
+        assert_eq!(
+            cfg.get("headline").and_then(|f| f.default.clone()),
+            Some(SExpression::String(String::new().into()))
+        );
+        assert!(cfg.contains_key("href"));
+        let resolved = trait_default(&orbital, "LocalA", "headline").expect("trait default");
+        assert!(
+            !serde_json::to_string(&resolved).unwrap().contains("@config.headline"),
+            "the self-read resolves to the orbital knob, never painted raw: {resolved:?}"
+        );
+    }
+
+    /// Control: a reference override replaces the orbital default and the
+    /// trait's expression reads the overridden value.
+    #[test]
+    fn orbital_reference_override_replaces_the_default_in_the_expression() {
+        let orbital = resolve_self_read_reference(
+            None,
+            None,
+            Some(json!({ "headline": { "type": "string", "default": "Custom" } })),
+        );
+        let cfg = orbital.config.as_ref().expect("config kept");
+        assert_eq!(
+            cfg.get("headline").and_then(|f| f.default.clone()),
+            Some(SExpression::String("Custom".to_string().into()))
+        );
+        let blob = serde_json::to_string(&trait_default(&orbital, "LocalA", "headline").unwrap()).unwrap();
+        assert!(blob.contains("Custom") && !blob.contains("@config.headline"), "{blob}");
+    }
+
+    /// Edge: `omit` / `only` keep the config of the kept trait that reads it.
+    #[test]
+    fn orbital_reference_with_omit_or_only_keeps_config_of_the_kept_trait() {
+        for orbital in [
+            resolve_self_read_reference(Some(vec!["C".to_string()]), None, None),
+            resolve_self_read_reference(None, Some(vec!["A".to_string()]), None),
+        ] {
+            let cfg = orbital.config.as_ref().expect("config kept");
+            assert!(cfg.contains_key("headline") && cfg.contains_key("href"));
+        }
     }
 
     #[test]

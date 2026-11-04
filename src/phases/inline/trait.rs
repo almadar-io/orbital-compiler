@@ -1318,6 +1318,7 @@ pub(super) fn forwarded_sibling_config_keeping(
                 let Some(resolved) = substitute_nested_forwards(
                     value,
                     declared,
+                    Some(key.as_str()),
                     &rungs,
                     &mut tokens,
                     &mut schema_only,
@@ -1447,6 +1448,7 @@ pub(super) fn forwarded_expression(
     substitute_nested_forwards(
         expr,
         &orbital_core_base::collections::IndexMap::new(),
+        None,
         &rungs,
         &mut Vec::new(),
         &mut false,
@@ -1455,10 +1457,13 @@ pub(super) fn forwarded_expression(
 
 /// `expr` with every nested `@config.<knob>` leaf that `rungs` resolves
 /// replaced by its value — `None` when nothing changed. A knob `own`
-/// declares is the trait's own read and is never folded.
+/// declares is the trait's own read and is never folded, except the knob
+/// `resolving` itself: a field's default reading its own name cannot be a
+/// live read of itself, so that name is the enclosing orbital's knob.
 fn substitute_nested_forwards(
     expr: &SExpression,
     own: &orbital_core_base::collections::IndexMap<String, ConfigField>,
+    resolving: Option<&str>,
     rungs: &ForwardRungs<'_>,
     tokens: &mut Vec<String>,
     schema_only: &mut bool,
@@ -1466,7 +1471,7 @@ fn substitute_nested_forwards(
     match expr {
         SExpression::String(s) => {
             let knob = s.strip_prefix("@config.")?;
-            if own.contains_key(knob) {
+            if own.contains_key(knob) && resolving != Some(knob) {
                 return None;
             }
             let hit = rungs.resolve(knob)?;
@@ -1479,7 +1484,7 @@ fn substitute_nested_forwards(
             let next: Vec<SExpression> = items
                 .iter()
                 .map(|item| {
-                    match substitute_nested_forwards(item, own, rungs, tokens, schema_only) {
+                    match substitute_nested_forwards(item, own, resolving, rungs, tokens, schema_only) {
                         Some(v) => {
                             changed = true;
                             v
@@ -1495,7 +1500,7 @@ fn substitute_nested_forwards(
             let next: orbital_core_base::schema::SObject = map
                 .iter()
                 .map(|(k, v)| {
-                    match substitute_nested_forwards(v, own, rungs, tokens, schema_only) {
+                    match substitute_nested_forwards(v, own, resolving, rungs, tokens, schema_only) {
                         Some(nv) => {
                             changed = true;
                             (k.clone(), nv)
@@ -2966,7 +2971,7 @@ pub(crate) fn inline_traits(
 /// True when an SExpression tree contains the bare `@config.<knob>` token
 /// (`token` = `"@config.<knob>"`) as a value — the position where a whole-knob
 /// value (a render-ui body, a scalar) is spliced into the child's own body.
-fn sexpr_references_config(expr: &SExpression, token: &str) -> bool {
+pub(super) fn sexpr_references_config(expr: &SExpression, token: &str) -> bool {
     match expr {
         SExpression::String(s) => s == token,
         SExpression::Array(items) => items.iter().any(|i| sexpr_references_config(i, token)),

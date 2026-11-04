@@ -486,7 +486,9 @@ fn the_importer_records_a_lazy_traits_declared_dispatch_mode_and_where_the_orbit
 #[test]
 fn a_lazy_child_carries_the_atom_header_grants_on_its_orbital_and_the_importer_does_not() {
     let net = r#""osGrants": { "net": [ { "target": "api.stripe.com:443", "kinds": ["tcp"] } ] },"#;
-    let post = POST.replacen(r#""version": "1.0.0","#, &format!(r#""version": "1.0.0", {net}"#), 1);
+    let post = POST
+        .replacen(r#""version": "1.0.0","#, &format!(r#""version": "1.0.0", {net}"#), 1)
+        .replacen(r#""effects": [ ["render-ui""#, r#""effects": [ ["os/tcp-connect", "api.stripe.com", 443], ["render-ui""#, 1);
     let s = site_with(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], Some(&post));
     let (schema, lazy) = split(&s).expect("split");
     let child = &lazy[0].schema;
