@@ -73,12 +73,13 @@ fn fold_schema(
                 continue;
             };
             let td = Arc::make_mut(td);
+            let knobs = literal_knobs(td.config.as_ref());
             let mut folded: CompileResult<()> = Ok(());
             td.state_machine.edit(|machine| {
                 folded = (|| {
                     for transition in &mut machine.transitions {
                         for effect in transition.effects.iter_mut().flatten() {
-                            fold(effect, from, described)?;
+                            fold(effect, &knobs, from, described)?;
                         }
                     }
                     Ok(())
@@ -87,7 +88,7 @@ fn fold_schema(
             folded?;
             for tick in td.ticks.iter_mut().flatten() {
                 for effect in &mut tick.effects {
-                    fold(effect, from, described)?;
+                    fold(effect, &knobs, from, described)?;
                 }
             }
         }
@@ -95,14 +96,36 @@ fn fold_schema(
     Ok(())
 }
 
-fn fold(expr: &mut SExpression, from: Option<&Path>, described: &mut Described) -> CompileResult<()> {
-    if let Some(answered) = answer(expr, from, described)? {
+/// A trait's config knobs whose default is a literal trait value: `@config.<knob>` names that value at build time,
+/// since a trait's config never changes while it runs.
+type LiteralKnobs = std::collections::HashMap<String, SExpression>;
+
+fn literal_knobs(
+    config: Option<&orbital_core_base::collections::IndexMap<String, orbital_core_base::schema::ConfigField>>,
+) -> LiteralKnobs {
+    config
+        .into_iter()
+        .flatten()
+        .filter_map(|(name, field)| {
+            let value = field.default.as_ref()?;
+            is_literal_trait_value(value).then(|| (format!("@config.{name}"), value.clone()))
+        })
+        .collect()
+}
+
+fn fold(
+    expr: &mut SExpression,
+    knobs: &LiteralKnobs,
+    from: Option<&Path>,
+    described: &mut Described,
+) -> CompileResult<()> {
+    if let Some(answered) = answer(expr, knobs, from, described)? {
         *expr = answered;
         return Ok(());
     }
     match expr {
-        SExpression::Array(items) => items.iter_mut().try_for_each(|e| fold(e, from, described)),
-        SExpression::Object(map) => map.values_mut().try_for_each(|e| fold(e, from, described)),
+        SExpression::Array(items) => items.iter_mut().try_for_each(|e| fold(e, knobs, from, described)),
+        SExpression::Object(map) => map.values_mut().try_for_each(|e| fold(e, knobs, from, described)),
         _ => Ok(()),
     }
 }
@@ -110,6 +133,7 @@ fn fold(expr: &mut SExpression, from: Option<&Path>, described: &mut Described) 
 /// The emit a literal describe folds to; `None` for anything else.
 fn answer(
     expr: &SExpression,
+    knobs: &LiteralKnobs,
     from: Option<&Path>,
     described: &mut Described,
 ) -> CompileResult<Option<SExpression>> {
@@ -119,7 +143,11 @@ fn answer(
     if items.first().and_then(SExpression::as_str) != Some(DESCRIBE) {
         return Ok(None);
     }
-    let Some(value) = items.get(1).filter(|v| is_literal_trait_value(v)) else {
+    let value = match items.get(1) {
+        Some(SExpression::String(name)) => knobs.get(name.as_str()),
+        other => other.filter(|v| is_literal_trait_value(v)),
+    };
+    let Some(value) = value else {
         return Ok(None);
     };
     let success = items
@@ -296,6 +324,43 @@ mod tests {
         let before = effects(&schema);
         fold_literal_reflection(&mut schema, None).expect("fold");
         assert_eq!(effects(&schema), before);
+    }
+
+    fn program_with_subject(default: Option<serde_json::Value>) -> OrbitalSchema {
+        let mut schema = program(serde_json::json!([describe(serde_json::json!("@config.subject"))]));
+        let mut field = serde_json::json!({ "type": "TraitRef" });
+        if let Some(d) = default {
+            field["default"] = d;
+        }
+        let TraitReference::Inline(td) = &mut schema.orbitals[0].traits[0] else {
+            panic!("inline trait")
+        };
+        let mut config = orbital_core_base::collections::IndexMap::default();
+        config.insert("subject".to_string(), serde_json::from_value(field).expect("config field"));
+        Arc::make_mut(td).config = Some(config);
+        schema
+    }
+
+    #[test]
+    fn a_describe_of_a_knob_whose_default_is_a_literal_trait_folds_like_the_literal() {
+        let lit = serde_json::json!({ "behavior": "almadar-behaviors/std-checkout", "trait": "CheckoutRules" });
+        let mut schema = program_with_subject(Some(lit.clone()));
+        fold_literal_reflection(&mut schema, None).expect("fold");
+        let out = effects(&schema);
+        assert_eq!(out[0][0], "emit");
+        let quoted: SExpression = serde_json::from_value(out[0][2]["result"].clone()).unwrap();
+        let answer = serde_json::to_value(decode_quote_body(quote_body_of(&quoted).unwrap()).unwrap()).unwrap();
+        assert_eq!(answer["value"], lit);
+    }
+
+    #[test]
+    fn control_a_knob_with_no_literal_default_is_left_for_the_host() {
+        for default in [None, Some(serde_json::json!({ "behavior": "@entity.behavior", "trait": "T" }))] {
+            let mut schema = program_with_subject(default);
+            let before = effects(&schema);
+            fold_literal_reflection(&mut schema, None).expect("fold");
+            assert_eq!(effects(&schema), before);
+        }
     }
 
     #[test]
