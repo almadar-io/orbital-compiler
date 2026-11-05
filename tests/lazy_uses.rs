@@ -336,6 +336,27 @@ fn the_split_schema_keeps_the_importers_egress() {
 }
 
 #[test]
+fn the_split_schema_keeps_the_importers_declared_themes() {
+    let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
+    let mut schema = parse_file(&s.path).unwrap();
+    schema.themes = Some(vec!["prism-dark".into(), "scandi-light".into()]);
+    let artifacts = orbital_compiler::phases::lazy::split_lazy(&mut schema);
+    assert_eq!(
+        artifacts[0].schema.themes, schema.themes,
+        "a lazy page runs inside the importer, which ships a stylesheet for every theme it declares"
+    );
+}
+
+#[test]
+fn control_an_importer_without_themes_splits_without_them() {
+    let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
+    let mut schema = parse_file(&s.path).unwrap();
+    schema.themes = None;
+    let artifacts = orbital_compiler::phases::lazy::split_lazy(&mut schema);
+    assert_eq!(artifacts[0].schema.themes, None);
+}
+
+#[test]
 fn control_an_importer_without_egress_splits_without_one() {
     let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
     let mut schema = parse_file(&s.path).unwrap();

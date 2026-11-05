@@ -56,7 +56,7 @@ pub(crate) fn is_lazy_reference(orbital: &Orbital) -> bool {
 
 /// Removes every orbital that references a lazy alias from `schema` and returns
 /// each as its own unresolved schema. The split schema keeps the importer's
-/// app-level theme, config, egress and ledger, and only the uses it can resolve: the
+/// app-level theme, declared themes, config, egress and ledger, and only the uses it can resolve: the
 /// eager ones plus its own alias, no longer lazy.
 pub fn split_lazy(schema: &mut OrbitalSchema) -> Vec<LazyArtifact> {
     let mut lazy: Vec<(Option<String>, Orbital)> = Vec::new();
@@ -91,7 +91,7 @@ pub fn split_lazy(schema: &mut OrbitalSchema) -> Vec<LazyArtifact> {
                     resolved: None,                    types: None,
                     store: schema.store.clone(),
                     theme_definitions: None,
-                    themes: None,
+                    themes: schema.themes.clone(),
                     site: schema.site.clone(),
                     public_dir: None,
                     name: name.clone(),
