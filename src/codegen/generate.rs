@@ -6,6 +6,7 @@
 
 use crate::phases::{compile_file_with_source, parse_file, CompilerOptions};
 use orbital_core_base::ir::OirModule;
+use orbital_core_base::schema::OrbitalSchema;
 use orbital_core_base::logging::ns;
 use orbital_core_base::shell::{Shell, ShellError};
 use std::collections::HashMap;
@@ -147,27 +148,47 @@ pub fn generate_from_file_with_source_using<R>(
     options: &GenerateOptions,
     write: impl FnOnce(&OirModule, &Path) -> GenerateResult<R>,
 ) -> GenerateResult<R> {
+    generate_from_file_with_source_resolved(schema_path, source_path, output_dir, options, |oir, _, out| write(oir, out))
+}
+
+/// The program resolved with its `uses lazy` behaviors resolved apart: what `resolved.orb`, the locale
+/// catalogs and a browser client that opens lazy pages itself are written from.
+pub type SplitProgram = (OrbitalSchema, Vec<crate::phases::lazy::ResolvedLazy>);
+
+/// [`generate_from_file_with_source_using`] that also hands `write` the split program, resolved once for the
+/// whole generate.
+pub fn generate_from_file_with_source_resolved<R>(
+    schema_path: &Path,
+    source_path: &Path,
+    output_dir: impl AsRef<Path>,
+    options: &GenerateOptions,
+    write: impl FnOnce(&OirModule, &SplitProgram, &Path) -> GenerateResult<R>,
+) -> GenerateResult<R> {
     let output_dir = output_dir.as_ref();
     let _span = tracing::info_span!(target: ns::COMPILER, "generate", file = %schema_path.display()).entered();
 
     // Step 1: Compile schema to OIR
     let oir = compile_file_with_source(schema_path, source_path, &options.compiler)?;
+    let split: SplitProgram = {
+        let _span = tracing::info_span!(target: ns::COMPILER, "resolve_split").entered();
+        crate::phases::lazy::resolve_program_with_path(
+            parse_file(schema_path).map_err(crate::phases::CompilerError::from)?,
+            &options.compiler,
+            Some(source_path),
+        )?
+    };
 
     // Generate code from OIR
-    let result = write(&oir, output_dir)?;
+    let result = write(&oir, &split, output_dir)?;
+    let (resolved, lazy) = &split;
+    let program_dir = source_path.parent().unwrap_or(Path::new("."));
 
     // A program with `locales` ships one merged catalog per locale, where
     // the generated App imports it.
     let catalogs = if oir.locales.is_empty() {
         std::collections::BTreeMap::new()
     } else {
-        let (resolved, lazy) = crate::phases::lazy::resolve_program_with_path(
-            parse_file(schema_path).map_err(crate::phases::CompilerError::from)?,
-            &options.compiler,
-            Some(source_path),
-        )?;
-        let program_dir = source_path.parent().unwrap_or(Path::new("."));
-        let catalogs = crate::phases::messages::program_catalogs(&resolved, &lazy, program_dir);
+        let catalogs = crate::phases::messages::program_catalogs(resolved, lazy, program_dir);
         let locales_dir = output_dir.join("locales");
         std::fs::create_dir_all(&locales_dir)?;
         for (locale, messages) in &catalogs {
@@ -190,52 +211,17 @@ pub fn generate_from_file_with_source_using<R>(
     std::fs::copy(schema_path, &dest_schema)?;
     tracing::info!(target: ns::COMPILER, path = %dest_schema.display(), "copied schema");
 
-    // Step 7: Emit `resolved.orb` alongside the copied source schema.
-    //
-    // The resolved artifact is the bundled view of the schema: post Inline +
-    // Compose + Enrich, with every `uses[]` import resolved, every
-    // `TraitReference::Reference` collapsed to `TraitReference::Inline`,
-    // every Phase 0 composer (`behavior/compose`, `wire`, `pipe`,
-    // `detect-layout`) expanded, and every `events: {}` rename applied
-    // through transitions AND render-ui props.
-    //
-    // Structurally identical to the input `.orb` format so downstream TS
-    // tools (`orbital-verify-unified/src/analyze.ts`, future `--parity`
-    // mode, verifiers) can `JSON.parse` the file and consume it as an
-    // `OrbitalSchema` without new parsing code.
-    //
-    // Skipped silently on parse / resolve errors — emission is best-effort,
-    // not a blocker for codegen. `orbital resolve` exposes the same shape
-    // as a dedicated CLI subcommand for tooling that wants resolved
-    // visibility without generating TSX.
-    if let Ok(parsed) = parse_file(schema_path) {
-        if let Ok((resolved, lazy)) =
-            crate::phases::lazy::resolve_program_with_path(parsed, &options.compiler, Some(source_path))
-        {
-            let resolved_path = output_dir.join("resolved.orb");
-            let program_dir = source_path.parent().unwrap_or(Path::new("."));
-            if let Err(err) = crate::phases::lazy::write_lazy(output_dir, &lazy, program_dir, &|schema| {
-                orbital_core_eval::util::canonical_json::to_canonical_string_pretty(schema).map_err(std::io::Error::other)
-            }) {
-                eprintln!(
-                    "[generate_from_file] Failed to write lazy behaviors under {}: {}",
-                    output_dir.display(),
-                    err
-                );
-            }
-            if let Ok(json) = orbital_core_eval::util::canonical_json::to_canonical_string_pretty(&resolved) {
-                if let Err(err) = std::fs::write(&resolved_path, json) {
-                    eprintln!(
-                        "[generate_from_file] Failed to write resolved.orb at {}: {}",
-                        resolved_path.display(),
-                        err
-                    );
-                } else {
-                    tracing::info!(target: ns::COMPILER, path = %resolved_path.display(), "wrote resolved.orb");
-                }
-            }
-        }
-    }
+    // Step 7: `resolved.orb` (post Inline + Compose + Enrich, every import resolved) and each lazy behavior beside
+    // it: the bundled view downstream tools parse as an `OrbitalSchema`, from the same resolution as the catalogs.
+    crate::phases::lazy::write_lazy(output_dir, lazy, program_dir, &|schema| {
+        orbital_core_eval::util::canonical_json::to_canonical_string_pretty(schema).map_err(std::io::Error::other)
+    })?;
+    let resolved_path = output_dir.join("resolved.orb");
+    std::fs::write(
+        &resolved_path,
+        orbital_core_eval::util::canonical_json::to_canonical_string_pretty(resolved).map_err(std::io::Error::other)?,
+    )?;
+    tracing::info!(target: ns::COMPILER, path = %resolved_path.display(), "wrote resolved.orb");
 
     Ok(result)
 }

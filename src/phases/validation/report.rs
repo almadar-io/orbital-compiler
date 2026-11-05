@@ -338,6 +338,8 @@ fn validate_lazy_children(
 ) -> (Vec<Finding>, Vec<Finding>) {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
+    // One loader for every lazy child, as resolution has: the behaviors they share are lowered once, not per child.
+    let shared = InlineSession::default();
     for artifact in crate::phases::lazy::split_lazy(schema) {
         let child = ValidationInput {
             schema: artifact.schema.clone(),
@@ -349,7 +351,7 @@ fn validate_lazy_children(
             service_registry: service_registry.clone(),
             program_findings: &[],
         };
-        let core = validate_core(child, options);
+        let core = validate_core(child, options, Some(&shared));
         let prefix = |f: Finding| Finding { path: format!("lazy[{}].{}", artifact.orbital, f.path), ..f };
         errors.extend(core.errors.into_iter().map(prefix));
         warnings.extend(core.warnings.into_iter().map(prefix));
@@ -416,7 +418,7 @@ fn inline_failure(e: &InlineError, options: &CompilerOptions, locator: Option<&d
     }
 }
 
-fn validate_core(input: ValidationInput<'_>, options: &CompilerOptions) -> Core {
+fn validate_core(input: ValidationInput<'_>, options: &CompilerOptions, shared: Option<&InlineSession>) -> Core {
     let ValidationInput {
         mut schema,
         resources_beside,
@@ -442,7 +444,7 @@ fn validate_core(input: ValidationInput<'_>, options: &CompilerOptions) -> Core 
 
     // An inline failure is fatal for this run: validators index inline traits only, so validating a half-inlined
     // schema manufactures spurious findings that bury the real cause.
-    let session = InlineSession::default();
+    let session = shared.cloned().unwrap_or_default();
     let mut inline_opts = options.inline.clone();
     inline_opts.session = Some(session.clone());
     let resolved_input = match crate::phases::already_resolved(&schema, Some(path)) {
@@ -562,7 +564,7 @@ pub fn validate_parsed(input: ValidationInput<'_>, options: &CompilerOptions) ->
     if let Some(refused) = discovery_refusal(options) {
         return Report::refused(refused);
     }
-    let core = validate_core(input, options);
+    let core = validate_core(input, options, None);
     let stats = core.inlined.as_ref().map(|inlined| Stats {
         orbitals: inlined.orbitals.len(),
         entities: inlined.orbitals.len(),
