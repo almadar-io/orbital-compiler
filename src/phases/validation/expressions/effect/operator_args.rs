@@ -363,6 +363,17 @@ fn report(
             );
             continue;
         }
+        if let Mismatch::NoField { path: field, record } = &found.mismatch {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::ObjectPathUndeclared,
+                    path,
+                    format!("`({function} …)` argument {position} reads `{field}`, which is not declared by the {record} it reads: {call}"),
+                )
+                .with_suggestion("Name a path the type declares: a record field, a Map key (any non-empty segment), a list or tuple index. A key that contains a dot is written `a\\.b`, or read the map with `object/pick`".to_string()),
+            );
+            continue;
+        }
         let (message, suggestion) = match &found.mismatch {
             Mismatch::Type { expected, actual } if matches!(function.as_str(), "and" | "or") => (
                 format!("`({function} …)` argument {position} is a {actual}, but `{function}` combines booleans only: {call}"),
@@ -384,10 +395,7 @@ fn report(
             | Mismatch::MaybeAbsent { .. }
             | Mismatch::NullOperand { .. }
             | Mismatch::MissingResult { .. } => continue,
-            Mismatch::NoField { path: field, record } => (
-                format!("`({function} …)` argument {position} names `{field}`, which is not a field of the {record} it reads: {call}"),
-                "Name a field the record declares, or read a record that has it".to_string(),
-            ),
+            Mismatch::NoField { .. } => continue,
         };
         result.add_error(
             ValidationError::error(ErrorCode::OperatorArgTypeMismatch, path, message)
@@ -444,7 +452,12 @@ mod tests {
         )
         .errors
         .iter()
-        .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
+        .filter(|e| {
+            matches!(
+                e.code,
+                ErrorCode::OperatorArgTypeMismatch | ErrorCode::ObjectPathUndeclared
+            )
+        })
         .map(|e| e.message.clone())
         .collect()
     }
@@ -943,7 +956,7 @@ mod tests {
                     .count(),
                 r.errors
                     .iter()
-                    .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
+                    .filter(|e| matches!(e.code, ErrorCode::OperatorArgTypeMismatch | ErrorCode::ObjectPathUndeclared))
                     .count(),
             )
         };
@@ -1328,7 +1341,7 @@ mod tests {
                     .count(),
                 r.errors
                     .iter()
-                    .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
+                    .filter(|e| matches!(e.code, ErrorCode::OperatorArgTypeMismatch | ErrorCode::ObjectPathUndeclared))
                     .count(),
             )
         };
@@ -1386,7 +1399,7 @@ mod tests {
         crate::phases::validation::validate_comprehensive_without_services(&program)
             .errors
             .iter()
-            .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
+            .filter(|e| matches!(e.code, ErrorCode::OperatorArgTypeMismatch | ErrorCode::ObjectPathUndeclared))
             .map(|e| e.message.clone())
             .collect()
     }
@@ -1513,7 +1526,7 @@ mod tests {
             )
             .errors
             .iter()
-            .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
+            .filter(|e| matches!(e.code, ErrorCode::OperatorArgTypeMismatch | ErrorCode::ObjectPathUndeclared))
             .count()
         };
         assert_eq!(
@@ -2128,7 +2141,7 @@ mod tests {
         )
         .errors
         .iter()
-        .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
+        .filter(|e| matches!(e.code, ErrorCode::OperatorArgTypeMismatch | ErrorCode::ObjectPathUndeclared))
         .map(|e| e.message.clone())
         .collect()
     }

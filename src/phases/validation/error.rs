@@ -221,6 +221,12 @@ pub enum ErrorCode {
     /// `count: number`, `(+ "a" 1)`. Both evaluators raise the same typed
     /// mismatch at run time (D-12), so the program can never do what it says.
     OperatorArgTypeMismatch,
+    /// A literal path read through `object/get` (or another `key-of` operator) names a segment its first argument's
+    /// declared type does not have: an empty segment, a record field the record does not declare, a non-numeric
+    /// segment on a list or tuple, or a segment past a scalar. A Map takes any non-empty key segment. The read could
+    /// only ever answer null or its default; a default does not excuse it. To read a key that contains a dot, escape
+    /// the dot (`a\.b`) or read the map with `object/pick`.
+    ObjectPathUndeclared,
     /// A value handed to an operator has no determined type — an unresolved expression, an expression value, json,
     /// a loose union, a list whose items share no type — so it cannot be checked against the type the operator
     /// declares (or, at a type variable, what the variable stands for and the type of the result are unknown).
@@ -414,6 +420,7 @@ impl ErrorCode {
             ErrorCode::SetReturnTypeMismatch => "ORB_X_SET_RETURN_TYPE_MISMATCH",
             ErrorCode::ComparisonOperandTypeMismatch => "ORB_X_COMPARISON_OPERAND_TYPE_MISMATCH",
             ErrorCode::OperatorArgTypeMismatch => "ORB_X_OPERATOR_ARG_TYPE_MISMATCH",
+            ErrorCode::ObjectPathUndeclared => "ORB_OBJECT_PATH_UNDECLARED",
             ErrorCode::OperatorArgUndetermined => "ORB_X_OPERATOR_ARG_UNDETERMINED",
             ErrorCode::OrderingOptionalOperand => "ORB_X_ORDERING_OPTIONAL_OPERAND",
             ErrorCode::OperatorNullOperand => "ORB_X_OPERATOR_NULL_OPERAND",
@@ -519,6 +526,7 @@ impl ErrorCode {
             | ErrorCode::SetReturnTypeMismatch
             | ErrorCode::ComparisonOperandTypeMismatch
             | ErrorCode::OperatorArgTypeMismatch
+            | ErrorCode::ObjectPathUndeclared
             | ErrorCode::OperatorArgUndetermined
             | ErrorCode::OrderingOptionalOperand
             | ErrorCode::OperatorNullOperand
