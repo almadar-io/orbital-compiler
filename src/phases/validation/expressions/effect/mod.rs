@@ -12,9 +12,9 @@ mod browser_calls;
 mod emit_declaration;
 mod expr_types;
 pub use expr_types::expression_types;
+mod cast;
 mod fetch;
 mod keyed_call;
-mod cast;
 mod operator_args;
 mod option_since;
 mod os_watch;
@@ -24,12 +24,10 @@ mod typed_args;
 mod utils;
 
 pub(crate) use browser_calls::{validate_browser_calls, validate_dispatch_residence};
-pub(crate) use emit_declaration::{collect_declared_emits, nested_effects, scope_let_locals};
 #[cfg(test)]
 pub(crate) use emit_declaration::validate_effect;
-pub(crate) use fetch::{
-    parse_fetch_include_literals, resolve_fetch_include_field,
-};
+pub(crate) use emit_declaration::{collect_declared_emits, nested_effects, scope_let_locals};
+pub(crate) use fetch::{parse_fetch_include_literals, resolve_fetch_include_field};
 use keyed_call::CallKeyFacts;
 pub(crate) use operator_args::{validate_operator_arg_types, validate_operator_arg_types_under};
 pub(crate) use os_watch::validate_os_effect;
@@ -39,25 +37,38 @@ pub(crate) use set::{
     validate_set_required_field_from_optional_knob, validate_set_return_type,
     validate_set_value_type, BindingTypes, EntityFieldMeta, ExprReturnCtx,
 };
-pub use typed_args::record_declared_shapes;
 pub(crate) use typed_args::needs_declaration;
+pub use typed_args::record_declared_shapes;
 pub use utils::effect_operators;
-pub(crate) use utils::{
-    extract_emit_object_ref, persist_entity_index,
-};
+pub(crate) use utils::{extract_emit_object_ref, persist_entity_index};
 
 /// The shape an `expects entity` promises for `name`, when no orbital declares an entity of that name.
-fn expected_entity_shape<'a>(schema: &'a OrbitalSchema, name: &str) -> Option<&'a [orbital_core_base::schema::FieldDefinition]> {
-    schema.orbitals.iter().flat_map(|orbital| orbital.expects.iter().flatten()).find_map(|expectation| match expectation {
-        orbital_core_base::schema::ExpectDeclaration::Entity { name: n, shape: Some(shape), .. } if n == name => Some(shape.as_slice()),
-        _ => None,
-    })
+fn expected_entity_shape<'a>(
+    schema: &'a OrbitalSchema,
+    name: &str,
+) -> Option<&'a [orbital_core_base::schema::FieldDefinition]> {
+    schema
+        .orbitals
+        .iter()
+        .flat_map(|orbital| orbital.expects.iter().flatten())
+        .find_map(|expectation| match expectation {
+            orbital_core_base::schema::ExpectDeclaration::Entity {
+                name: n,
+                shape: Some(shape),
+                ..
+            } if n == name => Some(shape.as_slice()),
+            _ => None,
+        })
 }
+
+/// The program's guaranteed payload fields, computed at most once per pass and shared by every trait's scopes.
+pub(crate) type GuaranteedPayloads = std::sync::OnceLock<HashMap<String, HashSet<String>>>;
 
 /// Validate all effects in a schema
 pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     // Validate effects in orbital inline traits
     // Note: Traits are now only defined inline within orbitals, not at schema level.
+    let guaranteed = GuaranteedPayloads::new();
     for (trait_def, path) in super::inline_traits(schema) {
         let result = validate_trait_effects(
             schema,
@@ -68,6 +79,7 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
             &ctx.service_names,
             &ctx.page_init_payloads,
             &ctx.service_registry,
+            &guaranteed,
         );
         ctx.merge(result);
     }
@@ -77,20 +89,21 @@ pub fn validate_all_effects(schema: &OrbitalSchema, ctx: &mut ValidationContext)
 
 /// The binding types one trait's effects are checked against: the linked entity's fields, and the payload of each
 /// triggering event (a tick has none). One construction shared by the per-effect checks and the `--final` key facts.
-pub(crate) struct TraitScopes {
+pub(crate) struct TraitScopes<'g> {
     pub(crate) entity_field_types: HashMap<String, EntityFieldMeta>,
     per_event_payloads: HashMap<String, HashMap<String, String>>,
     pub(crate) payload_field_types: HashMap<String, String>,
     per_event_shapes: HashMap<String, HashMap<String, orbital_core_base::ir::OirType>>,
     pub(crate) tick_types: set::BindingTypes,
-    guaranteed: std::sync::OnceLock<HashMap<String, HashSet<String>>>,
+    guaranteed: &'g GuaranteedPayloads,
 }
 
-impl TraitScopes {
+impl<'g> TraitScopes<'g> {
     pub(crate) fn new(
         schema: &OrbitalSchema,
         trait_def: &TraitDefinition,
         entity_definitions: &HashMap<String, impl std::borrow::Borrow<EntityDefinition>>,
+        guaranteed: &'g GuaranteedPayloads,
     ) -> Self {
         let entity_field_types = trait_def
             .linked_entity
@@ -103,8 +116,12 @@ impl TraitScopes {
         let per_event_payloads = collect_per_event_payload_field_types(trait_def);
         let payload_field_types = collect_payload_field_types(trait_def);
         let per_event_shapes = collect_per_event_payload_shapes(trait_def, schema);
-        let mut tick_types =
-            binding_types(trait_def, schema, collect_payload_shapes(trait_def, schema), &per_event_shapes);
+        let mut tick_types = binding_types(
+            trait_def,
+            schema,
+            collect_payload_shapes(trait_def, schema),
+            &per_event_shapes,
+        );
         tick_types.optional_payload = optional_payload_fields(trait_def, None);
         Self {
             entity_field_types,
@@ -112,7 +129,7 @@ impl TraitScopes {
             payload_field_types,
             per_event_shapes,
             tick_types,
-            guaranteed: std::sync::OnceLock::new(),
+            guaranteed,
         }
     }
 
@@ -138,7 +155,9 @@ impl TraitScopes {
                 types.optional_payload = optional_payload_fields(trait_def, Some(event));
                 if !types.optional_payload.is_empty() {
                     let guaranteed = self.guaranteed.get_or_init(|| {
-                        crate::phases::validation::guaranteed_payload::guaranteed_payload_fields(schema)
+                        crate::phases::validation::guaranteed_payload::guaranteed_payload_fields(
+                            schema,
+                        )
                     });
                     if let Some(fields) = guaranteed.get(event) {
                         types.optional_payload.retain(|f| !fields.contains(f));
@@ -161,6 +180,7 @@ pub fn validate_trait_effects(
     known_services: &HashSet<String>,
     page_init_payloads: &HashMap<String, PageInitPayload>,
     service_registry: &ServiceRegistryData,
+    guaranteed: &GuaranteedPayloads,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
 
@@ -174,7 +194,7 @@ pub fn validate_trait_effects(
     // (via `payload_mapping`) but no declared types, so they cannot seed a
     // type-comparison entry — the check fires only where a declared type
     // exists on both sides.
-    let scopes = TraitScopes::new(schema, trait_def, entity_definitions);
+    let scopes = TraitScopes::new(schema, trait_def, entity_definitions, guaranteed);
     let entity_field_types = &scopes.entity_field_types;
     let payload_field_types = &scopes.payload_field_types;
     let tick_types = &scopes.tick_types;
@@ -397,7 +417,10 @@ fn hydrate_included_relations(
     mut shapes: HashMap<String, orbital_core_base::ir::OirType>,
 ) -> HashMap<String, orbital_core_base::ir::OirType> {
     use orbital_core_base::schema::SExpression;
-    fn fetches<'a>(expr: &'a SExpression, out: &mut Vec<(&'a str, &'a orbital_core_base::schema::SObject)>) {
+    fn fetches<'a>(
+        expr: &'a SExpression,
+        out: &mut Vec<(&'a str, &'a orbital_core_base::schema::SObject)>,
+    ) {
         match expr {
             SExpression::Array(items) => {
                 if let [SExpression::String(op), SExpression::String(entity), SExpression::Object(options), ..] =
@@ -439,10 +462,14 @@ fn hydrate_included_relations(
         return shapes;
     }
     let Some(def) = schema.orbitals.iter().find_map(|o| {
-        std::iter::once(&o.entity).chain(o.auxiliary_entities.iter().flatten()).find_map(|e| match e {
-            orbital_core_base::schema::EntityRef::Inline(def) if def.name == entity => Some(def),
-            _ => None,
-        })
+        std::iter::once(&o.entity)
+            .chain(o.auxiliary_entities.iter().flatten())
+            .find_map(|e| match e {
+                orbital_core_base::schema::EntityRef::Inline(def) if def.name == entity => {
+                    Some(def)
+                }
+                _ => None,
+            })
     }) else {
         return shapes;
     };
@@ -482,8 +509,13 @@ fn hydrate_included_relations(
         .iter()
         .filter_map(|f| {
             let name = f.name.clone()?;
-            let shape = orbital_core_base::ir::types::field_shape(f).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased());
-            let shape = if included.contains(&name) { as_row(shape) } else { shape };
+            let shape = orbital_core_base::ir::types::field_shape(f)
+                .unwrap_or_else(|_| orbital_core_base::ir::OirType::erased());
+            let shape = if included.contains(&name) {
+                as_row(shape)
+            } else {
+                shape
+            };
             Some(orbital_core_base::ir::OirField::new(name, shape))
         })
         .collect();
@@ -496,7 +528,10 @@ fn hydrate_included_relations(
             fields.push(orbital_core_base::ir::OirField::new(system.to_string(), ty));
         }
     }
-    let hydrated = orbital_core_base::ir::OirType::Struct { additional: None, fields: fields.into() };
+    let hydrated = orbital_core_base::ir::OirType::Struct {
+        additional: None,
+        fields: fields.into(),
+    };
     fn replace(
         ty: &mut orbital_core_base::ir::OirType,
         entity: &str,
@@ -504,8 +539,14 @@ fn hydrate_included_relations(
     ) {
         use orbital_core_base::ir::OirType;
         match ty {
-            OirType::Row { entity: row } | OirType::Reference { entity: row } if row.as_str() == entity => *ty = hydrated.clone(),
-            OirType::Optional { inner } | OirType::Array { inner } => replace(inner, entity, hydrated),
+            OirType::Row { entity: row } | OirType::Reference { entity: row }
+                if row.as_str() == entity =>
+            {
+                *ty = hydrated.clone()
+            }
+            OirType::Optional { inner } | OirType::Array { inner } => {
+                replace(inner, entity, hydrated)
+            }
             _ => {}
         }
     }
@@ -557,7 +598,14 @@ fn binding_types(
                 .into_iter()
                 .filter(|(name, _)| !conflicting.contains(name))
                 .map(|(name, (ty, seen))| {
-                    (name, if seen == deliveries { ty } else { orbital_core_base::ir::OirType::optional(ty) })
+                    (
+                        name,
+                        if seen == deliveries {
+                            ty
+                        } else {
+                            orbital_core_base::ir::OirType::optional(ty)
+                        },
+                    )
                 })
                 .collect(),
         )
@@ -567,13 +615,24 @@ fn binding_types(
         prev_payload,
         optional_payload: Default::default(),
         locals: Default::default(),
-        type_params: trait_def.type_params.iter().flatten().map(|param| param.name.clone()).collect(),
+        type_params: trait_def
+            .type_params
+            .iter()
+            .flatten()
+            .map(|param| param.name.clone())
+            .collect(),
         user: super::user_identity::identity_type(schema, &trait_def.name),
         config: orbital_config_of(schema, trait_def)
             .into_iter()
             .flatten()
             .chain(trait_def.config.iter().flatten())
-            .map(|(name, field)| (name.clone(), crate::phases::resolve::config_field_oir_type(field, schema).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased())))
+            .map(|(name, field)| {
+                (
+                    name.clone(),
+                    crate::phases::resolve::config_field_oir_type(field, schema)
+                        .unwrap_or_else(|_| orbital_core_base::ir::OirType::erased()),
+                )
+            })
             .collect(),
     }
 }
@@ -583,7 +642,9 @@ fn binding_types(
 fn orbital_config_of<'a>(
     schema: &'a OrbitalSchema,
     trait_def: &TraitDefinition,
-) -> Option<&'a orbital_core_base::collections::IndexMap<String, orbital_core_base::schema::ConfigField>> {
+) -> Option<
+    &'a orbital_core_base::collections::IndexMap<String, orbital_core_base::schema::ConfigField>,
+> {
     use orbital_core_base::schema::TraitReference;
     schema
         .orbitals
@@ -615,10 +676,16 @@ fn optional_payload_fields(
         let mut first: HashMap<&str, bool> = HashMap::new();
         for emit in trait_def.emits.iter().flatten() {
             for f in emit.payload_schema.iter().flatten() {
-                first.entry(f.name.as_str()).or_insert(f.required != Some(true));
+                first
+                    .entry(f.name.as_str())
+                    .or_insert(f.required != Some(true));
             }
         }
-        return first.into_iter().filter(|(_, optional)| *optional).map(|(n, _)| n.to_string()).collect();
+        return first
+            .into_iter()
+            .filter(|(_, optional)| *optional)
+            .map(|(n, _)| n.to_string())
+            .collect();
     };
     let inbound = trait_def
         .state_machine
@@ -635,7 +702,10 @@ fn optional_payload_fields(
             .find(|e| e.event == event)
             .and_then(|e| e.payload_schema.as_deref())
     };
-    inbound.or_else(emitted).map(optional_of).unwrap_or_default()
+    inbound
+        .or_else(emitted)
+        .map(optional_of)
+        .unwrap_or_default()
 }
 
 /// The payload shapes of a trait with no triggering event (ticks): the first declared emit's type of each field.
@@ -647,8 +717,10 @@ pub(crate) fn collect_payload_shapes(
     if let Some(emits) = &trait_def.emits {
         for emit in emits {
             for field in emit.payload_schema.iter().flatten() {
-                map.entry(field.name.clone())
-                    .or_insert_with(|| crate::phases::resolve::payload_field_oir_type(field, schema).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased()));
+                map.entry(field.name.clone()).or_insert_with(|| {
+                    crate::phases::resolve::payload_field_oir_type(field, schema)
+                        .unwrap_or_else(|_| orbital_core_base::ir::OirType::erased())
+                });
             }
         }
     }
@@ -728,30 +800,69 @@ mod per_event_payload_tests {
             }]
         }))
         .expect("fixture deserializes");
-        let (trait_def, _) = crate::phases::validation::inline_traits(&schema).next().expect("one inline trait");
+        let (trait_def, _) = crate::phases::validation::inline_traits(&schema)
+            .next()
+            .expect("one inline trait");
         let types = binding_types(trait_def, &schema, HashMap::new(), &HashMap::new());
-        assert_eq!(types.config.get("host"), Some(&OirType::String), "no default: the declared type");
-        assert_eq!(types.config.get("port"), Some(&OirType::Number), "control: a default types the same");
-        assert_eq!(types.config.get("own"), Some(&OirType::Boolean), "control: the trait's own knob");
-        assert_eq!(types.config.get("missing"), None, "control: an undeclared knob stays untyped");
+        assert_eq!(
+            types.config.get("host"),
+            Some(&OirType::String),
+            "no default: the declared type"
+        );
+        assert_eq!(
+            types.config.get("port"),
+            Some(&OirType::Number),
+            "control: a default types the same"
+        );
+        assert_eq!(
+            types.config.get("own"),
+            Some(&OirType::Boolean),
+            "control: the trait's own knob"
+        );
+        assert_eq!(
+            types.config.get("missing"),
+            None,
+            "control: an undeclared knob stays untyped"
+        );
     }
 
     #[test]
     fn an_earlier_delivery_is_the_merge_of_the_listened_payloads() {
         use orbital_core_base::ir::OirType;
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({ "name": "App", "orbitals": [] })).unwrap();
+        let schema: OrbitalSchema =
+            serde_json::from_value(serde_json::json!({ "name": "App", "orbitals": [] })).unwrap();
         let trait_def = listening_trait();
         let per_event = collect_per_event_payload_shapes(&trait_def, &schema);
         let types = binding_types(&trait_def, &schema, HashMap::new(), &per_event);
         let Some(OirType::Struct { fields, .. }) = types.prev_payload else {
             panic!("a trait that listens has a prior delivery payload");
         };
-        let by_name = |name: &str| fields.iter().find(|f| f.name == name).map(|f| f.field_type.clone());
-        assert_eq!(by_name("id"), Some(OirType::String), "declared by both with one type");
-        assert_eq!(by_name("n"), Some(OirType::optional(OirType::Number)), "declared by one of two");
-        assert_eq!(by_name("kind"), None, "control: declared with two types, so it has none");
+        let by_name = |name: &str| {
+            fields
+                .iter()
+                .find(|f| f.name == name)
+                .map(|f| f.field_type.clone())
+        };
+        assert_eq!(
+            by_name("id"),
+            Some(OirType::String),
+            "declared by both with one type"
+        );
+        assert_eq!(
+            by_name("n"),
+            Some(OirType::optional(OirType::Number)),
+            "declared by one of two"
+        );
+        assert_eq!(
+            by_name("kind"),
+            None,
+            "control: declared with two types, so it has none"
+        );
         let silent = binding_types(&listening_trait(), &schema, HashMap::new(), &HashMap::new());
-        assert!(silent.prev_payload.is_none(), "control: events with no declared payload give none");
+        assert!(
+            silent.prev_payload.is_none(),
+            "control: events with no declared payload give none"
+        );
     }
 
     /// An inbound event declared via `listens { EVENT { field : type } }`
@@ -811,8 +922,9 @@ pub(crate) fn validate_final_cancel_keys(schema: &OrbitalSchema) -> ValidationRe
         .filter_map(|e| e.as_inline().map(|def| (def.name.clone(), def.clone())))
         .collect();
     let mut facts = CallKeyFacts::default();
+    let guaranteed = GuaranteedPayloads::new();
     for (trait_def, path) in super::inline_traits(schema) {
-        let scopes = TraitScopes::new(schema, trait_def, &entity_definitions);
+        let scopes = TraitScopes::new(schema, trait_def, &entity_definitions, &guaranteed);
         for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
             let payload = scopes.payload_for(&transition.event);
             let types = scopes.types_for(schema, trait_def, &transition.event);
@@ -823,7 +935,8 @@ pub(crate) fn validate_final_cancel_keys(schema: &OrbitalSchema) -> ValidationRe
                 schema: Some(schema),
             };
             for (j, effect) in transition.effects.iter().flatten().enumerate() {
-                let effect_path = format!("{}.stateMachine.transitions[{}].effects[{}]", path, i, j);
+                let effect_path =
+                    format!("{}.stateMachine.transitions[{}].effects[{}]", path, i, j);
                 keyed_call::collect_call_key_facts(effect, &effect_path, &ctx, &mut facts);
             }
         }

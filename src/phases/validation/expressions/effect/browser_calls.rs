@@ -10,10 +10,17 @@ fn is_dynamic(s: &str) -> bool {
     s.starts_with('@') || s.starts_with('?') || s.starts_with('$')
 }
 
-pub(super) fn visit_effects(trait_def: &TraitDefinition, path: &str, visit: &mut dyn FnMut(&SExpression, &str)) {
+pub(super) fn visit_effects(
+    trait_def: &TraitDefinition,
+    path: &str,
+    visit: &mut dyn FnMut(&SExpression, &str),
+) {
     for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
         if let Some(guard) = &transition.guard {
-            visit(guard, &format!("{path}.stateMachine.transitions[{i}].guard"));
+            visit(
+                guard,
+                &format!("{path}.stateMachine.transitions[{i}].guard"),
+            );
         }
         for (j, effect) in transition.effects.iter().flatten().enumerate() {
             visit(
@@ -32,7 +39,11 @@ pub(super) fn visit_effects(trait_def: &TraitDefinition, path: &str, visit: &mut
     }
 }
 
-pub(super) fn each_call_of<'a>(expr: &'a SExpression, head: &str, visit: &mut dyn FnMut(&'a [SExpression])) {
+pub(super) fn each_call_of<'a>(
+    expr: &'a SExpression,
+    head: &str,
+    visit: &mut dyn FnMut(&'a [SExpression]),
+) {
     match expr {
         SExpression::Array(arr) => {
             if matches!(arr.first(), Some(SExpression::String(h)) if h == head) {
@@ -55,7 +66,9 @@ pub(super) fn each_call_of<'a>(expr: &'a SExpression, head: &str, visit: &mut dy
 fn is_literal(value: &SExpression) -> bool {
     match value {
         SExpression::String(text) => !is_dynamic(text),
-        SExpression::Array(items) => !matches!(items.first(), Some(SExpression::String(_))) && items.iter().all(is_literal),
+        SExpression::Array(items) => {
+            !matches!(items.first(), Some(SExpression::String(_))) && items.iter().all(is_literal)
+        }
         SExpression::Object(fields) => fields.values().all(is_literal),
         _ => true,
     }
@@ -69,15 +82,31 @@ fn check_tab_request(
     result: &mut ValidationResult,
 ) {
     use orbital_core_base::tab::TabOp;
-    let head = arr.first().and_then(SExpression::as_str).unwrap_or_default();
-    let Some(op) = TabOp::from_name(head) else { return };
-    let Some(SExpression::Object(request)) = arr.get(1) else { return };
-    if request.keys().any(|k| !op.request_keys().contains(&k.as_str())) || !is_literal(&arr[1]) {
+    let head = arr
+        .first()
+        .and_then(SExpression::as_str)
+        .unwrap_or_default();
+    let Some(op) = TabOp::from_name(head) else {
+        return;
+    };
+    let Some(SExpression::Object(request)) = arr.get(1) else {
+        return;
+    };
+    if request
+        .keys()
+        .any(|k| !op.request_keys().contains(&k.as_str()))
+        || !is_literal(&arr[1])
+    {
         return;
     }
     let value = Value::from(arr[1].clone());
-    if let Err(message) = orbital_core_base::tab_call::parse_tab_call(op, &value, Some(scope), None) {
-        result.add_error(ValidationError::error(ErrorCode::TabRequestRefused, path, message));
+    if let Err(message) = orbital_core_base::tab_call::parse_tab_call(op, &value, Some(scope), None)
+    {
+        result.add_error(ValidationError::error(
+            ErrorCode::TabRequestRefused,
+            path,
+            message,
+        ));
     }
 }
 
@@ -96,7 +125,9 @@ pub(crate) fn validate_browser_calls(schema: &OrbitalSchema) -> ValidationResult
         };
         visit_effects(trait_def, &path, &mut |expr, at| {
             for op in orbital_core_base::tab::TabOp::ALL {
-                each_call_of(expr, op.name(), &mut |arr| check_tab_request(arr, at, &scope, &mut result));
+                each_call_of(expr, op.name(), &mut |arr| {
+                    check_tab_request(arr, at, &scope, &mut result)
+                });
             }
         });
     }
@@ -119,13 +150,30 @@ pub(crate) fn validate_dispatch_residence(
             .transitions
             .iter()
             .enumerate()
-            .map(|(i, t)| (format!("{path}.stateMachine.transitions[{i}]"), t.event.as_str(), t.effects.as_deref().unwrap_or_default()))
-            .chain(trait_def.ticks.iter().flatten().enumerate().map(|(i, t)| (format!("{path}.ticks[{i}]"), t.name.as_str(), t.effects.as_slice())));
+            .map(|(i, t)| {
+                (
+                    format!("{path}.stateMachine.transitions[{i}]"),
+                    t.event.as_str(),
+                    t.effects.as_deref().unwrap_or_default(),
+                )
+            })
+            .chain(trait_def.ticks.iter().flatten().enumerate().map(|(i, t)| {
+                (
+                    format!("{path}.ticks[{i}]"),
+                    t.name.as_str(),
+                    t.effects.as_slice(),
+                )
+            }));
         for (at, event, effects) in arms {
-            let touches = effects.iter().fold(BTreeSet::from([orbital_core_base::runs_on::LegTouch::NONE]), |acc, e| {
-                let next = expr_leg_touches(e, &residence);
-                acc.iter().flat_map(|a| next.iter().map(move |b| a.then(*b))).collect()
-            });
+            let touches = effects.iter().fold(
+                BTreeSet::from([orbital_core_base::runs_on::LegTouch::NONE]),
+                |acc, e| {
+                    let next = expr_leg_touches(e, &residence);
+                    acc.iter()
+                        .flat_map(|a| next.iter().map(move |b| a.then(*b)))
+                        .collect()
+                },
+            );
             if touches.iter().any(|t| t.is_mixed()) {
                 result.add_error(ValidationError::error(
                     ErrorCode::DispatchMixedResidence,

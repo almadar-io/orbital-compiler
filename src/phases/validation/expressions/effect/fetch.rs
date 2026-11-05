@@ -22,7 +22,12 @@ pub(super) fn check_fetch_nearest(
         return result;
     };
     for (member, expected) in [
-        ("vector", OirType::Array { inner: Box::new(OirType::Number) }),
+        (
+            "vector",
+            OirType::Array {
+                inner: Box::new(OirType::Number),
+            },
+        ),
         ("k", OirType::Number),
     ] {
         let Some(expr) = nearest.get(member) else {
@@ -138,17 +143,27 @@ mod tests {
     fn a_well_formed_nearest_validates_and_a_mistyped_one_is_refused() {
         let nearest = |body: &str| format!(r#""nearest": {{ {body} }}"#);
         let good = nearest(r#""field": "embedding", "vector": "@entity.embedding", "k": 3"#);
-        assert!(nearest_codes(&good).is_empty(), "{:?}", nearest_codes(&good));
-        let with_filter = format!(r#""filter": ["=", ["object/get", "@entity", "title"], "a"], {good}"#);
+        assert!(
+            nearest_codes(&good).is_empty(),
+            "{:?}",
+            nearest_codes(&good)
+        );
+        let with_filter =
+            format!(r#""filter": ["=", ["object/get", "@entity", "title"], "a"], {good}"#);
         assert!(nearest_codes(&with_filter).is_empty());
-        let dynamic_k = nearest(r#""field": "embedding", "vector": "@entity.embedding", "k": "@entity.count""#);
+        let dynamic_k =
+            nearest(r#""field": "embedding", "vector": "@entity.embedding", "k": "@entity.count""#);
         assert!(nearest_codes(&dynamic_k).is_empty());
 
         for body in [
             r#""field": "embedding", "vector": "@entity.title", "k": 3"#,
             r#""field": "embedding", "vector": "@entity.embedding", "k": "@entity.title""#,
         ] {
-            assert_eq!(nearest_codes(&nearest(body)), vec![ErrorCode::OperatorArgTypeMismatch], "{body}");
+            assert_eq!(
+                nearest_codes(&nearest(body)),
+                vec![ErrorCode::OperatorArgTypeMismatch],
+                "{body}"
+            );
         }
 
         assert_eq!(

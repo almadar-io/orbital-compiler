@@ -5,7 +5,7 @@
 //! if, `.then[i-2]` under when, `.body[i-2]` under let, `[i]` under any other list and `.key` under a map.
 
 use super::set::ExprReturnCtx;
-use super::TraitScopes;
+use super::{GuaranteedPayloads, TraitScopes};
 use crate::type_infer::trace_types_under;
 use orbital_core_base::ir::{OirEffect, OirExpr, OirType};
 use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitReference};
@@ -23,13 +23,14 @@ pub fn expression_types(schema: &OrbitalSchema) -> BTreeMap<String, String> {
         .filter_map(|e| e.as_inline().map(|def| (def.name.clone(), def.clone())))
         .collect();
     let mut out = BTreeMap::new();
+    let guaranteed = GuaranteedPayloads::new();
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         for (ti, trait_ref) in orbital.traits.iter().enumerate() {
             let TraitReference::Inline(trait_def) = trait_ref else {
                 continue;
             };
             let base = format!("orbitals[{oi}].traits[{ti}]");
-            let scopes = TraitScopes::new(schema, trait_def, &entity_definitions);
+            let scopes = TraitScopes::new(schema, trait_def, &entity_definitions, &guaranteed);
             for (k, transition) in trait_def.state_machine.transitions.iter().enumerate() {
                 let payload = scopes.payload_for(&transition.event);
                 let types = scopes.types_for(schema, trait_def, &transition.event);

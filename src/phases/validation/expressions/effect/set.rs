@@ -50,10 +50,25 @@ pub(crate) fn validate_set_value_type(
     };
     let entity_ty = &entity_meta.field_type;
 
-    let resolve = |name: &str| schema.and_then(|s| crate::phases::resolve::declared_struct_type(s, name).ok().flatten());
-    if !orbital_core_base::type_compat::oir_type_satisfies_with_named(payload_shape, &entity_meta.shape, &resolve)
-        && !guard_narrows_into(payload_field, &entity_meta.shape, entity_field_types, types, schema, guard)
-    {
+    let resolve = |name: &str| {
+        schema.and_then(|s| {
+            crate::phases::resolve::declared_struct_type(s, name)
+                .ok()
+                .flatten()
+        })
+    };
+    if !orbital_core_base::type_compat::oir_type_satisfies_with_named(
+        payload_shape,
+        &entity_meta.shape,
+        &resolve,
+    ) && !guard_narrows_into(
+        payload_field,
+        &entity_meta.shape,
+        entity_field_types,
+        types,
+        schema,
+        guard,
+    ) {
         result.add_error(
             ValidationError::error(
                 ErrorCode::SetValueTypeMismatch,
@@ -117,7 +132,12 @@ fn guard_narrows_into(
         },
     };
     let payload = HashMap::new();
-    let ctx = ExprReturnCtx { entity: entity_field_types, payload: &payload, types: Some(types), schema };
+    let ctx = ExprReturnCtx {
+        entity: entity_field_types,
+        payload: &payload,
+        types: Some(types),
+        schema,
+    };
     crate::type_infer::admits(&lowered, declared, Some(&condition), &ctx)
 }
 
@@ -237,7 +257,13 @@ pub(crate) fn validate_set_return_type(
             orbital_core_base::ir::OirType::Optional { inner } => inner,
             declared => declared,
         });
-    if !reads_entity_field && !numeric_literal && !matches!(&arr[2], SExpression::Array(_) | SExpression::Object(_) | SExpression::Null) {
+    if !reads_entity_field
+        && !numeric_literal
+        && !matches!(
+            &arr[2],
+            SExpression::Array(_) | SExpression::Object(_) | SExpression::Null
+        )
+    {
         return result;
     }
     let ctx = ExprReturnCtx {
@@ -247,7 +273,9 @@ pub(crate) fn validate_set_return_type(
         schema,
     };
     let condition = guard.and_then(|g| orbital_core_eval::lower::lower_sexpr(g).ok());
-    if let Some(slot) = null_written_into_never_null_slot(&arr[2], &meta.shape, condition.as_ref(), &ctx) {
+    if let Some(slot) =
+        null_written_into_never_null_slot(&arr[2], &meta.shape, condition.as_ref(), &ctx)
+    {
         result.add_error(
             ValidationError::error(
                 ErrorCode::SetValueTypeMismatch,
@@ -269,9 +297,13 @@ pub(crate) fn validate_set_return_type(
         let reads_a_relation = orbital_core_eval::lower::lower_sexpr(&arr[2])
             .ok()
             .and_then(|lowered| crate::type_infer::infer_oir_expr_type(&lowered, &ctx))
-            .is_some_and(|inferred| matches!(inferred, orbital_core_base::ir::OirType::Reference { .. }));
+            .is_some_and(|inferred| {
+                matches!(inferred, orbital_core_base::ir::OirType::Reference { .. })
+            });
         if reads_a_relation {
-            if let Some(inferred) = expr_return_incompatible_given(&arr[2], &meta.shape, &ctx, guard) {
+            if let Some(inferred) =
+                expr_return_incompatible_given(&arr[2], &meta.shape, &ctx, guard)
+            {
                 result.add_error(
                     ValidationError::error(
                         ErrorCode::SetReturnTypeMismatch,
@@ -286,22 +318,34 @@ pub(crate) fn validate_set_return_type(
             }
             return result;
         }
-        if let Some(orbital_core_base::ir::OirType::Struct { additional, fields }) = ctx.entity_type(entity) {
+        if let Some(orbital_core_base::ir::OirType::Struct { additional, fields }) =
+            ctx.entity_type(entity)
+        {
             let partial = orbital_core_base::ir::OirType::Struct {
                 additional,
-                fields: fields.iter().cloned().map(|mut f| { f.required = false; f }).collect(),
+                fields: fields
+                    .iter()
+                    .cloned()
+                    .map(|mut f| {
+                        f.required = false;
+                        f
+                    })
+                    .collect(),
             };
             let unknown: Vec<String> = orbital_core_eval::lower::lower_sexpr(&arr[2])
                 .ok()
                 .and_then(|lowered| crate::type_infer::infer_oir_expr_type(&lowered, &ctx))
                 .and_then(|inferred| match inferred {
-                    orbital_core_base::ir::OirType::Struct { fields: written, .. } => Some(
+                    orbital_core_base::ir::OirType::Struct {
+                        fields: written, ..
+                    } => Some(
                         written
                             .iter()
                             .map(|f| f.name.clone())
                             .filter(|n| {
                                 !fields.iter().any(|d| &d.name == n)
-                                    && !orbital_core_base::schema::types::FRAMEWORK_STAMPED_FIELDS.contains(&n.as_str())
+                                    && !orbital_core_base::schema::types::FRAMEWORK_STAMPED_FIELDS
+                                        .contains(&n.as_str())
                             })
                             .collect(),
                     ),
@@ -321,7 +365,9 @@ pub(crate) fn validate_set_return_type(
                     .with_suggestion(format!("Name only declared fields of '{entity}'"))
                     .with_valid_values(fields.iter().map(|f| f.name.clone()).collect()),
                 );
-            } else if let Some(slot) = null_written_into_never_null_slot(&arr[2], &partial, condition.as_ref(), &ctx) {
+            } else if let Some(slot) =
+                null_written_into_never_null_slot(&arr[2], &partial, condition.as_ref(), &ctx)
+            {
                 result.add_error(
                     ValidationError::error(
                         ErrorCode::SetReturnTypeMismatch,
@@ -333,7 +379,9 @@ pub(crate) fn validate_set_return_type(
                     )
                     .with_suggestion("Write a value of the declared type, or declare the field optional (`T?`)"),
                 );
-            } else if let Some(inferred) = expr_return_incompatible_given(&arr[2], &partial, &ctx, guard) {
+            } else if let Some(inferred) =
+                expr_return_incompatible_given(&arr[2], &partial, &ctx, guard)
+            {
                 result.add_error(
                     ValidationError::error(
                         ErrorCode::SetReturnTypeMismatch,
@@ -457,8 +505,10 @@ pub(crate) fn expr_return_incompatible_given<C: crate::type_infer::TypeCtx>(
         None => crate::type_infer::infer_oir_expr_type(&oir_value, ctx)?,
     };
     if orbital_core_base::type_compat::is_unknowable(&inferred)
-        || orbital_core_base::type_compat::sub_with_named(&inferred, declared, &|name| ctx.named_type(name))
-            .is_some_and(|c| !c.requires_cast())
+        || orbital_core_base::type_compat::sub_with_named(&inferred, declared, &|name| {
+            ctx.named_type(name)
+        })
+        .is_some_and(|c| !c.requires_cast())
     {
         None
     } else {
@@ -546,9 +596,7 @@ fn operand_kind(operand: &SExpression, ctx: &ExprReturnCtx<'_>) -> Option<&'stat
         | OirType::Uuid
         | OirType::Date
         | OirType::DateTime
-        | OirType::Instant => {
-            Some("string")
-        }
+        | OirType::Instant => Some("string"),
         _ => None,
     }
 }
@@ -577,10 +625,20 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
         // The whole `@entity` / `@payload` is a record of unknown extent: besides the declared fields a row carries
         // the system fields (id, timestamps, frame fields) and a payload carries whatever its emitter sent.
         match (&binding.root, self.types) {
-            (OirBindingRoot::User, Some(types)) => return orbital_core_base::signature::type_at_path(&types.user, &binding.path),
-            (OirBindingRoot::Config, Some(types)) => return orbital_core_base::signature::type_at_path(&types.config_struct(), &binding.path),
+            (OirBindingRoot::User, Some(types)) => {
+                return orbital_core_base::signature::type_at_path(&types.user, &binding.path)
+            }
+            (OirBindingRoot::Config, Some(types)) => {
+                return orbital_core_base::signature::type_at_path(
+                    &types.config_struct(),
+                    &binding.path,
+                )
+            }
             (OirBindingRoot::Local(name), Some(types)) => {
-                return types.locals.get(name).and_then(|ty| orbital_core_base::signature::type_at_path(ty, &binding.path))
+                return types
+                    .locals
+                    .get(name)
+                    .and_then(|ty| orbital_core_base::signature::type_at_path(ty, &binding.path))
             }
             _ => {}
         }
@@ -611,27 +669,56 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
                     })
                     .collect();
                 if self.types.is_some() {
-                    for (system, ty) in [("id", OirType::String), ("createdAt", OirType::DateTime), ("updatedAt", OirType::DateTime)] {
+                    for (system, ty) in [
+                        ("id", OirType::String),
+                        ("createdAt", OirType::DateTime),
+                        ("updatedAt", OirType::DateTime),
+                    ] {
                         if !fields.iter().any(|f| f.name == system) {
                             fields.push(OirField::new(system.to_string(), ty));
                         }
                     }
                 }
-                OirType::Struct { additional: None, fields: fields.into() }
+                OirType::Struct {
+                    additional: None,
+                    fields: fields.into(),
+                }
             }
-            _ if self.types.is_some() => self.types.map(BindingTypes::payload_struct).unwrap_or(OirType::Struct { additional: None, fields: Default::default() }),
+            _ if self.types.is_some() => {
+                self.types
+                    .map(BindingTypes::payload_struct)
+                    .unwrap_or(OirType::Struct {
+                        additional: None,
+                        fields: Default::default(),
+                    })
+            }
             _ => {
                 // Only a payload field of a primitive kind has a type here: a struct-, list- or entity-typed one is
                 // carried as a bare kind string, which says nothing of its shape.
                 const PRIMITIVE_KINDS: [&str; 16] = [
-                    "string", "number", "boolean", "date", "datetime", "timestamp", "instant", "email", "url", "phone",
-                    "uuid", "image", "money", "bytes", "int", "float",
+                    "string",
+                    "number",
+                    "boolean",
+                    "date",
+                    "datetime",
+                    "timestamp",
+                    "instant",
+                    "email",
+                    "url",
+                    "phone",
+                    "uuid",
+                    "image",
+                    "money",
+                    "bytes",
+                    "int",
+                    "float",
                 ];
                 let mut names: Vec<&String> = self
                     .payload
                     .iter()
                     .filter(|(_, kind)| {
-                        PRIMITIVE_KINDS.contains(&kind.as_str()) || orbital_core_base::num_width::NumWidth::from_name(kind).is_some()
+                        PRIMITIVE_KINDS.contains(&kind.as_str())
+                            || orbital_core_base::num_width::NumWidth::from_name(kind).is_some()
                     })
                     .map(|(n, _)| n)
                     .collect();
@@ -640,7 +727,12 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
                     additional: None,
                     fields: names
                         .into_iter()
-                        .map(|n| OirField::new(n.clone(), orbital_core_base::type_compat::compat_kind_oir(&self.payload[n])))
+                        .map(|n| {
+                            OirField::new(
+                                n.clone(),
+                                orbital_core_base::type_compat::compat_kind_oir(&self.payload[n]),
+                            )
+                        })
                         .collect(),
                 }
             }
@@ -658,8 +750,13 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
             return false;
         };
         match binding.root {
-            OirBindingRoot::Entity => self.entity.get(field).is_some_and(|meta| !meta.required && !meta.defaulted),
-            OirBindingRoot::Payload => self.types.is_some_and(|types| types.optional_payload.contains(field)),
+            OirBindingRoot::Entity => self
+                .entity
+                .get(field)
+                .is_some_and(|meta| !meta.required && !meta.defaulted),
+            OirBindingRoot::Payload => self
+                .types
+                .is_some_and(|types| types.optional_payload.contains(field)),
             _ => false,
         }
     }
@@ -687,49 +784,71 @@ impl crate::type_infer::TypeCtx for ExprReturnCtx<'_> {
         // An entity or identity the program expects from its host is a declared type too: its promised shape.
         let promised = || {
             schema.orbitals.iter().find_map(|o| {
-                o.expects.iter().flatten().find_map(|expectation| match expectation {
-                    orbital_core_base::schema::ExpectDeclaration::Entity { name: n, shape: Some(shape), .. } if n == name => {
-                        Some(shape.as_slice())
-                    }
-                    orbital_core_base::schema::ExpectDeclaration::Identity { name: Some(n), shape: Some(shape), .. }
-                        if n == name =>
-                    {
-                        Some(shape.as_slice())
-                    }
-                    _ => None,
-                })
+                o.expects
+                    .iter()
+                    .flatten()
+                    .find_map(|expectation| match expectation {
+                        orbital_core_base::schema::ExpectDeclaration::Entity {
+                            name: n,
+                            shape: Some(shape),
+                            ..
+                        } if n == name => Some(shape.as_slice()),
+                        orbital_core_base::schema::ExpectDeclaration::Identity {
+                            name: Some(n),
+                            shape: Some(shape),
+                            ..
+                        } if n == name => Some(shape.as_slice()),
+                        _ => None,
+                    })
             })
         };
         let source = declared.or_else(promised)?;
         let mut fields: Vec<OirField> = source
             .iter()
             .filter_map(|f| {
-                let mut field = OirField::new(f.name.clone()?, orbital_core_base::ir::types::field_shape(f).unwrap_or_else(|_| OirType::erased()));
+                let mut field = OirField::new(
+                    f.name.clone()?,
+                    orbital_core_base::ir::types::field_shape(f)
+                        .unwrap_or_else(|_| OirType::erased()),
+                );
                 field.required = f.required.unwrap_or(false) || f.default.is_some();
                 Some(field)
             })
             .collect();
-        for (system, ty) in [("id", OirType::String), ("createdAt", OirType::DateTime), ("updatedAt", OirType::DateTime)] {
+        for (system, ty) in [
+            ("id", OirType::String),
+            ("createdAt", OirType::DateTime),
+            ("updatedAt", OirType::DateTime),
+        ] {
             if !fields.iter().any(|f| f.name == system) {
                 fields.push(OirField::new(system.to_string(), ty));
             }
         }
-        Some(OirType::Struct { additional: None, fields: fields.into() })
+        Some(OirType::Struct {
+            additional: None,
+            fields: fields.into(),
+        })
     }
 
     fn named_type(&self, name: &str) -> Option<orbital_core_base::ir::OirType> {
-        crate::phases::resolve::declared_struct_type(self.schema?, name).ok().flatten()
+        crate::phases::resolve::declared_struct_type(self.schema?, name)
+            .ok()
+            .flatten()
     }
 
     fn declared_type(&self, name: &str) -> Option<bool> {
         let schema = self.schema?;
         Some(
-            self.types.is_some_and(|types| types.type_params.contains(name))
-                || schema.types.as_ref().is_some_and(|types| types.contains_key(name))
+            self.types
+                .is_some_and(|types| types.type_params.contains(name))
                 || schema
-                .orbitals
-                .iter()
-                .any(|o| o.types.as_ref().is_some_and(|t| t.contains_key(name)))
+                    .types
+                    .as_ref()
+                    .is_some_and(|types| types.contains_key(name))
+                || schema
+                    .orbitals
+                    .iter()
+                    .any(|o| o.types.as_ref().is_some_and(|t| t.contains_key(name)))
                 || orbital_core_base::language::program_types::program_type(name).is_some(),
         )
     }
@@ -753,13 +872,18 @@ pub(crate) struct BindingTypes {
 }
 
 impl BindingTypes {
-    pub(crate) fn record_of(fields: &HashMap<String, orbital_core_base::ir::OirType>) -> orbital_core_base::ir::OirType {
+    pub(crate) fn record_of(
+        fields: &HashMap<String, orbital_core_base::ir::OirType>,
+    ) -> orbital_core_base::ir::OirType {
         let mut fields: Vec<orbital_core_base::ir::OirField> = fields
             .iter()
             .map(|(n, t)| orbital_core_base::ir::OirField::new(n.clone(), t.clone()))
             .collect();
         fields.sort_by(|a, b| a.name.cmp(&b.name));
-        orbital_core_base::ir::OirType::Struct { additional: None, fields: fields.into() }
+        orbital_core_base::ir::OirType::Struct {
+            additional: None,
+            fields: fields.into(),
+        }
     }
 
     pub(crate) fn payload_struct(&self) -> orbital_core_base::ir::OirType {
@@ -829,12 +953,15 @@ pub(crate) fn entity_field_type_map(entity: &EntityDefinition) -> HashMap<String
 }
 
 /// The same map over the fields an `expects entity` promises: the shape of a trait's linked entity no orbital declares.
-pub(crate) fn field_type_map(fields: &[orbital_core_base::schema::FieldDefinition]) -> HashMap<String, EntityFieldMeta> {
+pub(crate) fn field_type_map(
+    fields: &[orbital_core_base::schema::FieldDefinition],
+) -> HashMap<String, EntityFieldMeta> {
     fields
         .iter()
         .filter_map(|f| {
             let name = f.name.clone()?;
-            let shape = orbital_core_base::ir::types::field_shape(f).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased());
+            let shape = orbital_core_base::ir::types::field_shape(f)
+                .unwrap_or_else(|_| orbital_core_base::ir::OirType::erased());
             Some((
                 name,
                 EntityFieldMeta {
@@ -949,7 +1076,9 @@ mod return_type_tests {
                 r#"["let", [["x", ["time/parse", "@entity.s"]]], ["if", ["=", "@x", null], null, {value}]]"#
             )),
         ];
-        validate_set_return_type(&arr, "p", &fields, &HashMap::new(), None, None, None).errors.len()
+        validate_set_return_type(&arr, "p", &fields, &HashMap::new(), None, None, None)
+            .errors
+            .len()
     }
 
     #[test]
@@ -959,8 +1088,22 @@ mod return_type_tests {
                 "name": "E", "collection": "es", "fields": [{ "name": "n", "type": ty, "nullable": true }]
             }))
             .unwrap();
-            let arr = vec![SExpression::String("set".into()), SExpression::string("@entity.n"), SExpression::Number(literal)];
-            validate_set_return_type(&arr, "p", &entity_field_type_map(&entity), &HashMap::new(), None, None, None).errors.len()
+            let arr = vec![
+                SExpression::String("set".into()),
+                SExpression::string("@entity.n"),
+                SExpression::Number(literal),
+            ];
+            validate_set_return_type(
+                &arr,
+                "p",
+                &entity_field_type_map(&entity),
+                &HashMap::new(),
+                None,
+                None,
+                None,
+            )
+            .errors
+            .len()
         };
         assert_eq!(errors("u8", 255.0), 0);
         assert_eq!(errors("u8", 300.0), 1);
@@ -968,7 +1111,11 @@ mod return_type_tests {
         assert_eq!(errors("int", 2.5), 1, "a fraction is no int");
         assert_eq!(errors("int", 2.0), 0);
         assert_eq!(errors("number", 2.5), 0, "control: any number fits number");
-        assert_eq!(errors("string", 3.0), 0, "control: a non-numeric field is left to its own check");
+        assert_eq!(
+            errors("string", 3.0),
+            0,
+            "control: a non-numeric field is left to its own check"
+        );
     }
 
     #[test]
@@ -979,11 +1126,43 @@ mod return_type_tests {
                 "properties": { "date": { "name": "date", "type": "date" }, "datetime": { "name": "datetime", "type": "datetime" } }
             })
         };
-        assert_eq!(set_parsed_time_into(union(true), r#""@x""#), 0, "date | datetime into (date | datetime)?");
-        assert_eq!(set_parsed_time_into(serde_json::json!({ "name": "t", "type": "number", "nullable": true }), r#""@x""#), 1, "control: a number");
-        assert_eq!(set_parsed_time_into(serde_json::json!({ "name": "t", "type": "datetime", "nullable": true }), r#""@x""#), 1, "control: no implicit datetime");
-        assert_eq!(set_parsed_time_into(serde_json::json!({ "name": "t", "type": "instant", "nullable": true }), r#""@x""#), 1, "control: no implicit instant");
-        assert_eq!(set_parsed_time_into(serde_json::json!({ "name": "t", "type": "instant", "nullable": true }), r#"["as", "@x", "instant"]"#), 0, "as narrows to instant");
+        assert_eq!(
+            set_parsed_time_into(union(true), r#""@x""#),
+            0,
+            "date | datetime into (date | datetime)?"
+        );
+        assert_eq!(
+            set_parsed_time_into(
+                serde_json::json!({ "name": "t", "type": "number", "nullable": true }),
+                r#""@x""#
+            ),
+            1,
+            "control: a number"
+        );
+        assert_eq!(
+            set_parsed_time_into(
+                serde_json::json!({ "name": "t", "type": "datetime", "nullable": true }),
+                r#""@x""#
+            ),
+            1,
+            "control: no implicit datetime"
+        );
+        assert_eq!(
+            set_parsed_time_into(
+                serde_json::json!({ "name": "t", "type": "instant", "nullable": true }),
+                r#""@x""#
+            ),
+            1,
+            "control: no implicit instant"
+        );
+        assert_eq!(
+            set_parsed_time_into(
+                serde_json::json!({ "name": "t", "type": "instant", "nullable": true }),
+                r#"["as", "@x", "instant"]"#
+            ),
+            0,
+            "as narrows to instant"
+        );
     }
 
     #[test]
@@ -991,12 +1170,23 @@ mod return_type_tests {
         let schema = typed_schema();
         let mut arr = set_call("rows", "json/parse", &["[]", "Points"]);
         let parsed = arr.pop().unwrap();
-        arr.push(SExpression::Array(vec![
-            SExpression::String("default".into()),
-            parsed,
-            SExpression::Array(vec![].into()),
-        ].into()));
-        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema), None, None);
+        arr.push(SExpression::Array(
+            vec![
+                SExpression::String("default".into()),
+                parsed,
+                SExpression::Array(vec![].into()),
+            ]
+            .into(),
+        ));
+        let r = validate_set_return_type(
+            &arr,
+            "p",
+            &field("rows", "[object]"),
+            &HashMap::new(),
+            Some(&schema),
+            None,
+            None,
+        );
         assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
     }
 
@@ -1004,7 +1194,15 @@ mod return_type_tests {
     fn control_json_parse_answers_null_on_a_misfit_so_a_required_list_field_refuses_it() {
         let schema = typed_schema();
         let arr = set_call("rows", "json/parse", &["[]", "Points"]);
-        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema), None, None);
+        let r = validate_set_return_type(
+            &arr,
+            "p",
+            &field("rows", "[object]"),
+            &HashMap::new(),
+            Some(&schema),
+            None,
+            None,
+        );
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
     }
 
@@ -1012,14 +1210,30 @@ mod return_type_tests {
     fn control_json_parse_over_a_struct_alias_into_a_list_field_is_an_error() {
         let schema = typed_schema();
         let arr = set_call("rows", "json/parse", &["{}", "Point"]);
-        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), Some(&schema), None, None);
+        let r = validate_set_return_type(
+            &arr,
+            "p",
+            &field("rows", "[object]"),
+            &HashMap::new(),
+            Some(&schema),
+            None,
+            None,
+        );
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
     }
 
     #[test]
     fn control_a_string_op_into_a_list_field_is_still_an_error() {
         let arr = set_call("rows", "str/concat", &["a", "b"]);
-        let r = validate_set_return_type(&arr, "p", &field("rows", "[object]"), &HashMap::new(), None, None, None);
+        let r = validate_set_return_type(
+            &arr,
+            "p",
+            &field("rows", "[object]"),
+            &HashMap::new(),
+            None,
+            None,
+            None,
+        );
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
     }
 
@@ -1027,7 +1241,15 @@ mod return_type_tests {
     fn string_op_into_number_field_errors() {
         // `(set @entity.count (str/concat "a" "b"))` — str/concat returns string.
         let arr = set_call("count", "str/concat", &["a", "b"]);
-        let r = validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None, None, None);
+        let r = validate_set_return_type(
+            &arr,
+            "p",
+            &field("count", "number"),
+            &HashMap::new(),
+            None,
+            None,
+            None,
+        );
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
         assert_eq!(r.errors[0].code, ErrorCode::SetReturnTypeMismatch);
     }
@@ -1035,7 +1257,15 @@ mod return_type_tests {
     #[test]
     fn bytes_op_into_string_field_errors() {
         let arr = set_call("title", "bytes/from-string", &["hi"]);
-        let r = validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None, None, None);
+        let r = validate_set_return_type(
+            &arr,
+            "p",
+            &field("title", "string"),
+            &HashMap::new(),
+            None,
+            None,
+            None,
+        );
         assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
         assert_eq!(r.errors[0].code, ErrorCode::SetReturnTypeMismatch);
     }
@@ -1043,36 +1273,64 @@ mod return_type_tests {
     #[test]
     fn bytes_op_into_bytes_field_passes() {
         let arr = set_call("blob", "bytes/from-string", &["hi"]);
-        let r = validate_set_return_type(&arr, "p", &field("blob", "bytes"), &HashMap::new(), None, None, None);
+        let r = validate_set_return_type(
+            &arr,
+            "p",
+            &field("blob", "bytes"),
+            &HashMap::new(),
+            None,
+            None,
+            None,
+        );
         assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
     }
 
     #[test]
     fn bytes_to_string_into_string_field_passes() {
         let arr = set_call("title", "bytes/to-string", &["AAEC"]);
-        let r = validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None, None, None);
+        let r = validate_set_return_type(
+            &arr,
+            "p",
+            &field("title", "string"),
+            &HashMap::new(),
+            None,
+            None,
+            None,
+        );
         assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
     }
 
     #[test]
     fn string_op_into_string_field_passes() {
         let arr = set_call("title", "str/concat", &["a", "b"]);
-        assert!(
-            validate_set_return_type(&arr, "p", &field("title", "string"), &HashMap::new(), None, None, None)
-                .errors
-                .is_empty()
-        );
+        assert!(validate_set_return_type(
+            &arr,
+            "p",
+            &field("title", "string"),
+            &HashMap::new(),
+            None,
+            None,
+            None
+        )
+        .errors
+        .is_empty());
     }
 
     #[test]
     fn input_dependent_op_is_conservative() {
         // object/get is input-dependent (object-key-lookup → Json); never rejects.
         let arr = set_call("count", "object/get", &["@entity.data", "k"]);
-        assert!(
-            validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None, None, None)
-                .errors
-                .is_empty()
-        );
+        assert!(validate_set_return_type(
+            &arr,
+            "p",
+            &field("count", "number"),
+            &HashMap::new(),
+            None,
+            None,
+            None
+        )
+        .errors
+        .is_empty());
     }
 
     #[test]
@@ -1083,11 +1341,17 @@ mod return_type_tests {
             SExpression::String("@entity.count".into()),
             SExpression::String("5".into()),
         ];
-        assert!(
-            validate_set_return_type(&arr, "p", &field("count", "number"), &HashMap::new(), None, None, None)
-                .errors
-                .is_empty()
-        );
+        assert!(validate_set_return_type(
+            &arr,
+            "p",
+            &field("count", "number"),
+            &HashMap::new(),
+            None,
+            None,
+            None
+        )
+        .errors
+        .is_empty());
     }
 
     #[test]
@@ -1137,15 +1401,29 @@ mod return_type_tests {
         .expect("schema");
         let entity = HashMap::new();
         let payload = HashMap::new();
-        let ctx = ExprReturnCtx { entity: &entity, payload: &payload, types: None, schema: Some(&schema) };
+        let ctx = ExprReturnCtx {
+            entity: &entity,
+            payload: &payload,
+            types: None,
+            schema: Some(&schema),
+        };
         let fields = |ty: Option<OirType>| match ty {
-            Some(OirType::Struct { fields, .. }) => fields.into_iter().map(|f| f.name).collect::<Vec<_>>(),
+            Some(OirType::Struct { fields, .. }) => {
+                fields.into_iter().map(|f| f.name).collect::<Vec<_>>()
+            }
             other => panic!("a struct row, got {other:?}"),
         };
         assert!(fields(ctx.entity_type("Viewer")).contains(&"role".to_string()));
         assert!(fields(ctx.entity_type("Note")).contains(&"title".to_string()));
-        assert!(fields(ctx.entity_type("Own")).contains(&"id".to_string()), "control: a declared entity still resolves");
-        assert_eq!(ctx.entity_type("Nobody"), None, "control: a name nothing declares or expects");
+        assert!(
+            fields(ctx.entity_type("Own")).contains(&"id".to_string()),
+            "control: a declared entity still resolves"
+        );
+        assert_eq!(
+            ctx.entity_type("Nobody"),
+            None,
+            "control: a name nothing declares or expects"
+        );
     }
 
     #[test]
@@ -1167,23 +1445,44 @@ mod return_type_tests {
             .expect("schema")
         };
         let fields = |ty: Option<OirType>| match ty {
-            Some(OirType::Struct { fields, .. }) => fields.into_iter().map(|f| f.name).collect::<Vec<_>>(),
+            Some(OirType::Struct { fields, .. }) => {
+                fields.into_iter().map(|f| f.name).collect::<Vec<_>>()
+            }
             other => panic!("a struct, got {other:?}"),
         };
         let entity = HashMap::new();
         let payload = HashMap::new();
 
         let plain = schema_with(serde_json::json!({}));
-        let ctx = ExprReturnCtx { entity: &entity, payload: &payload, types: None, schema: Some(&plain) };
+        let ctx = ExprReturnCtx {
+            entity: &entity,
+            payload: &payload,
+            types: None,
+            schema: Some(&plain),
+        };
         assert!(ctx.named_type("BehaviorRef").is_some());
         assert!(fields(ctx.named_type("Viewer")).contains(&"email".to_string()));
         assert_eq!(ctx.declared_type("Viewer"), Some(true));
-        assert_eq!(ctx.named_type("Viewr"), None, "control: neither local nor a program type");
+        assert_eq!(
+            ctx.named_type("Viewr"),
+            None,
+            "control: neither local nor a program type"
+        );
         assert_eq!(ctx.declared_type("Viewr"), Some(false));
 
-        let shadowed = schema_with(serde_json::json!({ "Viewer": [{ "name": "seat", "type": "number" }] }));
-        let ctx = ExprReturnCtx { entity: &entity, payload: &payload, types: None, schema: Some(&shadowed) };
-        assert_eq!(fields(ctx.named_type("Viewer")), vec!["seat".to_string()], "the local definition wins");
+        let shadowed =
+            schema_with(serde_json::json!({ "Viewer": [{ "name": "seat", "type": "number" }] }));
+        let ctx = ExprReturnCtx {
+            entity: &entity,
+            payload: &payload,
+            types: None,
+            schema: Some(&shadowed),
+        };
+        assert_eq!(
+            fields(ctx.named_type("Viewer")),
+            vec!["seat".to_string()],
+            "the local definition wins"
+        );
     }
 }
 
@@ -1206,11 +1505,14 @@ mod required_field_from_optional_knob_tests {
     }
 
     fn set_effect(field: &str, value: &str) -> SExpression {
-        SExpression::Array(vec![
-            SExpression::String("set".into()),
-            SExpression::string(format!("@entity.{field}")),
-            SExpression::String(value.into()),
-        ].into())
+        SExpression::Array(
+            vec![
+                SExpression::String("set".into()),
+                SExpression::string(format!("@entity.{field}")),
+                SExpression::String(value.into()),
+            ]
+            .into(),
+        )
     }
 
     #[test]
@@ -1260,10 +1562,13 @@ mod required_field_from_optional_knob_tests {
 
     #[test]
     fn non_set_effect_skips() {
-        let effect = SExpression::Array(vec![
-            SExpression::String("emit".into()),
-            SExpression::String("DONE".into()),
-        ].into());
+        let effect = SExpression::Array(
+            vec![
+                SExpression::String("emit".into()),
+                SExpression::String("DONE".into()),
+            ]
+            .into(),
+        );
         let r = validate_set_required_field_from_optional_knob(
             &effect,
             "p",
@@ -1356,7 +1661,11 @@ mod comparison_operand_tests {
         let against_number = a(vec![st("<"), st("@now"), SExpression::Number(5.0)]);
         assert_eq!(comparison_errors(against_number, HashMap::new()), 1);
         let against_text = a(vec![st("<"), st("@now"), st("2026-01-01T00:00:00Z")]);
-        assert_eq!(comparison_errors(against_text, HashMap::new()), 0, "control: ISO text against text");
+        assert_eq!(
+            comparison_errors(against_text, HashMap::new()),
+            0,
+            "control: ISO text against text"
+        );
     }
 
     #[test]
@@ -1417,7 +1726,10 @@ mod set_value_type_tests {
     fn record(fields: &[(&str, OirType)]) -> OirType {
         OirType::Struct {
             additional: None,
-            fields: fields.iter().map(|(n, t)| OirField::new(n.to_string(), t.clone())).collect(),
+            fields: fields
+                .iter()
+                .map(|(n, t)| OirField::new(n.to_string(), t.clone()))
+                .collect(),
         }
     }
 
@@ -1460,7 +1772,12 @@ mod set_value_type_tests {
     fn check_guarded(value: &str, guard: Option<SExpression>) -> ValidationResult {
         let entity = HashMap::from([(
             "out".to_string(),
-            EntityFieldMeta { field_type: "string".into(), shape: OirType::String, required: true, defaulted: false },
+            EntityFieldMeta {
+                field_type: "string".into(),
+                shape: OirType::String,
+                required: true,
+                defaulted: false,
+            },
         )]);
         let payload = HashMap::from([
             ("note".to_string(), OirType::optional(OirType::String)),
@@ -1468,7 +1785,10 @@ mod set_value_type_tests {
         ]);
         let types = BindingTypes {
             payload: payload.clone(),
-            user: OirType::Struct { additional: None, fields: Default::default() },
+            user: OirType::Struct {
+                additional: None,
+                fields: Default::default(),
+            },
             config: HashMap::new(),
             prev_payload: None,
             optional_payload: Default::default(),
@@ -1476,7 +1796,15 @@ mod set_value_type_tests {
             type_params: Default::default(),
         };
         let arr = vec![st("set"), st("@entity.out"), st(value)];
-        validate_set_value_type(&arr, "p", &entity, &payload, None, Some(&types), guard.as_ref())
+        validate_set_value_type(
+            &arr,
+            "p",
+            &entity,
+            &payload,
+            None,
+            Some(&types),
+            guard.as_ref(),
+        )
     }
 
     fn present(field: &str) -> SExpression {
@@ -1489,7 +1817,11 @@ mod set_value_type_tests {
             let r = check_guarded(value, Some(present("@payload.note")));
             assert!(r.errors.is_empty(), "{value}: {:?}", r.errors);
         }
-        let both = call(vec![st("and"), present("@payload.other"), present("@payload.note")]);
+        let both = call(vec![
+            st("and"),
+            present("@payload.other"),
+            present("@payload.note"),
+        ]);
         assert!(check_guarded("?note", Some(both)).errors.is_empty());
     }
 
@@ -1508,7 +1840,11 @@ mod set_value_type_tests {
 
     #[test]
     fn control_an_or_guard_that_does_not_prove_presence_does_not_narrow() {
-        let either = call(vec![st("or"), present("@payload.note"), present("@payload.other")]);
+        let either = call(vec![
+            st("or"),
+            present("@payload.note"),
+            present("@payload.other"),
+        ]);
         let r = check_guarded("?note", Some(either));
         assert_eq!(r.errors.len(), 1, "{:?}", r.errors);
     }
@@ -1565,16 +1901,28 @@ mod set_value_type_tests {
     }
 
     fn named(name: &str) -> OirType {
-        OirType::TypeRef { name: name.to_string() }
+        OirType::TypeRef {
+            name: name.to_string(),
+        }
     }
 
     #[test]
     fn a_list_of_an_alias_is_accepted_by_a_list_field_of_the_expanded_alias() {
         let schema = schema_with_message_alias();
         let expanded = OirType::array(record(&[("content", OirType::String)]));
-        let r = check_in(expanded.clone(), "array", OirType::array(named("M")), Some(&schema));
+        let r = check_in(
+            expanded.clone(),
+            "array",
+            OirType::array(named("M")),
+            Some(&schema),
+        );
         assert!(r.errors.is_empty(), "{:?}", r.errors);
-        let r = check_in(OirType::array(named("M")), "array", OirType::array(named("M")), Some(&schema));
+        let r = check_in(
+            OirType::array(named("M")),
+            "array",
+            OirType::array(named("M")),
+            Some(&schema),
+        );
         assert!(r.errors.is_empty(), "{:?}", r.errors);
         let r = check_in(OirType::array(named("M")), "array", expanded, Some(&schema));
         assert!(r.errors.is_empty(), "{:?}", r.errors);
@@ -1591,11 +1939,14 @@ mod set_value_type_tests {
 
     #[test]
     fn a_string_operator_result_never_fills_a_call_key_field() {
-        let concat = SExpression::Array(vec![
-            SExpression::String("str/concat".into()),
-            SExpression::String("search".into()),
-            SExpression::String("x".into()),
-        ].into());
+        let concat = SExpression::Array(
+            vec![
+                SExpression::String("str/concat".into()),
+                SExpression::String("search".into()),
+                SExpression::String("x".into()),
+            ]
+            .into(),
+        );
         let resolved = crate::phases::resolve::resolve_sexpr_standalone(&concat).expect("resolves");
         struct Empty;
         impl crate::type_infer::TypeCtx for Empty {
@@ -1604,10 +1955,15 @@ mod set_value_type_tests {
             }
         }
         let inferred = crate::type_infer::infer_oir_expr_type(&resolved, &Empty);
-        assert_eq!(inferred, Some(OirType::String), "str/concat infers a string");
+        assert_eq!(
+            inferred,
+            Some(OirType::String),
+            "str/concat infers a string"
+        );
         let entity = HashMap::new();
         assert!(
-            expr_return_incompatible(&concat, &OirType::CallKey, &entity, &HashMap::new(), None).is_some(),
+            expr_return_incompatible(&concat, &OirType::CallKey, &entity, &HashMap::new(), None)
+                .is_some(),
             "a string is not a call key"
         );
     }
@@ -1637,39 +1993,105 @@ mod absent_entity_read_tests {
     fn read_type(field: &str) -> Option<OirType> {
         let fields = entity();
         let payload = HashMap::new();
-        let ctx = ExprReturnCtx { entity: &fields, payload: &payload, types: None, schema: None };
-        ctx.binding_type(&OirBinding::new(OirBindingRoot::Entity, vec![field.to_string()]))
+        let ctx = ExprReturnCtx {
+            entity: &fields,
+            payload: &payload,
+            types: None,
+            schema: None,
+        };
+        ctx.binding_type(&OirBinding::new(
+            OirBindingRoot::Entity,
+            vec![field.to_string()],
+        ))
     }
 
     fn set_errors(target: &str, value: &str, guard: Option<&str>) -> usize {
         let fields = entity();
         let source = |text: &str| -> SExpression { serde_json::from_str(text).unwrap() };
-        let arr = vec![SExpression::String("set".into()), SExpression::string(format!("@entity.{target}")), source(value)];
+        let arr = vec![
+            SExpression::String("set".into()),
+            SExpression::string(format!("@entity.{target}")),
+            source(value),
+        ];
         let guard = guard.map(source);
-        validate_set_return_type(&arr, "p", &fields, &HashMap::new(), None, None, guard.as_ref()).errors.len()
+        validate_set_return_type(
+            &arr,
+            "p",
+            &fields,
+            &HashMap::new(),
+            None,
+            None,
+            guard.as_ref(),
+        )
+        .errors
+        .len()
     }
 
     #[test]
     fn a_read_of_a_non_required_non_defaulted_field_types_as_optional() {
         assert_eq!(read_type("loose"), Some(OirType::optional(OirType::String)));
-        assert_eq!(read_type("needed"), Some(OirType::String), "control: required");
-        assert_eq!(read_type("kept"), Some(OirType::String), "control: defaulted");
-        assert_eq!(read_type("maybe"), Some(OirType::optional(OirType::String)), "control: nullable stays one optional");
+        assert_eq!(
+            read_type("needed"),
+            Some(OirType::String),
+            "control: required"
+        );
+        assert_eq!(
+            read_type("kept"),
+            Some(OirType::String),
+            "control: defaulted"
+        );
+        assert_eq!(
+            read_type("maybe"),
+            Some(OirType::optional(OirType::String)),
+            "control: nullable stays one optional"
+        );
     }
 
     #[test]
     fn an_unguarded_set_of_an_optional_read_into_a_non_null_field_is_refused() {
         assert_eq!(set_errors("dst", r#""@entity.loose""#, None), 1);
         assert_eq!(set_errors("dst", r#""@entity.maybe""#, None), 1);
-        assert_eq!(set_errors("dst", r#""@entity.needed""#, None), 0, "control: required read");
-        assert_eq!(set_errors("dst", r#""@entity.kept""#, None), 0, "control: defaulted read");
-        assert_eq!(set_errors("slot", r#""@entity.loose""#, None), 0, "control: a nullable target takes it");
+        assert_eq!(
+            set_errors("dst", r#""@entity.needed""#, None),
+            0,
+            "control: required read"
+        );
+        assert_eq!(
+            set_errors("dst", r#""@entity.kept""#, None),
+            0,
+            "control: defaulted read"
+        );
+        assert_eq!(
+            set_errors("slot", r#""@entity.loose""#, None),
+            0,
+            "control: a nullable target takes it"
+        );
     }
 
     #[test]
     fn a_narrowed_set_of_an_optional_read_is_accepted() {
-        assert_eq!(set_errors("dst", r#""@entity.loose""#, Some(r#"["!=", "@entity.loose", null]"#)), 0, "guard");
-        assert_eq!(set_errors("dst", r#"["default", "@entity.loose", ""]"#, None), 0, "default");
-        assert_eq!(set_errors("dst", r#"["if", ["!=", "@entity.loose", null], "@entity.loose", ""]"#, None), 0, "if");
+        assert_eq!(
+            set_errors(
+                "dst",
+                r#""@entity.loose""#,
+                Some(r#"["!=", "@entity.loose", null]"#)
+            ),
+            0,
+            "guard"
+        );
+        assert_eq!(
+            set_errors("dst", r#"["default", "@entity.loose", ""]"#, None),
+            0,
+            "default"
+        );
+        assert_eq!(
+            set_errors(
+                "dst",
+                r#"["if", ["!=", "@entity.loose", null], "@entity.loose", ""]"#,
+                None
+            ),
+            0,
+            "if"
+        );
     }
 }

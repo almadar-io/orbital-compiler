@@ -22,7 +22,15 @@ pub(crate) fn validate_operator_arg_types(
     types: &BindingTypes,
     schema: Option<&orbital_core_base::schema::OrbitalSchema>,
 ) -> ValidationResult {
-    validate_operator_arg_types_under(expr, None, path, entity_field_types, payload_field_types, types, schema)
+    validate_operator_arg_types_under(
+        expr,
+        None,
+        path,
+        entity_field_types,
+        payload_field_types,
+        types,
+        schema,
+    )
 }
 
 /// The same check where `guard` (the transition's or tick's) holds, as it does for the effects it guards.
@@ -64,8 +72,12 @@ fn collect(
             }
         }
         SExpression::Array(items) => {
-            result.merge(required_field_from_missing_result(items, path, ctx, condition));
-            result.merge(super::keyed_call::check_key_expression_type(items, path, ctx));
+            result.merge(required_field_from_missing_result(
+                items, path, ctx, condition,
+            ));
+            result.merge(super::keyed_call::check_key_expression_type(
+                items, path, ctx,
+            ));
             result.merge(super::keyed_call::check_cancel_call_arg(items, path, ctx));
             result.merge(super::cast::check_cast(items, path, ctx));
             result.merge(super::fetch::check_fetch_nearest(items, path, ctx));
@@ -138,11 +150,15 @@ fn required_field_from_missing_result(
     condition: Option<&OirExpr>,
 ) -> ValidationResult {
     let mut result = ValidationResult::new();
-    let (Some(SExpression::String(head)), Some(SExpression::String(target)), Some(value)) = (items.first(), items.get(1), items.get(2))
+    let (Some(SExpression::String(head)), Some(SExpression::String(target)), Some(value)) =
+        (items.first(), items.get(1), items.get(2))
     else {
         return result;
     };
-    let Some(field) = target.strip_prefix("@entity.").filter(|f| head == "set" && !f.contains('.')) else {
+    let Some(field) = target
+        .strip_prefix("@entity.")
+        .filter(|f| head == "set" && !f.contains('.'))
+    else {
         return result;
     };
     if !ctx.entity.get(field).is_some_and(|meta| meta.required) {
@@ -199,22 +215,31 @@ fn with_fetch_filter_rows(
     fn row_reads(expr: &SExpression, row: &SExpression) -> SExpression {
         match expr {
             SExpression::Array(items) => {
-                let mut items: Vec<SExpression> = items.iter().map(|item| row_reads(item, row)).collect();
-                if matches!(items.as_slice(), [SExpression::String(head), SExpression::String(arg), ..] if head == "object/get" && arg == "@entity") {
+                let mut items: Vec<SExpression> =
+                    items.iter().map(|item| row_reads(item, row)).collect();
+                if matches!(items.as_slice(), [SExpression::String(head), SExpression::String(arg), ..] if head == "object/get" && arg == "@entity")
+                {
                     items[1] = row.clone();
                 }
                 SExpression::Array(items.into())
             }
-            SExpression::Object(map) => {
-                SExpression::object(map.iter().map(|(k, v)| (k.clone(), row_reads(v, row))).collect())
-            }
+            SExpression::Object(map) => SExpression::object(
+                map.iter()
+                    .map(|(k, v)| (k.clone(), row_reads(v, row)))
+                    .collect(),
+            ),
             other => other.clone(),
         }
     }
     match expr {
         SExpression::Array(items) => {
-            let mut items: Vec<SExpression> = items.iter().map(|item| with_fetch_filter_rows(item, ctx, rows, locals)).collect();
-            if let [SExpression::String(head), SExpression::String(target), SExpression::Object(options), ..] = items.as_mut_slice() {
+            let mut items: Vec<SExpression> = items
+                .iter()
+                .map(|item| with_fetch_filter_rows(item, ctx, rows, locals))
+                .collect();
+            if let [SExpression::String(head), SExpression::String(target), SExpression::Object(options), ..] =
+                items.as_mut_slice()
+            {
                 if let (true, Some(row_type)) = (head == "fetch", ctx.entity_type(target)) {
                     if let Some(filter) = options.get_mut("filter") {
                         let name = format!("fetch-row-{}", locals.len());
@@ -229,9 +254,11 @@ fn with_fetch_filter_rows(
             }
             SExpression::Array(items.into())
         }
-        SExpression::Object(map) => {
-            SExpression::object(map.iter().map(|(k, v)| (k.clone(), with_fetch_filter_rows(v, ctx, rows, locals))).collect())
-        }
+        SExpression::Object(map) => SExpression::object(
+            map.iter()
+                .map(|(k, v)| (k.clone(), with_fetch_filter_rows(v, ctx, rows, locals)))
+                .collect(),
+        ),
         other => other.clone(),
     }
 }
@@ -263,7 +290,9 @@ fn report(
     for found in check_oir_expr_under(&oir, condition, ctx) {
         let position = found.index + 1;
         let function = &found.function;
-        let call = &rows.iter().fold(found.expression.clone(), |call, row| call.replace(row.as_str(), "@entity"));
+        let call = &rows.iter().fold(found.expression.clone(), |call, row| {
+            call.replace(row.as_str(), "@entity")
+        });
         if let Mismatch::Undetermined { reason } = &found.mismatch {
             result.add_error(
                 ValidationError::error(
@@ -314,7 +343,12 @@ fn report(
             );
             continue;
         }
-        if let Mismatch::MissingResult { operator, operand, source } = &found.mismatch {
+        if let Mismatch::MissingResult {
+            operator,
+            operand,
+            source,
+        } = &found.mismatch
+        {
             result.add_error(
                 ValidationError::error(
                     ErrorCode::OperatorNullOperand,
@@ -369,7 +403,10 @@ mod tests {
     fn no_types() -> BindingTypes {
         BindingTypes {
             payload: HashMap::new(),
-            user: orbital_core_base::ir::OirType::Struct { additional: None, fields: Default::default() },
+            user: orbital_core_base::ir::OirType::Struct {
+                additional: None,
+                fields: Default::default(),
+            },
             config: HashMap::new(),
             prev_payload: None,
             optional_payload: Default::default(),
@@ -397,12 +434,19 @@ mod tests {
     }
 
     fn mismatches(json: &str, entity: HashMap<String, EntityFieldMeta>) -> Vec<String> {
-        validate_operator_arg_types(&parse(json), "p", &entity, &HashMap::new(), &no_types(), None)
-            .errors
-            .iter()
-            .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
-            .map(|e| e.message.clone())
-            .collect()
+        validate_operator_arg_types(
+            &parse(json),
+            "p",
+            &entity,
+            &HashMap::new(),
+            &no_types(),
+            None,
+        )
+        .errors
+        .iter()
+        .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
+        .map(|e| e.message.clone())
+        .collect()
     }
 
     #[test]
@@ -453,14 +497,21 @@ mod tests {
         for ty in ["string", "email", "url", "phone"] {
             let mut fields = field("value", ty);
             fields.get_mut("value").unwrap().required = true;
-            let got = mismatches(r#"["i18n/t", "invite.sent", {"who": "@entity.value"}]"#, fields);
+            let got = mismatches(
+                r#"["i18n/t", "invite.sent", {"who": "@entity.value"}]"#,
+                fields,
+            );
             assert!(got.is_empty(), "{ty}: {got:?}");
         }
         let got = mismatches(
             r#"["i18n/t", "invite.sent", {"who": "@entity.value"}]"#,
             field("value", "object"),
         );
-        assert_eq!(got.len(), 1, "control: an object is no message value: {got:?}");
+        assert_eq!(
+            got.len(),
+            1,
+            "control: an object is no message value: {got:?}"
+        );
     }
 
     #[test]
@@ -471,7 +522,9 @@ mod tests {
 
     fn spawn_with(config: &str) -> Vec<String> {
         mismatches(
-            &format!(r#"["os/spawn", "git", ["status"], {config}, {{"emit": {{"success": "S", "failure": "F"}}}}]"#),
+            &format!(
+                r#"["os/spawn", "git", ["status"], {config}, {{"emit": {{"success": "S", "failure": "F"}}}}]"#
+            ),
             HashMap::new(),
         )
     }
@@ -480,10 +533,16 @@ mod tests {
 
     #[test]
     fn a_closed_shape_argument_is_checked_field_by_field() {
-        assert!(spawn_with(SPAWN_OK).is_empty(), "control: every declared field, each of its type");
+        assert!(
+            spawn_with(SPAWN_OK).is_empty(),
+            "control: every declared field, each of its type"
+        );
         let wrong = spawn_with(&SPAWN_OK.replace(r#""detached": false"#, r#""detached": "yes""#));
         assert_eq!(wrong.len(), 1, "{wrong:?}");
-        assert!(wrong[0].contains("`detached`") && wrong[0].contains("boolean"), "{wrong:?}");
+        assert!(
+            wrong[0].contains("`detached`") && wrong[0].contains("boolean"),
+            "{wrong:?}"
+        );
         let stdin = spawn_with(&SPAWN_OK.replace(r#""stdin": "null""#, r#""stdin": 5"#));
         assert_eq!(stdin.len(), 1, "{stdin:?}");
     }
@@ -491,31 +550,57 @@ mod tests {
     fn spawn_undetermined(env: &str) -> Vec<String> {
         let config = SPAWN_OK.replace(r#""env": null"#, &format!(r#""env": {env}"#));
         undetermined(
-            &format!(r#"["os/spawn", "git", ["status"], {config}, {{"emit": {{"success": "S", "failure": "F"}}}}]"#),
+            &format!(
+                r#"["os/spawn", "git", ["status"], {config}, {{"emit": {{"success": "S", "failure": "F"}}}}]"#
+            ),
             HashMap::new(),
         )
     }
 
     #[test]
     fn a_null_value_in_a_map_literal_fits_a_map_whose_value_type_admits_null() {
-        assert!(spawn_undetermined(r#"{"PATH": null}"#).is_empty(), "{:?}", spawn_undetermined(r#"{"PATH": null}"#));
+        assert!(
+            spawn_undetermined(r#"{"PATH": null}"#).is_empty(),
+            "{:?}",
+            spawn_undetermined(r#"{"PATH": null}"#)
+        );
         assert!(spawn_undetermined(r#"{"PATH": null, "HOME": null}"#).is_empty());
-        assert!(spawn_undetermined(r#"{"PATH": "x", "HOME": null}"#).is_empty(), "control: mixed");
+        assert!(
+            spawn_undetermined(r#"{"PATH": "x", "HOME": null}"#).is_empty(),
+            "control: mixed"
+        );
         assert!(spawn_undetermined(r#"{}"#).is_empty(), "control: empty");
-        assert!(spawn_undetermined(r#"{"PATH": "x"}"#).is_empty(), "control: all strings");
-        assert!(spawn_undetermined("null").is_empty(), "control: the nullable map itself null");
-        let wrong = spawn_with(&SPAWN_OK.replace(r#""env": null"#, r#""env": {"PATH": 5, "HOME": null}"#));
+        assert!(
+            spawn_undetermined(r#"{"PATH": "x"}"#).is_empty(),
+            "control: all strings"
+        );
+        assert!(
+            spawn_undetermined("null").is_empty(),
+            "control: the nullable map itself null"
+        );
+        let wrong =
+            spawn_with(&SPAWN_OK.replace(r#""env": null"#, r#""env": {"PATH": 5, "HOME": null}"#));
         let baseline = spawn_with(&SPAWN_OK.replace(r#""env": null"#, r#""env": {"PATH": 5}"#));
         assert_eq!(baseline.len(), 1, "baseline: {baseline:?}");
-        assert_eq!(wrong.len(), 1, "control: a present value of the wrong type is still refused: {wrong:?}");
+        assert_eq!(
+            wrong.len(),
+            1,
+            "control: a present value of the wrong type is still refused: {wrong:?}"
+        );
     }
 
     #[test]
     fn a_closed_shape_argument_names_a_missing_field_and_an_unknown_one() {
         let missing = spawn_with(&SPAWN_OK.replace(r#", "detached": false"#, ""));
         assert_eq!(missing.len(), 1, "{missing:?}");
-        assert!(missing[0].contains("`detached`") && missing[0].contains("missing"), "{missing:?}");
-        let unknown = spawn_with(&SPAWN_OK.replace(r#""detached": false"#, r#""detached": false, "shell": true"#));
+        assert!(
+            missing[0].contains("`detached`") && missing[0].contains("missing"),
+            "{missing:?}"
+        );
+        let unknown = spawn_with(&SPAWN_OK.replace(
+            r#""detached": false"#,
+            r#""detached": false, "shell": true"#,
+        ));
         assert_eq!(unknown.len(), 1, "{unknown:?}");
         assert!(unknown[0].contains("`shell`"), "{unknown:?}");
     }
@@ -532,16 +617,26 @@ mod tests {
     fn a_date_is_text_so_arithmetic_on_it_is_an_error() {
         let got = mismatches(r#"["+", "@entity.when", 1]"#, field("when", "date"));
         assert_eq!(got.len(), 1, "{got:?}");
-        assert!(mismatches(r#"["+", "@entity.count", 1]"#, field("count", "number")).is_empty(), "control: a number adds");
+        assert!(
+            mismatches(r#"["+", "@entity.count", 1]"#, field("count", "number")).is_empty(),
+            "control: a number adds"
+        );
     }
 
     fn undetermined(json: &str, entity: HashMap<String, EntityFieldMeta>) -> Vec<String> {
-        validate_operator_arg_types(&parse(json), "p", &entity, &HashMap::new(), &no_types(), None)
-            .errors
-            .iter()
-            .filter(|e| e.code == ErrorCode::OperatorArgUndetermined)
-            .map(|e| e.message.clone())
-            .collect()
+        validate_operator_arg_types(
+            &parse(json),
+            "p",
+            &entity,
+            &HashMap::new(),
+            &no_types(),
+            None,
+        )
+        .errors
+        .iter()
+        .filter(|e| e.code == ErrorCode::OperatorArgUndetermined)
+        .map(|e| e.message.clone())
+        .collect()
     }
 
     #[test]
@@ -553,12 +648,27 @@ mod tests {
             undetermined(&json, HashMap::new())
         };
         let append = r#"["object/set", "@acc", "out", ["array/append", ["object/get", "@acc", "out"], "@i"]]"#;
-        assert!(read_out(r#"{"out": []}"#, append).is_empty(), "{:?}", read_out(r#"{"out": []}"#, append));
-        assert!(read_out(r#"{"out": [0]}"#, append).is_empty(), "control: a non-empty list keeps its element type");
+        assert!(
+            read_out(r#"{"out": []}"#, append).is_empty(),
+            "{:?}",
+            read_out(r#"{"out": []}"#, append)
+        );
+        assert!(
+            read_out(r#"{"out": [0]}"#, append).is_empty(),
+            "control: a non-empty list keeps its element type"
+        );
         let unused = read_out(r#"{"out": []}"#, r#""@acc""#);
-        assert_eq!(unused.len(), 1, "control: no use site gives the empty list a type, so it is never guessed: {unused:?}");
+        assert_eq!(
+            unused.len(),
+            1,
+            "control: no use site gives the empty list a type, so it is never guessed: {unused:?}"
+        );
         let alone = undetermined(r#"["array/len", []]"#, HashMap::new());
-        assert_eq!(alone.len(), 1, "control: a bare empty list stays undetermined: {alone:?}");
+        assert_eq!(
+            alone.len(),
+            1,
+            "control: a bare empty list stays undetermined: {alone:?}"
+        );
     }
 
     #[test]
@@ -566,7 +676,10 @@ mod tests {
         let got = undetermined(r#"["=", "@entity.nope", 3]"#, HashMap::new());
         assert_eq!(got.len(), 1, "{got:?}");
         assert!(got[0].contains("`(== …)`"), "names the operator: {got:?}");
-        assert!(got[0].contains("@entity.nope"), "names the expression: {got:?}");
+        assert!(
+            got[0].contains("@entity.nope"),
+            "names the expression: {got:?}"
+        );
         assert!(got[0].contains("argument 1"), "{got:?}");
         let row = undetermined(r#"["object/get", "@entity.row", "name"]"#, HashMap::new());
         assert_eq!(row.len(), 1, "{row:?}");
@@ -578,20 +691,31 @@ mod tests {
         assert_eq!(got.len(), 1, "{got:?}");
         assert!(got[0].contains("`(list …)`"), "{got:?}");
         assert!(got[0].contains("@entity.nope"), "{got:?}");
-        assert!(undetermined(r#"["list", 1, 2]"#, HashMap::new()).is_empty(), "control: every item typed");
-        assert!(undetermined(r#"["list", 1, null]"#, HashMap::new()).is_empty(), "control: null is absent, not undetermined");
+        assert!(
+            undetermined(r#"["list", 1, 2]"#, HashMap::new()).is_empty(),
+            "control: every item typed"
+        );
+        assert!(
+            undetermined(r#"["list", 1, null]"#, HashMap::new()).is_empty(),
+            "control: null is absent, not undetermined"
+        );
     }
 
     #[test]
     fn controls_a_determined_value_and_null_are_not_undetermined() {
         assert!(undetermined(r#"["=", "@entity.count", 3]"#, field("count", "number")).is_empty());
-        assert!(undetermined(r#"["=", "@entity.count", null]"#, field("count", "number")).is_empty());
+        assert!(
+            undetermined(r#"["=", "@entity.count", null]"#, field("count", "number")).is_empty()
+        );
         assert_eq!(
             undetermined(r#"["str/upper", "@entity.nope"]"#, HashMap::new()).len(),
             1,
             "a value of unknown type is undetermined at a concrete position too"
         );
-        assert!(undetermined(r#"["str/upper", "@entity.name"]"#, field("name", "string")).is_empty(), "control: a determined value");
+        assert!(
+            undetermined(r#"["str/upper", "@entity.name"]"#, field("name", "string")).is_empty(),
+            "control: a determined value"
+        );
     }
 
     #[test]
@@ -605,10 +729,18 @@ mod tests {
             r#"["let", [["n", 3]], ["set", "@entity.count", "@n"]]"#,
             r#"["when", true, ["emit", "DONE"]]"#,
         ] {
-            assert!(undetermined(expr, e()).is_empty(), "{expr}: {:?}", undetermined(expr, e()));
+            assert!(
+                undetermined(expr, e()).is_empty(),
+                "{expr}: {:?}",
+                undetermined(expr, e())
+            );
         }
         assert_eq!(
-            mismatches(r#"["if", ["==", "@entity.count", 3], ["set", "@entity.count", 1], 5]"#, e()).len(),
+            mismatches(
+                r#"["if", ["==", "@entity.count", 3], ["set", "@entity.count", 1], 5]"#,
+                e()
+            )
+            .len(),
             1,
             "control: an effect and a value are not one type"
         );
@@ -630,30 +762,83 @@ mod tests {
             r#"["array/includes", "@prevStates", "idle"]"#,
             r#"["==", "@event.event", "GO"]"#,
         ] {
-            assert!(undetermined(expr, HashMap::new()).is_empty(), "{expr}: {:?}", undetermined(expr, HashMap::new()));
-            assert!(mismatches(expr, HashMap::new()).is_empty(), "{expr}: {:?}", mismatches(expr, HashMap::new()));
+            assert!(
+                undetermined(expr, HashMap::new()).is_empty(),
+                "{expr}: {:?}",
+                undetermined(expr, HashMap::new())
+            );
+            assert!(
+                mismatches(expr, HashMap::new()).is_empty(),
+                "{expr}: {:?}",
+                mismatches(expr, HashMap::new())
+            );
         }
-        assert_eq!(mismatches(r#"[">", "@now", "x"]"#, HashMap::new()).len(), 1, "control: @now is a point in time, not text");
-        assert_eq!(mismatches(r#"[">", "@now", 5]"#, HashMap::new()).len(), 1, "control: a number is no point in time");
-        assert_eq!(mismatches(r#"["==", "@state", 3]"#, HashMap::new()).len(), 1, "control: @state is a string");
-        assert_eq!(mismatches(r#"["==", "@event.payload", 3]"#, HashMap::new()).len(), 1, "a delivery's payload is the triggering event's record");
+        assert_eq!(
+            mismatches(r#"[">", "@now", "x"]"#, HashMap::new()).len(),
+            1,
+            "control: @now is a point in time, not text"
+        );
+        assert_eq!(
+            mismatches(r#"[">", "@now", 5]"#, HashMap::new()).len(),
+            1,
+            "control: a number is no point in time"
+        );
+        assert_eq!(
+            mismatches(r#"["==", "@state", 3]"#, HashMap::new()).len(),
+            1,
+            "control: @state is a string"
+        );
+        assert_eq!(
+            mismatches(r#"["==", "@event.payload", 3]"#, HashMap::new()).len(),
+            1,
+            "a delivery's payload is the triggering event's record"
+        );
     }
 
     #[test]
     fn a_declared_iso_literal_knob_is_a_point_in_time() {
         let read = |kind: &str, text: &str| {
-            serde_json::json!(["time/diff", "@now", ["let", [["knob_at", text, format!(r#"{{"kind":"{kind}"}}"#)]], "@knob_at"], "s"]).to_string()
+            serde_json::json!([
+                "time/diff",
+                "@now",
+                [
+                    "let",
+                    [["knob_at", text, format!(r#"{{"kind":"{kind}"}}"#)]],
+                    "@knob_at"
+                ],
+                "s"
+            ])
+            .to_string()
         };
-        for (kind, text) in [("instant", "1970-01-01T00:00:00.000Z"), ("datetime", "2026-10-28T10:30:00+02:00"), ("date", "2026-10-28")] {
+        for (kind, text) in [
+            ("instant", "1970-01-01T00:00:00.000Z"),
+            ("datetime", "2026-10-28T10:30:00+02:00"),
+            ("date", "2026-10-28"),
+        ] {
             let expr = read(kind, text);
-            assert!(mismatches(&expr, HashMap::new()).is_empty(), "{kind} {text}: {:?}", mismatches(&expr, HashMap::new()));
+            assert!(
+                mismatches(&expr, HashMap::new()).is_empty(),
+                "{kind} {text}: {:?}",
+                mismatches(&expr, HashMap::new())
+            );
         }
-        for (kind, text) in [("instant", "2026-10-28"), ("datetime", "soon"), ("date", "2026-10-28T10:30:00Z")] {
+        for (kind, text) in [
+            ("instant", "2026-10-28"),
+            ("datetime", "soon"),
+            ("date", "2026-10-28T10:30:00Z"),
+        ] {
             let expr = read(kind, text);
-            assert!(!mismatches(&expr, HashMap::new()).is_empty(), "{kind} {text}: a literal off the declared shape is refused");
+            assert!(
+                !mismatches(&expr, HashMap::new()).is_empty(),
+                "{kind} {text}: a literal off the declared shape is refused"
+            );
         }
         assert_eq!(
-            mismatches(r#"["time/diff", "@now", "1970-01-01T00:00:00.000Z", "s"]"#, HashMap::new()).len(),
+            mismatches(
+                r#"["time/diff", "@now", "1970-01-01T00:00:00.000Z", "s"]"#,
+                HashMap::new()
+            )
+            .len(),
             1,
             "control: a bare string value at a date parameter stays refused"
         );
@@ -666,30 +851,51 @@ mod tests {
             "{:?}",
             mismatches(r#"["time/diff", "@now", "@now", "s"]"#, HashMap::new())
         );
-        assert_eq!(mismatches(r#"["/", "@now", 1000]"#, HashMap::new()).len(), 1, "@now in arithmetic");
+        assert_eq!(
+            mismatches(r#"["/", "@now", 1000]"#, HashMap::new()).len(),
+            1,
+            "@now in arithmetic"
+        );
         assert!(
-            mismatches(r#"["/", ["time/diff", "@now", "@now", "ms"], 1000]"#, HashMap::new()).is_empty(),
+            mismatches(
+                r#"["/", ["time/diff", "@now", "@now", "ms"], 1000]"#,
+                HashMap::new()
+            )
+            .is_empty(),
             "control: a time/diff result is a number"
         );
     }
 
     fn with_payload(json: &str, shapes: &[(&str, orbital_core_base::ir::OirType)]) -> Vec<String> {
         let types = BindingTypes {
-            payload: shapes.iter().map(|(n, t)| ((*n).to_string(), t.clone())).collect(),
+            payload: shapes
+                .iter()
+                .map(|(n, t)| ((*n).to_string(), t.clone()))
+                .collect(),
             ..no_types()
         };
-        validate_operator_arg_types(&parse(json), "p", &HashMap::new(), &HashMap::new(), &types, None)
-            .errors
-            .iter()
-            .filter(|e| e.code == ErrorCode::OperatorArgUndetermined)
-            .map(|e| e.message.clone())
-            .collect()
+        validate_operator_arg_types(
+            &parse(json),
+            "p",
+            &HashMap::new(),
+            &HashMap::new(),
+            &types,
+            None,
+        )
+        .errors
+        .iter()
+        .filter(|e| e.code == ErrorCode::OperatorArgUndetermined)
+        .map(|e| e.message.clone())
+        .collect()
     }
 
     #[test]
     fn a_declared_payload_field_has_its_full_type() {
         use orbital_core_base::ir::{OirField, OirType};
-        let row = OirType::Struct { additional: None, fields: vec![OirField::new("name".to_string(), OirType::String)].into() };
+        let row = OirType::Struct {
+            additional: None,
+            fields: vec![OirField::new("name".to_string(), OirType::String)].into(),
+        };
         let declared = [("data", OirType::array(row))];
         assert!(with_payload(r#"["array/len", "@payload.data"]"#, &declared).is_empty());
         assert!(
@@ -709,25 +915,55 @@ mod tests {
         use orbital_core_base::ir::{OirField, OirType};
         let types = BindingTypes {
             payload: HashMap::new(),
-            user: OirType::Struct { additional: None, fields: vec![OirField::new("role".to_string(), OirType::String)].into() },
-            config: [("limit".to_string(), OirType::Number)].into_iter().collect(),
+            user: OirType::Struct {
+                additional: None,
+                fields: vec![OirField::new("role".to_string(), OirType::String)].into(),
+            },
+            config: [("limit".to_string(), OirType::Number)]
+                .into_iter()
+                .collect(),
             prev_payload: None,
             optional_payload: Default::default(),
             locals: Default::default(),
             type_params: Default::default(),
         };
         let run = |json: &str| {
-            let r = validate_operator_arg_types(&parse(json), "p", &HashMap::new(), &HashMap::new(), &types, None);
+            let r = validate_operator_arg_types(
+                &parse(json),
+                "p",
+                &HashMap::new(),
+                &HashMap::new(),
+                &types,
+                None,
+            );
             (
-                r.errors.iter().filter(|e| e.code == ErrorCode::OperatorArgUndetermined).count(),
-                r.errors.iter().filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch).count(),
+                r.errors
+                    .iter()
+                    .filter(|e| e.code == ErrorCode::OperatorArgUndetermined)
+                    .count(),
+                r.errors
+                    .iter()
+                    .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
+                    .count(),
             )
         };
         assert_eq!(run(r#"["==", "@user.role", "admin"]"#), (0, 0));
         assert_eq!(run(r#"[">", "@config.limit", 3]"#), (0, 0));
-        assert_eq!(run(r#"["==", "@user.role", 3]"#), (0, 1), "control: role is a string");
-        assert_eq!(run(r#"["==", "@user.nope", "x"]"#), (1, 0), "control: a field the roster does not declare");
-        assert_eq!(run(r#"["==", "@config.other", 3]"#), (1, 0), "control: an undeclared knob");
+        assert_eq!(
+            run(r#"["==", "@user.role", 3]"#),
+            (0, 1),
+            "control: role is a string"
+        );
+        assert_eq!(
+            run(r#"["==", "@user.nope", "x"]"#),
+            (1, 0),
+            "control: a field the roster does not declare"
+        );
+        assert_eq!(
+            run(r#"["==", "@config.other", 3]"#),
+            (1, 0),
+            "control: an undeclared knob"
+        );
     }
 
     #[test]
@@ -749,15 +985,30 @@ mod tests {
             ..no_types()
         };
         let nulls = |json: &str| {
-            validate_operator_arg_types(&parse(json), "p", &HashMap::new(), &HashMap::new(), &types, None)
-                .errors
-                .iter()
-                .filter(|e| e.code == ErrorCode::OperatorNullOperand)
-                .count()
+            validate_operator_arg_types(
+                &parse(json),
+                "p",
+                &HashMap::new(),
+                &HashMap::new(),
+                &types,
+                None,
+            )
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::OperatorNullOperand)
+            .count()
         };
         assert_eq!(nulls(r#"["str/split", "@user.name", " "]"#), 1);
-        assert_eq!(nulls(r#"["str/split", ["default", "@user.name", ""], " "]"#), 0, "control: defaulted");
-        assert_eq!(nulls(r#"["str/split", "@user.id", " "]"#), 0, "control: the viewer's id is guaranteed");
+        assert_eq!(
+            nulls(r#"["str/split", ["default", "@user.name", ""], " "]"#),
+            0,
+            "control: defaulted"
+        );
+        assert_eq!(
+            nulls(r#"["str/split", "@user.id", " "]"#),
+            0,
+            "control: the viewer's id is guaranteed"
+        );
     }
 
     #[test]
@@ -775,31 +1026,65 @@ mod tests {
             }]
         }))
         .expect("schema fixture");
-        let OirType::Struct { fields, .. } = crate::phases::validation::user_identity::identity_type(&schema, "DocView") else {
+        let OirType::Struct { fields, .. } =
+            crate::phases::validation::user_identity::identity_type(&schema, "DocView")
+        else {
             panic!("@user is a record");
         };
-        let field = |name: &str| fields.iter().find(|f| f.name == name).unwrap_or_else(|| panic!("@user.{name} undeclared"));
-        assert_eq!(field("id").field_type, OirType::String, "@user.id is string, and the anonymous row carries \"anonymous\"");
+        let field = |name: &str| {
+            fields
+                .iter()
+                .find(|f| f.name == name)
+                .unwrap_or_else(|| panic!("@user.{name} undeclared"))
+        };
+        assert_eq!(
+            field("id").field_type,
+            OirType::String,
+            "@user.id is string, and the anonymous row carries \"anonymous\""
+        );
         assert_eq!(field("role").field_type, OirType::optional(OirType::String), "@user.role is string?: the anonymous row carries \"anonymous\", a bound row may declare no role");
-        assert!(field("email").field_type.is_optional(), "control: a member the anonymous viewer lacks stays optional");
+        assert!(
+            field("email").field_type.is_optional(),
+            "control: a member the anonymous viewer lacks stays optional"
+        );
     }
 
     #[test]
     fn a_substituted_config_list_carrying_its_declared_type_is_typed() {
         let mixed = serde_json::json!(["list", { "anchor": "exe-dir", "path": "tool" }, "tool"]);
-        let ty = crate::phases::resolve::config_field_carried_type(&serde_json::from_value(serde_json::json!({
-            "type": "[CliCommand]",
-            "items": { "type": "union", "values": ["string", "AnchoredPath"], "properties": {
-                "string": { "name": "string", "type": "string" },
-                "AnchoredPath": { "name": "AnchoredPath", "type": "object", "properties": {
-                    "anchor": { "name": "anchor", "type": "string", "required": true },
-                    "path": { "name": "path", "type": "string", "required": true } } }
-            } }
-        })).expect("knob")).unwrap();
-        let typed = serde_json::json!(["array/len", ["let", [["knob_commands", mixed, serde_json::to_string(&ty).unwrap()]], "@knob_commands"]]).to_string();
-        assert!(undetermined(&typed, HashMap::new()).is_empty(), "{:?}", undetermined(&typed, HashMap::new()));
+        let ty = crate::phases::resolve::config_field_carried_type(
+            &serde_json::from_value(serde_json::json!({
+                "type": "[CliCommand]",
+                "items": { "type": "union", "values": ["string", "AnchoredPath"], "properties": {
+                    "string": { "name": "string", "type": "string" },
+                    "AnchoredPath": { "name": "AnchoredPath", "type": "object", "properties": {
+                        "anchor": { "name": "anchor", "type": "string", "required": true },
+                        "path": { "name": "path", "type": "string", "required": true } } }
+                } }
+            }))
+            .expect("knob"),
+        )
+        .unwrap();
+        let typed = serde_json::json!([
+            "array/len",
+            [
+                "let",
+                [["knob_commands", mixed, serde_json::to_string(&ty).unwrap()]],
+                "@knob_commands"
+            ]
+        ])
+        .to_string();
+        assert!(
+            undetermined(&typed, HashMap::new()).is_empty(),
+            "{:?}",
+            undetermined(&typed, HashMap::new())
+        );
         let inline = serde_json::json!(["array/len", mixed]).to_string();
-        assert_eq!(undetermined(&inline, HashMap::new()).len(), 1, "control: a mixed literal written inline is refused");
+        assert_eq!(
+            undetermined(&inline, HashMap::new()).len(),
+            1,
+            "control: a mixed literal written inline is refused"
+        );
     }
 
     #[test]
@@ -819,15 +1104,35 @@ mod tests {
             serde_json::json!(["os/tcp-connect", ["let", [["knob_host", literal, ty]], "@knob_host"], 80, { "key": "c" }]).to_string()
         };
         let typed = wrap("api.github.com", &serde_json::to_string(&ty).unwrap());
-        assert!(mismatches(&typed, HashMap::new()).is_empty(), "{:?}", mismatches(&typed, HashMap::new()));
-        let plain = serde_json::json!(["os/tcp-connect", "api.github.com", 80, { "key": "c" }]).to_string();
-        assert!(mismatches(&plain, HashMap::new()).is_empty(), "control: a literal host is accepted");
+        assert!(
+            mismatches(&typed, HashMap::new()).is_empty(),
+            "{:?}",
+            mismatches(&typed, HashMap::new())
+        );
+        let plain =
+            serde_json::json!(["os/tcp-connect", "api.github.com", 80, { "key": "c" }]).to_string();
+        assert!(
+            mismatches(&plain, HashMap::new()).is_empty(),
+            "control: a literal host is accepted"
+        );
         let record_of_optionals = orbital_core_base::ir::OirType::Struct {
             additional: None,
-            fields: vec![orbital_core_base::ir::OirField::new("string".to_string(), orbital_core_base::ir::OirType::optional(orbital_core_base::ir::OirType::String))].into(),
+            fields: vec![orbital_core_base::ir::OirField::new(
+                "string".to_string(),
+                orbital_core_base::ir::OirType::optional(orbital_core_base::ir::OirType::String),
+            )]
+            .into(),
         };
-        let as_struct = wrap("api.github.com", &serde_json::to_string(&record_of_optionals).unwrap());
-        assert_eq!(mismatches(&as_struct, HashMap::new()).len(), 1, "control: the record-of-optionals reading is the refused shape: {:?}", mismatches(&as_struct, HashMap::new()));
+        let as_struct = wrap(
+            "api.github.com",
+            &serde_json::to_string(&record_of_optionals).unwrap(),
+        );
+        assert_eq!(
+            mismatches(&as_struct, HashMap::new()).len(),
+            1,
+            "control: the record-of-optionals reading is the refused shape: {:?}",
+            mismatches(&as_struct, HashMap::new())
+        );
     }
 
     #[test]
@@ -838,14 +1143,24 @@ mod tests {
             fields: vec![
                 OirField::new("upperBound".to_string(), OirType::Number),
                 OirField::new("label".to_string(), OirType::String),
-            ].into(),
+            ]
+            .into(),
         };
-        let entity = || shaped(&[("bands", OirType::array(band.clone())), ("dose", OirType::Number)]);
+        let entity = || {
+            shaped(&[
+                ("bands", OirType::array(band.clone())),
+                ("dose", OirType::Number),
+            ])
+        };
         let expr = r#"["let", [
             ["matched", ["array/filter", "@entity.bands", ["fn", "b", ["<=", "@entity.dose", ["object/get", "@b", "upperBound"]]]]],
             ["band", ["if", [">", ["array/len", "@matched"], 0], ["array/first", "@matched"], ["array/nth", "@entity.bands", ["-", ["array/len", "@entity.bands"], 1]]]]
           ], ["object/get", "@band", "label"]]"#;
-        assert!(undetermined(expr, entity()).is_empty(), "{:?}", undetermined(expr, entity()));
+        assert!(
+            undetermined(expr, entity()).is_empty(),
+            "{:?}",
+            undetermined(expr, entity())
+        );
         assert!(mismatches(expr, entity()).is_empty());
     }
 
@@ -858,16 +1173,32 @@ mod tests {
             r#"["array/some", "@entity.tags", ["==", "@index", 0]]"#,
             r#"["array/filter", "@entity.tags", ["==", "@index", 0]]"#,
         ] {
-            assert!(undetermined(expr, tags()).is_empty(), "{expr}: {:?}", undetermined(expr, tags()));
-            assert!(mismatches(expr, tags()).is_empty(), "{expr}: {:?}", mismatches(expr, tags()));
+            assert!(
+                undetermined(expr, tags()).is_empty(),
+                "{expr}: {:?}",
+                undetermined(expr, tags())
+            );
+            assert!(
+                mismatches(expr, tags()).is_empty(),
+                "{expr}: {:?}",
+                mismatches(expr, tags())
+            );
         }
         assert_eq!(
-            mismatches(r#"["array/map", "@entity.tags", ["str/upper", "@index"]]"#, tags()).len(),
+            mismatches(
+                r#"["array/map", "@entity.tags", ["str/upper", "@index"]]"#,
+                tags()
+            )
+            .len(),
             1,
             "control: the index is a number, not a string"
         );
         assert_eq!(
-            undetermined(r#"["array/findIndex", "@entity.tags", ["fn", "t", ["==", "@index", 0]]]"#, tags()).len(),
+            undetermined(
+                r#"["array/findIndex", "@entity.tags", ["fn", "t", ["==", "@index", 0]]]"#,
+                tags()
+            )
+            .len(),
             1,
             "control: findIndex hands its callback no index"
         );
@@ -876,67 +1207,155 @@ mod tests {
     #[test]
     fn a_branch_a_literal_condition_rules_out_is_not_typed() {
         let dead = r#"["if", ["==", "create", "create"], "x", ["str/upper", 5]]"#;
-        assert!(mismatches(dead, HashMap::new()).is_empty(), "{:?}", mismatches(dead, HashMap::new()));
+        assert!(
+            mismatches(dead, HashMap::new()).is_empty(),
+            "{:?}",
+            mismatches(dead, HashMap::new())
+        );
         let dead_then = r#"["if", ["==", "a", "b"], ["str/upper", 5], "x"]"#;
         assert!(mismatches(dead_then, HashMap::new()).is_empty());
         let live = r#"["if", ["==", "@entity.name", "x"], "x", ["str/upper", 5]]"#;
-        assert_eq!(mismatches(live, field("name", "string")).len(), 1, "control: an undecided condition types both branches");
+        assert_eq!(
+            mismatches(live, field("name", "string")).len(),
+            1,
+            "control: an undecided condition types both branches"
+        );
         let live_type = r#"["str/upper", ["if", ["==", "a", "a"], 5, "x"]]"#;
-        assert_eq!(mismatches(live_type, HashMap::new()).len(), 1, "control: the live branch is a number");
+        assert_eq!(
+            mismatches(live_type, HashMap::new()).len(),
+            1,
+            "control: the live branch is a number"
+        );
     }
 
     // std-lifecycle under `fromStatus: ""`: `(or (= "" "") (= (object/get @entity statusField) …))` never reads the field.
     #[test]
     fn an_operand_a_decided_and_or_never_evaluates_is_not_typed() {
-        assert!(mismatches(r#"["or", ["=", "", ""], ["=", ["str/upper", 5], "x"]]"#, HashMap::new()).is_empty());
-        assert!(mismatches(r#"["and", ["=", "a", "b"], ["=", ["str/upper", 5], "x"]]"#, HashMap::new()).is_empty());
+        assert!(mismatches(
+            r#"["or", ["=", "", ""], ["=", ["str/upper", 5], "x"]]"#,
+            HashMap::new()
+        )
+        .is_empty());
+        assert!(mismatches(
+            r#"["and", ["=", "a", "b"], ["=", ["str/upper", 5], "x"]]"#,
+            HashMap::new()
+        )
+        .is_empty());
     }
 
     #[test]
     fn control_an_operand_before_or_beside_an_undecided_one_is_typed() {
-        assert_eq!(mismatches(r#"["or", ["=", ["str/upper", 5], "x"], ["=", "", ""]]"#, HashMap::new()).len(), 1);
-        assert_eq!(mismatches(r#"["and", ["=", "a", "a"], ["=", ["str/upper", 5], "x"]]"#, HashMap::new()).len(), 1);
-        assert_eq!(mismatches(r#"["or", ["=", "@entity.name", "x"], ["=", ["str/upper", 5], "x"]]"#, field("name", "string")).len(), 1);
+        assert_eq!(
+            mismatches(
+                r#"["or", ["=", ["str/upper", 5], "x"], ["=", "", ""]]"#,
+                HashMap::new()
+            )
+            .len(),
+            1
+        );
+        assert_eq!(
+            mismatches(
+                r#"["and", ["=", "a", "a"], ["=", ["str/upper", 5], "x"]]"#,
+                HashMap::new()
+            )
+            .len(),
+            1
+        );
+        assert_eq!(
+            mismatches(
+                r#"["or", ["=", "@entity.name", "x"], ["=", ["str/upper", 5], "x"]]"#,
+                field("name", "string")
+            )
+            .len(),
+            1
+        );
     }
 
     #[test]
     fn a_reference_to_a_row_is_read_through_its_entity() {
         use orbital_core_base::ir::OirType;
-        let schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
-            "name": "App",
-            "orbitals": [{
-                "name": "O",
-                "entity": { "name": "Note", "collection": "notes", "fields": [
-                    { "name": "title", "type": "string" },
-                    { "name": "tags", "type": "array", "items": { "type": "string" } }
-                ] },
-                "traits": [], "pages": []
-            }]
-        }))
-        .unwrap();
+        let schema: orbital_core_base::schema::OrbitalSchema =
+            serde_json::from_value(serde_json::json!({
+                "name": "App",
+                "orbitals": [{
+                    "name": "O",
+                    "entity": { "name": "Note", "collection": "notes", "fields": [
+                        { "name": "title", "type": "string" },
+                        { "name": "tags", "type": "array", "items": { "type": "string" } }
+                    ] },
+                    "traits": [], "pages": []
+                }]
+            }))
+            .unwrap();
         let types = BindingTypes {
             payload: [
-                ("row".to_string(), OirType::Reference { entity: "Note".into() }),
-                ("rows".to_string(), OirType::array(OirType::Reference { entity: "Note".into() })),
-                ("ghost".to_string(), OirType::Reference { entity: "Nope".into() }),
+                (
+                    "row".to_string(),
+                    OirType::Reference {
+                        entity: "Note".into(),
+                    },
+                ),
+                (
+                    "rows".to_string(),
+                    OirType::array(OirType::Reference {
+                        entity: "Note".into(),
+                    }),
+                ),
+                (
+                    "ghost".to_string(),
+                    OirType::Reference {
+                        entity: "Nope".into(),
+                    },
+                ),
             ]
             .into_iter()
             .collect(),
             ..no_types()
         };
         let run = |json: &str| {
-            let r = validate_operator_arg_types(&parse(json), "p", &HashMap::new(), &HashMap::new(), &types, Some(&schema));
+            let r = validate_operator_arg_types(
+                &parse(json),
+                "p",
+                &HashMap::new(),
+                &HashMap::new(),
+                &types,
+                Some(&schema),
+            );
             (
-                r.errors.iter().filter(|e| e.code == ErrorCode::OperatorArgUndetermined).count(),
-                r.errors.iter().filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch).count(),
+                r.errors
+                    .iter()
+                    .filter(|e| e.code == ErrorCode::OperatorArgUndetermined)
+                    .count(),
+                r.errors
+                    .iter()
+                    .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
+                    .count(),
             )
         };
         assert_eq!(run(r#"["str/upper", "@payload.row.title"]"#), (0, 0));
-        assert_eq!(run(r#"["str/upper", ["object/get", "@payload.row", "title"]]"#), (1, 0), "a bare relation is the row's id, so a keyed read of it has no determined type");
+        assert_eq!(
+            run(r#"["str/upper", ["object/get", "@payload.row", "title"]]"#),
+            (1, 0),
+            "a bare relation is the row's id, so a keyed read of it has no determined type"
+        );
         assert_eq!(run(r#"["array/len", "@payload.row.tags"]"#), (0, 0));
-        assert_eq!(run(r#"["array/map", "@payload.rows", ["fn", "r", ["str/upper", ["object/get", "@r", "title"]]]]"#), (1, 0), "likewise for the ids of a list of relations");
-        assert_eq!(run(r#"["+", "@payload.row.title", 1]"#), (0, 1), "control: title is a string");
-        assert_eq!(run(r#"["==", "@payload.ghost.title", "x"]"#), (1, 0), "control: a row of no declared entity");
+        assert_eq!(
+            run(
+                r#"["array/map", "@payload.rows", ["fn", "r", ["str/upper", ["object/get", "@r", "title"]]]]"#
+            ),
+            (1, 0),
+            "likewise for the ids of a list of relations"
+        );
+        assert_eq!(
+            run(r#"["+", "@payload.row.title", 1]"#),
+            (0, 1),
+            "control: title is a string"
+        );
+        assert_eq!(
+            run(r#"["==", "@payload.ghost.title", "x"]"#),
+            (1, 0),
+            "control: a row of no declared entity"
+        );
     }
 
     // G-ORB-534: std-lifecycle's delete scan `(fetch @config.targetEntity { filter: (= (object/get @entity @config.statusField) …) })`
@@ -946,7 +1365,9 @@ mod tests {
     }
 
     fn fetch_filter_findings(filter: &str) -> Vec<String> {
-        effect_findings(&format!(r#"["if", ["=", "@entity.headId", ""], ["fetch", "Span", {{ "filter": {filter} }}], null]"#))
+        effect_findings(&format!(
+            r#"["if", ["=", "@entity.headId", ""], ["fetch", "Span", {{ "filter": {filter} }}], null]"#
+        ))
     }
 
     fn effect_findings(effect: &str) -> Vec<String> {
@@ -971,20 +1392,36 @@ mod tests {
     }
 
     fn render_ui_with(prop: &str) -> Vec<String> {
-        effect_findings(&format!(r#"["render-ui", "main", {{ "type": "data-grid", "entity": {prop} }}]"#))
+        effect_findings(&format!(
+            r#"["render-ui", "main", {{ "type": "data-grid", "entity": {prop} }}]"#
+        ))
     }
 
     fn rows_mapped(body: &str) -> String {
-        format!(r#"["array/map", ["list", {{ "s1": "a", "s2": "b", "f1": true, "f2": false }}], ["fn", "r", {body}]]"#)
+        format!(
+            r#"["array/map", ["list", {{ "s1": "a", "s2": "b", "f1": true, "f2": false }}], ["fn", "r", {body}]]"#
+        )
     }
 
     #[test]
     fn g_orb_627_a_pattern_prop_lambda_body_is_type_checked() {
         let strings = render_ui_with(&rows_mapped(r#"{ "a": ["or", "@r.s1", "@r.s2"] }"#));
-        assert_eq!(strings.len(), 2, "or over two strings in a lambda body: {strings:?}");
+        assert_eq!(
+            strings.len(),
+            2,
+            "or over two strings in a lambda body: {strings:?}"
+        );
         assert!(strings[0].contains("or"), "{strings:?}");
-        assert_eq!(render_ui_with(&rows_mapped(r#"{ "a": ["or", "@r.f1", "@r.f2"] }"#)).len(), 0, "control: booleans");
-        assert_eq!(render_ui_with(&rows_mapped(r#"{ "a": ["default", "@r.s1", "@r.s2"] }"#)).len(), 0, "control: default on strings");
+        assert_eq!(
+            render_ui_with(&rows_mapped(r#"{ "a": ["or", "@r.f1", "@r.f2"] }"#)).len(),
+            0,
+            "control: booleans"
+        );
+        assert_eq!(
+            render_ui_with(&rows_mapped(r#"{ "a": ["default", "@r.s1", "@r.s2"] }"#)).len(),
+            0,
+            "control: default on strings"
+        );
         let nested = render_ui_with(&rows_mapped(
             r#"{ "a": ["array/map", ["list", 1], ["fn", "q", ["or", "@r.s1", "@r.s2"]]] }"#,
         ));
@@ -999,65 +1436,111 @@ mod tests {
     #[test]
     fn a_fetch_filter_reads_the_row_of_the_fetched_entity() {
         assert_eq!(
-            fetch_filter_mismatches(r#"["and", ["=", ["object/get", "@entity", "state"], "exported"], ["<", ["object/get", "@entity", "endTime"], 5]]"#),
+            fetch_filter_mismatches(
+                r#"["and", ["=", ["object/get", "@entity", "state"], "exported"], ["<", ["object/get", "@entity", "endTime"], 5]]"#
+            ),
             0
         );
     }
 
     #[test]
-    fn control_a_fetch_filter_still_names_missing_target_fields_and_reads_the_trait_through_entity_fields() {
-        assert_eq!(fetch_filter_mismatches(r#"["=", ["object/get", "@entity", "headId"], "x"]"#), 1, "headId is the trait's, not Span's");
-        assert_eq!(fetch_filter_mismatches(r#"["=", ["object/get", "@entity", "state"], ["+", "@entity.headId", 1]]"#), 1);
-        assert_eq!(fetch_filter_mismatches(r#"["=", ["object/get", "@entity", "state"], "@entity.headId"]"#), 0);
+    fn control_a_fetch_filter_still_names_missing_target_fields_and_reads_the_trait_through_entity_fields(
+    ) {
+        assert_eq!(
+            fetch_filter_mismatches(r#"["=", ["object/get", "@entity", "headId"], "x"]"#),
+            1,
+            "headId is the trait's, not Span's"
+        );
+        assert_eq!(
+            fetch_filter_mismatches(
+                r#"["=", ["object/get", "@entity", "state"], ["+", "@entity.headId", 1]]"#
+            ),
+            1
+        );
+        assert_eq!(
+            fetch_filter_mismatches(
+                r#"["=", ["object/get", "@entity", "state"], "@entity.headId"]"#
+            ),
+            0
+        );
         assert_eq!(
             effect_findings(r#"["if", ["=", "delete", "delete"], ["fetch", "Span", { "filter": ["=", ["object/get", "@entity", "state"], "x"] }], ["fetch", "Span", { "filter": ["=", ["object/get", "@entity", "status"], "x"] }]]"#).len(),
             0,
             "a branch the call site's literal config rules out is not typed"
         );
         let found = fetch_filter_findings(r#"["=", ["object/get", "@entity", "headId"], "x"]"#);
-        assert!(found[0].contains(r#"object/get(@entity, "headId")"#), "the finding names the read as written: {found:?}");
+        assert!(
+            found[0].contains(r#"object/get(@entity, "headId")"#),
+            "the finding names the read as written: {found:?}"
+        );
     }
 
     #[test]
     fn a_set_value_reads_a_row_field_under_the_same_check_as_a_guard() {
         use orbital_core_base::ir::OirType;
-        let schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
-            "name": "App",
-            "orbitals": [{
-                "name": "O",
-                "entity": { "name": "Note", "collection": "notes", "fields": [
-                    { "name": "title", "type": "string" }
-                ] },
-                "traits": [], "pages": []
-            }]
-        }))
-        .unwrap();
+        let schema: orbital_core_base::schema::OrbitalSchema =
+            serde_json::from_value(serde_json::json!({
+                "name": "App",
+                "orbitals": [{
+                    "name": "O",
+                    "entity": { "name": "Note", "collection": "notes", "fields": [
+                        { "name": "title", "type": "string" }
+                    ] },
+                    "traits": [], "pages": []
+                }]
+            }))
+            .unwrap();
         let types = BindingTypes {
             payload: [
                 ("row".to_string(), OirType::row("Note")),
-                ("byKey".to_string(), OirType::map(OirType::String, OirType::row("Note"))),
+                (
+                    "byKey".to_string(),
+                    OirType::map(OirType::String, OirType::row("Note")),
+                ),
             ]
             .into_iter()
             .collect(),
             ..no_types()
         };
         let mismatches = |json: &str| {
-            validate_operator_arg_types(&parse(json), "p", &HashMap::new(), &HashMap::new(), &types, Some(&schema))
-                .errors
-                .iter()
-                .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
-                .count()
+            validate_operator_arg_types(
+                &parse(json),
+                "p",
+                &HashMap::new(),
+                &HashMap::new(),
+                &types,
+                Some(&schema),
+            )
+            .errors
+            .iter()
+            .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
+            .count()
         };
-        assert_eq!(mismatches(r#"["==", ["object/get", "@payload.row", "nope"], "x"]"#), 1, "the guard form");
-        assert_eq!(mismatches(r#"["set", "@entity.label", ["object/get", "@payload.row", "nope"]]"#), 1);
         assert_eq!(
-            mismatches(r#"["set", "@entity.label", ["object/get", ["object/get", "@payload.byKey", "k"], "nope"]]"#),
+            mismatches(r#"["==", ["object/get", "@payload.row", "nope"], "x"]"#),
+            1,
+            "the guard form"
+        );
+        assert_eq!(
+            mismatches(r#"["set", "@entity.label", ["object/get", "@payload.row", "nope"]]"#),
+            1
+        );
+        assert_eq!(
+            mismatches(
+                r#"["set", "@entity.label", ["object/get", ["object/get", "@payload.byKey", "k"], "nope"]]"#
+            ),
             1,
             "through a map of rows"
         );
-        assert_eq!(mismatches(r#"["set", "@entity.label", ["object/get", "@payload.row", "title"]]"#), 0, "control");
         assert_eq!(
-            mismatches(r#"["set", "@entity.label", ["object/get", ["object/get", "@payload.byKey", "k"], "title"]]"#),
+            mismatches(r#"["set", "@entity.label", ["object/get", "@payload.row", "title"]]"#),
+            0,
+            "control"
+        );
+        assert_eq!(
+            mismatches(
+                r#"["set", "@entity.label", ["object/get", ["object/get", "@payload.byKey", "k"], "title"]]"#
+            ),
             0,
             "control through the map"
         );
@@ -1065,18 +1548,47 @@ mod tests {
 
     #[test]
     fn an_object_literal_is_exactly_the_record_it_writes() {
-        assert!(undetermined(r#"["str/upper", ["object/get", {"a": "x"}, "a"]]"#, HashMap::new()).is_empty());
-        assert!(mismatches(r#"["str/upper", ["object/get", {"a": "x"}, "a"]]"#, HashMap::new()).is_empty());
-        assert_eq!(mismatches(r#"["+", ["object/get", {"a": "x"}, "a"], 1]"#, HashMap::new()).len(), 1);
-        assert_eq!(mismatches(r#"["object/get", {"a": 1}, "b"]"#, HashMap::new()).len(), 1, "no such key");
-        assert!(mismatches(r#"["object/get", {"a": 1}, "b", 0]"#, HashMap::new()).is_empty(), "with a default");
+        assert!(undetermined(
+            r#"["str/upper", ["object/get", {"a": "x"}, "a"]]"#,
+            HashMap::new()
+        )
+        .is_empty());
+        assert!(mismatches(
+            r#"["str/upper", ["object/get", {"a": "x"}, "a"]]"#,
+            HashMap::new()
+        )
+        .is_empty());
         assert_eq!(
-            undetermined(r#"["object/get", {"a": "@entity.nope"}, "a"]"#, HashMap::new()).len(),
+            mismatches(
+                r#"["+", ["object/get", {"a": "x"}, "a"], 1]"#,
+                HashMap::new()
+            )
+            .len(),
+            1
+        );
+        assert_eq!(
+            mismatches(r#"["object/get", {"a": 1}, "b"]"#, HashMap::new()).len(),
+            1,
+            "no such key"
+        );
+        assert!(
+            mismatches(r#"["object/get", {"a": 1}, "b", 0]"#, HashMap::new()).is_empty(),
+            "with a default"
+        );
+        assert_eq!(
+            undetermined(
+                r#"["object/get", {"a": "@entity.nope"}, "a"]"#,
+                HashMap::new()
+            )
+            .len(),
             1,
             "control: a field whose value is undetermined leaves the record undetermined"
         );
         let rows = r#"["array/some", ["list", {"from": "a", "to": "b"}, {"from": "b", "to": "c"}], ["fn", "t", ["==", ["object/get", "@t", "from"], "a"]]]"#;
-        assert!(undetermined(rows, HashMap::new()).is_empty() && mismatches(rows, HashMap::new()).is_empty());
+        assert!(
+            undetermined(rows, HashMap::new()).is_empty()
+                && mismatches(rows, HashMap::new()).is_empty()
+        );
     }
 
     #[test]
@@ -1090,21 +1602,45 @@ mod tests {
             r#"["==", "@event.event", "GO"]"#,
             r#"["==", "@event.source.fromBridge", true]"#,
         ] {
-            assert!(with_payload(expr, &declared).is_empty(), "{expr}: {:?}", with_payload(expr, &declared));
+            assert!(
+                with_payload(expr, &declared).is_empty(),
+                "{expr}: {:?}",
+                with_payload(expr, &declared)
+            );
         }
-        assert_eq!(with_payload(r#"["==", "@event.payload.id", "x"]"#, &[]).len(), 1, "control: no declared payload field");
+        assert_eq!(
+            with_payload(r#"["==", "@event.payload.id", "x"]"#, &[]).len(),
+            1,
+            "control: no declared payload field"
+        );
     }
 
     #[test]
     fn the_empty_list_is_typed_and_refined_by_a_fold() {
         let fold = r#"["array/reduce", ["list", "a", "b"], [], ["fn", ["acc", "e"], ["if", ["array/includes", "@acc", "@e"], "@acc", ["array/append", "@acc", "@e"]]]]"#;
-        assert!(undetermined(fold, HashMap::new()).is_empty(), "{:?}", undetermined(fold, HashMap::new()));
-        assert!(mismatches(fold, HashMap::new()).is_empty(), "{:?}", mismatches(fold, HashMap::new()));
+        assert!(
+            undetermined(fold, HashMap::new()).is_empty(),
+            "{:?}",
+            undetermined(fold, HashMap::new())
+        );
+        assert!(
+            mismatches(fold, HashMap::new()).is_empty(),
+            "{:?}",
+            mismatches(fold, HashMap::new())
+        );
         let used = format!(r#"["array/len", {fold}]"#);
         assert!(undetermined(&used, HashMap::new()).is_empty());
-        assert!(undetermined(r#"["or", "@entity.nope", []]"#, HashMap::new()).len() == 1, "control: the undetermined side still is");
-        let record = r#"["list", {"samples": [], "label": "a"}, {"samples": [{"x": 1}], "label": "b"}]"#;
-        assert!(undetermined(record, HashMap::new()).is_empty(), "{:?}", undetermined(record, HashMap::new()));
+        assert!(
+            undetermined(r#"["or", "@entity.nope", []]"#, HashMap::new()).len() == 1,
+            "control: the undetermined side still is"
+        );
+        let record =
+            r#"["list", {"samples": [], "label": "a"}, {"samples": [{"x": 1}], "label": "b"}]"#;
+        assert!(
+            undetermined(record, HashMap::new()).is_empty(),
+            "{:?}",
+            undetermined(record, HashMap::new())
+        );
     }
 
     #[test]
@@ -1112,14 +1648,30 @@ mod tests {
         // The accumulator starts as `[]` and the body filters it before it appends to it: what types the
         // accumulator is the list the body builds, so the filter's lambda sees the elements.
         let dedupe = r#"["array/reduce", ["list", 1, 2, 2], [], ["fn", ["acc", "g"], ["if", [">", ["array/len", ["array/filter", "@acc", ["fn", "x", ["==", "@x", "@g"]]]], 0], "@acc", ["array/append", "@acc", "@g"]]]]"#;
-        assert!(undetermined(dedupe, HashMap::new()).is_empty(), "{:?}", undetermined(dedupe, HashMap::new()));
-        assert!(mismatches(dedupe, HashMap::new()).is_empty(), "{:?}", mismatches(dedupe, HashMap::new()));
+        assert!(
+            undetermined(dedupe, HashMap::new()).is_empty(),
+            "{:?}",
+            undetermined(dedupe, HashMap::new())
+        );
+        assert!(
+            mismatches(dedupe, HashMap::new()).is_empty(),
+            "{:?}",
+            mismatches(dedupe, HashMap::new())
+        );
         // control: the elements really are numbers, so comparing one with a string is still found.
         let compared = r#"["array/reduce", ["list", 1, 2], [], ["fn", ["acc", "g"], ["if", [">", ["array/len", ["array/filter", "@acc", ["fn", "x", ["==", "@x", "a"]]]], 0], "@acc", ["array/append", "@acc", "@g"]]]]"#;
-        assert_eq!(mismatches(compared, HashMap::new()).len(), 1, "control: a number is not the string `a`");
+        assert_eq!(
+            mismatches(compared, HashMap::new()).len(),
+            1,
+            "control: a number is not the string `a`"
+        );
         // control: a body that builds no typed list leaves the accumulator untyped.
         let nothing = r#"["array/reduce", ["list", 1, 2], [], ["fn", ["acc", "g"], "@acc"]]"#;
-        assert!(!undetermined(nothing, HashMap::new()).is_empty(), "{:?}", undetermined(nothing, HashMap::new()));
+        assert!(
+            !undetermined(nothing, HashMap::new()).is_empty(),
+            "{:?}",
+            undetermined(nothing, HashMap::new())
+        );
     }
 
     #[test]
@@ -1127,19 +1679,32 @@ mod tests {
         // Both evaluators bind `@item` (the element) and `@index` (its position) in such a callback, whatever the
         // lambda names its own parameters.
         let by_index = r#"["array/filter", ["list", 1, 2, 3], ["fn", "b", ["<", "@index", 2]]]"#;
-        assert!(undetermined(by_index, HashMap::new()).is_empty(), "{:?}", undetermined(by_index, HashMap::new()));
+        assert!(
+            undetermined(by_index, HashMap::new()).is_empty(),
+            "{:?}",
+            undetermined(by_index, HashMap::new())
+        );
         assert!(mismatches(by_index, HashMap::new()).is_empty());
         let by_item = r#"["array/map", ["list", 1, 2], ["fn", "b", ["+", "@item", "@index"]]]"#;
         assert!(undetermined(by_item, HashMap::new()).is_empty());
         assert!(mismatches(by_item, HashMap::new()).is_empty());
         // control: `@index` is a number, so a string comparison with it is found.
         let wrong = r#"["array/filter", ["list", 1, 2, 3], ["fn", "b", ["==", "@index", "a"]]]"#;
-        assert_eq!(mismatches(wrong, HashMap::new()).len(), 1, "{:?}", mismatches(wrong, HashMap::new()));
+        assert_eq!(
+            mismatches(wrong, HashMap::new()).len(),
+            1,
+            "{:?}",
+            mismatches(wrong, HashMap::new())
+        );
         // control: outside a lambda `@index` is nothing.
         assert!(!undetermined(r#"["<", "@index", 2]"#, HashMap::new()).is_empty());
         // control: `@item` is the element, here a string.
         assert_eq!(
-            mismatches(r#"["array/map", ["list", "a"], ["fn", "b", ["+", "@item", 1]]]"#, HashMap::new()).len(),
+            mismatches(
+                r#"["array/map", ["list", "a"], ["fn", "b", ["+", "@item", 1]]]"#,
+                HashMap::new()
+            )
+            .len(),
             1
         );
     }
@@ -1147,37 +1712,76 @@ mod tests {
     #[test]
     fn an_earlier_delivery_has_the_payload_every_listened_event_declares() {
         use orbital_core_base::ir::{OirField, OirType};
-        let with = |prev: Option<OirType>| BindingTypes { prev_payload: prev, ..no_types() };
+        let with = |prev: Option<OirType>| BindingTypes {
+            prev_payload: prev,
+            ..no_types()
+        };
         let expr = r#"["array/some", "@prevEvents", ["fn", "e", ["==", ["object/get", ["object/get", "@e", "payload"], "id"], "x"]]]"#;
         let run = |types: &BindingTypes| {
-            let r = validate_operator_arg_types(&parse(expr), "p", &HashMap::new(), &HashMap::new(), types, None);
+            let r = validate_operator_arg_types(
+                &parse(expr),
+                "p",
+                &HashMap::new(),
+                &HashMap::new(),
+                types,
+                None,
+            );
             r.errors.len()
         };
-        let declared = OirType::Struct { additional: None, fields: vec![OirField::new("id".to_string(), OirType::String)].into() };
+        let declared = OirType::Struct {
+            additional: None,
+            fields: vec![OirField::new("id".to_string(), OirType::String)].into(),
+        };
         assert_eq!(run(&with(Some(declared))), 0);
-        assert!(run(&with(None)) > 0, "control: no agreed payload, so reading a field of it is an error");
+        assert!(
+            run(&with(None)) > 0,
+            "control: no agreed payload, so reading a field of it is an error"
+        );
     }
 
     #[test]
     fn a_dead_branch_still_types_the_empty_list_the_live_one_is() {
         let folded = r#"["array/map", ["if", ["==", "off", "on"], "@entity.tags", []], ["fn", "t", ["str/upper", "@t"]]]"#;
-        assert!(undetermined(folded, tags()).is_empty(), "{:?}", undetermined(folded, tags()));
+        assert!(
+            undetermined(folded, tags()).is_empty(),
+            "{:?}",
+            undetermined(folded, tags())
+        );
         assert!(mismatches(folded, tags()).is_empty());
         let wrong = r#"["array/map", ["if", ["==", "off", "on"], "@entity.tags", []], ["fn", "t", ["+", "@t", 1]]]"#;
-        assert_eq!(mismatches(wrong, tags()).len(), 1, "control: the elements are strings");
+        assert_eq!(
+            mismatches(wrong, tags()).len(),
+            1,
+            "control: the elements are strings"
+        );
         let nothing = r#"["array/map", ["if", ["==", "off", "on"], "@entity.nope", []], ["fn", "t", ["object/get", "@t", "x"]]]"#;
-        assert!(!undetermined(nothing, tags()).is_empty(), "control: a dead branch of no type types nothing");
+        assert!(
+            !undetermined(nothing, tags()).is_empty(),
+            "control: a dead branch of no type types nothing"
+        );
     }
 
     #[test]
     fn a_let_binding_sees_the_bindings_before_it() {
-        let both = r#"["let", [["xs", ["list", 1, 2]], ["x", ["array/first", "@xs"]]], ["+", "@x", 1]]"#;
-        assert!(undetermined(both, HashMap::new()).is_empty(), "{:?}", undetermined(both, HashMap::new()));
+        let both =
+            r#"["let", [["xs", ["list", 1, 2]], ["x", ["array/first", "@xs"]]], ["+", "@x", 1]]"#;
+        assert!(
+            undetermined(both, HashMap::new()).is_empty(),
+            "{:?}",
+            undetermined(both, HashMap::new())
+        );
         assert!(mismatches(both, HashMap::new()).is_empty());
         let wrong = r#"["let", [["xs", ["list", 1, 2]], ["x", ["array/first", "@xs"]]], ["str/upper", "@x"]]"#;
-        assert_eq!(mismatches(wrong, HashMap::new()).len(), 1, "control: @x is a number");
+        assert_eq!(
+            mismatches(wrong, HashMap::new()).len(),
+            1,
+            "control: @x is a number"
+        );
         let unbound = r#"["let", [["x", ["array/first", "@nope"]]], ["+", "@x", 1]]"#;
-        assert!(!undetermined(unbound, HashMap::new()).is_empty(), "control: an undetermined list stays undetermined");
+        assert!(
+            !undetermined(unbound, HashMap::new()).is_empty(),
+            "control: an undetermined list stays undetermined"
+        );
     }
 
     fn required(name: &str, ty: &str) -> HashMap<String, EntityFieldMeta> {
@@ -1187,11 +1791,18 @@ mod tests {
     }
 
     fn all_codes(json: &str, entity: HashMap<String, EntityFieldMeta>) -> Vec<String> {
-        validate_operator_arg_types(&parse(json), "p", &entity, &HashMap::new(), &no_types(), None)
-            .errors
-            .iter()
-            .map(|e| format!("{:?}: {}", e.code, e.message))
-            .collect()
+        validate_operator_arg_types(
+            &parse(json),
+            "p",
+            &entity,
+            &HashMap::new(),
+            &no_types(),
+            None,
+        )
+        .errors
+        .iter()
+        .map(|e| format!("{:?}: {}", e.code, e.message))
+        .collect()
     }
 
     #[test]
@@ -1199,19 +1810,32 @@ mod tests {
         let tested = r#"["let", [["tp", ["time/parse", "@entity.s"]]], ["if", ["=", "@tp", null], "", ["time/format", ["time/add", "@tp", 1000, "ms"], "YYYY"]]]"#;
         let got = all_codes(tested, required("s", "string"));
         assert!(got.is_empty(), "{got:?}");
-        let bare = r#"["let", [["tp", ["time/parse", "@entity.s"]]], ["time/format", "@tp", "YYYY"]]"#;
-        assert!(!all_codes(bare, required("s", "string")).is_empty(), "control: an untested optional is refused");
+        let bare =
+            r#"["let", [["tp", ["time/parse", "@entity.s"]]], ["time/format", "@tp", "YYYY"]]"#;
+        assert!(
+            !all_codes(bare, required("s", "string")).is_empty(),
+            "control: an untested optional is refused"
+        );
         let wrong = r#"["let", [["tp", ["time/parse", "@entity.s"]]], ["if", ["=", "@tp", null], "", ["+", "@tp", 1]]]"#;
-        assert!(!all_codes(wrong, required("s", "string")).is_empty(), "control: a date or datetime is not a number");
+        assert!(
+            !all_codes(wrong, required("s", "string")).is_empty(),
+            "control: a date or datetime is not a number"
+        );
         let neither = r#"["time/format", "@entity.n", "YYYY"]"#;
-        assert!(!all_codes(neither, required("n", "number")).is_empty(), "control: a number is not a date");
+        assert!(
+            !all_codes(neither, required("n", "number")).is_empty(),
+            "control: a number is not a date"
+        );
     }
 
     #[test]
     fn an_error_already_reported_is_not_reported_again_by_the_enclosing_call() {
         let got = undetermined(r#"["=", ["+", "a", 1], 3]"#, HashMap::new());
         assert!(got.is_empty(), "{got:?}");
-        assert_eq!(mismatches(r#"["=", ["+", "a", 1], 3]"#, HashMap::new()).len(), 1);
+        assert_eq!(
+            mismatches(r#"["=", ["+", "a", 1], 3]"#, HashMap::new()).len(),
+            1
+        );
     }
 
     #[test]
@@ -1260,10 +1884,16 @@ mod tests {
     #[test]
     fn a_retired_alias_is_data_not_an_operator() {
         assert!(mismatches(r#"["upper", 5]"#, HashMap::new()).is_empty());
-        assert_eq!(mismatches(r#"["str/upper", 5]"#, HashMap::new()).len(), 1, "control: the canonical name is checked");
+        assert_eq!(
+            mismatches(r#"["str/upper", 5]"#, HashMap::new()).len(),
+            1,
+            "control: the canonical name is checked"
+        );
     }
 
-    fn shaped(fields: &[(&str, orbital_core_base::ir::OirType)]) -> HashMap<String, EntityFieldMeta> {
+    fn shaped(
+        fields: &[(&str, orbital_core_base::ir::OirType)],
+    ) -> HashMap<String, EntityFieldMeta> {
         fields
             .iter()
             .map(|(name, shape)| {
@@ -1298,53 +1928,115 @@ mod tests {
         let got = mismatches(r#"["array/append", "@entity.tags", 1]"#, tags());
         assert_eq!(got.len(), 1, "{got:?}");
         assert!(got[0].contains("argument 2 is a int"), "{got:?}");
-        assert!(got[0].contains("an earlier argument is a string"), "{got:?}");
+        assert!(
+            got[0].contains("an earlier argument is a string"),
+            "{got:?}"
+        );
         assert!(mismatches(r#"["array/append", "@entity.tags", "x"]"#, tags()).is_empty());
     }
 
     #[test]
     fn lists_of_op_tuples_of_unlike_widths_join_into_one_list() {
-        let updates = r#"["array/map", "@entity.tags", ["fn", "t", ["upd", "E", "@t", { "a": 1 }]]]"#;
+        let updates =
+            r#"["array/map", "@entity.tags", ["fn", "t", ["upd", "E", "@t", { "a": 1 }]]]"#;
         let prepended = format!(r#"["array/prepend", {updates}, ["del", "E", "x"]]"#);
-        assert!(mismatches(&prepended, tags()).is_empty(), "{:?}", mismatches(&prepended, tags()));
+        assert!(
+            mismatches(&prepended, tags()).is_empty(),
+            "{:?}",
+            mismatches(&prepended, tags())
+        );
         let deletes = r#"["array/map", "@entity.tags", ["fn", "t", ["del", "E", "@t"]]]"#;
         let concatenated = format!(r#"["array/concat", {deletes}, {updates}]"#);
-        assert!(mismatches(&concatenated, tags()).is_empty(), "{:?}", mismatches(&concatenated, tags()));
+        assert!(
+            mismatches(&concatenated, tags()).is_empty(),
+            "{:?}",
+            mismatches(&concatenated, tags())
+        );
     }
 
     #[test]
     fn control_lists_of_unlike_scalars_still_do_not_join() {
-        assert_eq!(mismatches(r#"["array/concat", [1], ["a"]]"#, tags()).len(), 1);
-        assert_eq!(mismatches(r#"["array/prepend", "@entity.tags", 1]"#, tags()).len(), 1);
+        assert_eq!(
+            mismatches(r#"["array/concat", [1], ["a"]]"#, tags()).len(),
+            1
+        );
+        assert_eq!(
+            mismatches(r#"["array/prepend", "@entity.tags", 1]"#, tags()).len(),
+            1
+        );
     }
 
     fn effects_in_lambdas(json: &str) -> usize {
-        validate_operator_arg_types(&parse(json), "p", &HashMap::new(), &HashMap::new(), &no_types(), None)
-            .errors
-            .iter()
-            .filter(|e| e.code == ErrorCode::EffectInLambda)
-            .count()
+        validate_operator_arg_types(
+            &parse(json),
+            "p",
+            &HashMap::new(),
+            &HashMap::new(),
+            &no_types(),
+            None,
+        )
+        .errors
+        .iter()
+        .filter(|e| e.code == ErrorCode::EffectInLambda)
+        .count()
     }
 
     #[test]
     fn an_effect_inside_a_collection_lambda_is_refused() {
-        assert_eq!(effects_in_lambdas(r#"["array/map", "@payload.items", ["fn", "x", ["emit", "E", { "id": "@x" }]]]"#), 1);
-        assert_eq!(effects_in_lambdas(r#"["array/filter", "@payload.items", ["fn", "x", ["do", ["set", "@entity.n", 1], true]]]"#), 1);
-        assert_eq!(effects_in_lambdas(r#"["array/map", "@payload.items", ["fn", "x", ["if", true, ["persist", "create", "E", {}], null]]]"#), 1);
+        assert_eq!(
+            effects_in_lambdas(
+                r#"["array/map", "@payload.items", ["fn", "x", ["emit", "E", { "id": "@x" }]]]"#
+            ),
+            1
+        );
+        assert_eq!(
+            effects_in_lambdas(
+                r#"["array/filter", "@payload.items", ["fn", "x", ["do", ["set", "@entity.n", 1], true]]]"#
+            ),
+            1
+        );
+        assert_eq!(
+            effects_in_lambdas(
+                r#"["array/map", "@payload.items", ["fn", "x", ["if", true, ["persist", "create", "E", {}], null]]]"#
+            ),
+            1
+        );
     }
 
     #[test]
     fn control_a_pure_lambda_and_an_effect_outside_one_are_accepted() {
-        assert_eq!(effects_in_lambdas(r#"["array/map", "@payload.items", ["fn", "x", ["str/upper", "@x"]]]"#), 0);
-        assert_eq!(effects_in_lambdas(r#"["emit", "E", { "ids": ["array/map", "@payload.items", ["fn", "x", ["object/get", "@x", "id"]]] }]"#), 0);
-        assert_eq!(effects_in_lambdas(r#"["array/map", "@payload.items", ["fn", "x", ["quote", ["emit", "E", {}]]]]"#), 0, "a quoted program is data");
+        assert_eq!(
+            effects_in_lambdas(
+                r#"["array/map", "@payload.items", ["fn", "x", ["str/upper", "@x"]]]"#
+            ),
+            0
+        );
+        assert_eq!(
+            effects_in_lambdas(
+                r#"["emit", "E", { "ids": ["array/map", "@payload.items", ["fn", "x", ["object/get", "@x", "id"]]] }]"#
+            ),
+            0
+        );
+        assert_eq!(
+            effects_in_lambdas(
+                r#"["array/map", "@payload.items", ["fn", "x", ["quote", ["emit", "E", {}]]]]"#
+            ),
+            0,
+            "a quoted program is data"
+        );
     }
 
     #[test]
     fn two_operands_of_one_type_variable_must_share_a_type() {
-        assert_eq!(mismatches(r#"["=", "@entity.count", "x"]"#, tags()).len(), 1);
+        assert_eq!(
+            mismatches(r#"["=", "@entity.count", "x"]"#, tags()).len(),
+            1
+        );
         assert!(mismatches(r#"["=", "@entity.count", 3]"#, tags()).is_empty());
-        assert_eq!(mismatches(r#"["if", ["==", "@entity.count", 3], 1, "a"]"#, tags()).len(), 1);
+        assert_eq!(
+            mismatches(r#"["if", ["==", "@entity.count", 3], 1, "a"]"#, tags()).len(),
+            1
+        );
         assert!(mismatches(r#"["if", ["==", "@entity.count", 3], 1, 2]"#, tags()).is_empty());
     }
 
@@ -1359,9 +2051,16 @@ mod tests {
 
     #[test]
     fn a_lambda_parameter_is_typed_by_the_list_it_walks() {
-        let got = mismatches(r#"["array/map", "@entity.tags", ["fn", "t", ["+", "@t", 1]]]"#, tags());
+        let got = mismatches(
+            r#"["array/map", "@entity.tags", ["fn", "t", ["+", "@t", 1]]]"#,
+            tags(),
+        );
         assert_eq!(got.len(), 1, "{got:?}");
-        assert!(mismatches(r#"["array/map", "@entity.tags", ["fn", "t", ["str/upper", "@t"]]]"#, tags()).is_empty());
+        assert!(mismatches(
+            r#"["array/map", "@entity.tags", ["fn", "t", ["str/upper", "@t"]]]"#,
+            tags()
+        )
+        .is_empty());
     }
 
     #[test]
@@ -1370,19 +2069,32 @@ mod tests {
         assert_eq!(got.len(), 1, "{got:?}");
         assert!(got[0].contains("`nope`"), "{got:?}");
         assert!(mismatches(r#"["object/get", "@entity.profile", "name"]"#, tags()).is_empty());
-        assert_eq!(mismatches(r#"["+", ["object/get", "@entity.profile", "name"], 1]"#, tags()).len(), 1);
+        assert_eq!(
+            mismatches(
+                r#"["+", ["object/get", "@entity.profile", "name"], 1]"#,
+                tags()
+            )
+            .len(),
+            1
+        );
     }
 
     #[test]
     fn an_effect_nested_in_a_value_expression_is_still_checked() {
-        let got = mismatches(r#"["if", true, ["set", "@entity.count", ["str/upper", 5]], null]"#, tags());
+        let got = mismatches(
+            r#"["if", true, ["set", "@entity.count", ["str/upper", 5]], null]"#,
+            tags(),
+        );
         assert_eq!(got.len(), 1, "{got:?}");
     }
 
     #[test]
     fn a_default_makes_an_undeclared_field_a_legitimate_optional_read() {
         assert!(mismatches(r#"["object/get", "@entity.profile", "roles", []]"#, tags()).is_empty());
-        assert_eq!(mismatches(r#"["object/get", "@entity.profile", "roles"]"#, tags()).len(), 1);
+        assert_eq!(
+            mismatches(r#"["object/get", "@entity.profile", "roles"]"#, tags()).len(),
+            1
+        );
         assert!(mismatches(r#"["object/has", "@entity.profile", "roles"]"#, tags()).is_empty());
         assert!(
             mismatches(r#"["object/get", "@entity", "id"]"#, tags()).is_empty(),
@@ -1406,12 +2118,19 @@ mod tests {
             }]
         }))
         .unwrap();
-        validate_operator_arg_types(&parse(json), "p", &HashMap::new(), &HashMap::new(), &no_types(), Some(&schema))
-            .errors
-            .iter()
-            .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
-            .map(|e| e.message.clone())
-            .collect()
+        validate_operator_arg_types(
+            &parse(json),
+            "p",
+            &HashMap::new(),
+            &HashMap::new(),
+            &no_types(),
+            Some(&schema),
+        )
+        .errors
+        .iter()
+        .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch)
+        .map(|e| e.message.clone())
+        .collect()
     }
 
     #[test]
@@ -1421,11 +2140,16 @@ mod tests {
         assert_eq!(unknown.len(), 1, "{unknown:?}");
         assert!(unknown[0].contains("`Nope`"), "{unknown:?}");
         // The parsed value is a Point: x is a number, so a string operator rejects it, and z is no field.
-        let got = with_types(r#"["str/upper", ["object/get", ["json/parse", ["str/concat", "{", "}"], "Point"], "x", 0]]"#);
+        let got = with_types(
+            r#"["str/upper", ["object/get", ["json/parse", ["str/concat", "{", "}"], "Point"], "x", 0]]"#,
+        );
         assert_eq!(got.len(), 1, "{got:?}");
         let missing = with_types(r#"["object/get", ["json/parse", "{}", "Point"], "z"]"#);
         assert_eq!(missing.len(), 1, "{missing:?}");
-        assert!(with_types(r#"["+", ["object/get", ["json/parse", "{}", "Point"], "x"], 1]"#).is_empty());
+        assert!(
+            with_types(r#"["+", ["object/get", ["json/parse", "{}", "Point"], "x"], 1]"#)
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1448,7 +2172,10 @@ mod tests {
 
     #[test]
     fn json_parse_may_name_a_dictionary_or_list_alias() {
-        assert!(with_types(r#"["str/upper", ["object/get", ["json/parse", "{}", "Row"], "any-key"]]"#).is_empty());
+        assert!(with_types(
+            r#"["str/upper", ["object/get", ["json/parse", "{}", "Row"], "any-key"]]"#
+        )
+        .is_empty());
         let wrong = with_types(r#"["+", ["object/get", ["json/parse", "{}", "Row"], "k"], 1]"#);
         assert_eq!(wrong.len(), 1, "a Row holds strings: {wrong:?}");
         assert!(with_types(r#"["array/len", ["json/parse", "[]", "Rows"]]"#).is_empty());
@@ -1473,9 +2200,15 @@ mod tests {
             m
         }
 
-        fn findings(json: &str, entity: HashMap<String, EntityFieldMeta>, optional_payload: &[&str]) -> usize {
+        fn findings(
+            json: &str,
+            entity: HashMap<String, EntityFieldMeta>,
+            optional_payload: &[&str],
+        ) -> usize {
             let payload: HashMap<String, orbital_core_base::ir::OirType> =
-                [("q".to_string(), orbital_core_base::ir::OirType::Number)].into_iter().collect();
+                [("q".to_string(), orbital_core_base::ir::OirType::Number)]
+                    .into_iter()
+                    .collect();
             let types = BindingTypes {
                 payload,
                 optional_payload: optional_payload.iter().map(|n| n.to_string()).collect(),
@@ -1508,9 +2241,29 @@ mod tests {
             let divide = r#"["/", 1, "@x"]"#;
             let untested = null_findings(&local(divide), entity(false, false));
             assert!(untested > 0, "control: untested, the divisor may be null");
-            assert_eq!(null_findings(&local(&format!(r#"["if", ["=", "@x", null], 0, {divide}]"#)), entity(false, false)), 0);
-            assert_eq!(null_findings(&local(&format!(r#"["if", ["and", true, ["!=", "@x", null]], {divide}, 0]"#)), entity(false, false)), 0);
-            assert!(null_findings(&local(&format!(r#"["if", ["=", "@x", null], {divide}, 0]"#)), entity(false, false)) > 0, "control: the null branch");
+            assert_eq!(
+                null_findings(
+                    &local(&format!(r#"["if", ["=", "@x", null], 0, {divide}]"#)),
+                    entity(false, false)
+                ),
+                0
+            );
+            assert_eq!(
+                null_findings(
+                    &local(&format!(
+                        r#"["if", ["and", true, ["!=", "@x", null]], {divide}, 0]"#
+                    )),
+                    entity(false, false)
+                ),
+                0
+            );
+            assert!(
+                null_findings(
+                    &local(&format!(r#"["if", ["=", "@x", null], {divide}, 0]"#)),
+                    entity(false, false)
+                ) > 0,
+                "control: the null branch"
+            );
         }
 
         #[test]
@@ -1521,14 +2274,25 @@ mod tests {
                         ["or", ["=", "@payload.q", ""], ["if", ["=", {search}, null], false, ["str/includes", ["default", ["object/get", "@entity", {search}], ""], "@payload.q"]]]]"#
                 )
             };
-            assert_eq!(null_findings(&filter("null", "null"), entity(false, false)), 0, "both knobs unset");
-            assert_eq!(null_findings(&filter(r#""""#, "null"), entity(false, false)), 0, "an empty scope is missing too");
+            assert_eq!(
+                null_findings(&filter("null", "null"), entity(false, false)),
+                0,
+                "both knobs unset"
+            );
+            assert_eq!(
+                null_findings(&filter(r#""""#, "null"), entity(false, false)),
+                0,
+                "an empty scope is missing too"
+            );
             assert!(
                 null_findings(&filter(r#""@entity.q""#, "null"), entity(false, false)) == 0,
                 "control: a bound scope reads"
             );
             assert!(
-                null_findings(r#"["and", ["or", ["not", ["validate/required", "@entity.p"]], ["=", ["object/get", "@entity", null], 1]], true]"#, entity(false, false)) > 0,
+                null_findings(
+                    r#"["and", ["or", ["not", ["validate/required", "@entity.p"]], ["=", ["object/get", "@entity", null], 1]], true]"#,
+                    entity(false, false)
+                ) > 0,
                 "control: a non-literal presence test decides nothing, so the null read is checked"
             );
         }
@@ -1547,22 +2311,52 @@ mod tests {
 
         #[test]
         fn control_a_required_defaulted_guarded_or_tolerant_operand_is_fine() {
-            assert_eq!(null_findings(r#"["/", 1, "@entity.p"]"#, entity(true, false)), 0, "required");
-            assert_eq!(null_findings(r#"["/", 1, "@entity.p"]"#, entity(false, true)), 0, "defaulted");
-            assert_eq!(null_findings(r#"["/", "@entity.p", 2]"#, entity(false, false)), 1, "a missing numerator raises on null");
-            assert_eq!(null_findings(r#"["/", "@entity.p", 2]"#, entity(true, false)), 0, "control: a required numerator");
             assert_eq!(
-                null_findings(r#"["and", ["validate/required", "@entity.p"], ["/", 1, "@entity.p"]]"#, entity(false, false)),
+                null_findings(r#"["/", 1, "@entity.p"]"#, entity(true, false)),
+                0,
+                "required"
+            );
+            assert_eq!(
+                null_findings(r#"["/", 1, "@entity.p"]"#, entity(false, true)),
+                0,
+                "defaulted"
+            );
+            assert_eq!(
+                null_findings(r#"["/", "@entity.p", 2]"#, entity(false, false)),
+                1,
+                "a missing numerator raises on null"
+            );
+            assert_eq!(
+                null_findings(r#"["/", "@entity.p", 2]"#, entity(true, false)),
+                0,
+                "control: a required numerator"
+            );
+            assert_eq!(
+                null_findings(
+                    r#"["and", ["validate/required", "@entity.p"], ["/", 1, "@entity.p"]]"#,
+                    entity(false, false)
+                ),
                 0,
                 "a presence guard narrows the operand"
             );
             assert_eq!(
-                null_findings(r#"["when", ["!=", "@entity.p", null], ["/", 1, "@entity.p"]]"#, entity(false, false)),
+                null_findings(
+                    r#"["when", ["!=", "@entity.p", null], ["/", 1, "@entity.p"]]"#,
+                    entity(false, false)
+                ),
                 0,
                 "a null comparison narrows the operand"
             );
-            assert_eq!(null_findings(r#"["+", 1, "@entity.p"]"#, entity(false, false)), 1, "an operand that is missing raises on null");
-            assert_eq!(null_findings(r#"["+", 1, "@entity.p"]"#, entity(true, false)), 0, "control: a required operand");
+            assert_eq!(
+                null_findings(r#"["+", 1, "@entity.p"]"#, entity(false, false)),
+                1,
+                "an operand that is missing raises on null"
+            );
+            assert_eq!(
+                null_findings(r#"["+", 1, "@entity.p"]"#, entity(true, false)),
+                0,
+                "control: a required operand"
+            );
         }
 
         // G-ORB-548: an emit payload's record literal holds value expressions, checked at any depth.
@@ -1570,29 +2364,93 @@ mod tests {
         fn a_missing_read_inside_a_nested_emit_payload_record_is_flagged_once() {
             let find = r#"["array/find", ["list", {"value": "x"}], ["fn", "v", true]]"#;
             let read = format!(r#"["object/get", {find}, "value"]"#);
-            let defaulted = format!(r#"["object/get", ["default", {find}, {{"value": ""}}], "value"]"#);
-            let nested = |value: &str| format!(r#"["emit", "ENV_CHECK", {{"env": {{"a": {value}}}}}]"#);
-            assert_eq!(null_findings(&nested(&read), HashMap::new()), 1, "a nested record field");
-            assert_eq!(null_findings(&nested(&defaulted), HashMap::new()), 0, "control: defaulted");
-            assert_eq!(null_findings(&format!(r#"["emit", "EV", {{"a": {read}}}]"#), HashMap::new()), 1, "a top-level payload field");
-            assert_eq!(null_findings(&format!(r#"["emit", "EV", {{"xs": ["list", {read}]}}]"#), HashMap::new()), 1, "a list literal item");
-            assert_eq!(null_findings(&read, HashMap::new()), 1, "control: a bare read is flagged once");
+            let defaulted =
+                format!(r#"["object/get", ["default", {find}, {{"value": ""}}], "value"]"#);
+            let nested =
+                |value: &str| format!(r#"["emit", "ENV_CHECK", {{"env": {{"a": {value}}}}}]"#);
+            assert_eq!(
+                null_findings(&nested(&read), HashMap::new()),
+                1,
+                "a nested record field"
+            );
+            assert_eq!(
+                null_findings(&nested(&defaulted), HashMap::new()),
+                0,
+                "control: defaulted"
+            );
+            assert_eq!(
+                null_findings(
+                    &format!(r#"["emit", "EV", {{"a": {read}}}]"#),
+                    HashMap::new()
+                ),
+                1,
+                "a top-level payload field"
+            );
+            assert_eq!(
+                null_findings(
+                    &format!(r#"["emit", "EV", {{"xs": ["list", {read}]}}]"#),
+                    HashMap::new()
+                ),
+                1,
+                "a list literal item"
+            );
+            assert_eq!(
+                null_findings(&read, HashMap::new()),
+                1,
+                "control: a bare read is flagged once"
+            );
         }
 
         #[test]
         fn an_optional_field_in_an_ordering_position_is_an_error() {
             for op in ["<", "<=", ">", ">="] {
-                assert_eq!(findings(&format!(r#"["{op}", "@entity.p", 3]"#), entity(false, false), &[]), 1, "{op}");
-                assert_eq!(findings(&format!(r#"["{op}", 3, "@entity.p"]"#), entity(false, false), &[]), 1, "{op} right");
+                assert_eq!(
+                    findings(
+                        &format!(r#"["{op}", "@entity.p", 3]"#),
+                        entity(false, false),
+                        &[]
+                    ),
+                    1,
+                    "{op}"
+                );
+                assert_eq!(
+                    findings(
+                        &format!(r#"["{op}", 3, "@entity.p"]"#),
+                        entity(false, false),
+                        &[]
+                    ),
+                    1,
+                    "{op} right"
+                );
             }
-            assert_eq!(findings(r#"["<", ["object/get", "@entity", "p"], 3]"#, entity(false, false), &[]), 1, "object/get");
+            assert_eq!(
+                findings(
+                    r#"["<", ["object/get", "@entity", "p"], 3]"#,
+                    entity(false, false),
+                    &[]
+                ),
+                1,
+                "object/get"
+            );
         }
 
         #[test]
         fn a_required_or_defaulted_field_is_fine() {
-            assert_eq!(findings(r#"["<", "@entity.p", 3]"#, entity(true, false), &[]), 0, "required");
-            assert_eq!(findings(r#"["<", "@entity.p", 3]"#, entity(false, true), &[]), 0, "defaulted");
-            assert_eq!(findings(r#"["==", "@entity.p", 3]"#, entity(false, false), &[]), 0, "equality is not ordering");
+            assert_eq!(
+                findings(r#"["<", "@entity.p", 3]"#, entity(true, false), &[]),
+                0,
+                "required"
+            );
+            assert_eq!(
+                findings(r#"["<", "@entity.p", 3]"#, entity(false, true), &[]),
+                0,
+                "defaulted"
+            );
+            assert_eq!(
+                findings(r#"["==", "@entity.p", 3]"#, entity(false, false), &[]),
+                0,
+                "equality is not ordering"
+            );
         }
 
         #[test]
@@ -1613,9 +2471,24 @@ mod tests {
                 assert_eq!(findings(json, entity(false, false), &[]), 0, "{json}");
             }
             // The if with the guard in the wrong branch is not narrowed; the others above are.
-            assert_eq!(findings(guarded[7], entity(false, false), &[]), 1, "{}", guarded[7]);
-            assert_eq!(findings(guarded[8], entity(false, false), &[]), 0, "{}", guarded[8]);
-            assert_eq!(findings(guarded[9], entity(false, false), &[]), 0, "{}", guarded[9]);
+            assert_eq!(
+                findings(guarded[7], entity(false, false), &[]),
+                1,
+                "{}",
+                guarded[7]
+            );
+            assert_eq!(
+                findings(guarded[8], entity(false, false), &[]),
+                0,
+                "{}",
+                guarded[8]
+            );
+            assert_eq!(
+                findings(guarded[9], entity(false, false), &[]),
+                0,
+                "{}",
+                guarded[9]
+            );
         }
 
         #[test]
@@ -1633,18 +2506,43 @@ mod tests {
 
         #[test]
         fn an_optional_payload_field_is_checked_like_an_entity_field() {
-            assert_eq!(findings(r#"["<", "@payload.q", 3]"#, HashMap::new(), &["q"]), 1);
-            assert_eq!(findings(r#"["<", "@payload.q", 3]"#, HashMap::new(), &[]), 0, "required payload field");
             assert_eq!(
-                findings(r#"["and", ["validate/required", "@payload.q"], ["<", "@payload.q", 3]]"#, HashMap::new(), &["q"]),
+                findings(r#"["<", "@payload.q", 3]"#, HashMap::new(), &["q"]),
+                1
+            );
+            assert_eq!(
+                findings(r#"["<", "@payload.q", 3]"#, HashMap::new(), &[]),
+                0,
+                "required payload field"
+            );
+            assert_eq!(
+                findings(
+                    r#"["and", ["validate/required", "@payload.q"], ["<", "@payload.q", 3]]"#,
+                    HashMap::new(),
+                    &["q"]
+                ),
                 0
             );
         }
 
         #[test]
         fn a_local_bound_to_an_optional_field_stays_optional() {
-            assert_eq!(findings(r#"["let", [["x", "@entity.p"]], ["<", "@x", 3]]"#, entity(false, false), &[]), 1);
-            assert_eq!(findings(r#"["let", [["x", "@entity.p"]], ["<", "@x", 3]]"#, entity(true, false), &[]), 0);
+            assert_eq!(
+                findings(
+                    r#"["let", [["x", "@entity.p"]], ["<", "@x", 3]]"#,
+                    entity(false, false),
+                    &[]
+                ),
+                1
+            );
+            assert_eq!(
+                findings(
+                    r#"["let", [["x", "@entity.p"]], ["<", "@x", 3]]"#,
+                    entity(true, false),
+                    &[]
+                ),
+                0
+            );
             assert_eq!(
                 findings(
                     r#"["let", [["x", "@entity.p"]], ["and", ["validate/required", "@x"], ["<", "@x", 3]]]"#,
@@ -1660,13 +2558,13 @@ mod tests {
     /// `K2_CENSUS_FILES` comma-separated `.orb`/`.lolo` paths, `K2_CENSUS_OUT` the JSON path.
     mod k2_census {
         use super::super::{with_fetch_filter_rows, with_row_locals, BindingTypes, ExprReturnCtx};
+        use crate::type_infer::ProvenKey;
         use crate::type_infer::{is_effect, is_value_operator};
         use orbital_core_base::ir::{OirExpr, OirType};
         use orbital_core_base::schema::SExpression;
-        use std::collections::HashMap;
-        use crate::type_infer::ProvenKey;
         use orbital_core_base::schema::TraitReference;
         use std::collections::BTreeMap;
+        use std::collections::HashMap;
 
         #[derive(Default, Clone, Copy)]
         struct Row {
@@ -1683,13 +2581,25 @@ mod tests {
                 && !is_effect(head)
                 && !matches!(
                     head,
-                    "let" | "proven" | "fn" | "lambda" | "do" | "list" | "if" | "when" | "unless" | "cond" | "match"
+                    "let"
+                        | "proven"
+                        | "fn"
+                        | "lambda"
+                        | "do"
+                        | "list"
+                        | "if"
+                        | "when"
+                        | "unless"
+                        | "cond"
+                        | "match"
                 )
         }
 
         fn count(expr: &SExpression, proven: &HashMap<ProvenKey, Vec<usize>>, tally: &mut Tally) {
             match expr {
-                SExpression::Object(fields) => fields.values().for_each(|v| count(v, proven, tally)),
+                SExpression::Object(fields) => {
+                    fields.values().for_each(|v| count(v, proven, tally))
+                }
                 SExpression::Array(items) => {
                     let Some(SExpression::String(head)) = items.first() else {
                         items.iter().for_each(|item| count(item, proven, tally));
@@ -1698,7 +2608,9 @@ mod tests {
                     if matches!(head.as_str(), "quote" | "quasiquote") {
                         return;
                     }
-                    items[1..].iter().for_each(|item| count(item, proven, tally));
+                    items[1..]
+                        .iter()
+                        .for_each(|item| count(item, proven, tally));
                     let arity = items.len() - 1;
                     if arity == 0 || !markable(head) {
                         return;
@@ -1719,9 +2631,16 @@ mod tests {
             }
         }
 
-        fn walk(expr: &SExpression, ctx: &ExprReturnCtx<'_>, condition: Option<&OirExpr>, tally: &mut Tally) {
+        fn walk(
+            expr: &SExpression,
+            ctx: &ExprReturnCtx<'_>,
+            condition: Option<&OirExpr>,
+            tally: &mut Tally,
+        ) {
             match expr {
-                SExpression::Object(fields) => fields.values().for_each(|v| walk(v, ctx, condition, tally)),
+                SExpression::Object(fields) => {
+                    fields.values().for_each(|v| walk(v, ctx, condition, tally))
+                }
                 SExpression::Array(items) => {
                     if let Some(SExpression::String(head)) = items.first() {
                         match head.as_str() {
@@ -1735,7 +2654,8 @@ mod tests {
                             name if is_effect(name) || is_value_operator(name) => {
                                 let mut rows = Vec::new();
                                 let mut row_locals = Vec::new();
-                                let read = with_fetch_filter_rows(expr, ctx, &mut rows, &mut row_locals);
+                                let read =
+                                    with_fetch_filter_rows(expr, ctx, &mut rows, &mut row_locals);
                                 let scoped = with_row_locals(ctx, row_locals);
                                 let proven = match orbital_core_eval::lower::lower_sexpr(&read) {
                                     Ok(oir) => match &scoped {
@@ -1749,7 +2669,9 @@ mod tests {
                                                 schema: ctx.schema,
                                             },
                                         ),
-                                        None => crate::type_infer::proven_calls_under(&oir, condition, ctx),
+                                        None => crate::type_infer::proven_calls_under(
+                                            &oir, condition, ctx,
+                                        ),
                                     },
                                     Err(_) => HashMap::new(),
                                 };
@@ -1759,40 +2681,59 @@ mod tests {
                             _ => {}
                         }
                     }
-                    items.iter().for_each(|item| walk(item, ctx, condition, tally));
+                    items
+                        .iter()
+                        .for_each(|item| walk(item, ctx, condition, tally));
                 }
                 _ => {}
             }
         }
 
-        fn census_schema(schema: &orbital_core_base::schema::OrbitalSchema, trust_payload: bool) -> Tally {
+        fn census_schema(
+            schema: &orbital_core_base::schema::OrbitalSchema,
+            trust_payload: bool,
+        ) -> Tally {
             let definitions = crate::phases::validation::entity_definitions_of(schema);
             let no_payload: HashMap<String, String> = HashMap::new();
             let mut tally = Tally::new();
+            let guaranteed = crate::phases::validation::effect::GuaranteedPayloads::new();
             for orbital in &schema.orbitals {
                 for trait_ref in &orbital.traits {
-                    let TraitReference::Inline(trait_def) = trait_ref else { continue };
-                    let scopes = crate::phases::validation::effect::TraitScopes::new(schema, trait_def, &definitions);
+                    let TraitReference::Inline(trait_def) = trait_ref else {
+                        continue;
+                    };
+                    let scopes = crate::phases::validation::effect::TraitScopes::new(
+                        schema,
+                        trait_def,
+                        &definitions,
+                        &guaranteed,
+                    );
                     let unproven = |mut types: BindingTypes| {
                         if !trust_payload {
                             types.payload.clear();
                             types.prev_payload = None;
-                            types.user = OirType::Struct { additional: None, fields: Default::default() };
+                            types.user = OirType::Struct {
+                                additional: None,
+                                fields: Default::default(),
+                            };
                         }
                         types
                     };
-                    let mut run = |expr: &SExpression, guard: Option<&SExpression>, types: &BindingTypes| {
-                        let ctx = ExprReturnCtx {
-                            entity: &scopes.entity_field_types,
-                            payload: &no_payload,
-                            types: Some(types),
-                            schema: Some(schema),
+                    let mut run =
+                        |expr: &SExpression, guard: Option<&SExpression>, types: &BindingTypes| {
+                            let ctx = ExprReturnCtx {
+                                entity: &scopes.entity_field_types,
+                                payload: &no_payload,
+                                types: Some(types),
+                                schema: Some(schema),
+                            };
+                            let condition =
+                                guard.and_then(|g| orbital_core_eval::lower::lower_sexpr(g).ok());
+                            walk(expr, &ctx, condition.as_ref(), &mut tally);
                         };
-                        let condition = guard.and_then(|g| orbital_core_eval::lower::lower_sexpr(g).ok());
-                        walk(expr, &ctx, condition.as_ref(), &mut tally);
-                    };
                     for transition in &trait_def.state_machine.transitions {
-                        let types = unproven(scopes.types_for(schema, trait_def, &transition.event));
+                        let types =
+                            unproven(scopes.types_for(schema, trait_def, &transition.event));
                         if let Some(guard) = &transition.guard {
                             run(guard, None, &types);
                         }
@@ -1836,9 +2777,7 @@ mod tests {
         }
 
         fn json(tally: &Tally) -> serde_json::Value {
-            let row = |r: &Row| {
-                serde_json::json!({ "positions": r.positions, "proven": r.proven, "calls": r.calls, "allProven": r.all_proven })
-            };
+            let row = |r: &Row| serde_json::json!({ "positions": r.positions, "proven": r.proven, "calls": r.calls, "allProven": r.all_proven });
             let mut map = serde_json::Map::new();
             for (op, r) in tally {
                 map.insert(op.clone(), row(r));
@@ -1848,16 +2787,22 @@ mod tests {
         }
 
         fn resolved(path: &std::path::Path) -> orbital_core_base::schema::OrbitalSchema {
-            crate::loader::register_source_lowerer(|path, _, _| orbital_test_support::lower_lolo_file(path));
+            crate::loader::register_source_lowerer(|path, _, _| {
+                orbital_test_support::lower_lolo_file(path)
+            });
             let start = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            let user_store = orbital_core_base::behavior_packages::user_store_dir().unwrap_or_else(|| start.clone());
+            let user_store = orbital_core_base::behavior_packages::user_store_dir()
+                .unwrap_or_else(|| start.clone());
             let mut options = crate::CompilerOptions::default();
             options.inline.loader_config.packages =
-                orbital_core_base::behavior_packages::discover(&start, &user_store).expect("package discovery");
+                orbital_core_base::behavior_packages::discover(&start, &user_store)
+                    .expect("package discovery");
             let schema = if path.extension().and_then(|e| e.to_str()) == Some("lolo") {
-                orbital_test_support::lower_lolo_file(path).unwrap_or_else(|e| panic!("lower {}: {e}", path.display()))
+                orbital_test_support::lower_lolo_file(path)
+                    .unwrap_or_else(|e| panic!("lower {}: {e}", path.display()))
             } else {
-                crate::phases::parse_file(path).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
+                crate::phases::parse_file(path)
+                    .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
             };
             crate::phases::resolve_compiled_program_with_path(schema, &options, Some(path))
                 .unwrap_or_else(|e| panic!("resolve {}: {e}", path.display()))
@@ -1881,7 +2826,11 @@ mod tests {
                     file.to_string(),
                     serde_json::json!({ "untrustedPayloads": row(total(&a)), "typedPayloads": row(total(&b)) }),
                 );
-                eprintln!("{file}: untrusted {:?} typed {:?}", total(&a).proven, total(&b).proven);
+                eprintln!(
+                    "{file}: untrusted {:?} typed {:?}",
+                    total(&a).proven,
+                    total(&b).proven
+                );
                 merge(&mut as_marked, &a);
                 merge(&mut typed, &b);
             }

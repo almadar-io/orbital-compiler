@@ -33,8 +33,7 @@ pub(crate) fn validate_os_effect(
     let mut result = ValidationResult::new();
     let keys = declared_emit_keys(op);
     if let Some(SExpression::Object(options)) = arr.last() {
-        if let Some(emit_obj) = extract_emit_object_ref(options) {
-        }
+        if let Some(emit_obj) = extract_emit_object_ref(options) {}
     }
     result
 }

@@ -91,11 +91,14 @@ mod tests {
 
     #[test]
     fn test_valid_set_effect() {
-        let effect = SExpression::Array(vec![
-            SExpression::String(("set".to_string()).into()),
-            SExpression::String(("@entity.title".to_string()).into()),
-            SExpression::String(("value".to_string()).into()),
-        ].into());
+        let effect = SExpression::Array(
+            vec![
+                SExpression::String(("set".to_string()).into()),
+                SExpression::String(("@entity.title".to_string()).into()),
+                SExpression::String(("value".to_string()).into()),
+            ]
+            .into(),
+        );
 
         let result = validate_effect(
             &effect,
@@ -181,27 +184,32 @@ mod tests {
                     "subject".into(),
                     SExpression::String(("s".to_string()).into()),
                 ),
-                (
-                    "body".into(),
-                    SExpression::String(("b".to_string()).into()),
-                ),
+                ("body".into(), SExpression::String(("b".to_string()).into())),
             ]
             .into_iter()
             .collect(),
         );
         let emit = SExpression::object(
             keys.iter()
-                .map(|(k, v)| (k.to_string().into(), SExpression::String(v.to_string().into())))
+                .map(|(k, v)| {
+                    (
+                        k.to_string().into(),
+                        SExpression::String(v.to_string().into()),
+                    )
+                })
                 .collect(),
         );
         let envelope = SExpression::object([("emit".into(), emit)].into_iter().collect());
-        SExpression::Array(vec![
-            SExpression::String(("call-service".to_string()).into()),
-            SExpression::String(("email".to_string()).into()),
-            SExpression::String(("send".to_string()).into()),
-            params,
-            envelope,
-        ].into())
+        SExpression::Array(
+            vec![
+                SExpression::String(("call-service".to_string()).into()),
+                SExpression::String(("email".to_string()).into()),
+                SExpression::String(("send".to_string()).into()),
+                params,
+                envelope,
+            ]
+            .into(),
+        )
     }
 
     #[test]
@@ -219,8 +227,6 @@ mod tests {
         );
     }
 
-
-
     #[test]
     fn test_navigate_with_required_payload() {
         // Set up a page that requires an "id" field on INIT
@@ -234,18 +240,21 @@ mod tests {
         );
 
         // Navigate with payload
-        let effect = SExpression::Array(vec![
-            SExpression::String(("navigate".to_string()).into()),
-            SExpression::String(("/inspection/123".to_string()).into()),
-            SExpression::object(
-                vec![(
-                    "id".into(),
-                    SExpression::String(("@entity.id".to_string()).into()),
-                )]
-                .into_iter()
-                .collect(),
-            ),
-        ].into());
+        let effect = SExpression::Array(
+            vec![
+                SExpression::String(("navigate".to_string()).into()),
+                SExpression::String(("/inspection/123".to_string()).into()),
+                SExpression::object(
+                    vec![(
+                        "id".into(),
+                        SExpression::String(("@entity.id".to_string()).into()),
+                    )]
+                    .into_iter()
+                    .collect(),
+                ),
+            ]
+            .into(),
+        );
 
         let result = validate_effect(
             &effect,
@@ -261,7 +270,6 @@ mod tests {
         );
         assert!(result.is_valid(), "Errors: {:?}", result.errors);
     }
-
 
     #[test]
     fn test_is_upper_snake_case() {
@@ -294,7 +302,6 @@ mod tests {
         .map(|e| (e.code, e.path))
         .collect()
     }
-
 }
 
 /// Position of the entity-name literal in a `persist` call array: 2 for the
@@ -305,7 +312,11 @@ mod tests {
 /// second copy of this positional rule.
 pub(crate) fn persist_entity_index(arr: &[SExpression]) -> usize {
     match arr.get(1) {
-        Some(SExpression::String(op)) if op == "create" || op == "upsert" || op == "update" || op == "delete" => 2,
+        Some(SExpression::String(op))
+            if op == "create" || op == "upsert" || op == "update" || op == "delete" =>
+        {
+            2
+        }
         _ => 1,
     }
 }

@@ -10,8 +10,7 @@ use orbital_core_base::schema::{OrbitalSchema, SExpression};
 
 /// The `emit` slots a keyed call may declare (`onMessage` is accepted as the
 /// camelCase spelling of `on_message`).
-pub(super) const KEYED_CALL_EMIT_KEYS: [&str; 4] =
-    ["success", "failure", "onMessage", "cancelled"];
+pub(super) const KEYED_CALL_EMIT_KEYS: [&str; 4] = ["success", "failure", "onMessage", "cancelled"];
 
 /// Operator heads that start a keyed call.
 pub(super) const KEYED_CALL_OPERATORS: [&str; 1] = ["call-service"];
@@ -21,7 +20,10 @@ pub(super) const ON_DEVICE_OPERATORS: [&str; 2] = ["browser/prompt", "browser/em
 
 /// The `key` an on-device model or tab call declares in its options object: the last argument of a model call, the
 /// third element of a `browser/tab-*` call (its request is the second).
-pub(super) fn on_device_or_tab_key<'a>(head: &str, arr: &'a [SExpression]) -> Option<&'a SExpression> {
+pub(super) fn on_device_or_tab_key<'a>(
+    head: &str,
+    arr: &'a [SExpression],
+) -> Option<&'a SExpression> {
     let options = if ON_DEVICE_OPERATORS.contains(&head) {
         arr.last()
     } else if orbital_core_base::tab::TabOp::is_tab_effect(head) {
@@ -80,7 +82,9 @@ pub(crate) fn program_has_keyed_call(schema: &OrbitalSchema) -> bool {
                     {
                         return true;
                     }
-                    if on_device_or_tab_key(head, arr).is_some() || substrate_key(head, arr).is_some() {
+                    if on_device_or_tab_key(head, arr).is_some()
+                        || substrate_key(head, arr).is_some()
+                    {
                         return true;
                     }
                 }
@@ -140,7 +144,9 @@ pub(super) fn collect_call_key_facts(
     match expr {
         SExpression::Array(arr) => {
             if let Some(SExpression::String(head)) = arr.first() {
-                if head == "cancel-call" && arr.get(1).is_some_and(|arg| is_call_key_typed(arg, ctx)) {
+                if head == "cancel-call"
+                    && arr.get(1).is_some_and(|arg| is_call_key_typed(arg, ctx))
+                {
                     facts.typed_cancels.push(path.to_string());
                 }
                 let options = if KEYED_CALL_OPERATORS.contains(&head.as_str()) {

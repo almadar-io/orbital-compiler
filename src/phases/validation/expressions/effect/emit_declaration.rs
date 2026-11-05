@@ -2,10 +2,8 @@
 
 use super::super::{ErrorCode, PageInitPayload, ValidationError, ValidationResult};
 use super::{
-    effect_operators, extract_emit_object_ref,
-    validate_os_effect, validate_program_eval,
-    validate_set_return_type, validate_set_value_type,
-    DeclaredEmit, EntityFieldMeta,
+    effect_operators, extract_emit_object_ref, validate_os_effect, validate_program_eval,
+    validate_set_return_type, validate_set_value_type, DeclaredEmit, EntityFieldMeta,
 };
 use crate::embedded::ServiceRegistryData;
 use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitDefinition};
@@ -166,14 +164,20 @@ pub(crate) fn nested_effects<'a>(
     };
     let (positions, under): (Vec<(&SExpression, String)>, Vec<Option<SExpression>>) = match head {
         Some("do") => {
-            let positions: Vec<_> = arr.iter().enumerate().skip(1).map(|(i, b)| (b, format!("{}.do[{}]", path, i - 1))).collect();
+            let positions: Vec<_> = arr
+                .iter()
+                .enumerate()
+                .skip(1)
+                .map(|(i, b)| (b, format!("{}.do[{}]", path, i - 1)))
+                .collect();
             let under = vec![condition.cloned(); positions.len()];
             (positions, under)
         }
         Some("if") => {
             let mut positions = Vec::new();
             let mut under = Vec::new();
-            for (branch, label, negate) in [(arr.get(2), "then", false), (arr.get(3), "else", true)] {
+            for (branch, label, negate) in [(arr.get(2), "then", false), (arr.get(3), "else", true)]
+            {
                 if let Some(branch) = branch {
                     positions.push((branch, format!("{}.{}", path, label)));
                     under.push(and_condition(condition, test(negate)));
@@ -182,14 +186,31 @@ pub(crate) fn nested_effects<'a>(
             (positions, under)
         }
         Some("when") => {
-            let positions: Vec<_> = arr.iter().enumerate().skip(2).map(|(i, b)| (b, format!("{}.then[{}]", path, i - 2))).collect();
+            let positions: Vec<_> = arr
+                .iter()
+                .enumerate()
+                .skip(2)
+                .map(|(i, b)| (b, format!("{}.then[{}]", path, i - 2)))
+                .collect();
             let under = vec![and_condition(condition, test(false)); positions.len()];
             (positions, under)
         }
         Some("let") => {
             let bound = let_names(arr);
-            let held = condition.and_then(|c| conjunction(conjuncts(c).into_iter().filter(|part| !bound.iter().any(|name| mentions(part, name))).collect()));
-            let positions: Vec<_> = arr.iter().enumerate().skip(2).map(|(i, b)| (b, format!("{}.body[{}]", path, i - 2))).collect();
+            let held = condition.and_then(|c| {
+                conjunction(
+                    conjuncts(c)
+                        .into_iter()
+                        .filter(|part| !bound.iter().any(|name| mentions(part, name)))
+                        .collect(),
+                )
+            });
+            let positions: Vec<_> = arr
+                .iter()
+                .enumerate()
+                .skip(2)
+                .map(|(i, b)| (b, format!("{}.body[{}]", path, i - 2)))
+                .collect();
             let under = vec![held; positions.len()];
             (positions, under)
         }
@@ -200,14 +221,28 @@ pub(crate) fn nested_effects<'a>(
     let mut out = Vec::new();
     for ((position, position_path), mut held) in positions.into_iter().zip(under) {
         if written {
-            held = held.and_then(|c| conjunction(conjuncts(&c).into_iter().filter(|part| !mentions(part, "entity")).collect()));
+            held = held.and_then(|c| {
+                conjunction(
+                    conjuncts(&c)
+                        .into_iter()
+                        .filter(|part| !mentions(part, "entity"))
+                        .collect(),
+                )
+            });
         }
         match position {
             SExpression::Array(items) if matches!(items.first(), Some(SExpression::Array(_))) => {
                 for (k, e) in items.iter().enumerate() {
                     let mut at = held.clone();
                     if written {
-                        at = at.and_then(|c| conjunction(conjuncts(&c).into_iter().filter(|part| !mentions(part, "entity")).collect()));
+                        at = at.and_then(|c| {
+                            conjunction(
+                                conjuncts(&c)
+                                    .into_iter()
+                                    .filter(|part| !mentions(part, "entity"))
+                                    .collect(),
+                            )
+                        });
                     }
                     out.push((e, format!("{}[{}]", position_path, k), at));
                     written |= sequenced && writes_entity(e);
@@ -227,7 +262,10 @@ fn let_names(arr: &[SExpression]) -> Vec<String> {
         Some(SExpression::Array(bindings)) => bindings
             .iter()
             .filter_map(|binding| match binding {
-                SExpression::Array(pair) => pair.first().and_then(|name| name.as_str()).map(str::to_string),
+                SExpression::Array(pair) => pair
+                    .first()
+                    .and_then(|name| name.as_str())
+                    .map(str::to_string),
                 _ => None,
             })
             .collect(),
@@ -243,7 +281,9 @@ fn and_condition(outer: Option<&SExpression>, extra: Option<SExpression>) -> Opt
 
 fn conjuncts(condition: &SExpression) -> Vec<SExpression> {
     match condition {
-        SExpression::Array(items) if items.first().and_then(|head| head.as_str()) == Some("and") => {
+        SExpression::Array(items)
+            if items.first().and_then(|head| head.as_str()) == Some("and") =>
+        {
             items.iter().skip(1).flat_map(conjuncts).collect()
         }
         other => vec![other.clone()],
@@ -264,9 +304,10 @@ fn conjunction(mut parts: Vec<SExpression>) -> Option<SExpression> {
 /// Whether `expr` reads the binding `@name` (or a path under it).
 fn mentions(expr: &SExpression, name: &str) -> bool {
     match expr {
-        SExpression::String(text) => text
-            .strip_prefix('@')
-            .is_some_and(|rest| rest.strip_prefix(name).is_some_and(|tail| tail.is_empty() || tail.starts_with('.'))),
+        SExpression::String(text) => text.strip_prefix('@').is_some_and(|rest| {
+            rest.strip_prefix(name)
+                .is_some_and(|tail| tail.is_empty() || tail.starts_with('.'))
+        }),
         SExpression::Array(items) => items.iter().any(|item| mentions(item, name)),
         SExpression::Object(fields) => fields.values().any(|item| mentions(item, name)),
         _ => false,
@@ -277,7 +318,8 @@ fn mentions(expr: &SExpression, name: &str) -> bool {
 fn writes_entity(effect: &SExpression) -> bool {
     match effect {
         SExpression::Array(items) => {
-            items.first().and_then(|head| head.as_str()) == Some("set") || items.iter().any(writes_entity)
+            items.first().and_then(|head| head.as_str()) == Some("set")
+                || items.iter().any(writes_entity)
         }
         SExpression::Object(fields) => fields.values().any(writes_entity),
         _ => false,
@@ -314,9 +356,15 @@ pub(crate) fn scope_let_locals(
                     let declaration = pair
                         .get(2)
                         .and_then(|shape| orbital_core_eval::lower::lower_sexpr(shape).ok());
-                    let ty = orbital_core_eval::lower::lower_sexpr(bound).ok().and_then(|oir| {
-                        crate::type_infer::local_initializer_type(&oir, declaration.as_ref(), &ctx)
-                    });
+                    let ty = orbital_core_eval::lower::lower_sexpr(bound)
+                        .ok()
+                        .and_then(|oir| {
+                            crate::type_infer::local_initializer_type(
+                                &oir,
+                                declaration.as_ref(),
+                                &ctx,
+                            )
+                        });
                     match ty {
                         Some(ty) => {
                             scope.locals.insert(name.clone().into_inner(), ty);
@@ -379,8 +427,7 @@ pub(crate) fn validate_effect_in(
         return result;
     };
 
-    let value = |expr: &SExpression, result: &mut ValidationResult| {
-    };
+    let value = |expr: &SExpression, result: &mut ValidationResult| {};
     let mut scoped = None;
     match head {
         "if" | "when" => {
@@ -389,9 +436,14 @@ pub(crate) fn validate_effect_in(
             }
         }
         "let" => {
-            scoped = scope_let_locals(arr, types, entity_field_types, payload_field_types, schema, &mut |bound| {
-                value(bound, &mut result)
-            });
+            scoped = scope_let_locals(
+                arr,
+                types,
+                entity_field_types,
+                payload_field_types,
+                schema,
+                &mut |bound| value(bound, &mut result),
+            );
         }
         _ => {}
     }
@@ -451,8 +503,7 @@ fn validate_leaf_effect(
                 result.merge(validate_required_emit_success(operator, arr, path));
 
                 match operator.as_str() {
-                    "call-service" => {
-                    }
+                    "call-service" => {}
                     "set" => {
                         result.merge(validate_set_value_type(
                             arr,
@@ -473,15 +524,12 @@ fn validate_leaf_effect(
                             condition,
                         ));
                     }
-                    "persist" => {
-                    }
-                    "emit" => {
-                    }
+                    "persist" => {}
+                    "emit" => {}
                     "render-ui" => {
                         // render_ui is validated separately in render_ui.rs
                     }
-                    "navigate" => {
-                    }
+                    "navigate" => {}
                     "notify" => {
                         // `notify` is `.lolo`-only sugar for `render-ui toast`
                         // (owner ruling 2026-09-11), desugared at lowering — a
@@ -496,8 +544,7 @@ fn validate_leaf_effect(
                             ),
                         );
                     }
-                    "send-server" => {
-                    }
+                    "send-server" => {}
                     "program/eval" => {
                         result.merge(validate_program_eval(arr, path, declared_emits));
                     }
@@ -516,15 +563,16 @@ fn validate_leaf_effect(
                         for arg in arr.iter().skip(1) {
                             if let SExpression::Object(options) = arg {
                                 if let Some(emit_obj) = extract_emit_object_ref(options) {
-                                    let keys: &[&str] = if matches!(
-                                        browser_op,
-                                        "browser/prompt" | "browser/embed"
-                                    ) || orbital_core_base::tab::TabOp::is_tab_effect(browser_op)
-                                    {
-                                        &["success", "failure", "cancelled"]
-                                    } else {
-                                        &["success", "failure"]
-                                    };
+                                    let keys: &[&str] =
+                                        if matches!(browser_op, "browser/prompt" | "browser/embed")
+                                            || orbital_core_base::tab::TabOp::is_tab_effect(
+                                                browser_op,
+                                            )
+                                        {
+                                            &["success", "failure", "cancelled"]
+                                        } else {
+                                            &["success", "failure"]
+                                        };
                                 }
                             }
                         }
@@ -556,8 +604,7 @@ fn validate_leaf_effect(
     // same name/action/param checks the top-level form gets. The walk starts
     // BELOW the top form so the arms above stay the single validators for it.
     if let SExpression::Array(arr) = effect {
-        for arg in arr.iter().skip(1) {
-        }
+        for arg in arr.iter().skip(1) {}
     }
 
     result
@@ -565,25 +612,36 @@ fn validate_leaf_effect(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::set::BindingTypes;
     use super::super::EntityFieldMeta;
+    use super::*;
 
     fn set_findings(effect: &str, guard: Option<&str>) -> usize {
         let types = BindingTypes {
             payload: HashMap::new(),
-            user: orbital_core_base::ir::OirType::Struct { additional: None, fields: Default::default() },
+            user: orbital_core_base::ir::OirType::Struct {
+                additional: None,
+                fields: Default::default(),
+            },
             config: HashMap::new(),
             prev_payload: None,
             optional_payload: Default::default(),
             locals: Default::default(),
             type_params: Default::default(),
         };
-        let meta = |shape| EntityFieldMeta { field_type: "number".into(), shape, required: false, defaulted: false };
+        let meta = |shape| EntityFieldMeta {
+            field_type: "number".into(),
+            shape,
+            required: false,
+            defaulted: false,
+        };
         let number = orbital_core_base::type_compat::compat_kind_oir("number");
         let entity: HashMap<String, EntityFieldMeta> = [
             ("n".to_string(), meta(number.clone())),
-            ("m".to_string(), meta(orbital_core_base::ir::OirType::optional(number))),
+            (
+                "m".to_string(),
+                meta(orbital_core_base::ir::OirType::optional(number)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -619,23 +677,73 @@ mod tests {
     fn a_null_test_on_a_let_local_narrows_it_in_a_set() {
         let write = r#"["set", "@entity.n", ["if", true, "@x", 0]]"#;
         let fail = r#"["log", "info", "none"]"#;
-        assert_eq!(set_findings(&set_in_let(write), None), 1, "control: untested, the local may be null");
-        assert_eq!(set_findings(&set_in_let(&format!(r#"["if", ["=", "@x", null], {fail}, {write}]"#)), None), 0);
-        assert_eq!(set_findings(&set_in_let(&format!(r#"["if", ["and", true, ["!=", "@x", null]], {write}, {fail}]"#)), None), 0);
-        assert_eq!(set_findings(&set_in_let(&format!(r#"["if", ["=", "@x", null], {write}, {fail}]"#)), None), 1, "control: the null branch");
+        assert_eq!(
+            set_findings(&set_in_let(write), None),
+            1,
+            "control: untested, the local may be null"
+        );
+        assert_eq!(
+            set_findings(
+                &set_in_let(&format!(r#"["if", ["=", "@x", null], {fail}, {write}]"#)),
+                None
+            ),
+            0
+        );
+        assert_eq!(
+            set_findings(
+                &set_in_let(&format!(
+                    r#"["if", ["and", true, ["!=", "@x", null]], {write}, {fail}]"#
+                )),
+                None
+            ),
+            0
+        );
+        assert_eq!(
+            set_findings(
+                &set_in_let(&format!(r#"["if", ["=", "@x", null], {write}, {fail}]"#)),
+                None
+            ),
+            1,
+            "control: the null branch"
+        );
         let shadowed = format!(r#"["let", [["x", ["str/to-number", "b"]]], {write}]"#);
-        assert_eq!(set_findings(&set_in_let(&format!(r#"["if", ["!=", "@x", null], {shadowed}, {fail}]"#)), None), 1, "a shadowing let ends the narrowing");
+        assert_eq!(
+            set_findings(
+                &set_in_let(&format!(
+                    r#"["if", ["!=", "@x", null], {shadowed}, {fail}]"#
+                )),
+                None
+            ),
+            1,
+            "a shadowing let ends the narrowing"
+        );
     }
 
     #[test]
     fn a_guard_narrows_a_set_and_a_set_ends_a_narrowing_read_from_the_entity() {
         let write = r#"["set", "@entity.n", ["if", true, "@entity.m", 0]]"#;
         let guard = r#"["!=", "@entity.m", null]"#;
-        assert_eq!(set_findings(write, None), 1, "control: the optional field may be null");
-        assert_eq!(set_findings(write, Some(guard)), 0, "the transition guard holds for the set");
+        assert_eq!(
+            set_findings(write, None),
+            1,
+            "control: the optional field may be null"
+        );
+        assert_eq!(
+            set_findings(write, Some(guard)),
+            0,
+            "the transition guard holds for the set"
+        );
         let tested = |body: &str| format!(r#"["if", {guard}, {body}, ["log", "info", "none"]]"#);
-        assert_eq!(set_findings(&tested(write), None), 0, "an if test holds in its then branch");
+        assert_eq!(
+            set_findings(&tested(write), None),
+            0,
+            "an if test holds in its then branch"
+        );
         let after_write = format!(r#"["do", ["set", "@entity.m", null], {write}]"#);
-        assert_eq!(set_findings(&tested(&after_write), None), 1, "a set of the entity ends what the test showed of it");
+        assert_eq!(
+            set_findings(&tested(&after_write), None),
+            1,
+            "a set of the entity ends what the test showed of it"
+        );
     }
 }

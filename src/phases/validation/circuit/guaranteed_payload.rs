@@ -12,6 +12,11 @@ use orbital_core_base::schema::{ListenSource, OrbitalSchema, SExpression, TraitR
 use super::fired_events::collect_schema_fired_events;
 use super::produced_shape::produced_failure_payload;
 
+#[cfg(test)]
+thread_local! {
+    pub(crate) static RUNS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 #[derive(Default)]
 struct Producers {
     slot_fields: HashMap<String, Option<HashSet<String>>>,
@@ -39,12 +44,42 @@ impl Producers {
 pub(crate) fn guaranteed_payload_fields(
     schema: &OrbitalSchema,
 ) -> HashMap<String, HashSet<String>> {
-    if schema.orbitals.iter().flat_map(|o| o.traits.iter()).any(|t| !matches!(t, TraitReference::Inline(_))) {
+    #[cfg(test)]
+    RUNS.with(|r| r.set(r.get() + 1));
+    if schema
+        .orbitals
+        .iter()
+        .flat_map(|o| o.traits.iter())
+        .any(|t| !matches!(t, TraitReference::Inline(_)))
+    {
         return HashMap::new();
     }
+    // `Trait.EVENT` -> the payload fields that trait's emit declares required (enforced at each of its emit sites).
+    let declared: HashMap<String, HashSet<String>> = schema
+        .orbitals
+        .iter()
+        .flat_map(|o| o.traits.iter())
+        .filter_map(|t| match t {
+            TraitReference::Inline(td) => Some(td),
+            _ => None,
+        })
+        .flat_map(|td| {
+            td.emits.iter().flatten().map(move |emit| {
+                let required = emit
+                    .payload_schema
+                    .iter()
+                    .flatten()
+                    .filter(|f| f.required == Some(true))
+                    .map(|f| f.name.clone())
+                    .collect();
+                (format!("{}.{}", td.name, emit.event), required)
+            })
+        })
+        .collect();
+    let controls = collect_schema_fired_events(schema);
     let mut known = HashMap::new();
     loop {
-        let next = one_round(schema, &known);
+        let next = one_round(schema, &known, &declared, &controls);
         if next == known {
             return next;
         }
@@ -71,30 +106,10 @@ impl Scope<'_> {
 fn one_round(
     schema: &OrbitalSchema,
     known: &HashMap<String, HashSet<String>>,
+    declared: &HashMap<String, HashSet<String>>,
+    controls: &super::fired_events::FiredEvents,
 ) -> HashMap<String, HashSet<String>> {
     let mut producers = Producers::default();
-    // `Trait.EVENT` -> the payload fields that trait's emit declares required (enforced at each of its emit sites).
-    let declared: HashMap<String, HashSet<String>> = schema
-        .orbitals
-        .iter()
-        .flat_map(|o| o.traits.iter())
-        .filter_map(|t| match t {
-            TraitReference::Inline(td) => Some(td),
-            _ => None,
-        })
-        .flat_map(|td| {
-            td.emits.iter().flatten().map(move |emit| {
-                let required = emit
-                    .payload_schema
-                    .iter()
-                    .flatten()
-                    .filter(|f| f.required == Some(true))
-                    .map(|f| f.name.clone())
-                    .collect();
-                (format!("{}.{}", td.name, emit.event), required)
-            })
-        })
-        .collect();
     for orbital in &schema.orbitals {
         for listen in orbital.listens.iter().flatten() {
             producers.unguaranteed.insert(
@@ -118,9 +133,10 @@ fn one_round(
                 }
                 // A route delivers what its emitter declares; an emitter this program does not hold guarantees nothing.
                 let emitter = match &listen.source {
-                    Some(ListenSource::Trait { trait_name, .. } | ListenSource::Orbital { trait_name, .. }) => {
-                        declared.get(&format!("{trait_name}.{}", listen.event))
-                    }
+                    Some(
+                        ListenSource::Trait { trait_name, .. }
+                        | ListenSource::Orbital { trait_name, .. },
+                    ) => declared.get(&format!("{trait_name}.{}", listen.event)),
                     Some(ListenSource::Any) => None,
                     None => declared.get(&listen.event),
                 };
@@ -132,7 +148,10 @@ fn one_round(
                     None => producers.narrow(&trigger, required.clone()),
                     Some(mapping) => {
                         let source = HashMap::from([(listen.event.clone(), required.clone())]);
-                        let scope = Scope { event: Some(listen.event.as_str()), known: &source };
+                        let scope = Scope {
+                            event: Some(listen.event.as_str()),
+                            known: &source,
+                        };
                         let set = mapping
                             .iter()
                             .filter(|(_, v)| scope.sets(v))
@@ -143,7 +162,10 @@ fn one_round(
                 }
             }
             for transition in &td.state_machine.transitions {
-                let scope = Scope { event: Some(transition.event.as_str()), known };
+                let scope = Scope {
+                    event: Some(transition.event.as_str()),
+                    known,
+                };
                 transition
                     .effects
                     .iter()
@@ -152,7 +174,9 @@ fn one_round(
             }
             let none = Scope { event: None, known };
             for tick in td.ticks.iter().flatten() {
-                tick.effects.iter().for_each(|e| walk(e, &mut producers, &none));
+                tick.effects
+                    .iter()
+                    .for_each(|e| walk(e, &mut producers, &none));
             }
             for field in td.config.iter().flat_map(|c| c.values()) {
                 if let Some(default) = &field.default {
@@ -161,7 +185,6 @@ fn one_round(
             }
         }
     }
-    let controls = collect_schema_fired_events(schema);
     producers
         .slot_fields
         .into_iter()
@@ -248,13 +271,17 @@ fn is_set_literal(value: &SExpression) -> bool {
             .first()
             .and_then(SExpression::as_str)
             .and_then(orbital_core_base::language::registry::get_operator)
-            .is_some_and(|op| op.failable.is_none() && !op.has_side_effects && !answers_null(&op.return_type)),
+            .is_some_and(|op| {
+                op.failable.is_none() && !op.has_side_effects && !answers_null(&op.return_type)
+            }),
         _ => false,
     }
 }
 
 fn answers_null(ty: &orbital_core_base::language::registry::OperatorTypeRef) -> bool {
-    use orbital_core_base::language::registry::{OperatorTypeRef as Ref, OperatorTypeRefKind as Kind};
+    use orbital_core_base::language::registry::{
+        OperatorTypeRef as Ref, OperatorTypeRefKind as Kind,
+    };
     match ty {
         Ref::Tagged(Kind::Union { of }) => of.iter().any(answers_null),
         Ref::Tagged(Kind::Literal { value }) => value.is_null(),
@@ -335,9 +362,18 @@ mod tests {
     #[test]
     fn an_explicit_emit_of_a_call_that_cannot_answer_null_keeps_the_guarantee() {
         // std-alummaalraqamia's over-cap failure: `(emit OverviewMigrationLoadFailed { error: (str/concat …) })`.
-        assert_eq!(null_operands("error", &emitter(r#"{ "error": ["str/concat", "over the cap: ", "100"] }"#)), 0);
         assert_eq!(
-            null_operands("error", &emitter(r#"{ "error": ["str/to-number", "100"] }"#)),
+            null_operands(
+                "error",
+                &emitter(r#"{ "error": ["str/concat", "over the cap: ", "100"] }"#)
+            ),
+            0
+        );
+        assert_eq!(
+            null_operands(
+                "error",
+                &emitter(r#"{ "error": ["str/to-number", "100"] }"#)
+            ),
             1,
             "control: a failable operator can answer null"
         );
@@ -409,7 +445,11 @@ mod tests {
         let listen = r#"{ "event": "STORE_FAILED", "source": { "kind": "trait", "trait": "Store" }, "triggers": "LoadFailed", "payloadMapping": { "error": "@payload.message" } }"#;
         let none = r#"{ "from": "idle", "to": "idle", "event": "LocalFailed", "effects": [] }"#;
         assert_eq!(forwarded(listen, none, true), 0);
-        assert_eq!(forwarded(listen, none, false), 1, "control: the source field may be missing");
+        assert_eq!(
+            forwarded(listen, none, false),
+            1,
+            "control: the source field may be missing"
+        );
     }
 
     #[test]
@@ -418,13 +458,21 @@ mod tests {
         let listen = r#"{ "event": "STORE_FAILED", "source": { "kind": "trait", "trait": "Store" }, "triggers": "LocalFailed" }"#;
         let forward = r#"{ "from": "idle", "to": "idle", "event": "LocalFailed", "effects": [["emit", "LoadFailed", { "error": "@payload.message" }]] }"#;
         assert_eq!(forwarded(listen, forward, true), 0);
-        assert_eq!(forwarded(listen, forward, false), 1, "control: forwarding a field that may be missing guarantees nothing");
+        assert_eq!(
+            forwarded(listen, forward, false),
+            1,
+            "control: forwarding a field that may be missing guarantees nothing"
+        );
     }
 
     #[test]
     fn a_routed_event_carries_the_fields_its_emitter_declares_required() {
         assert_eq!(routed(true), 0);
-        assert_eq!(routed(false), 1, "control: an emitter that leaves the field optional guarantees nothing");
+        assert_eq!(
+            routed(false),
+            1,
+            "control: an emitter that leaves the field optional guarantees nothing"
+        );
     }
 
     #[test]
@@ -435,7 +483,85 @@ mod tests {
         let unsourced = r#"{ "event": "STORE_FAILED", "triggers": "LoadFailed", "payloadMapping": { "error": "@payload.message" } }"#;
         let none = r#"{ "from": "idle", "to": "idle", "event": "LocalFailed", "effects": [] }"#;
         assert_eq!(forwarded(sourced, none, true), 0);
-        assert_eq!(forwarded(unsourced, none, true), 1, "control: an unsourced listen has no known emitter");
+        assert_eq!(
+            forwarded(unsourced, none, true),
+            1,
+            "control: an unsourced listen has no known emitter"
+        );
+    }
+
+    fn consumers(count: usize, optional: bool) -> orbital_core_base::schema::OrbitalSchema {
+        let required = if optional { "false" } else { "true" };
+        let pages: Vec<String> = (0..count)
+            .map(|i| {
+                format!(
+                    r#"{{ "name": "Page{i}", "linkedEntity": "Doc",
+                  "listens": [{{ "event": "STORE_FAILED", "source": {{ "kind": "trait", "trait": "Store" }}, "triggers": "LocalFailed" }}],
+                  "stateMachine": {{ "states": [{{ "name": "idle", "isInitial": true }}],
+                    "events": [{{ "key": "LocalFailed", "payloadSchema": [{{ "name": "message", "type": "string", "required": {required} }}] }}],
+                    "transitions": [{{ "from": "idle", "to": "idle", "event": "LocalFailed",
+                      "effects": [["set", "@entity.title", ["str/concat", "failed: ", "@payload.message"]]] }}] }} }}"#
+                )
+            })
+            .collect();
+        serde_json::from_str(&format!(
+            r#"{{ "name": "App", "version": "1.0.0", "orbitals": [{{ "name": "O",
+              "entity": {{ "name": "Doc", "fields": [ {{ "name": "id", "type": "string" }}, {{ "name": "title", "type": "string" }} ] }},
+              "traits": [
+                {{ "name": "Store", "linkedEntity": "Doc",
+                  "emits": [{{ "event": "STORE_FAILED", "scope": "external", "payloadSchema": [
+                    {{ "name": "message", "type": "string", "required": true }} ] }}],
+                  "stateMachine": {{ "states": [{{ "name": "idle", "isInitial": true }}], "events": [{{ "key": "GO" }}],
+                    "transitions": [{{ "from": "idle", "to": "idle", "event": "GO",
+                      "effects": [["emit", "STORE_FAILED", {{ "message": "refused" }}]] }}] }} }},
+                {pages}
+              ],
+              "pages": [{{ "name": "P", "path": "/p", "traits": [{{ "ref": "Store" }}, {{ "ref": "Page0" }}] }}] }}] }}"#,
+            pages = pages.join(",\n")
+        ))
+        .expect("program")
+    }
+
+    fn runs_while(f: impl FnOnce()) -> usize {
+        super::RUNS.with(|r| r.set(0));
+        f();
+        super::RUNS.with(|r| r.get())
+    }
+
+    #[test]
+    fn the_program_wide_analysis_runs_once_per_pass_not_once_per_trait() {
+        let shapes = |count: usize| {
+            let mut program = consumers(count, true);
+            runs_while(|| {
+                crate::phases::validation::effect::record_declared_shapes(&mut program)
+                    .expect("shapes")
+            })
+        };
+        assert_eq!(shapes(3), 1);
+        assert_eq!(shapes(6), 1, "six consuming traits still run it once");
+        let validate = |count: usize| {
+            let program = consumers(count, true);
+            runs_while(|| {
+                crate::phases::validation::validate_comprehensive_without_services(&program);
+            })
+        };
+        assert_eq!(
+            validate(3),
+            validate(6),
+            "validation runs it a fixed number of times, whatever the trait count"
+        );
+    }
+
+    #[test]
+    fn control_a_program_without_optional_payload_fields_never_runs_it() {
+        let mut program = consumers(6, false);
+        assert_eq!(
+            runs_while(
+                || crate::phases::validation::effect::record_declared_shapes(&mut program)
+                    .expect("shapes")
+            ),
+            0
+        );
     }
 
     #[test]

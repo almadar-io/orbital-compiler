@@ -19,15 +19,16 @@ use orbital_core_base::schema::{
     EntityDefinition, EventScope, OrbitalSchema, PayloadField, SExpression, TraitReference,
 };
 
-use crate::embedded::ServiceRegistryData;
 use super::effect::{
-    expr_return_incompatible_given, expr_return_incompatible_in_ctx, nested_effects, scope_let_locals, BindingTypes,
-    EntityFieldMeta, ExprReturnCtx, TraitScopes,
+    expr_return_incompatible_given, expr_return_incompatible_in_ctx, nested_effects,
+    scope_let_locals, BindingTypes, EntityFieldMeta, ExprReturnCtx, GuaranteedPayloads,
+    TraitScopes,
 };
 use super::error::{ErrorCode, ValidationError};
 use super::fired_events::trait_has_dynamic_event_prop_binding;
 use super::produced_shape;
 use super::{ValidationContext, ValidationResult};
+use crate::embedded::ServiceRegistryData;
 
 /// Run emit-payload validation across every trait in every orbital.
 ///
@@ -40,6 +41,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
     // is this one's dual — one definition of "produced", so the two can never
     // disagree about the same event.
     let all_fired_events = super::fired_events::collect_schema_fired_events(schema);
+    let guaranteed = GuaranteedPayloads::new();
 
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         for (ti, trait_ref) in orbital.traits.iter().enumerate() {
@@ -52,7 +54,8 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             // "operator produces X but event declares no payload" warnings.
             let emit_schemas: HashMap<&str, &[PayloadField]> = trait_def
                 .emits
-                .as_deref().map(Vec::as_slice)
+                .as_deref()
+                .map(Vec::as_slice)
                 .unwrap_or(&[])
                 .iter()
                 .map(|e| (e.event.as_str(), e.payload_schema.as_deref().unwrap_or(&[])))
@@ -64,7 +67,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             // `(emit EVT { f: (op …) })` value is type-checked identically to
             // `(set @entity.f (op …))`. Both resolve `@entity`/`@payload` bindings
             // inside the expression; absent entries degrade to `Json` (permissive).
-            let scopes = TraitScopes::new(schema, trait_def, &ctx.entity_definitions);
+            let scopes = TraitScopes::new(schema, trait_def, &ctx.entity_definitions, &guaranteed);
 
             for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
                 let payload = scopes.payload_for(&transition.event);
@@ -90,7 +93,14 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                             "{}.stateMachine.transitions[{}].effects[{}]",
                             trait_path, i, j
                         );
-                        check_effect_tree(effect, &path, &site, Some(&types), site.guard, &mut found);
+                        check_effect_tree(
+                            effect,
+                            &path,
+                            &site,
+                            Some(&types),
+                            site.guard,
+                            &mut found,
+                        );
                     }
                     ctx.merge(found);
                 }
@@ -110,7 +120,14 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                     let mut found = ValidationResult::new();
                     for (j, effect) in tick.effects.iter().enumerate() {
                         let path = format!("{}.ticks[{}].effects[{}]", trait_path, i, j);
-                        check_effect_tree(effect, &path, &site, Some(&scopes.tick_types), site.guard, &mut found);
+                        check_effect_tree(
+                            effect,
+                            &path,
+                            &site,
+                            Some(&scopes.tick_types),
+                            site.guard,
+                            &mut found,
+                        );
                     }
                     ctx.merge(found);
                 }
@@ -146,7 +163,8 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             // a false positive on a deliberate documentation pattern.
             let external_emits: std::collections::HashSet<&str> = trait_def
                 .emits
-                .as_deref().map(Vec::as_slice)
+                .as_deref()
+                .map(Vec::as_slice)
                 .unwrap_or(&[])
                 .iter()
                 .filter(|e| matches!(e.scope, Some(EventScope::External)))
@@ -230,12 +248,26 @@ fn check_effect_tree(
     ));
     let scoped = match effect {
         SExpression::Array(arr) if matches!(arr.first().and_then(|e| e.as_str()), Some("let")) => {
-            scope_let_locals(arr, types, site.entity, site.payload, Some(site.schema), &mut |_| {})
+            scope_let_locals(
+                arr,
+                types,
+                site.entity,
+                site.payload,
+                Some(site.schema),
+                &mut |_| {},
+            )
         }
         _ => None,
     };
     for (member, member_path, under) in nested_effects(effect, path, condition) {
-        check_effect_tree(member, &member_path, site, scoped.as_ref().or(types), under.as_ref(), found);
+        check_effect_tree(
+            member,
+            &member_path,
+            site,
+            scoped.as_ref().or(types),
+            under.as_ref(),
+            found,
+        );
     }
 }
 
@@ -303,10 +335,8 @@ fn validate_emit_literal(
     // Extra-field + primitive-type-mismatch checks are only meaningful when
     // the emit actually carries a literal payload object.
     if let Some(obj) = payload_obj {
-        let declared: HashMap<&str, &PayloadField> = schema
-            .iter()
-            .map(|f| (f.name.as_str(), f))
-            .collect();
+        let declared: HashMap<&str, &PayloadField> =
+            schema.iter().map(|f| (f.name.as_str(), f)).collect();
         for (key, value) in obj.iter() {
             match declared.get(key.as_str()) {
                 None => {
@@ -326,7 +356,8 @@ fn validate_emit_literal(
                     );
                 }
                 Some(field) => {
-                    if let Some(source) = missing_into_non_null_field(field, value, type_ctx, guard) {
+                    if let Some(source) = missing_into_non_null_field(field, value, type_ctx, guard)
+                    {
                         result.add_error(
                             ValidationError::error(
                                 ErrorCode::OperatorNullOperand,
@@ -342,7 +373,9 @@ fn validate_emit_literal(
                         );
                     }
                     let expected = field.field_type.as_str();
-                    if let Some(set) = declared_oir(field, schema_types).and_then(|declared| closed_set_misses(value, &declared)) {
+                    if let Some(set) = declared_oir(field, schema_types)
+                        .and_then(|declared| closed_set_misses(value, &declared))
+                    {
                         result.add_error(
                             ValidationError::error(
                                 ErrorCode::EmitPayloadFieldTypeMismatch,
@@ -355,7 +388,9 @@ fn validate_emit_literal(
                             .with_suggestion("Emit one of the declared values"),
                         );
                     }
-                    if let Some(slot) = null_into_non_null_slot(field, value, type_ctx, schema_types, guard) {
+                    if let Some(slot) =
+                        null_into_non_null_slot(field, value, type_ctx, schema_types, guard)
+                    {
                         result.add_error(
                             ValidationError::error(
                                 ErrorCode::EmitPayloadFieldTypeMismatch,
@@ -375,7 +410,8 @@ fn validate_emit_literal(
                         && (expected.starts_with('[') || expected == "array");
                     let list_items = match value {
                         SExpression::Array(items)
-                            if orbital_core_eval::literal_type::literal_value_type(value) == Some("array") =>
+                            if orbital_core_eval::literal_type::literal_value_type(value)
+                                == Some("array") =>
                         {
                             list_element_type(expected).map(|element| (element, items))
                         }
@@ -401,7 +437,10 @@ fn validate_emit_literal(
                                 )),
                             );
                         } else if let Some((declared, inferred)) = declared_oir(field, schema_types)
-                            .and_then(|declared| record_item_incompatible(value, &declared, type_ctx, guard).map(|item| (declared, item)))
+                            .and_then(|declared| {
+                                record_item_incompatible(value, &declared, type_ctx, guard)
+                                    .map(|item| (declared, item))
+                            })
                         {
                             result.add_error(
                                 ValidationError::error(
@@ -418,18 +457,23 @@ fn validate_emit_literal(
                                 .with_suggestion("Make every list item a record with the declared members"),
                             );
                         }
-                    } else if let Some(actual) = orbital_core_eval::literal_type::literal_value_type(value)
-                        .filter(|_| !matches!(value, SExpression::Object(_)))
+                    } else if let Some(actual) =
+                        orbital_core_eval::literal_type::literal_value_type(value)
+                            .filter(|_| !matches!(value, SExpression::Object(_)))
                     {
                         let members: Vec<&str> = (field.field_type == "union")
                             .then_some(field.properties.as_deref())
                             .flatten()
-                            .map(|variants| variants.iter().map(|v| v.field_type.as_str()).collect())
+                            .map(|variants| {
+                                variants.iter().map(|v| v.field_type.as_str()).collect()
+                            })
                             .unwrap_or_default();
                         let fits = if members.is_empty() {
                             primitive_types_compatible(expected, actual)
                         } else {
-                            members.iter().any(|member| primitive_types_compatible(member, actual))
+                            members
+                                .iter()
+                                .any(|member| primitive_types_compatible(member, actual))
                         };
                         if !fits {
                             result.add_error(
@@ -447,16 +491,20 @@ fn validate_emit_literal(
                                 )),
                             );
                         }
-                    } else if let Some((declared, inferred)) = declared_oir(field, schema_types).and_then(|declared| {
-                        record_literal_incompatible(value, &declared, type_ctx, guard)
-                            .or_else(|| {
-                                if matches!(value, SExpression::Object(_)) {
-                                    return None;
-                                }
-                                expr_return_incompatible_given(value, &declared, type_ctx, guard)
-                            })
-                            .map(|inferred| (declared, inferred))
-                    }) {
+                    } else if let Some((declared, inferred)) = declared_oir(field, schema_types)
+                        .and_then(|declared| {
+                            record_literal_incompatible(value, &declared, type_ctx, guard)
+                                .or_else(|| {
+                                    if matches!(value, SExpression::Object(_)) {
+                                        return None;
+                                    }
+                                    expr_return_incompatible_given(
+                                        value, &declared, type_ctx, guard,
+                                    )
+                                })
+                                .map(|inferred| (declared, inferred))
+                        })
+                    {
                         // Operator-call payload value (e.g. `(object/get (array/find …) id)`):
                         // `literal_value_type` returned `None`, so infer its result type through
                         // the expression, mirroring the `(set …)` backstop. Only a CONCRETE
@@ -497,7 +545,10 @@ fn null_into_non_null_slot(
     schema_types: &OrbitalSchema,
     guard: Option<&SExpression>,
 ) -> Option<orbital_core_base::ir::OirType> {
-    if !matches!(value, SExpression::Array(_) | SExpression::Object(_) | SExpression::Null) {
+    if !matches!(
+        value,
+        SExpression::Array(_) | SExpression::Object(_) | SExpression::Null
+    ) {
         return None;
     }
     let lowered = orbital_core_eval::lower::lower_sexpr(value).ok()?;
@@ -582,12 +633,26 @@ fn validate_emit_success_return(
     let slots: [(&[&str], Option<Vec<PayloadField>>); 3] = [
         (
             &["success"],
-            produced_shape::produced_payload(op_name.as_str(), arr.as_slice(), entity_definitions, registry, &|name| {
-                crate::phases::resolve::declared_struct_type(schema, name).ok().flatten()
-            }),
+            produced_shape::produced_payload(
+                op_name.as_str(),
+                arr.as_slice(),
+                entity_definitions,
+                registry,
+                &|name| {
+                    crate::phases::resolve::declared_struct_type(schema, name)
+                        .ok()
+                        .flatten()
+                },
+            ),
         ),
-        (&["failure"], produced_shape::produced_failure_payload(op_name.as_str(), arr.as_slice())),
-        (&["onMessage"], produced_shape::produced_message_payload(op_name.as_str(), arr.as_slice())),
+        (
+            &["failure"],
+            produced_shape::produced_failure_payload(op_name.as_str(), arr.as_slice()),
+        ),
+        (
+            &["onMessage"],
+            produced_shape::produced_message_payload(op_name.as_str(), arr.as_slice()),
+        ),
     ];
     for (emit_keys, produced) in slots {
         let Some(produced) = produced else { continue };
@@ -633,7 +698,17 @@ fn check_declared_against_produced(
     path: &str,
     result: &mut ValidationResult,
 ) {
-    check_fields_against_produced(op_name, emit_key, success_event, declared_payload, produced, false, "", path, result);
+    check_fields_against_produced(
+        op_name,
+        emit_key,
+        success_event,
+        declared_payload,
+        produced,
+        false,
+        "",
+        path,
+        result,
+    );
 }
 
 fn check_fields_against_produced(
@@ -699,10 +774,15 @@ fn check_fields_against_produced(
                     );
                     continue;
                 }
-                if let (Some(declared_members), Some(produced_members)) =
-                    (declared.properties.as_deref(), produced_field.properties.as_deref())
-                {
-                    let item = if declared.field_type.starts_with('[') { "[]" } else { "" };
+                if let (Some(declared_members), Some(produced_members)) = (
+                    declared.properties.as_deref(),
+                    produced_field.properties.as_deref(),
+                ) {
+                    let item = if declared.field_type.starts_with('[') {
+                        "[]"
+                    } else {
+                        ""
+                    };
                     check_fields_against_produced(
                         op_name,
                         emit_key,
@@ -782,18 +862,21 @@ fn describe_fields(fields: &[PayloadField]) -> String {
 /// slot never exists) and matched `"call_service"` (not an operator name — the
 /// real one is `call-service`). Scanning is also robust to persist's 3- vs 4-element forms.
 fn emit_event_for_key(args: &[SExpression], key: &str) -> Option<String> {
-    args.iter().rev().find_map(|value| {
-        let SExpression::Object(obj) = value else {
-            return None;
-        };
-        let SExpression::Object(emit_obj) = obj.get("emit")? else {
-            return None;
-        };
-        match emit_obj.get(key)? {
-            SExpression::String(s) => Some(s.clone()),
-            _ => None,
-        }
-    }).map(|v| v.into_inner())
+    args.iter()
+        .rev()
+        .find_map(|value| {
+            let SExpression::Object(obj) = value else {
+                return None;
+            };
+            let SExpression::Object(emit_obj) = obj.get("emit")? else {
+                return None;
+            };
+            match emit_obj.get(key)? {
+                SExpression::String(s) => Some(s.clone()),
+                _ => None,
+            }
+        })
+        .map(|v| v.into_inner())
 }
 
 /// Lenient primitive compatibility — delegated to orbital-core's canonical
@@ -808,7 +891,9 @@ fn emit_event_for_key(args: &[SExpression], key: &str) -> Option<String> {
 fn check_repeated_emits(effects: &[SExpression], path: &str, ctx: &mut ValidationContext) {
     let mut seen: Vec<&SExpression> = Vec::new();
     for (index, effect) in effects.iter().enumerate() {
-        let SExpression::Array(items) = effect else { continue };
+        let SExpression::Array(items) = effect else {
+            continue;
+        };
         match items.first() {
             Some(SExpression::String(head)) if head == "emit" => {
                 if seen.contains(&effect) {
@@ -824,14 +909,18 @@ fn check_repeated_emits(effects: &[SExpression], path: &str, ctx: &mut Validatio
                     seen.push(effect);
                 }
             }
-            Some(SExpression::String(head)) if matches!(head.as_str(), "render-ui" | "log" | "navigate" | "notify") => {}
+            Some(SExpression::String(head))
+                if matches!(head.as_str(), "render-ui" | "log" | "navigate" | "notify") => {}
             _ => seen.clear(),
         }
     }
 }
 
 /// The type a payload field declares; `None` for one with no shape, which `validate_type_shapes` reports.
-fn declared_oir(field: &PayloadField, schema: &OrbitalSchema) -> Option<orbital_core_base::ir::OirType> {
+fn declared_oir(
+    field: &PayloadField,
+    schema: &OrbitalSchema,
+) -> Option<orbital_core_base::ir::OirType> {
     crate::phases::resolve::payload_field_oir_type(field, schema).ok()
 }
 
@@ -853,8 +942,12 @@ fn list_item_mismatch(
     for item in items {
         match orbital_core_eval::literal_type::literal_value_type(item) {
             Some("array") => {
-                if let (SExpression::Array(inner), Some(inner_element)) = (item, list_element_type(element)) {
-                    if let Some(bad) = list_item_mismatch(inner_element, inner, type_ctx, schema_types) {
+                if let (SExpression::Array(inner), Some(inner_element)) =
+                    (item, list_element_type(element))
+                {
+                    if let Some(bad) =
+                        list_item_mismatch(inner_element, inner, type_ctx, schema_types)
+                    {
                         return Some(bad);
                     }
                 } else if !primitive_types_compatible(element, "array") {
@@ -870,8 +963,16 @@ fn list_item_mismatch(
                 let element_field = PayloadField {
                     nullable: None,
                     additional_properties: None,
-                    name: String::new(), field_type: element.to_string(), values: None, required: None,
-                    description: None, properties: None, type_when: None, entity: None, projected_from: None, items: None,
+                    name: String::new(),
+                    field_type: element.to_string(),
+                    values: None,
+                    required: None,
+                    description: None,
+                    properties: None,
+                    type_when: None,
+                    entity: None,
+                    projected_from: None,
+                    items: None,
                     relation: None,
                 };
                 if let Some(inferred) = declared_oir(&element_field, schema_types)
@@ -896,15 +997,22 @@ fn literal_record_type<C: crate::type_infer::TypeCtx>(
         SExpression::Object(members) => {
             let mut fields: Vec<OirField> = members
                 .iter()
-                .map(|(name, member)| OirField::new(name.clone(), literal_record_type(member, ctx, guard)))
+                .map(|(name, member)| {
+                    OirField::new(name.clone(), literal_record_type(member, ctx, guard))
+                })
                 .collect();
             fields.sort_by(|a, b| a.name.cmp(&b.name));
-            OirType::Struct { additional: None, fields: fields.into() }
+            OirType::Struct {
+                additional: None,
+                fields: fields.into(),
+            }
         }
         _ => crate::phases::resolve::resolve_sexpr_standalone(value)
             .ok()
             .and_then(|resolved| match guard {
-                Some(condition) => crate::type_infer::infer_under_condition(condition, &resolved, ctx),
+                Some(condition) => {
+                    crate::type_infer::infer_under_condition(condition, &resolved, ctx)
+                }
                 None => crate::type_infer::infer_oir_expr_type(&resolved, ctx),
             })
             .unwrap_or_else(OirType::erased),
@@ -924,14 +1032,19 @@ fn record_literal_incompatible<C: crate::type_infer::TypeCtx>(
     }
     let condition = guard.and_then(|g| crate::phases::resolve::resolve_sexpr_standalone(g).ok());
     let literal = literal_record_type(value, ctx, condition.as_ref());
-    let fits = orbital_core_base::type_compat::sub_with_named(&literal, declared, &|name| ctx.named_type(name))
-        .is_some_and(|c| !c.requires_cast());
+    let fits = orbital_core_base::type_compat::sub_with_named(&literal, declared, &|name| {
+        ctx.named_type(name)
+    })
+    .is_some_and(|c| !c.requires_cast());
     (!fits).then_some(literal)
 }
 
 /// The closed set (`"a" | "b"`) a string literal written inside `value` falls outside, read top-down through the
 /// declared type's records, lists and optionals; `None` when every string literal is a member or the slot is open.
-fn closed_set_misses(value: &SExpression, declared: &orbital_core_base::ir::OirType) -> Option<String> {
+fn closed_set_misses(
+    value: &SExpression,
+    declared: &orbital_core_base::ir::OirType,
+) -> Option<String> {
     use orbital_core_base::ir::OirType;
     match (value, declared) {
         (_, OirType::Optional { inner }) => closed_set_misses(value, inner),
@@ -944,10 +1057,12 @@ fn closed_set_misses(value: &SExpression, declared: &orbital_core_base::ir::OirT
         {
             items.iter().find_map(|item| closed_set_misses(item, inner))
         }
-        (SExpression::Object(members), OirType::Struct { fields, .. }) => members.iter().find_map(|(name, member)| {
-            let field = fields.iter().find(|field| &field.name == name)?;
-            closed_set_misses(member, &field.field_type)
-        }),
+        (SExpression::Object(members), OirType::Struct { fields, .. }) => {
+            members.iter().find_map(|(name, member)| {
+                let field = fields.iter().find(|field| &field.name == name)?;
+                closed_set_misses(member, &field.field_type)
+            })
+        }
         _ => None,
     }
 }
@@ -959,13 +1074,17 @@ fn record_item_incompatible<C: crate::type_infer::TypeCtx>(
     ctx: &C,
     guard: Option<&SExpression>,
 ) -> Option<orbital_core_base::ir::OirType> {
-    let (SExpression::Array(items), orbital_core_base::ir::OirType::Array { inner }) = (value, declared) else {
+    let (SExpression::Array(items), orbital_core_base::ir::OirType::Array { inner }) =
+        (value, declared)
+    else {
         return None;
     };
     if orbital_core_eval::literal_type::literal_value_type(value) != Some("array") {
         return None;
     }
-    items.iter().find_map(|item| record_literal_incompatible(item, inner, ctx, guard))
+    items
+        .iter()
+        .find_map(|item| record_literal_incompatible(item, inner, ctx, guard))
 }
 
 fn primitive_types_compatible(declared: &str, actual: &str) -> bool {
@@ -979,15 +1098,36 @@ mod tests {
     #[test]
     fn a_produced_point_in_time_is_only_ever_iso_text_of_its_own_shape() {
         for produced in ["datetime", "instant", "timestamp"] {
-            assert!(produced_type_accepts(produced, produced), "{produced} fits itself");
-            assert!(!produced_type_accepts(produced, "number"), "{produced} is not a number");
-            assert!(!produced_type_accepts(produced, "date"), "{produced} is not a date");
+            assert!(
+                produced_type_accepts(produced, produced),
+                "{produced} fits itself"
+            );
+            assert!(
+                !produced_type_accepts(produced, "number"),
+                "{produced} is not a number"
+            );
+            assert!(
+                !produced_type_accepts(produced, "date"),
+                "{produced} is not a date"
+            );
         }
         assert!(produced_type_accepts("date", "date"));
-        assert!(!produced_type_accepts("date", "number"), "a date is not a number");
-        assert!(!produced_type_accepts("date", "datetime"), "date and datetime never mix");
-        assert!(!produced_type_accepts("date", "instant"), "date and instant never mix");
-        assert!(produced_type_accepts("money", "number"), "control: money is numeric at rest");
+        assert!(
+            !produced_type_accepts("date", "number"),
+            "a date is not a number"
+        );
+        assert!(
+            !produced_type_accepts("date", "datetime"),
+            "date and datetime never mix"
+        );
+        assert!(
+            !produced_type_accepts("date", "instant"),
+            "date and instant never mix"
+        );
+        assert!(
+            produced_type_accepts("money", "number"),
+            "control: money is numeric at rest"
+        );
         assert!(!produced_type_accepts("money", "date"), "control");
     }
 
@@ -1113,43 +1253,92 @@ mod tests {
     }
 
     fn null_into_field(field_type: &str, nullable: bool, value: &str) -> usize {
-        let nullable = if nullable { r#", "nullable": true"# } else { "" };
+        let nullable = if nullable {
+            r#", "nullable": true"#
+        } else {
+            ""
+        };
         let ctx = check(
-            &format!(r#"{{ "event": "Parsed", "payloadSchema": [{{ "name": "n", "type": "{field_type}"{nullable} }}] }}"#),
+            &format!(
+                r#"{{ "event": "Parsed", "payloadSchema": [{{ "name": "n", "type": "{field_type}"{nullable} }}] }}"#
+            ),
             &format!(r#"["emit", "Parsed", {{ "n": {value} }}]"#),
         );
-        ctx.result.errors.iter().filter(|e| e.code == ErrorCode::OperatorNullOperand && e.message.contains("never null")).count()
+        ctx.result
+            .errors
+            .iter()
+            .filter(|e| {
+                e.code == ErrorCode::OperatorNullOperand && e.message.contains("never null")
+            })
+            .count()
     }
 
     #[test]
     fn a_failable_result_emitted_into_a_never_null_field_is_refused() {
         let parsed = r#"["str/to-number", "@entity.content"]"#;
-        assert_eq!(null_into_field("number", false, parsed), 1, "the parse can answer null");
-        assert_eq!(null_into_field("number", true, parsed), 0, "control: a nullable field takes it");
-        assert_eq!(null_into_field("number", false, r#"["or", ["str/to-number", "@entity.content"], 0]"#), 0, "control: a default answers it");
+        assert_eq!(
+            null_into_field("number", false, parsed),
+            1,
+            "the parse can answer null"
+        );
+        assert_eq!(
+            null_into_field("number", true, parsed),
+            0,
+            "control: a nullable field takes it"
+        );
+        assert_eq!(
+            null_into_field(
+                "number",
+                false,
+                r#"["or", ["str/to-number", "@entity.content"], 0]"#
+            ),
+            0,
+            "control: a default answers it"
+        );
     }
 
     fn null_member(nullable: bool, value: &str) -> usize {
-        let nullable = if nullable { r#", "nullable": true"# } else { "" };
+        let nullable = if nullable {
+            r#", "nullable": true"#
+        } else {
+            ""
+        };
         let ctx = check(
             &format!(
                 r#"{{ "event": "Parsed", "payloadSchema": [{{ "name": "units", "type": "[object]", "properties": [{{ "name": "content", "type": "string", "required": true{nullable} }}] }}] }}"#
             ),
-            &format!(r#"["emit", "Parsed", {{ "units": ["array/map", ["list", 1], ["fn", "r", {{ "content": {value} }}]] }}]"#),
+            &format!(
+                r#"["emit", "Parsed", {{ "units": ["array/map", ["list", 1], ["fn", "r", {{ "content": {value} }}]] }}]"#
+            ),
         );
         ctx.result
             .errors
             .iter()
-            .filter(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch && e.message.contains("builds a null"))
+            .filter(|e| {
+                e.code == ErrorCode::EmitPayloadFieldTypeMismatch
+                    && e.message.contains("builds a null")
+            })
             .count()
     }
 
     #[test]
     fn a_null_built_in_a_lambda_record_into_a_never_null_member_is_refused() {
         assert_eq!(null_member(false, "null"), 1);
-        assert_eq!(null_member(false, r#"["if", true, "a", null]"#), 1, "an if arm that is null");
-        assert_eq!(null_member(true, "null"), 0, "control: an optional member takes it");
-        assert_eq!(null_member(false, r#""text""#), 0, "control: a present string passes");
+        assert_eq!(
+            null_member(false, r#"["if", true, "a", null]"#),
+            1,
+            "an if arm that is null"
+        );
+        assert_eq!(
+            null_member(true, "null"),
+            0,
+            "control: an optional member takes it"
+        );
+        assert_eq!(
+            null_member(false, r#""text""#),
+            0,
+            "control: a present string passes"
+        );
     }
 
     fn narrowed_emit_findings(body: &str) -> usize {
@@ -1160,7 +1349,12 @@ mod tests {
         ctx.result
             .errors
             .iter()
-            .filter(|e| matches!(e.code, ErrorCode::EmitPayloadFieldTypeMismatch | ErrorCode::OperatorNullOperand))
+            .filter(|e| {
+                matches!(
+                    e.code,
+                    ErrorCode::EmitPayloadFieldTypeMismatch | ErrorCode::OperatorNullOperand
+                )
+            })
             .count()
     }
 
@@ -1168,13 +1362,45 @@ mod tests {
     fn a_null_test_on_a_let_local_narrows_it_in_an_emit_payload() {
         let emit = r#"["emit", "Parsed", { "n": "@x" }]"#;
         let fail = r#"["log", "info", "none"]"#;
-        assert_eq!(narrowed_emit_findings(emit), 1, "control: untested, the local may be null");
-        assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["=", "@x", null], {fail}, {emit}]"#)), 0, "else of an equality test");
-        assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["!=", "@x", null], {emit}, {fail}]"#)), 0, "then of an inequality test");
-        assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["and", true, ["!=", "@x", null]], {emit}, {fail}]"#)), 0, "inside an and chain");
-        assert_eq!(narrowed_emit_findings(&format!(r#"["when", ["!=", "@x", null], {emit}]"#)), 0, "when body");
-        assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["=", "@x", null], {emit}, {fail}]"#)), 1, "control: the null branch is not narrowed");
-        assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["or", ["!=", "@x", null], true], {emit}, {fail}]"#)), 1, "control: an or does not show it present");
+        assert_eq!(
+            narrowed_emit_findings(emit),
+            1,
+            "control: untested, the local may be null"
+        );
+        assert_eq!(
+            narrowed_emit_findings(&format!(r#"["if", ["=", "@x", null], {fail}, {emit}]"#)),
+            0,
+            "else of an equality test"
+        );
+        assert_eq!(
+            narrowed_emit_findings(&format!(r#"["if", ["!=", "@x", null], {emit}, {fail}]"#)),
+            0,
+            "then of an inequality test"
+        );
+        assert_eq!(
+            narrowed_emit_findings(&format!(
+                r#"["if", ["and", true, ["!=", "@x", null]], {emit}, {fail}]"#
+            )),
+            0,
+            "inside an and chain"
+        );
+        assert_eq!(
+            narrowed_emit_findings(&format!(r#"["when", ["!=", "@x", null], {emit}]"#)),
+            0,
+            "when body"
+        );
+        assert_eq!(
+            narrowed_emit_findings(&format!(r#"["if", ["=", "@x", null], {emit}, {fail}]"#)),
+            1,
+            "control: the null branch is not narrowed"
+        );
+        assert_eq!(
+            narrowed_emit_findings(&format!(
+                r#"["if", ["or", ["!=", "@x", null], true], {emit}, {fail}]"#
+            )),
+            1,
+            "control: an or does not show it present"
+        );
     }
 
     fn type_var_emit_findings(body: &str) -> Vec<String> {
@@ -1209,7 +1435,12 @@ mod tests {
         ctx.result
             .errors
             .iter()
-            .filter(|e| matches!(e.code, ErrorCode::EmitPayloadFieldTypeMismatch | ErrorCode::OperatorNullOperand))
+            .filter(|e| {
+                matches!(
+                    e.code,
+                    ErrorCode::EmitPayloadFieldTypeMismatch | ErrorCode::OperatorNullOperand
+                )
+            })
             .map(|e| e.message.clone())
             .collect()
     }
@@ -1218,17 +1449,47 @@ mod tests {
     fn a_null_test_narrows_a_type_variable_value_into_a_field_of_the_same_variable() {
         let emit = r#"["emit", "Granted", { "payload": "@held" }]"#;
         let fail = r#"["log", "info", "none"]"#;
-        assert_eq!(type_var_emit_findings(emit).len(), 1, "control: untested, the value may be null");
-        assert_eq!(type_var_emit_findings(&format!(r#"["if", ["=", "@held", null], {fail}, {emit}]"#)), Vec::<String>::new(), "else of an equality test");
-        assert_eq!(type_var_emit_findings(&format!(r#"["if", ["!=", "@held", null], {emit}, {fail}]"#)), Vec::<String>::new(), "then of an inequality test");
-        assert_eq!(type_var_emit_findings(&format!(r#"["if", ["validate/required", "@held"], {emit}, {fail}]"#)), Vec::<String>::new(), "validate/required");
         assert_eq!(
-            type_var_emit_findings(&format!(r#"["if", true, ["if", ["!=", "@held", null], {emit}, {fail}], {fail}]"#)),
+            type_var_emit_findings(emit).len(),
+            1,
+            "control: untested, the value may be null"
+        );
+        assert_eq!(
+            type_var_emit_findings(&format!(r#"["if", ["=", "@held", null], {fail}, {emit}]"#)),
+            Vec::<String>::new(),
+            "else of an equality test"
+        );
+        assert_eq!(
+            type_var_emit_findings(&format!(r#"["if", ["!=", "@held", null], {emit}, {fail}]"#)),
+            Vec::<String>::new(),
+            "then of an inequality test"
+        );
+        assert_eq!(
+            type_var_emit_findings(&format!(
+                r#"["if", ["validate/required", "@held"], {emit}, {fail}]"#
+            )),
+            Vec::<String>::new(),
+            "validate/required"
+        );
+        assert_eq!(
+            type_var_emit_findings(&format!(
+                r#"["if", true, ["if", ["!=", "@held", null], {emit}, {fail}], {fail}]"#
+            )),
             Vec::<String>::new(),
             "nested if"
         );
-        assert_eq!(type_var_emit_findings(&format!(r#"["if", ["=", "@held", null], {emit}, {fail}]"#)).len(), 1, "control: the null branch is not narrowed");
-        assert_eq!(type_var_emit_findings(&format!(r#"["if", ["!=", "@held", null], {fail}, {emit}]"#)).len(), 1, "control: else of an inequality test");
+        assert_eq!(
+            type_var_emit_findings(&format!(r#"["if", ["=", "@held", null], {emit}, {fail}]"#))
+                .len(),
+            1,
+            "control: the null branch is not narrowed"
+        );
+        assert_eq!(
+            type_var_emit_findings(&format!(r#"["if", ["!=", "@held", null], {fail}, {emit}]"#))
+                .len(),
+            1,
+            "control: else of an inequality test"
+        );
     }
 
     fn parsed_time_emit_findings(field: &str, value: &str) -> usize {
@@ -1241,7 +1502,12 @@ mod tests {
         ctx.result
             .errors
             .iter()
-            .filter(|e| matches!(e.code, ErrorCode::EmitPayloadFieldTypeMismatch | ErrorCode::OperatorNullOperand))
+            .filter(|e| {
+                matches!(
+                    e.code,
+                    ErrorCode::EmitPayloadFieldTypeMismatch | ErrorCode::OperatorNullOperand
+                )
+            })
             .count()
     }
 
@@ -1249,27 +1515,82 @@ mod tests {
 
     #[test]
     fn a_union_field_accepts_a_value_whose_members_are_all_its_members() {
-        assert_eq!(parsed_time_emit_findings(DATE_OR_DATETIME, r#""@x""#), 0, "date | datetime into date | datetime");
-        assert_eq!(parsed_time_emit_findings(&format!(r#"{DATE_OR_DATETIME}, "nullable": true"#), r#""@x""#), 0, "into the optional union");
-        assert_eq!(parsed_time_emit_findings(r#""type": "number""#, r#""@x""#), 1, "control: a number refuses it");
-        assert_eq!(parsed_time_emit_findings(r#""type": "datetime""#, r#""@x""#), 1, "control: no implicit date | datetime into datetime");
-        assert_eq!(parsed_time_emit_findings(r#""type": "instant""#, r#""@x""#), 1, "control: no implicit date | datetime into instant");
+        assert_eq!(
+            parsed_time_emit_findings(DATE_OR_DATETIME, r#""@x""#),
+            0,
+            "date | datetime into date | datetime"
+        );
+        assert_eq!(
+            parsed_time_emit_findings(
+                &format!(r#"{DATE_OR_DATETIME}, "nullable": true"#),
+                r#""@x""#
+            ),
+            0,
+            "into the optional union"
+        );
+        assert_eq!(
+            parsed_time_emit_findings(r#""type": "number""#, r#""@x""#),
+            1,
+            "control: a number refuses it"
+        );
+        assert_eq!(
+            parsed_time_emit_findings(r#""type": "datetime""#, r#""@x""#),
+            1,
+            "control: no implicit date | datetime into datetime"
+        );
+        assert_eq!(
+            parsed_time_emit_findings(r#""type": "instant""#, r#""@x""#),
+            1,
+            "control: no implicit date | datetime into instant"
+        );
     }
 
     #[test]
     fn as_narrows_a_parsed_time_to_datetime_or_instant() {
-        assert_eq!(parsed_time_emit_findings(r#""type": "datetime", "nullable": true"#, r#"["as", "@x", "datetime"]"#), 0);
-        assert_eq!(parsed_time_emit_findings(r#""type": "instant", "nullable": true"#, r#"["as", "@x", "instant"]"#), 0);
-        assert_eq!(parsed_time_emit_findings(r#""type": "date", "nullable": true"#, r#"["as", "@x", "date"]"#), 0);
-        assert!(parsed_time_emit_findings(r#""type": "datetime""#, r#"["as", "@x", "datetime"]"#) > 0, "control: the narrowing can answer null, so a never-null field refuses it");
-        assert!(parsed_time_emit_findings(r#""type": "number", "nullable": true"#, r#"["as", "@x", "instant"]"#) > 0, "control: an instant is not a number");
+        assert_eq!(
+            parsed_time_emit_findings(
+                r#""type": "datetime", "nullable": true"#,
+                r#"["as", "@x", "datetime"]"#
+            ),
+            0
+        );
+        assert_eq!(
+            parsed_time_emit_findings(
+                r#""type": "instant", "nullable": true"#,
+                r#"["as", "@x", "instant"]"#
+            ),
+            0
+        );
+        assert_eq!(
+            parsed_time_emit_findings(
+                r#""type": "date", "nullable": true"#,
+                r#"["as", "@x", "date"]"#
+            ),
+            0
+        );
+        assert!(
+            parsed_time_emit_findings(r#""type": "datetime""#, r#"["as", "@x", "datetime"]"#) > 0,
+            "control: the narrowing can answer null, so a never-null field refuses it"
+        );
+        assert!(
+            parsed_time_emit_findings(
+                r#""type": "number", "nullable": true"#,
+                r#"["as", "@x", "instant"]"#
+            ) > 0,
+            "control: an instant is not a number"
+        );
     }
 
     #[test]
     fn a_null_test_does_not_narrow_a_shadowing_let_in_the_branch() {
         let emit = r#"["emit", "Parsed", { "n": "@x" }]"#;
         let shadowed = format!(r#"["let", [["x", ["str/to-number", "@entity.content"]]], {emit}]"#);
-        assert_eq!(narrowed_emit_findings(&format!(r#"["if", ["!=", "@x", null], {shadowed}, ["log", "info", "none"]]"#)), 1);
+        assert_eq!(
+            narrowed_emit_findings(&format!(
+                r#"["if", ["!=", "@x", null], {shadowed}, ["log", "info", "none"]]"#
+            )),
+            1
+        );
     }
 
     const CREATE_FAILING: &str = r#"["persist", "create", "ThreadPost", { "content": "@entity.content" }, { "emit": { "failure": "ThreadPostFailed" } }]"#;
@@ -1331,7 +1652,10 @@ mod tests {
             .result
             .errors
             .iter()
-            .filter(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch || e.code == ErrorCode::EmitPayloadMissingRequired)
+            .filter(|e| {
+                e.code == ErrorCode::EmitPayloadFieldTypeMismatch
+                    || e.code == ErrorCode::EmitPayloadMissingRequired
+            })
             .map(|e| e.path.clone())
             .collect()
     }
@@ -1342,7 +1666,10 @@ mod tests {
 
     #[test]
     fn an_emit_in_a_let_body_is_checked_like_a_top_level_one() {
-        let paths = viewer_mismatch_paths(&format!(r#"["let", [["k", "x"]], {}]"#, emit_viewer(BAD_VIEWER)));
+        let paths = viewer_mismatch_paths(&format!(
+            r#"["let", [["k", "x"]], {}]"#,
+            emit_viewer(BAD_VIEWER)
+        ));
         assert_eq!(paths.len(), 1, "{paths:?}");
         assert!(paths[0].ends_with(".effects[0].body[0]"), "{paths:?}");
     }
@@ -1350,27 +1677,49 @@ mod tests {
     #[test]
     fn a_well_formed_emit_in_a_let_body_stays_clean() {
         let good = r#"{ "id": "@k", "claims": [] }"#;
-        assert!(viewer_mismatch_paths(&format!(r#"["let", [["k", "x"]], {}]"#, emit_viewer(good))).is_empty());
-        assert!(viewer_mismatch_paths(&format!(r#"["let", [["k", "x"]], {}]"#, emit_viewer(GOOD_VIEWER))).is_empty());
+        assert!(
+            viewer_mismatch_paths(&format!(r#"["let", [["k", "x"]], {}]"#, emit_viewer(good)))
+                .is_empty()
+        );
+        assert!(viewer_mismatch_paths(&format!(
+            r#"["let", [["k", "x"]], {}]"#,
+            emit_viewer(GOOD_VIEWER)
+        ))
+        .is_empty());
     }
 
     #[test]
     fn an_emit_in_a_nested_let_is_checked() {
-        let nested = format!(r#"["let", [["a", "x"]], ["let", [["b", "@a"]], {}]]"#, emit_viewer(BAD_VIEWER));
+        let nested = format!(
+            r#"["let", [["a", "x"]], ["let", [["b", "@a"]], {}]]"#,
+            emit_viewer(BAD_VIEWER)
+        );
         let paths = viewer_mismatch_paths(&nested);
         assert_eq!(paths.len(), 1, "{paths:?}");
-        assert!(paths[0].ends_with(".effects[0].body[0].body[0]"), "{paths:?}");
-        let clean = format!(r#"["let", [["a", "x"]], ["let", [["b", "@a"]], {}]]"#, emit_viewer(GOOD_VIEWER));
+        assert!(
+            paths[0].ends_with(".effects[0].body[0].body[0]"),
+            "{paths:?}"
+        );
+        let clean = format!(
+            r#"["let", [["a", "x"]], ["let", [["b", "@a"]], {}]]"#,
+            emit_viewer(GOOD_VIEWER)
+        );
         assert!(viewer_mismatch_paths(&clean).is_empty());
     }
 
     #[test]
     fn an_emit_in_an_if_branch_is_checked() {
-        let then_arm = format!(r#"["if", true, {}, ["log", "info", "no"]]"#, emit_viewer(BAD_VIEWER));
+        let then_arm = format!(
+            r#"["if", true, {}, ["log", "info", "no"]]"#,
+            emit_viewer(BAD_VIEWER)
+        );
         let paths = viewer_mismatch_paths(&then_arm);
         assert_eq!(paths.len(), 1, "{paths:?}");
         assert!(paths[0].ends_with(".effects[0].then"), "{paths:?}");
-        let else_arm = format!(r#"["if", true, ["log", "info", "yes"], {}]"#, emit_viewer(BAD_VIEWER));
+        let else_arm = format!(
+            r#"["if", true, ["log", "info", "yes"], {}]"#,
+            emit_viewer(BAD_VIEWER)
+        );
         let paths = viewer_mismatch_paths(&else_arm);
         assert_eq!(paths.len(), 1, "{paths:?}");
         assert!(paths[0].ends_with(".effects[0].else"), "{paths:?}");
@@ -1380,7 +1729,10 @@ mod tests {
 
     #[test]
     fn an_emit_in_a_do_block_and_a_when_body_is_checked() {
-        let in_do = format!(r#"["do", ["log", "info", "a"], {}]"#, emit_viewer(BAD_VIEWER));
+        let in_do = format!(
+            r#"["do", ["log", "info", "a"], {}]"#,
+            emit_viewer(BAD_VIEWER)
+        );
         let paths = viewer_mismatch_paths(&in_do);
         assert_eq!(paths.len(), 1, "{paths:?}");
         assert!(paths[0].ends_with(".effects[0].do[1]"), "{paths:?}");
@@ -1400,10 +1752,14 @@ mod tests {
         );
         let paths = viewer_mismatch_paths(&deep);
         assert_eq!(paths.len(), 1, "{paths:?}");
-        assert!(paths[0].ends_with(".effects[0].do[0].then.body[0]"), "{paths:?}");
+        assert!(
+            paths[0].ends_with(".effects[0].do[0].then.body[0]"),
+            "{paths:?}"
+        );
     }
 
-    const EXEC_EMIT: &str = r#"{ "event": "EXEC", "payloadSchema": [{ "name": "argv", "type": "[string]" }] }"#;
+    const EXEC_EMIT: &str =
+        r#"{ "event": "EXEC", "payloadSchema": [{ "name": "argv", "type": "[string]" }] }"#;
 
     fn list_slot_mismatch(argv: &str) -> bool {
         let effect = format!(r#"["emit", "EXEC", {{ "argv": {argv} }}]"#);
@@ -1443,7 +1799,10 @@ mod tests {
         let schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
         let mut ctx = ctx_with_seeded_entities(&schema);
         validate_all_emit_payloads(&schema, &mut ctx);
-        ctx.result.errors.iter().any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
+        ctx.result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
     }
 
     /// `json/parse` over a list alias is the list the alias names (null on a misfit), so with a fallback it fills a list slot.
@@ -1472,7 +1831,10 @@ mod tests {
         let schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
         let mut ctx = ctx_with_seeded_entities(&schema);
         validate_all_emit_payloads(&schema, &mut ctx);
-        ctx.result.errors.iter().any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
+        ctx.result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
     }
 
     fn embeddings_expr(inner: &str) -> String {
@@ -1487,14 +1849,16 @@ mod tests {
     /// The element type survives `array/map` over `array/sort`, `array/nth` and `object/get` with a default.
     #[test]
     fn a_mapped_list_of_embeddings_keeps_its_element_type() {
-        let embedding = r#"["object/get", ["array/nth", "@data", ["math/mod", "@k", "@n"]], "embedding", []]"#;
+        let embedding =
+            r#"["object/get", ["array/nth", "@data", ["math/mod", "@k", "@n"]], "embedding", []]"#;
         assert!(!embeddings_mismatch(&embeddings_expr(embedding)));
     }
 
     /// NEGATIVE CONTROL: a genuinely wrong element type is still refused.
     #[test]
     fn a_mapped_list_of_numbers_is_not_a_list_of_embeddings() {
-        let index = r#"["object/get", ["array/nth", "@data", ["math/mod", "@k", "@n"]], "index", 0]"#;
+        let index =
+            r#"["object/get", ["array/nth", "@data", ["math/mod", "@k", "@n"]], "index", 0]"#;
         assert!(embeddings_mismatch(&embeddings_expr(index)));
     }
 
@@ -1538,12 +1902,16 @@ mod tests {
         }
         let mut ctx = ctx_with_seeded_entities(&schema);
         validate_all_emit_payloads(&schema, &mut ctx);
-        ctx.result.errors.iter().any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
+        ctx.result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
     }
 
     const ECHO_ACCEPTED: &str = r#"["array/reverse", "@payload.accepted"]"#;
     const NUMBERS: &str = r#"["array/map", "@payload.accepted", ["fn", "x", 1]]"#;
-    const STRINGS: &str = r#"["array/map", "@payload.accepted", ["fn", "x", ["str/concat", "a", "b"]]]"#;
+    const STRINGS: &str =
+        r#"["array/map", "@payload.accepted", ["fn", "x", ["str/concat", "a", "b"]]]"#;
 
     /// A generic trait that emits the list it was handed validates clean when the parameter falls back to its default.
     #[test]
@@ -1553,8 +1921,12 @@ mod tests {
 
     /// EDGE: the same emit validates when the call site binds the parameter to something other than the default.
     #[test]
-    fn a_generic_trait_emitting_its_own_type_parameter_list_validates_when_bound_differently_from_its_default() {
-        assert!(!generic_emit_mismatch(r#"{ "e": "number" }"#, ECHO_ACCEPTED));
+    fn a_generic_trait_emitting_its_own_type_parameter_list_validates_when_bound_differently_from_its_default(
+    ) {
+        assert!(!generic_emit_mismatch(
+            r#"{ "e": "number" }"#,
+            ECHO_ACCEPTED
+        ));
     }
 
     /// CONTROL: a list of numbers into `[e]` still errors when `e` resolves to `string`, by default or by binding.
@@ -1606,12 +1978,21 @@ mod tests {
         let schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
         let mut ctx = ctx_with_seeded_entities(&schema);
         for orbital in &schema.orbitals {
-            for entity in orbital.auxiliary_entities.iter().flatten().filter_map(|e| e.as_inline()) {
-                ctx.entity_definitions.insert(entity.name.clone(), entity.clone());
+            for entity in orbital
+                .auxiliary_entities
+                .iter()
+                .flatten()
+                .filter_map(|e| e.as_inline())
+            {
+                ctx.entity_definitions
+                    .insert(entity.name.clone(), entity.clone());
             }
         }
         validate_all_emit_payloads(&schema, &mut ctx);
-        ctx.result.errors.iter().any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
+        ctx.result
+            .errors
+            .iter()
+            .any(|e| e.code == ErrorCode::EmitPayloadFieldTypeMismatch)
     }
 
     /// Rows held as embedded rows fill a `[DataPoint]` row slot.
@@ -1640,15 +2021,21 @@ mod tests {
     #[test]
     fn an_emit_repeated_identically_in_one_transition_is_flagged() {
         assert!(repeats(r#"["emit", "PING", {}], ["emit", "PING", {}]"#));
-        assert!(repeats(r#"["emit", "PING", { "a": 1 }], ["render-ui", "main", { "type": "typography" }], ["emit", "PING", { "a": 1 }]"#));
+        assert!(repeats(
+            r#"["emit", "PING", { "a": 1 }], ["render-ui", "main", { "type": "typography" }], ["emit", "PING", { "a": 1 }]"#
+        ));
     }
 
     /// NEGATIVE CONTROLS — a different payload, a different event, or a write between the two is not a repeat.
     #[test]
     fn emits_that_differ_or_straddle_a_write_are_not_flagged() {
-        assert!(!repeats(r#"["emit", "PING", { "a": 1 }], ["emit", "PING", { "a": 2 }]"#));
+        assert!(!repeats(
+            r#"["emit", "PING", { "a": 1 }], ["emit", "PING", { "a": 2 }]"#
+        ));
         assert!(!repeats(r#"["emit", "PING", {}], ["emit", "PONG", {}]"#));
-        assert!(!repeats(r#"["emit", "PING", {}], ["set", "@entity.id", "x"], ["emit", "PING", {}]"#));
+        assert!(!repeats(
+            r#"["emit", "PING", {}], ["set", "@entity.id", "x"], ["emit", "PING", {}]"#
+        ));
         assert!(!repeats(r#"["emit", "PING", {}]"#));
     }
 
@@ -1668,29 +2055,49 @@ mod tests {
     /// NEGATIVE CONTROL — `error` is what the kernel sends.
     #[test]
     fn fetch_failure_declaring_error_does_not_warn() {
-        let ctx = check(r#"{ "event": "ThreadPostsFailed", "payloadSchema": [{ "name": "error", "type": "string" }] }"#, FETCH_FAILING);
+        let ctx = check(
+            r#"{ "event": "ThreadPostsFailed", "payloadSchema": [{ "name": "error", "type": "string" }] }"#,
+            FETCH_FAILING,
+        );
         assert!(!has_wrapped(&ctx, "ThreadPostsFailed"));
     }
 
-    const FETCH_ROUTES: &str = r#""emit": { "success": "ThreadPostsLoaded", "failure": "ThreadPostsFailed" }"#;
+    const FETCH_ROUTES: &str =
+        r#""emit": { "success": "ThreadPostsLoaded", "failure": "ThreadPostsFailed" }"#;
     const KEYED_FETCH_LOADED: &str = r#"{ "event": "ThreadPostsLoaded", "payloadSchema": [{ "name": "data", "type": "array" }, { "name": "key", "type": "string" }] }"#;
     const KEYED_FETCH_FAILED: &str = r#"{ "event": "ThreadPostsFailed", "payloadSchema": [{ "name": "error", "type": "string" }, { "name": "key", "type": "string" }] }"#;
 
     /// A keyed `fetch` echoes its `key` in both completions (EXEC-FETCH-3), so an event declaring it validates.
     #[test]
     fn a_keyed_fetch_declaring_its_key_on_success_and_failure_does_not_warn() {
-        let keyed = format!(r#"["fetch", "ThreadPost", {{ "key": "@entity.id", {FETCH_ROUTES} }}]"#);
-        assert!(!has_wrapped(&check(KEYED_FETCH_LOADED, &keyed), "ThreadPostsLoaded"));
-        assert!(!has_wrapped(&check(KEYED_FETCH_FAILED, &keyed), "ThreadPostsFailed"));
+        let keyed =
+            format!(r#"["fetch", "ThreadPost", {{ "key": "@entity.id", {FETCH_ROUTES} }}]"#);
+        assert!(!has_wrapped(
+            &check(KEYED_FETCH_LOADED, &keyed),
+            "ThreadPostsLoaded"
+        ));
+        assert!(!has_wrapped(
+            &check(KEYED_FETCH_FAILED, &keyed),
+            "ThreadPostsFailed"
+        ));
     }
 
     /// CONTROL — an unkeyed fetch (no `key`, or a null one) delivers no `key`, so a declared one warns.
     #[test]
     fn an_unkeyed_fetch_declaring_a_key_warns() {
-        for options in [FETCH_ROUTES.to_string(), format!(r#""key": null, {FETCH_ROUTES}"#)] {
+        for options in [
+            FETCH_ROUTES.to_string(),
+            format!(r#""key": null, {FETCH_ROUTES}"#),
+        ] {
             let unkeyed = format!(r#"["fetch", "ThreadPost", {{ {options} }}]"#);
-            assert!(has_wrapped(&check(KEYED_FETCH_LOADED, &unkeyed), "ThreadPostsLoaded"), "{options}");
-            assert!(has_wrapped(&check(KEYED_FETCH_FAILED, &unkeyed), "ThreadPostsFailed"), "{options}");
+            assert!(
+                has_wrapped(&check(KEYED_FETCH_LOADED, &unkeyed), "ThreadPostsLoaded"),
+                "{options}"
+            );
+            assert!(
+                has_wrapped(&check(KEYED_FETCH_FAILED, &unkeyed), "ThreadPostsFailed"),
+                "{options}"
+            );
         }
     }
 
@@ -1704,7 +2111,10 @@ mod tests {
             r#"["program/dispatch", { "inbound": "hook", "body": "", "headers": {} }, { "key": "@entity.id", "emit": { "failure": "HOOK_FAILED" } }]"#,
             r#"["program/dispatch", "O.T.E", {}, { "wire": true, "orbital": "O", "event": "E" }, { "key": "k", "emit": { "failure": "HOOK_FAILED" } }]"#,
         ] {
-            assert!(!has_wrapped(&check(KEYED_FAILED, effect), "HOOK_FAILED"), "{effect}");
+            assert!(
+                !has_wrapped(&check(KEYED_FAILED, effect), "HOOK_FAILED"),
+                "{effect}"
+            );
         }
     }
 
@@ -1717,7 +2127,10 @@ mod tests {
             r#"["program/dispatch", "O.T.E", { "key": "data" }, { "emit": { "failure": "HOOK_FAILED" } }]"#,
             r#"["program/dispatch", "O.T.E", {}, { "emit": { "failure": "HOOK_FAILED" }, "key": null }]"#,
         ] {
-            assert!(has_wrapped(&check(KEYED_FAILED, effect), "HOOK_FAILED"), "{effect}");
+            assert!(
+                has_wrapped(&check(KEYED_FAILED, effect), "HOOK_FAILED"),
+                "{effect}"
+            );
         }
     }
 
@@ -1770,7 +2183,8 @@ mod tests {
         );
     }
 
-    const CREDENTIAL_LIST: &str = r#"["credential-list", {}, { "emit": { "success": "CredListed" } }]"#;
+    const CREDENTIAL_LIST: &str =
+        r#"["credential-list", {}, { "emit": { "success": "CredListed" } }]"#;
 
     fn nested_findings(ctx: &ValidationContext) -> Vec<String> {
         ctx.result
@@ -1792,14 +2206,34 @@ mod tests {
 
     fn declared_items(names: &[&str]) -> Vec<PayloadField> {
         let mut list = produced_shape::scalar_field("entries", "[object]");
-        list.properties = Some(names.iter().map(|n| produced_shape::scalar_field(n, "string")).collect());
+        list.properties = Some(
+            names
+                .iter()
+                .map(|n| produced_shape::scalar_field(n, "string"))
+                .collect(),
+        );
         vec![list]
     }
 
     fn nested_check(declared: &[&str], open: bool) -> Vec<String> {
-        let produced = vec![item("entries", vec![produced_shape::scalar_field("service", "string"), produced_shape::scalar_field("name", "string")], open)];
+        let produced = vec![item(
+            "entries",
+            vec![
+                produced_shape::scalar_field("service", "string"),
+                produced_shape::scalar_field("name", "string"),
+            ],
+            open,
+        )];
         let mut found = ValidationResult::new();
-        check_declared_against_produced("op", "success", "Ev", &declared_items(declared), &produced, "p", &mut found);
+        check_declared_against_produced(
+            "op",
+            "success",
+            "Ev",
+            &declared_items(declared),
+            &produced,
+            "p",
+            &mut found,
+        );
         found.errors.iter().map(|e| e.message.clone()).collect()
     }
 
@@ -1812,34 +2246,52 @@ mod tests {
 
     #[test]
     fn a_list_item_field_the_operator_emits_is_clean() {
-        assert_eq!(nested_check(&["service", "name"], false), Vec::<String>::new());
+        assert_eq!(
+            nested_check(&["service", "name"], false),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
     fn an_undeclared_field_read_under_an_open_item_is_clean() {
-        assert_eq!(nested_check(&["service", "envVar"], true), Vec::<String>::new());
+        assert_eq!(
+            nested_check(&["service", "envVar"], true),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
     fn an_open_item_of_the_operator_table_admits_an_undeclared_field() {
         let emit = r#"{ "event": "CredListed", "payloadSchema": [{ "name": "declared", "type": "[object]", "properties": [{ "name": "group", "type": "string" }, { "name": "extra", "type": "string" }] }] }"#;
-        assert_eq!(nested_findings(&check(emit, CREDENTIAL_LIST)), Vec::<String>::new());
+        assert_eq!(
+            nested_findings(&check(emit, CREDENTIAL_LIST)),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
     fn a_top_level_field_the_operator_never_emits_still_names_the_bare_field() {
-        let emit = r#"{ "event": "CredListed", "payloadSchema": [{ "name": "nope", "type": "string" }] }"#;
+        let emit =
+            r#"{ "event": "CredListed", "payloadSchema": [{ "name": "nope", "type": "string" }] }"#;
         let found = nested_findings(&check(emit, CREDENTIAL_LIST));
         assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("'nope'") && !found[0].contains("[]"), "{found:?}");
+        assert!(
+            found[0].contains("'nope'") && !found[0].contains("[]"),
+            "{found:?}"
+        );
     }
 
-    const TICK: &str = r#"["program/tick", "@entity.program", { "emit": { "success": "Ticked" } }]"#;
-    const TICK_KEYED: &str = r#"["program/tick", "@entity.program", { "key": "k", "emit": { "success": "Ticked" } }]"#;
+    const TICK: &str =
+        r#"["program/tick", "@entity.program", { "emit": { "success": "Ticked" } }]"#;
+    const TICK_KEYED: &str =
+        r#"["program/tick", "@entity.program", { "key": "k", "emit": { "success": "Ticked" } }]"#;
     const CATALOG: &str = r#"["behavior/catalog", { "emit": { "success": "Ticked" } }]"#;
 
     fn ticked(result_type: &str, items: &[(&str, &str)]) -> String {
-        let members: Vec<String> = items.iter().map(|(n, t)| format!(r#"{{ "name": "{n}", "type": "{t}" }}"#)).collect();
+        let members: Vec<String> = items
+            .iter()
+            .map(|(n, t)| format!(r#"{{ "name": "{n}", "type": "{t}" }}"#))
+            .collect();
         format!(
             r#"{{ "event": "Ticked", "payloadSchema": [{{ "name": "result", "type": "object", "properties": [{{ "name": "ran", "type": "{result_type}", "properties": [{}] }}] }}] }}"#,
             members.join(", ")
@@ -1848,7 +2300,14 @@ mod tests {
 
     #[test]
     fn a_program_op_result_item_field_the_return_type_lacks_is_refused() {
-        let emit = ticked("[WalkTick]", &[("trait", "string"), ("tick", "string"), ("guarded", "boolean")]);
+        let emit = ticked(
+            "[WalkTick]",
+            &[
+                ("trait", "string"),
+                ("tick", "string"),
+                ("guarded", "boolean"),
+            ],
+        );
         let found = nested_findings(&check(&emit, TICK));
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].contains("'result.ran[].guarded'"), "{found:?}");
@@ -1868,7 +2327,8 @@ mod tests {
 
     #[test]
     fn a_program_op_payload_field_beside_result_that_it_never_carries_is_refused() {
-        let emit = r#"{ "event": "Ticked", "payloadSchema": [{ "name": "rows", "type": "string" }] }"#;
+        let emit =
+            r#"{ "event": "Ticked", "payloadSchema": [{ "name": "rows", "type": "string" }] }"#;
         let found = nested_findings(&check(emit, TICK));
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].contains("'rows'"), "{found:?}");
@@ -1876,23 +2336,39 @@ mod tests {
 
     #[test]
     fn a_program_op_key_is_carried_only_when_the_call_names_one() {
-        let emit = r#"{ "event": "Ticked", "payloadSchema": [{ "name": "key", "type": "string" }] }"#;
-        assert_eq!(nested_findings(&check(emit, TICK_KEYED)), Vec::<String>::new());
+        let emit =
+            r#"{ "event": "Ticked", "payloadSchema": [{ "name": "key", "type": "string" }] }"#;
+        assert_eq!(
+            nested_findings(&check(emit, TICK_KEYED)),
+            Vec::<String>::new()
+        );
         assert_eq!(nested_findings(&check(emit, TICK)).len(), 1);
     }
 
     #[test]
     fn an_agent_port_op_carries_its_result_as_text_and_a_program_op_does_not() {
-        let dispatch = r#"["program/dispatch", "Api.Hook.CALLED", {}, { "emit": { "success": "Ticked" } }]"#;
-        let emit = r#"{ "event": "Ticked", "payloadSchema": [{ "name": "text", "type": "string" }] }"#;
-        assert_eq!(nested_findings(&check(emit, dispatch)), Vec::<String>::new());
-        assert_eq!(nested_findings(&check(emit, TICK)).len(), 1, "control: program/tick answers no text");
+        let dispatch =
+            r#"["program/dispatch", "Api.Hook.CALLED", {}, { "emit": { "success": "Ticked" } }]"#;
+        let emit =
+            r#"{ "event": "Ticked", "payloadSchema": [{ "name": "text", "type": "string" }] }"#;
+        assert_eq!(
+            nested_findings(&check(emit, dispatch)),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            nested_findings(&check(emit, TICK)).len(),
+            1,
+            "control: program/tick answers no text"
+        );
     }
 
     #[test]
     fn a_program_op_whose_return_type_names_an_unspelled_type_is_not_judged() {
         let schema = r#"{ "event": "Ticked", "payloadSchema": [{ "name": "result", "type": "[Anything]", "properties": [{ "name": "whatever", "type": "string" }] }] }"#;
-        assert_eq!(nested_findings(&check(schema, CATALOG)), Vec::<String>::new());
+        assert_eq!(
+            nested_findings(&check(schema, CATALOG)),
+            Vec::<String>::new()
+        );
     }
 
     /// POSITIVE CONTROL — a wrapper naming a DIFFERENT entity is still a
