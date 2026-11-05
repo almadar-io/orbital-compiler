@@ -1356,6 +1356,22 @@ fn check_config_default_shape(
         }
         return result;
     }
+    if let Some(arms) = union_arms(field.values.as_ref(), field.properties.as_ref()) {
+        if let SExpression::String(s) = default {
+            if !s.starts_with('@') && !arms.iter().any(|(_, def)| def.field_type == FieldType::String) {
+                result.add_error(ValidationError::error(
+                    ErrorCode::TraitConfigShapeMismatch,
+                    path,
+                    format!(
+                        "config default '{}' fits no arm of the union ({})",
+                        s,
+                        arms.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ")
+                    ),
+                ));
+            }
+            return result;
+        }
+    }
     // Closed-string enum (lolo `"a" | "b" | "c"` lowers to
     // `field_type: "string"` + `values: ["a","b","c"]`). Default must be
     // one of the listed strings.
@@ -1883,6 +1899,20 @@ pub(crate) fn check_field_def_shape(
         _ => {
             // Primitive leaf — enum first (closed-string union), then
             // structural type.
+            if let (Some(arms), SExpression::String(s)) = (union_arms(schema.values.as_ref(), schema.properties.as_ref()), value) {
+                if !s.starts_with('@') && !arms.iter().any(|(_, def)| def.field_type == FieldType::String) {
+                    result.add_error(ValidationError::error(
+                        ErrorCode::TraitConfigShapeMismatch,
+                        path,
+                        format!(
+                            "'{}' fits no arm of the union ({})",
+                            s,
+                            arms.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ")
+                        ),
+                    ));
+                }
+                return result;
+            }
             if let Some(values) = &schema.values {
                 if let SExpression::String(s) = value {
                     if !s.starts_with('@') && !values.iter().any(|v| v == s) {
@@ -3576,4 +3606,15 @@ mod payload_of_member_tests {
         let result = run("@config.action", r#"{ "bogus": 2 }"#);
         assert!(mismatches(&result).iter().all(|m| !m.contains("bogus")), "{:?}", result.errors);
     }
+}
+
+/// The arms of a union knob or field: `values` names them and `properties` carries each one's shape (the union
+/// carrier); a closed-string enum has `values` alone and is not a union.
+fn union_arms<'a>(
+    values: Option<&'a Vec<String>>,
+    properties: Option<&'a orbital_core_base::collections::IndexMap<String, FieldDefinition>>,
+) -> Option<Vec<(&'a String, &'a FieldDefinition)>> {
+    let (values, properties) = (values?, properties?);
+    let arms: Vec<_> = values.iter().filter_map(|name| properties.get(name).map(|def| (name, def))).collect();
+    (!arms.is_empty()).then_some(arms)
 }
