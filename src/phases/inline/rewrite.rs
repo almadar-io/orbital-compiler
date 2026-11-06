@@ -2738,18 +2738,11 @@ pub(crate) fn resolve_type_param_sentinels(
         let arg_value = type_args.as_ref().and_then(|m| m.get(&p.name));
         let sub = match arg_value {
             Some(v) => resolve_type_arg_value(v, entities_by_name, types_by_name),
-            None => {
-                let entity_default = if p.kind == "Entity" {
-                    entity_def.map(|e| ParamSub::Entity(e.clone()))
-                } else {
-                    None
-                };
-                entity_default.or_else(|| {
-                    p.default
-                        .as_deref()
-                        .and_then(|d| resolve_type_arg_value(d, entities_by_name, types_by_name))
-                })
-            }
+            None => p
+                .default
+                .as_deref()
+                .and_then(|d| resolve_type_arg_value(d, entities_by_name, types_by_name))
+                .or_else(|| (p.kind == "Entity").then(|| entity_def.map(|e| ParamSub::Entity(e.clone()))).flatten()),
         };
         if let Some(sub) = sub {
             subs.insert(p.name.clone(), sub);
@@ -5507,6 +5500,39 @@ mod payload_entity_marker_tests {
         assert_eq!(field.field_type, "[object]");
         assert_eq!(field.entity.as_deref(), Some("Note"));
         assert!(field.items.is_none());
+    }
+
+    /// An Entity-kind parameter with a declared default resolves to that default, not to the trait's linked entity;
+    /// only a parameter with neither a binding nor a default falls back to the linked entity.
+    #[test]
+    fn an_entity_kind_type_parameter_with_a_declared_default_resolves_to_the_default_not_the_linked_entity() {
+        let make = |default: Option<&str>| {
+            let mut td = trait_with_payload_fields(json!([{ "name": "request", "type": "$r" }]));
+            td.type_params = Some(vec![orbital_core_base::schema::TraitTypeParamDef {
+                name: "r".to_string(),
+                kind: "Entity".to_string(),
+                default: default.map(str::to_string),
+            }]);
+            td
+        };
+        let note = entity_fixture("Note");
+        let key: PayloadField =
+            serde_json::from_value(json!({ "name": "key", "type": "string", "required": true })).unwrap();
+        let types = BTreeMap::from([("Req".to_string(), vec![key])]);
+
+        let mut td = make(Some("Req"));
+        resolve_type_param_sentinels(&mut td, Some(&note), &HashMap::new(), &types);
+        assert_eq!(payload_fields(&td)[0].entity, None, "the declared default is not the linked entity");
+        match shape_of(&td, true, "request") {
+            orbital_core_base::ir::OirType::Struct { fields, .. } => {
+                assert_eq!(fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["key"]);
+            }
+            other => panic!("expected the Req struct, got {other:?}"),
+        }
+
+        let mut td = make(None);
+        resolve_type_param_sentinels(&mut td, Some(&note), &HashMap::new(), &types);
+        assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("Note"), "control: no default falls back to the linked entity");
     }
 
     fn trait_with_emit(
