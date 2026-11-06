@@ -443,9 +443,8 @@ impl<'a> Resolver<'a> {
 
 /// The baseline theme `@currentTheme` falls back to when neither the orbital
 /// nor the app header declares a `theme` (precedence: orbital → app →
-/// this default). Keeps standalone renders (no rabit) styled; rabit stamps
-/// per-orbital `Orbital.theme`. A full `<base>-<variant>` registry key.
-const DEFAULT_THEME_KEY: &str = "minimalist-light";
+/// this default): core's default, the preset a program without themes paints.
+use orbital_core_base::theme::DEFAULT_THEME_KEY;
 
 /// One `@pages` nav entry: a root page that declares `@label`.
 struct NavEntry {
