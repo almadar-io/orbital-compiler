@@ -12,7 +12,7 @@ mod browser_calls;
 mod emit_declaration;
 mod expected_types;
 mod expr_types;
-pub use expected_types::expected_types;
+pub use expected_types::{expected_models, expected_types};
 pub use expr_types::expression_types;
 mod cast;
 mod fetch;
