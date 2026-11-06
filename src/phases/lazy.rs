@@ -101,6 +101,7 @@ pub fn split_lazy(schema: &mut OrbitalSchema) -> Vec<LazyArtifact> {
                     config: schema.config.clone(),
                     orbitals: vec![orbital],
                     locales: schema.locales.clone(),
+                    messages: None,
                     lazy_pages: None,
                     metadata: None,
                     schema_version: schema.schema_version,
@@ -277,7 +278,6 @@ pub fn compile_lazy_as_routes(schema: &mut OrbitalSchema) {
 pub fn write_lazy(
     dir: &Path,
     lazy: &[ResolvedLazy],
-    program_dir: &Path,
     serialize: &dyn Fn(&OrbitalSchema) -> std::io::Result<String>,
 ) -> std::io::Result<()> {
     for item in lazy {
@@ -286,11 +286,9 @@ pub fn write_lazy(
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(&out, serialize(&item.schema)?)?;
-        super::messages::write_catalogs(&out, &item.schema, program_dir)?;
         write_lazy(
             out.parent().unwrap_or(dir),
             &item.lazy,
-            program_dir,
             serialize,
         )?;
     }
@@ -318,6 +316,6 @@ pub fn resolved_value(resolved: &OrbitalSchema) -> Result<orbital_core_base::val
 }
 
 /// [`write_lazy`] with each child printed by [`resolved_json`].
-pub fn write_resolved_lazy(dir: &Path, lazy: &[ResolvedLazy], program_dir: &Path) -> std::io::Result<()> {
-    write_lazy(dir, lazy, program_dir, &|schema| resolved_json(schema).map_err(std::io::Error::other))
+pub fn write_resolved_lazy(dir: &Path, lazy: &[ResolvedLazy]) -> std::io::Result<()> {
+    write_lazy(dir, lazy, &|schema| resolved_json(schema).map_err(std::io::Error::other))
 }

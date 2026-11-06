@@ -150,6 +150,7 @@ fn schema_with_effects(
         site: None,
         public_dir: None,
         locales: None,
+        messages: None,
         lazy_pages: None,
         theme: None,
         name: "TestApp".to_string(),

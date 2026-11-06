@@ -139,7 +139,7 @@ where
 
 /// [`generate_from_file_with_source`] with the project write delegated to
 /// `write` (an in-process shell, or a shell program `orb` runs): compile to
-/// IR, write, then the program-level files (catalogs, `routes.json`,
+/// IR, write, then the program-level files (`routes.json`,
 /// `schema.orb`, `resolved.orb`).
 pub fn generate_from_file_with_source_using<R>(
     schema_path: &Path,
@@ -151,8 +151,8 @@ pub fn generate_from_file_with_source_using<R>(
     generate_from_file_with_source_resolved(schema_path, source_path, output_dir, options, |oir, _, out| write(oir, out))
 }
 
-/// The program resolved with its `uses lazy` behaviors resolved apart: what `resolved.orb`, the locale
-/// catalogs and a browser client that opens lazy pages itself are written from.
+/// The program resolved with its `uses lazy` behaviors resolved apart: what `resolved.orb`, the route
+/// manifest and a browser client that opens lazy pages itself are written from.
 pub type SplitProgram = (OrbitalSchema, Vec<crate::phases::lazy::ResolvedLazy>);
 
 /// [`generate_from_file_with_source_using`] that also hands `write` the split program, resolved once for the
@@ -181,22 +181,9 @@ pub fn generate_from_file_with_source_resolved<R>(
     // Generate code from OIR
     let result = write(&oir, &split, output_dir)?;
     let (resolved, lazy) = &split;
-    let program_dir = source_path.parent().unwrap_or(Path::new("."));
 
-    // A program with `locales` ships one merged catalog per locale, where
-    // the generated App imports it.
-    let catalogs = if oir.locales.is_empty() {
-        std::collections::BTreeMap::new()
-    } else {
-        let catalogs = crate::phases::messages::program_catalogs(resolved, lazy, program_dir);
-        let locales_dir = output_dir.join("locales");
-        std::fs::create_dir_all(&locales_dir)?;
-        for (locale, messages) in &catalogs {
-            let json = serde_json::to_string_pretty(messages).map_err(std::io::Error::other)?;
-            std::fs::write(locales_dir.join(format!("{locale}.json")), json)?;
-        }
-        catalogs
-    };
+    // The page titles in every locale, from the messages the program and its lazy behaviors carry.
+    let catalogs = crate::phases::messages::program_messages(resolved, lazy);
 
     // Every route the app serves with its resolved page modifiers — the one
     // manifest the route documents, sitemap and prerender read.
@@ -212,8 +199,8 @@ pub fn generate_from_file_with_source_resolved<R>(
     tracing::info!(target: ns::COMPILER, path = %dest_schema.display(), "copied schema");
 
     // Step 7: `resolved.orb` (post Inline + Compose + Enrich, every import resolved) and each lazy behavior beside
-    // it: the bundled view downstream tools parse as an `OrbitalSchema`, from the same resolution as the catalogs.
-    crate::phases::lazy::write_lazy(output_dir, lazy, program_dir, &|schema| {
+    // it: the bundled view downstream tools parse as an `OrbitalSchema`, each carrying its own messages.
+    crate::phases::lazy::write_lazy(output_dir, lazy, &|schema| {
         orbital_core_eval::util::canonical_json::to_canonical_string_pretty(schema).map_err(std::io::Error::other)
     })?;
     let resolved_path = output_dir.join("resolved.orb");

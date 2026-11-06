@@ -1,18 +1,18 @@
-//! A resolved program's message catalogs: every loaded behavior's
-//! `locales/<locale>/<name>.json` (found through `_metadata.messageSources`),
-//! merged per declared locale with keys qualified `<name>:<key>` — the shape
-//! `i18n/t` reads at runtime.
+//! A resolved program's messages: every loaded behavior's `locales/<locale>/<name>.json` (found through
+//! `_metadata.messageSources`), merged per declared locale with keys qualified `<name>:<key>` — the shape `i18n/t`
+//! reads at runtime. Resolution stores them in the program's `messages`, so the program carries its own text.
 
 use orbital_core_base::messages::NAMESPACE_SEPARATOR;
 use orbital_core_base::schema::OrbitalSchema;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// Locale → qualified key → message, for every locale `resolved` declares.
+/// Locale → qualified key → message, for every locale `resolved` declares. An absent catalog contributes nothing
+/// (validate reports it); one that cannot be read, or is not a flat object of strings, fails naming the file.
 pub fn merged_catalogs(
     resolved: &OrbitalSchema,
     program_dir: &Path,
-) -> BTreeMap<String, BTreeMap<String, String>> {
+) -> Result<BTreeMap<String, BTreeMap<String, String>>, String> {
     let sources = resolved
         .metadata
         .as_ref()
@@ -26,21 +26,33 @@ pub fn merged_catalogs(
                 .join("locales")
                 .join(locale)
                 .join(format!("{name}.json"));
-            let Ok(text) = orbital_core_base::read_set::read_to_string(&file) else {
-                continue;
+            let text = match orbital_core_base::read_set::read_to_string(&file) {
+                Ok(text) => text,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(format!("{}: {e}", file.display())),
             };
-            let Ok(serde_json::Value::Object(map)) =
-                serde_json::from_str::<serde_json::Value>(&text)
-            else {
-                continue;
-            };
-            for (key, value) in map {
-                if let serde_json::Value::String(message) = value {
-                    merged.insert(format!("{name}{NAMESPACE_SEPARATOR}{key}"), message);
-                }
+            let catalog: BTreeMap<String, String> = serde_json::from_str(&text)
+                .map_err(|e| format!("{}: not a flat object of message strings: {e}", file.display()))?;
+            for (key, message) in catalog {
+                merged.insert(format!("{name}{NAMESPACE_SEPARATOR}{key}"), message);
             }
         }
         out.insert(locale.clone(), merged);
+    }
+    Ok(out)
+}
+
+/// The messages of a program and every lazily-used behavior, merged per locale: what the compiled app's route
+/// manifest names its pages with.
+pub fn program_messages(
+    resolved: &OrbitalSchema,
+    lazy: &[super::lazy::ResolvedLazy],
+) -> BTreeMap<String, BTreeMap<String, String>> {
+    let mut out = resolved.messages.clone().unwrap_or_default();
+    for item in lazy {
+        for (locale, messages) in program_messages(&item.schema, &item.lazy) {
+            out.entry(locale).or_default().extend(messages);
+        }
     }
     out
 }
@@ -93,7 +105,8 @@ mod tests {
         let catalogs = merged_catalogs(
             &program(Some(vec!["en", "ar"]), &[("site", "."), ("post", "blog")]),
             dir.path(),
-        );
+        )
+        .unwrap();
         assert_eq!(
             catalogs["en"].get("site:home.title").map(String::as_str),
             Some("Home")
@@ -118,7 +131,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         write(dir.path(), "locales/en/site.json", r#"{"home.title":"Home"}"#);
         orbital_core_base::read_set::begin();
-        merged_catalogs(&program(Some(vec!["en", "ar"]), &[("site", ".")]), dir.path());
+        merged_catalogs(&program(Some(vec!["en", "ar"]), &[("site", ".")]), dir.path()).unwrap();
         let reads = orbital_core_base::read_set::end();
         let absent = dir.path().join("locales/ar/site.json");
         assert!(reads.paths().any(|p| p == &dir.path().join("locales/en/site.json")));
@@ -135,41 +148,16 @@ mod tests {
             "locales/en/site.json",
             r#"{"home.title":"Home"}"#,
         );
-        assert!(merged_catalogs(&program(None, &[("site", ".")]), dir.path()).is_empty());
+        assert!(merged_catalogs(&program(None, &[("site", ".")]), dir.path()).unwrap().is_empty());
     }
-}
 
-/// Writes `<orb stem>.<locale>.json` beside `orb_path` for each locale the
-/// resolved program declares.
-pub fn write_catalogs(
-    orb_path: &Path,
-    resolved: &OrbitalSchema,
-    program_dir: &Path,
-) -> std::io::Result<()> {
-    let stem = orb_path
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let dir = orb_path.parent().unwrap_or(Path::new("."));
-    for (locale, messages) in merged_catalogs(resolved, program_dir) {
-        let json = serde_json::to_string_pretty(&messages).map_err(std::io::Error::other)?;
-        std::fs::write(dir.join(format!("{stem}.{locale}.json")), json)?;
+    #[test]
+    fn a_catalog_that_is_not_a_flat_object_of_strings_fails_naming_the_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write(dir.path(), "locales/en/site.json", r#"{"home": {"title": "Home"}}"#);
+        let error = merged_catalogs(&program(Some(vec!["en"]), &[("site", ".")]), dir.path()).unwrap_err();
+        assert!(error.contains("locales/en/site.json"), "{error}");
+        write(dir.path(), "locales/en/site.json", "{ not json");
+        assert!(merged_catalogs(&program(Some(vec!["en"]), &[("site", ".")]), dir.path()).is_err(), "control: unparsable text fails too");
     }
-    Ok(())
-}
-
-/// The compiled app's catalogs: the program and every lazily-used behavior
-/// merged per locale (the compiled path builds them into one app).
-pub fn program_catalogs(
-    resolved: &OrbitalSchema,
-    lazy: &[super::lazy::ResolvedLazy],
-    program_dir: &Path,
-) -> BTreeMap<String, BTreeMap<String, String>> {
-    let mut out = merged_catalogs(resolved, program_dir);
-    for item in lazy {
-        for (locale, messages) in program_catalogs(&item.schema, &item.lazy, program_dir) {
-            out.entry(locale).or_default().extend(messages);
-        }
-    }
-    out
 }
