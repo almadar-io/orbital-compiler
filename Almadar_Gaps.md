@@ -7,7 +7,11 @@ Every open gap this repo owns lives here. This file is the source of truth; the 
 - **Codes:** new gaps use this repo's prefix `G-ORBITAL-COMPILER-`. Take the "Next code" below, then bump it in the same edit. Codes are never reused or renamed.
 - **Close by deleting.** Remove the entry in the same commit as the fix.
 
-Next code: `G-ORBITAL-COMPILER-003`
+Next code: `G-ORBITAL-COMPILER-005`
+
+- **G-ORBITAL-COMPILER-003** [mechanical] — `orb validate` accepts `(set @entity.F @config.K)` when F is declared non-nullable and K has no default (null when unset), so the trait fails to start on every host ("null written into F … which declares no null"). Found 2026-11-06 in 17 std ui atoms (fixed in std by making F `T?`). Fix: the set-vs-field compatibility check treats a nullable source (default-less knob, nullable field, inferred `T?`) as incompatible with a non-null field, on INIT and every other set. Prevention rung: (2) `orb validate`. Root cause: A2.
+
+- **G-ORBITAL-COMPILER-004** [mechanical] — `orb validate` accepts a render-ui `children: [ … ]` literal whose element is itself a list (`(array/map …)`, `array/filter`, a nested `[ … ]`), which the web flattens and the native host does not, so the hosts disagree (std-slide-deck, std-stat-rows; fixed in std 2026-11-06). Fix: the render-ui child-position type check refuses a list-typed element and suggests `children: (array/map …)` or `(array/concat …)`. Prevention rung: (2) `orb validate`. Root cause: A2.
 
 - **G-ORBITAL-COMPILER-002** [architectural] — `program/compose` overrides (`"<Trait>.<knob>": value`, `apply_compose_overrides` in `composition/compose_app.rs`) set only the knob's declared `default`, but the resolved programs compose takes have already had every `@config.<knob>` read folded into a literal by the inline phase (`phases/inline/trait.rs`, `apply_inline_config_defaults`), so an override of a knob a trait reads changes nothing and is accepted silently. Found 2026-11-05: std-guest-session composing std-mock-page-seed with `overrides: { "MockDataMockSeed.seedRuntime": true }` still ran the seeder with `false`. Likely the same for orb serve's `HttpTrait.port`-style overrides (not checked). Fix: either keep provenance on folded knob literals so the override rewrites them, or refuse an override of a knob the resolved program no longer reads. Repro: compose any resolved program whose trait reads `@config.k` in a transition with `{ "T.k": <other> }` and step it. Prevention rung: (2) `orb validate` / compose itself refusing a dead override. Root cause: A2.
 
