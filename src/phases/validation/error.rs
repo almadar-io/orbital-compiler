@@ -128,6 +128,10 @@ pub enum ErrorCode {
     OsGrantUnused,
     /// a declared `os/` grant entry whose shape cannot match anything
     OsGrantEntryInvalid,
+    /// a literal `gpu/shader-create` WGSL source that naga refuses to parse or validate
+    GpuShaderInvalid,
+    /// a `gpu/bind-group-create` whose literal entries do not fit the bindings its traced pipeline uses in its WGSL
+    GpuBindingMismatch,
     /// an event reads a page fact the `browser/page-facts` call did not request
     PageFactsUnrequestedRead,
     /// a literal `browser/tab-*` request whose keys the op declares but whose values the kernel's tab-call parser refuses
@@ -385,6 +389,8 @@ impl ErrorCode {
             ErrorCode::OsTargetNotStatic => "ORB_OS_TARGET_NOT_STATIC",
             ErrorCode::OsGrantUnused => "ORB_OS_GRANT_UNUSED",
             ErrorCode::OsGrantEntryInvalid => "ORB_OS_GRANT_ENTRY_INVALID",
+            ErrorCode::GpuShaderInvalid => "ORB_GPU_SHADER_INVALID",
+            ErrorCode::GpuBindingMismatch => "ORB_GPU_BINDING_MISMATCH",
             ErrorCode::PageFactsUnrequestedRead => "ORB_PAGE_FACTS_UNREQUESTED_READ",
             ErrorCode::TabRequestRefused => "ORB_TAB_REQUEST_REFUSED",
             ErrorCode::PersistBatchOpsNotArray => "ORB_PERSIST_BATCH_OPS_NOT_ARRAY",
@@ -508,6 +514,8 @@ impl ErrorCode {
             | ErrorCode::OsTargetNotStatic
             | ErrorCode::OsGrantUnused
             | ErrorCode::OsGrantEntryInvalid
+            | ErrorCode::GpuShaderInvalid
+            | ErrorCode::GpuBindingMismatch
             | ErrorCode::PageFactsUnrequestedRead
             | ErrorCode::TabRequestRefused
             | ErrorCode::EffectNotifyRetired

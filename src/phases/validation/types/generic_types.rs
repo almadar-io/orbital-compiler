@@ -96,7 +96,7 @@ mod tests {
 
     #[test]
     fn a_type_export_may_name_a_sealed_type() {
-        for word in ["Arena", "Block", "Borrow", "Verified"] {
+        for word in orbital_core_base::sealed::SEALED_TYPES {
             let types: std::collections::BTreeMap<String, Vec<PayloadField>> =
                 [("T".to_string(), vec![payload(word, None)])].into_iter().collect();
             let mut result = ValidationResult::new();

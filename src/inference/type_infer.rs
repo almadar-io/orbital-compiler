@@ -4553,13 +4553,15 @@ mod tests {
                 orbital_core_base::sealed::sealed_record(name)
             }
             fn declared_type(&self, name: &str) -> Option<bool> {
-                Some(name == "Verified" || name == "Pt")
+                Some(orbital_core_base::sealed::is_sealed_type(name) || name == "Pt")
             }
         }
         let parse = |shape: &str| call("json/parse", vec![checked_local(text("{}"), OirType::String), text(shape)]);
         let cast = |shape: &str| call("as", vec![local("v"), text(shape)]);
-        assert!(!check_oir_expr(&parse("Verified"), &Declared).is_empty(), "json/parse never makes a Verified");
-        assert!(!check_oir_expr(&cast("Verified"), &Declared).is_empty(), "as never makes a Verified");
+        for sealed in orbital_core_base::sealed::SEALED_TYPES {
+            assert!(!check_oir_expr(&parse(sealed), &Declared).is_empty(), "json/parse never makes a {sealed}");
+            assert!(!check_oir_expr(&cast(sealed), &Declared).is_empty(), "as never makes a {sealed}");
+        }
         assert!(check_oir_expr(&parse("Pt"), &Declared).is_empty(), "control: a declared, unsealed shape");
         assert!(check_oir_expr(&cast("Pt"), &Declared).is_empty(), "control: a declared, unsealed cast");
     }
