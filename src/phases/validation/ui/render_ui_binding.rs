@@ -281,6 +281,36 @@ fn resolve_payload_field(field: &str, ctx: &BindingContext) -> BindingType {
     BindingType::Unknown
 }
 
+/// The type a `@entity.X` or `@payload.X` binding was declared with, by name: an entity field's whole-type
+/// projection (a nullable sealed field lowers to a union carrying its source type there) or a payload field's type.
+pub fn declared_source_type(value: &SExpression, ctx: &BindingContext) -> Option<String> {
+    let SExpression::String(path) = value else {
+        return None;
+    };
+    if let Some(field) = path.strip_prefix("@entity.") {
+        let linked = ctx.trait_def.linked_entity.as_ref()?;
+        let entity = ctx.entity_definitions.get(linked)?;
+        let f = entity
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some(field))?;
+        return f
+            .projected_from
+            .as_ref()
+            .filter(|p| p.field.is_none())
+            .map(|p| p.type_name.clone());
+    }
+    let field = path.strip_prefix("@payload.")?;
+    let declared = ctx.event_payload?.iter().find(|d| d.name == field)?;
+    Some(
+        declared
+            .field_type
+            .trim_end_matches('!')
+            .trim_end_matches('?')
+            .to_string(),
+    )
+}
+
 /// Look up `field` on the trait's linked entity. Descends nested paths
 /// (`focusedRow.authorName`) through object `properties` and relation targets
 /// so a binding like `@entity.focusedRow.authorName` resolves to the leaf type
@@ -395,7 +425,9 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         FieldType::String => BindingType::String,
         FieldType::Number | FieldType::Int | FieldType::Sized(_) => BindingType::Number,
         FieldType::Boolean => BindingType::Boolean,
-        FieldType::Date | FieldType::Datetime | FieldType::Timestamp | FieldType::Instant => BindingType::Datetime,
+        FieldType::Date | FieldType::Datetime | FieldType::Timestamp | FieldType::Instant => {
+            BindingType::Datetime
+        }
         // Semantic domains bind as strings — a render slot treats them as text.
         FieldType::Email
         | FieldType::Url
@@ -426,9 +458,7 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         | FieldType::Pattern
         | FieldType::Event
         | FieldType::EventAddress
-        | FieldType::Field => {
-            BindingType::String
-        }
+        | FieldType::Field => BindingType::String,
         // Renderable content binds like an object (a pattern tree) — and the
         // prop-compat rule already accepts anything where `node` is expected.
         FieldType::Node => BindingType::Object,
@@ -586,7 +616,9 @@ fn declared_return_to_binding(
     arr: &[SExpression],
     ctx: &BindingContext,
 ) -> BindingType {
-    use orbital_core_base::language::registry::{get_operator, OperatorTypeRef, OperatorTypeRefKind};
+    use orbital_core_base::language::registry::{
+        get_operator, OperatorTypeRef, OperatorTypeRefKind,
+    };
     match meta.returns {
         OperatorTypeRef::Primitive(name) => static_return_to_binding(name),
         OperatorTypeRef::Tagged(OperatorTypeRefKind::Var { name, .. }) => {
@@ -653,7 +685,8 @@ mod tests {
                 states: vec![],
                 events: None,
                 transitions: vec![],
-            }.into(),
+            }
+            .into(),
             ticks: None,
             config: None,
             data_entities: None,
@@ -717,7 +750,10 @@ mod tests {
             sibling_trait_names: &[],
         };
         assert_eq!(
-            resolve_binding_type(&SExpression::String(("@payload.tabId".to_string()).into()), &ctx),
+            resolve_binding_type(
+                &SExpression::String(("@payload.tabId".to_string()).into()),
+                &ctx
+            ),
             BindingType::String
         );
         // Unknown field falls through to Unknown
@@ -790,7 +826,10 @@ mod tests {
             sibling_trait_names: &[],
         };
         assert_eq!(
-            resolve_binding_type(&SExpression::String(("@entity.title".to_string()).into()), &ctx),
+            resolve_binding_type(
+                &SExpression::String(("@entity.title".to_string()).into()),
+                &ctx
+            ),
             BindingType::String
         );
     }
@@ -808,12 +847,18 @@ mod tests {
             sibling_trait_names: &[],
         };
         assert_eq!(
-            resolve_binding_type(&SExpression::String(("@user.name".to_string()).into()), &ctx),
+            resolve_binding_type(
+                &SExpression::String(("@user.name".to_string()).into()),
+                &ctx
+            ),
             BindingType::String
         );
         // Field outside the default shape → Unknown, not a false mismatch.
         assert_eq!(
-            resolve_binding_type(&SExpression::String(("@user.notReal".to_string()).into()), &ctx),
+            resolve_binding_type(
+                &SExpression::String(("@user.notReal".to_string()).into()),
+                &ctx
+            ),
             BindingType::Unknown
         );
     }
@@ -888,11 +933,17 @@ mod tests {
         // `@user` is the viewer plus the roster row: `role` comes from the
         // viewer; a field on neither resolves Unknown (skip).
         assert_eq!(
-            resolve_binding_type(&SExpression::String(("@user.role".to_string()).into()), &ctx),
+            resolve_binding_type(
+                &SExpression::String(("@user.role".to_string()).into()),
+                &ctx
+            ),
             BindingType::String
         );
         assert_eq!(
-            resolve_binding_type(&SExpression::String(("@user.notReal".to_string()).into()), &ctx),
+            resolve_binding_type(
+                &SExpression::String(("@user.notReal".to_string()).into()),
+                &ctx
+            ),
             BindingType::Unknown
         );
     }
@@ -918,7 +969,10 @@ mod tests {
             sibling_trait_names: &[],
         };
         assert_eq!(
-            resolve_binding_type(&SExpression::String(("@user.name".to_string()).into()), &ctx),
+            resolve_binding_type(
+                &SExpression::String(("@user.name".to_string()).into()),
+                &ctx
+            ),
             BindingType::Unknown
         );
     }
@@ -935,13 +989,19 @@ mod tests {
             sibling_trait_names: &siblings,
         };
         assert_eq!(
-            resolve_binding_type(&SExpression::String(("@trait.CmsHubTabs".to_string()).into()), &ctx),
+            resolve_binding_type(
+                &SExpression::String(("@trait.CmsHubTabs".to_string()).into()),
+                &ctx
+            ),
             BindingType::TraitRef
         );
         // Missing sibling → Unknown (caller's other rule catches the
         // missing-trait error with a more specific code).
         assert_eq!(
-            resolve_binding_type(&SExpression::String(("@trait.MissingOne".to_string()).into()), &ctx),
+            resolve_binding_type(
+                &SExpression::String(("@trait.MissingOne".to_string()).into()),
+                &ctx
+            ),
             BindingType::Unknown
         );
     }
@@ -974,32 +1034,53 @@ mod tests {
         // `(default @payload.totalCount 10)` — both args resolve to Number,
         // so `default`'s signature (`T, T -> T`) returns Number. `or` is
         // boolean-only: it is no coalesce.
-        let expr = SExpression::Array(vec![
-            SExpression::String(("default".to_string()).into()),
-            SExpression::String(("@payload.totalCount".to_string()).into()),
-            SExpression::Number(10.0),
-        ].into());
+        let expr = SExpression::Array(
+            vec![
+                SExpression::String(("default".to_string()).into()),
+                SExpression::String(("@payload.totalCount".to_string()).into()),
+                SExpression::Number(10.0),
+            ]
+            .into(),
+        );
         assert_eq!(resolve_binding_type(&expr, &ctx), BindingType::Number);
     }
 
     fn config_field_of(field_type: &str) -> ConfigField {
-        serde_json::from_value(serde_json::json!({ "type": field_type })).expect("config field deserializes")
+        serde_json::from_value(serde_json::json!({ "type": field_type }))
+            .expect("config field deserializes")
     }
 
     #[test]
     fn every_point_in_time_binds_as_text_and_a_duration_stays_a_number() {
-        for ft in [FieldType::Date, FieldType::Datetime, FieldType::Timestamp, FieldType::Instant] {
+        for ft in [
+            FieldType::Date,
+            FieldType::Datetime,
+            FieldType::Timestamp,
+            FieldType::Instant,
+        ] {
             assert_eq!(field_type_to_binding(&ft), BindingType::Datetime, "{ft:?}");
         }
         for tag in ["date", "datetime", "timestamp", "instant", "instant!"] {
-            assert_eq!(field_type_str_to_binding(tag), BindingType::Datetime, "{tag}");
+            assert_eq!(
+                field_type_str_to_binding(tag),
+                BindingType::Datetime,
+                "{tag}"
+            );
         }
         for tag in ["date", "datetime", "timestamp", "instant"] {
             let cf = config_field_of(tag);
             assert_eq!(config_field_to_binding(&cf), BindingType::Datetime, "{tag}");
         }
-        assert_eq!(field_type_to_binding(&FieldType::Number), BindingType::Number, "control");
-        assert_eq!(field_type_str_to_binding("number"), BindingType::Number, "control");
+        assert_eq!(
+            field_type_to_binding(&FieldType::Number),
+            BindingType::Number,
+            "control"
+        );
+        assert_eq!(
+            field_type_str_to_binding("number"),
+            BindingType::Number,
+            "control"
+        );
     }
 
     #[test]
@@ -1015,7 +1096,11 @@ mod tests {
         assert_eq!(BindingType::Object.registry_type(), "object");
         assert_eq!(BindingType::Datetime.registry_type(), "string");
         assert_eq!(field_type_str_to_binding("$t"), BindingType::Var);
-        assert_eq!(field_type_str_to_binding("$"), BindingType::Unknown, "control: no name");
+        assert_eq!(
+            field_type_str_to_binding("$"),
+            BindingType::Unknown,
+            "control: no name"
+        );
     }
 
     // Intentionally referenced to silence unused-import warnings for

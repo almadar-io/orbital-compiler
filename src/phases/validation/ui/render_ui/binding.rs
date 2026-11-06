@@ -5,11 +5,12 @@
 //! registry's declared prop types, plus the L2.2/L2.3 event-payload checks.
 
 use super::node_fields::classify_prop_type;
-use super::sync::patterns::get_prop_types;
+use super::sync::patterns::{get_prop_property_types, get_prop_types};
 use super::{ErrorCode, ValidationContext, ValidationError};
 use crate::embedded::{get_pattern, EmbeddedPatternProp};
 use crate::phases::validation::render_ui_binding::{
-    resolve_array_element_type, resolve_binding_type, BindingContext, BindingType,
+    declared_source_type, resolve_array_element_type, resolve_binding_type, BindingContext,
+    BindingType,
 };
 use crate::phases::validation::trait_path;
 use orbital_core_base::schema::{
@@ -186,6 +187,7 @@ fn walk_pattern_props(
 
         // Only check props with declared types in the registry.
         let Some(pat) = pattern_type else { continue };
+        check_sealed_properties(pat, prop_name, prop_value, bctx, path, diagnostics);
 
         // L2.2 first: when the prop is a `kind: "event-ref"` /
         // `kind: "callback"` event-name reference and the value is a
@@ -267,7 +269,9 @@ fn walk_pattern_props(
         // `entity` resolves to "object" — the prop's declared types
         // accept that via the existing skip-on-object rule.
 
-        let compatible = expected_types.iter().any(|t| prop_type_accepts(t, resolved_str));
+        let compatible = expected_types
+            .iter()
+            .any(|t| prop_type_accepts(t, resolved_str));
         if !compatible {
             diagnostics.push(
                 ValidationError::error(
@@ -720,10 +724,68 @@ fn primitive_event_compat(declared: &str, actual: &str) -> bool {
         "json" | "object" => a == "object" || a == "json",
         "date" | "datetime" | "instant" | "timestamp" => a == "string",
         "entity" | "relation" => a == "object" || a == "string",
-        s if orbital_core_base::type_compat::short_type_name(s).chars().next().map(|c| c.is_uppercase()).unwrap_or(false) => {
+        s if orbital_core_base::type_compat::short_type_name(s)
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false) =>
+        {
             a == "object" || a == "string"
         }
         _ => false,
+    }
+}
+
+/// The record literals a prop value can evaluate to: the value itself, or each branch of an `if`.
+fn record_literals(value: &SExpression) -> Vec<&SExpression> {
+    match value {
+        SExpression::Object(_) => vec![value],
+        SExpression::Array(items) if matches!(items.first(), Some(SExpression::String(op)) if op == "if") => {
+            items.iter().skip(2).flat_map(record_literals).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// A record-typed prop whose nested property the registry types with a sealed kind (`GpuBuffer`, …) takes only a
+/// binding of that kind there: the kernel mints sealed values, so a literal (or any other type) is a forgery.
+fn check_sealed_properties(
+    pat: &str,
+    prop_name: &str,
+    prop_value: &SExpression,
+    bctx: &BindingContext,
+    path: &str,
+    diagnostics: &mut Vec<ValidationError>,
+) {
+    for literal in record_literals(prop_value) {
+        let SExpression::Object(fields) = literal else {
+            continue;
+        };
+        for (key, value) in fields.iter() {
+            let Some(types) = get_prop_property_types(pat, prop_name, key) else {
+                continue;
+            };
+            let Some(sealed) = types
+                .iter()
+                .find(|t| orbital_core_base::sealed::is_sealed_type(t))
+            else {
+                continue;
+            };
+            let fits = declared_source_type(value, bctx).as_deref() == Some(*sealed)
+                || matches!(resolve_binding_type(value, bctx), BindingType::Entity(name) if name == *sealed);
+            if !fits {
+                diagnostics.push(
+                    ValidationError::error(
+                        ErrorCode::RenderUIBindingTypeMismatch,
+                        path,
+                        format!(
+                            "Prop '{prop_name}.{key}' on '{pat}' takes a sealed {sealed} handle; bind one the kernel minted (an entity or payload field typed {sealed}), never a literal"
+                        ),
+                    )
+                    .with_suggestion(format!("bind @entity.<field> where the field is declared `{sealed}`")),
+                );
+            }
+        }
     }
 }
 
@@ -734,8 +796,7 @@ fn prop_type_accepts(expected: &str, resolved_str: &str) -> bool {
         || expected == "string" && resolved_str == "trait"
         || (expected == "icon" && resolved_str == "string")
         || (expected == "asset" && resolved_str == "string")
-        || (matches!(expected, "date" | "datetime" | "timestamp")
-            && resolved_str == "string")
+        || (matches!(expected, "date" | "datetime" | "timestamp") && resolved_str == "string")
 }
 
 /// Recurse into prop values that may carry nested render-ui patterns
@@ -1221,6 +1282,86 @@ mod array_into_record_tests {
         );
     }
 
+    fn particles_with(buffer: SExpression, data_type: &str) -> Vec<ValidationError> {
+        let t = bare_trait();
+        let entities = HashMap::new();
+        let mut fields = payload(data_type);
+        // a sealed payload field lowers to its own type name, not `object` + an entity
+        fields[0].field_type = data_type.to_string();
+        fields[0].entity = None;
+        let ctx = BindingContext {
+            trait_def: &t,
+            entity_definitions: &entities,
+            event_payload: Some(&fields),
+            sibling_trait_names: &[],
+        };
+        let particles = SExpression::object(
+            [
+                ("buffer".into(), buffer),
+                ("stride".into(), SExpression::Number(16.0)),
+                ("radius".into(), SExpression::Number(1.0)),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let wrapped = SExpression::Array(
+            vec![
+                SExpression::String("if".into()),
+                SExpression::Bool(true),
+                particles,
+                SExpression::Null,
+            ]
+            .into(),
+        );
+        let node = SExpression::object(
+            [
+                ("type".into(), SExpression::String("physics-canvas".into())),
+                ("particles".into(), wrapped),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let mut out = Vec::new();
+        walk_pattern_props(&node, &ctx, "test", &mut out);
+        out.into_iter()
+            .filter(|e| {
+                e.code == ErrorCode::RenderUIBindingTypeMismatch && e.message.contains("sealed")
+            })
+            .collect()
+    }
+
+    /// G-ORBITAL-COMPILER-006: a sealed-typed nested property takes only a binding of that sealed kind.
+    #[test]
+    fn a_literal_record_where_a_gpu_buffer_is_declared_is_refused() {
+        let forged = SExpression::object(
+            [
+                ("id".into(), SExpression::Number(1.0)),
+                ("device".into(), SExpression::Number(1.0)),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let errs = particles_with(forged, "GpuBuffer");
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.contains("particles.buffer"));
+        assert_eq!(
+            particles_with(SExpression::Number(3.0), "GpuBuffer").len(),
+            1,
+            "a number is no handle either"
+        );
+    }
+
+    #[test]
+    fn control_a_gpu_buffer_binding_is_fine_and_another_type_is_refused() {
+        assert!(
+            particles_with(SExpression::String("@payload.data".into()), "GpuBuffer").is_empty()
+        );
+        assert_eq!(
+            particles_with(SExpression::String("@payload.data".into()), "string").len(),
+            1
+        );
+    }
+
     #[test]
     fn collection_into_record_prop_is_an_error() {
         let errs = mismatches("form-section", "initialData", "@payload.data", "[object]");
@@ -1405,18 +1546,36 @@ mod sexpr_payload_compat_tests {
     fn a_date_prop_takes_iso_text_and_never_a_number() {
         for prop in ["date", "datetime", "timestamp"] {
             assert!(prop_type_accepts(prop, "string"), "{prop} takes ISO text");
-            assert!(!prop_type_accepts(prop, "number"), "{prop} refuses a number");
-            assert!(!prop_type_accepts(prop, "boolean"), "{prop} refuses a boolean");
+            assert!(
+                !prop_type_accepts(prop, "number"),
+                "{prop} refuses a number"
+            );
+            assert!(
+                !prop_type_accepts(prop, "boolean"),
+                "{prop} refuses a boolean"
+            );
         }
-        assert!(prop_type_accepts("number", "number"), "control: a number prop takes a number");
+        assert!(
+            prop_type_accepts("number", "number"),
+            "control: a number prop takes a number"
+        );
     }
 
     #[test]
     fn a_point_in_time_never_stands_for_a_number() {
         for point in ["date", "datetime", "instant", "timestamp"] {
-            assert!(!primitive_event_compat("number", point), "number refuses {point}");
-            assert!(primitive_event_compat(point, "string"), "{point} takes ISO text");
-            assert!(!primitive_event_compat(point, "number"), "{point} refuses a number");
+            assert!(
+                !primitive_event_compat("number", point),
+                "number refuses {point}"
+            );
+            assert!(
+                primitive_event_compat(point, "string"),
+                "{point} takes ISO text"
+            );
+            assert!(
+                !primitive_event_compat(point, "number"),
+                "{point} refuses a number"
+            );
         }
         assert!(primitive_event_compat("number", "number"), "control");
         assert!(!primitive_event_compat("string", "number"), "control");
