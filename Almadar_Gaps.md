@@ -7,7 +7,9 @@ Every open gap this repo owns lives here. This file is the source of truth; the 
 - **Codes:** new gaps use this repo's prefix `G-ORBITAL-COMPILER-`. Take the "Next code" below, then bump it in the same edit. Codes are never reused or renamed.
 - **Close by deleting.** Remove the entry in the same commit as the fix.
 
-Next code: `G-ORBITAL-COMPILER-005`
+Next code: `G-ORBITAL-COMPILER-006`
+
+- **G-ORBITAL-COMPILER-005** [mechanical] — `orb validate` rejects a list literal of a narrowed binding in an emit payload: with `(let ((p0 (bytes/write-uint 0 4 "le"))) (if (= @p0 null) … (emit GPU_STEP { params: [@p0] })))` and `GPU_STEP { params : [bytes]! }`, it reports ORB_EMIT_PAYLOAD_FIELD_TYPE_MISMATCH "has a list item of type 'bytes', declared as '[bytes]'", comparing the item with the whole list type; the same value built as `(array/map (array/range 1) (fn k @p0))` passes. Found writing almadar-behaviors std-physics-fluid-sph (LEARN_RESET), which carries the array/map spelling until this is fixed. Prevention rung: `.lolo` type system (the emit payload check's list-literal element compare). Root cause: one-off.
 
 - **G-ORBITAL-COMPILER-003** [mechanical] — `orb validate` accepts `(set @entity.F @config.K)` when F is declared non-nullable and K has no default (null when unset), so the trait fails to start on every host ("null written into F … which declares no null"). Found 2026-11-06 in 17 std ui atoms (fixed in std by making F `T?`). Fix: the set-vs-field compatibility check treats a nullable source (default-less knob, nullable field, inferred `T?`) as incompatible with a non-null field, on INIT and every other set. Prevention rung: (2) `orb validate`. Root cause: A2.
 
