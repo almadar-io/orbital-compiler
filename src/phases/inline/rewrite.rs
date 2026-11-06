@@ -2738,18 +2738,11 @@ pub(crate) fn resolve_type_param_sentinels(
         let arg_value = type_args.as_ref().and_then(|m| m.get(&p.name));
         let sub = match arg_value {
             Some(v) => resolve_type_arg_value(v, entities_by_name, types_by_name),
-            None => {
-                let entity_default = if p.kind == "Entity" {
-                    entity_def.map(|e| ParamSub::Entity(e.clone()))
-                } else {
-                    None
-                };
-                entity_default.or_else(|| {
-                    p.default
-                        .as_deref()
-                        .and_then(|d| resolve_type_arg_value(d, entities_by_name, types_by_name))
-                })
-            }
+            None => p
+                .default
+                .as_deref()
+                .and_then(|d| resolve_type_arg_value(d, entities_by_name, types_by_name))
+                .or_else(|| (p.kind == "Entity").then(|| entity_def.map(|e| ParamSub::Entity(e.clone()))).flatten()),
         };
         if let Some(sub) = sub {
             subs.insert(p.name.clone(), sub);
@@ -2766,7 +2759,7 @@ pub(crate) fn resolve_type_param_sentinels(
             // A type argument with no shape is refused where its alias or entity is declared.
             let ty = match sub {
                 ParamSub::Scalar(_) => orbital_core_base::ir::field_shape(bindings.get(name)?).ok()?,
-                ParamSub::Struct(fields) => {
+                ParamSub::Struct(fields, _) => {
                     orbital_core_base::ir::types::declared_alias_shape(fields).ok()?
                 }
                 ParamSub::Entity(entity) => orbital_core_base::ir::OirType::Reference {
@@ -2998,7 +2991,7 @@ fn resolve_payload_entity_schema(
                 }
                 Some(entity)
             }
-            Some(ParamSub::Scalar(_) | ParamSub::Struct(_)) => {
+            Some(ParamSub::Scalar(_) | ParamSub::Struct(..)) => {
                 *payload_entity = None;
                 None
             }
@@ -3052,8 +3045,9 @@ enum ParamSub {
     /// A struct-alias-typed call-site arg (`:: p PoApprovalPayload`) —
     /// resolved against the consuming orbital's `types` map (Gap A). The
     /// sentinel field becomes `field_type: "object"` + this flattened shape,
-    /// same treatment an Entity substitution gets.
-    Struct(Vec<PayloadField>),
+    /// same treatment an Entity substitution gets. The name is the alias's, which the substituted field is
+    /// projected from so codegen names it.
+    Struct(Vec<PayloadField>, String),
 }
 
 /// A config knob typed by a trait parameter (`config { result : V }` lowers to
@@ -3080,7 +3074,7 @@ fn resolve_config_sentinel(
     };
     let mut tag = match sub {
         ParamSub::Scalar(prim) => prim.clone(),
-        ParamSub::Entity(_) | ParamSub::Struct(_) => "object".to_string(),
+        ParamSub::Entity(_) | ParamSub::Struct(..) => "object".to_string(),
     };
     let shape = bindings.get(&param).cloned();
     if let Some(shape) = shape.as_ref() {
@@ -3107,7 +3101,7 @@ fn resolve_config_sentinel(
 /// A parameter's binding as the field shape that replaces its type variable:
 /// a primitive's tag, or an entity row / struct alias as an object of its fields.
 fn param_sub_field(sub: &ParamSub) -> Option<FieldDefinition> {
-    if let ParamSub::Struct(fields) = sub {
+    if let ParamSub::Struct(fields, _) = sub {
         if let [shape] = fields.as_slice() {
             if shape.name.is_empty() {
                 let mut shape = super::sigil_types::field_of(shape);
@@ -3128,7 +3122,7 @@ fn param_sub_field(sub: &ParamSub) -> Option<FieldDefinition> {
                     .collect(),
             ),
         ),
-        ParamSub::Struct(fields) => (
+        ParamSub::Struct(fields, _) => (
             FieldType::Object,
             Some(
                 fields
@@ -3227,7 +3221,7 @@ fn resolve_type_arg_value(
     }
     types_by_name
         .get(value)
-        .map(|shape| ParamSub::Struct(shape.clone()))
+        .map(|shape| ParamSub::Struct(shape.clone(), value.to_string()))
 }
 
 /// Recursive worker for `resolve_type_param_sentinels`. A field whose
@@ -3325,10 +3319,14 @@ fn resolve_sentinel_fields(
                         field.entity = Some(entity.name.clone());
                         field.items = None;
                     }
-                    ParamSub::Struct(_) => {
+                    ParamSub::Struct(_, alias) => {
                         let mut bound = super::sigil_types::payload_field_of(
                             &param_sub_field(sub).expect("a structural binding has a field shape"),
                         );
+                        bound.projected_from = Some(orbital_core_base::schema::FieldProjection {
+                            type_name: alias.clone(),
+                            field: None,
+                        });
                         if is_array_sentinel {
                             field.field_type = format!("[{}]", bound.field_type);
                             field.properties = None;
@@ -3342,6 +3340,7 @@ fn resolve_sentinel_fields(
                             field.items = bound.items;
                             field.additional_properties = bound.additional_properties;
                             field.values = bound.values;
+                            field.projected_from = bound.projected_from;
                         }
                     }
                 }
@@ -5509,6 +5508,44 @@ mod payload_entity_marker_tests {
         assert!(field.items.is_none());
     }
 
+    /// An Entity-kind parameter with a declared default resolves to that default, not to the trait's linked entity;
+    /// only a parameter with neither a binding nor a default falls back to the linked entity.
+    #[test]
+    fn an_entity_kind_type_parameter_with_a_declared_default_resolves_to_the_default_not_the_linked_entity() {
+        let make = |default: Option<&str>| {
+            let mut td = trait_with_payload_fields(json!([{ "name": "request", "type": "$r" }]));
+            td.type_params = Some(vec![orbital_core_base::schema::TraitTypeParamDef {
+                name: "r".to_string(),
+                kind: "Entity".to_string(),
+                default: default.map(str::to_string),
+            }]);
+            td
+        };
+        let note = entity_fixture("Note");
+        let key: PayloadField =
+            serde_json::from_value(json!({ "name": "key", "type": "string", "required": true })).unwrap();
+        let types = BTreeMap::from([("Req".to_string(), vec![key])]);
+
+        let mut td = make(Some("Req"));
+        resolve_type_param_sentinels(&mut td, Some(&note), &HashMap::new(), &types);
+        assert_eq!(payload_fields(&td)[0].entity, None, "the declared default is not the linked entity");
+        assert_eq!(
+            payload_fields(&td)[0].projected_from.as_ref().map(|p| p.type_name.as_str()),
+            Some("Req"),
+            "the substituted field is projected from its alias, so codegen names it"
+        );
+        match shape_of(&td, true, "request") {
+            orbital_core_base::ir::OirType::Struct { fields, .. } => {
+                assert_eq!(fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["key"]);
+            }
+            other => panic!("expected the Req struct, got {other:?}"),
+        }
+
+        let mut td = make(None);
+        resolve_type_param_sentinels(&mut td, Some(&note), &HashMap::new(), &types);
+        assert_eq!(payload_fields(&td)[0].entity.as_deref(), Some("Note"), "control: no default falls back to the linked entity");
+    }
+
     fn trait_with_emit(
         event: &str,
         payload_entity: Option<&str>,
@@ -5805,7 +5842,7 @@ mod native_record_generic_metadata_tests {
 
     #[test]
     fn native_record_generic_alias_retains_its_nullable_shape() {
-        let shape = param_sub_field(&ParamSub::Struct(vec![alias()])).unwrap();
+        let shape = param_sub_field(&ParamSub::Struct(vec![alias()], "A".to_string())).unwrap();
         assert_eq!(shape.field_type, FieldType::Object);
         assert_eq!(shape.nullable, Some(true));
         let properties = shape.properties.unwrap();
@@ -5847,7 +5884,7 @@ mod native_record_generic_metadata_tests {
 
     #[test]
     fn native_record_generic_config_preserves_occurrence_and_bound_contracts() {
-        let sub = ParamSub::Struct(vec![alias()]);
+        let sub = ParamSub::Struct(vec![alias()], "A".to_string());
         let subs = HashMap::from([("V".into(), sub)]);
         let bound: FieldDefinition = serde_json::from_value(json!({
             "type": "object", "nullable": true,
@@ -5887,7 +5924,7 @@ mod native_record_generic_metadata_tests {
     #[test]
     fn native_record_generic_payload_preserves_occurrence_and_bound_contracts() {
         let bound = alias();
-        let subs = HashMap::from([("V".into(), ParamSub::Struct(vec![bound.clone()]))]);
+        let subs = HashMap::from([("V".into(), ParamSub::Struct(vec![bound.clone()], "V".to_string()))]);
         for (tag, array) in [("$V", false), ("[$V]", true)] {
             let mut fields: Vec<PayloadField> = serde_json::from_value(json!([{
                 "name": "result", "type": tag, "required": true, "nullable": false
@@ -5905,12 +5942,15 @@ mod native_record_generic_metadata_tests {
             assert_eq!(result.required, Some(true));
             assert_eq!(result.nullable, Some(!array));
             if array {
-                assert_eq!(result.items.as_deref(), Some(&bound));
+                let mut named = bound.clone();
+                named.projected_from = Some(orbital_core_base::schema::FieldProjection { type_name: "V".to_string(), field: None });
+                assert_eq!(result.items.as_deref(), Some(&named), "the item is the bound shape, projected from its alias");
                 assert!(result.properties.is_none());
                 assert!(result.additional_properties.is_none());
             } else {
                 assert_eq!(result.properties, bound.properties);
                 assert_eq!(result.additional_properties, bound.additional_properties);
+                assert_eq!(result.projected_from.as_ref().map(|p| p.type_name.as_str()), Some("V"));
             }
         }
     }

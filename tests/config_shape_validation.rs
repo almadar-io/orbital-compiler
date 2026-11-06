@@ -279,6 +279,7 @@ fn schema_with_config(config: orbital_core_base::collections::IndexMap<String, C
         site: None,
         public_dir: None,
         locales: None,
+        messages: None,
         lazy_pages: None,
         theme: None,
         name: "TestApp".to_string(),
@@ -1568,4 +1569,73 @@ fn a_record_alias_still_checks_its_shape() {
     assert_eq!(shape_errors(&point_knob(serde_json::json!({ "x": 1 }))), Vec::<String>::new());
     assert_eq!(shape_errors(&point_knob(serde_json::json!({ "x": "a" }))).len(), 1);
     assert_eq!(shape_errors(&point_knob(serde_json::json!(3))).len(), 1);
+}
+
+fn arm(name: &str, field_type: FieldType) -> FieldDefinition {
+    FieldDefinition {
+        nullable: None,
+        additional_properties: None,
+        mock: None,
+        merged_from: None,
+        name: Some(name.to_string()),
+        field_type,
+        required: None,
+        primary_key: None,
+        unique: None,
+        default: None,
+        values: None,
+        relation: None,
+        items: None,
+        properties: None,
+        intrinsic: None,
+        description: None,
+        synonyms: None,
+        projected_from: None,
+        record: None,
+        derived: None,
+    }
+}
+
+fn union_knob_errors(arms: &[(&str, FieldType)], default: &str) -> Vec<String> {
+    let mut props = IndexMap::new();
+    for (name, ty) in arms {
+        props.insert(name.to_string(), arm(name, ty.clone()));
+    }
+    let mut config = IndexMap::new();
+    config.insert(
+        "host".to_string(),
+        ConfigField {
+            nullable: None,
+            additional_properties: None,
+            field_type: "HostPart".to_string(),
+            default: Some(SExpression::String(default.to_string().into())),
+            label: None,
+            description: None,
+            synonyms: None,
+            tier: None,
+            values: Some(arms.iter().map(|(n, _)| n.to_string()).collect()),
+            items: None,
+            properties: Some(props),
+            required: None,
+            ref_id: None,
+            forwarded_from: None,
+            nested_forwarded_from: Vec::new(),
+            wired: false,
+            payload_for: None,
+            projected_from: None,
+            record: None,
+        },
+    );
+    shape_errors(&schema_with_config(config))
+}
+
+#[test]
+fn a_string_default_fits_a_union_knob_with_a_string_arm() {
+    let errs = union_knob_errors(&[("string", FieldType::String), ("Env", FieldType::Object)], "www.example.test");
+    assert!(errs.is_empty(), "the union's arm names are not enum members: {errs:?}");
+    let errs = union_knob_errors(&[("Env", FieldType::Object), ("Other", FieldType::Object)], "www.example.test");
+    assert!(
+        errs.iter().any(|e| e.contains("no arm of the union")),
+        "control: a union with no string arm refuses a string default: {errs:?}"
+    );
 }

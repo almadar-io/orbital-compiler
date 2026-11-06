@@ -290,3 +290,44 @@ fn a_lazy_behavior_lists_only_the_catalogs_it_loaded() {
         "no catalogs from other lazy behaviors: {elsewhere:?}"
     );
 }
+
+#[test]
+fn resolution_puts_each_programs_own_messages_in_it() {
+    let p = lazy_program();
+    let dir = p.path.parent().unwrap();
+    std::fs::create_dir_all(dir.join("locales/en")).unwrap();
+    std::fs::write(dir.join("locales/en/post.json"), r#"{"title":"Why"}"#).unwrap();
+    std::fs::write(dir.join("locales/en/other.json"), r#"{"title":"Elsewhere"}"#).unwrap();
+    let (_, lazy) = resolve_program_with_path(
+        parse_file(&p.path).unwrap(),
+        &CompilerOptions::default(),
+        Some(&p.path),
+    )
+    .expect("resolves");
+    let messages = |name: &str| {
+        lazy.iter()
+            .find(|l| l.orbital == name)
+            .and_then(|l| l.schema.messages.clone())
+            .expect("messages")
+    };
+    assert_eq!(messages("BlogA")["en"].get("post:title").map(String::as_str), Some("Why"));
+    let elsewhere = messages("Elsewhere");
+    assert_eq!(elsewhere["en"].get("other:title").map(String::as_str), Some("Elsewhere"));
+    assert!(elsewhere["en"].get("post:title").is_none(), "control: no text from another lazy behavior: {elsewhere:?}");
+}
+
+#[test]
+fn edge_a_catalog_that_does_not_parse_fails_the_resolve_naming_it() {
+    let p = lazy_program();
+    let dir = p.path.parent().unwrap();
+    std::fs::create_dir_all(dir.join("locales/en")).unwrap();
+    std::fs::write(dir.join("locales/en/post.json"), "{ broken").unwrap();
+    let error = resolve_program_with_path(
+        parse_file(&p.path).unwrap(),
+        &CompilerOptions::default(),
+        Some(&p.path),
+    )
+    .err()
+    .expect("a broken catalog fails");
+    assert!(error.to_string().contains("post.json"), "{error}");
+}

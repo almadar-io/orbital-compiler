@@ -47,6 +47,9 @@ pub enum ResolveError {
     #[error("Invalid tick interval '{0}': expected 'frame', a duration ('5ms'/'5s'/'1m'/'1h'), or a 5-field cron expression")]
     InvalidTickInterval(String),
 
+    #[error("Type '{0}' is declared with different shapes by two orbitals of this program; a declared type name has one shape in a program, so rename one of them")]
+    ConflictingTypeAlias(String),
+
     #[error("Failed to stamp entity fields: {0}")]
     FieldStamp(#[from] orbital_core_base::language::field_stamp::FieldStampError),
 }
@@ -69,6 +72,7 @@ impl From<LowerError> for ResolveError {
 
 /// Resolve a schema to OIR
 pub fn resolve_to_oir(schema: &OrbitalSchema) -> Result<OirModule, ResolveError> {
+    refuse_conflicting_aliases(schema)?;
     let mut resolver = Resolver::new(schema);
     let mut module = resolver.resolve()?;
     let predictions = super::await_render::predict_await_renders(schema);
@@ -1754,9 +1758,10 @@ fn payload_field_to_oir_type(
     field: &orbital_core_base::schema::PayloadField,
     ctx: &NamedTypeCtx,
 ) -> Result<OirType, ResolveError> {
-    let shape = orbital_core_base::ir::types::payload_field_shape_with_entity(
+    let shape = orbital_core_base::ir::types::payload_field_shape_named(
         field,
         &|entity| ctx.entity_names.contains(entity),
+        &|name| declared_alias(name, ctx.schema).is_some(),
     )?;
     if let OirType::Struct { fields, .. } = &shape {
         register_named_type_children(fields, ctx)?;
@@ -1845,12 +1850,37 @@ fn register_named_type_children(fields: &[OirField], ctx: &NamedTypeCtx) -> Resu
 /// the alias's own BODY (not from a call site re-entering it), so the cycle
 /// guard triggers one level deeper. Structurally equivalent; not normalized.
 fn lookup_named_type_shape(name: &str, ctx: &NamedTypeCtx) -> Result<Option<OirType>, orbital_core_base::ir::types::ShapeError> {
-    let declared = ctx.schema.orbitals.iter().filter_map(|orbital| orbital.types.as_ref())
-        .chain(ctx.schema.types.iter())
-        .find_map(|types| types.get(name))
-        .map(|members| orbital_core_base::ir::types::declared_alias_shape(members))
+    let declared = declared_alias(name, ctx.schema)
+        .map(|members| {
+            orbital_core_base::ir::types::declared_alias_shape_named(members, &|next| declared_alias(next, ctx.schema).is_some())
+        })
         .transpose()?;
     Ok(declared.or_else(|| orbital_core_base::sealed::sealed_record(name)))
+}
+
+/// The members of the type `name` this program declares (an orbital's `types` or the program's); one shape per name,
+/// which [`refuse_conflicting_aliases`] holds before resolving.
+fn declared_alias<'s>(name: &str, schema: &'s OrbitalSchema) -> Option<&'s Vec<orbital_core_base::schema::PayloadField>> {
+    schema.orbitals.iter().filter_map(|orbital| orbital.types.as_ref()).chain(schema.types.iter()).find_map(|types| types.get(name))
+}
+
+/// A declared type name that two orbitals (or an orbital and the program) give different shapes is refused: codegen
+/// names one model per declared name.
+fn refuse_conflicting_aliases(schema: &OrbitalSchema) -> Result<(), ResolveError> {
+    let mut seen: BTreeMap<&str, serde_json::Value> = BTreeMap::new();
+    for types in schema.orbitals.iter().filter_map(|orbital| orbital.types.as_ref()).chain(schema.types.iter()) {
+        for (name, members) in types {
+            let shape = serde_json::to_value(members).map_err(|e| ResolveError::InvalidType(e.to_string()))?;
+            match seen.get(name.as_str()) {
+                Some(first) if *first != shape => return Err(ResolveError::ConflictingTypeAlias(name.clone())),
+                Some(_) => {}
+                None => {
+                    seen.insert(name.as_str(), shape);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn parse_payload_field_type(field_type: &str) -> Result<OirType, orbital_core_base::ir::types::ShapeError> {
@@ -2016,6 +2046,7 @@ mod tests {
             site: None,
             public_dir: None,
             locales: None,
+            messages: None,
             lazy_pages: None,
             name: String::new(),
             version: None,
@@ -2479,6 +2510,7 @@ mod tests {
             site: None,
             public_dir: None,
             locales: None,
+            messages: None,
             lazy_pages: None,
             name: String::new(),
             version: None,
@@ -2639,6 +2671,7 @@ mod tests {
             site: None,
             public_dir: None,
             locales: None,
+            messages: None,
             lazy_pages: None,
             name: String::new(),
             version: None,
@@ -2679,6 +2712,7 @@ mod tests {
             site: None,
             public_dir: None,
             locales: None,
+            messages: None,
             lazy_pages: None,
             name: String::new(),
             version: None,
@@ -2909,6 +2943,68 @@ mod tests {
             OirType::Reference { entity } => assert_eq!(entity, "User"),
             other => panic!("expected Reference, got {:?}", other),
         }
+    }
+
+    fn alias_schema(second_text_shape: &str) -> OrbitalSchema {
+        let matched = r#"[{ "name": "", "type": "union", "projectedFrom": { "type": "Matched" }, "properties": [
+            { "name": "MatchedText", "type": "object", "projectedFrom": { "type": "MatchedText" },
+              "properties": [{ "name": "text", "type": "string", "required": true }] },
+            { "name": "MatchedIndex", "type": "object", "projectedFrom": { "type": "MatchedIndex" },
+              "properties": [{ "name": "index", "type": "int", "required": true }] } ] }]"#;
+        let text = r#"[{ "name": "text", "type": "string", "required": true }]"#;
+        let index = r#"[{ "name": "index", "type": "int", "required": true }]"#;
+        let payload = r#"[{ "name": "matched", "type": "union", "required": true, "projectedFrom": { "type": "Matched" }, "properties": [
+            { "name": "MatchedText", "type": "object", "projectedFrom": { "type": "MatchedText" },
+              "properties": [{ "name": "text", "type": "string", "required": true }] },
+            { "name": "MatchedIndex", "type": "object", "projectedFrom": { "type": "MatchedIndex" },
+              "properties": [{ "name": "index", "type": "int", "required": true }] } ] },
+            { "name": "note", "type": "object", "properties": [{ "name": "n", "type": "string" }] }]"#;
+        serde_json::from_str(&format!(
+            r#"{{ "name": "t", "version": "1.0.0", "orbitals": [
+              {{ "name": "O", "types": {{ "Matched": {matched}, "MatchedText": {text}, "MatchedIndex": {index} }},
+                "entity": {{ "name": "W", "fields": [] }},
+                "traits": [{{ "name": "Sink", "stateMachine": {{
+                  "states": [{{ "name": "idle", "isInitial": true }}],
+                  "events": [{{ "key": "GOT", "payloadSchema": {payload} }}],
+                  "transitions": [] }} }}] }},
+              {{ "name": "P", "types": {{ "MatchedText": {second_text_shape} }},
+                "entity": {{ "name": "V", "fields": [] }}, "traits": [] }} ] }}"#
+        ))
+        .expect("fixture parses")
+    }
+
+    /// A payload field typed by a declared alias resolves to the alias by name, and the alias's union arms to their
+    /// own declared names, each registered once in `named_types`; an anonymous record stays inline.
+    #[test]
+    fn a_payload_field_typed_by_a_declared_alias_is_a_type_ref_and_its_arms_are_named() {
+        let text = r#"[{ "name": "text", "type": "string", "required": true }]"#;
+        let module = resolve_to_oir(&alias_schema(text)).expect("resolves");
+        let event = module.traits[0].events.iter().find(|e| e.key == "GOT").expect("GOT");
+        let schema = event.payload_schema.as_ref().expect("payload");
+        assert_eq!(schema.get("matched"), Some(&OirType::TypeRef { name: "Matched".to_string() }));
+        assert!(matches!(schema.get("note"), Some(OirType::Struct { .. })), "control: an anonymous record stays inline");
+        let Some(OirType::Union { variants }) = module.named_types.get("Matched") else {
+            panic!("Matched is registered as its union: {:?}", module.named_types.keys().collect::<Vec<_>>())
+        };
+        let arms: Vec<(&str, &OirType)> = variants.iter().map(|v| (v.name.as_str(), &v.field_type)).collect();
+        assert_eq!(arms, [
+            ("MatchedText", &OirType::TypeRef { name: "MatchedText".to_string() }),
+            ("MatchedIndex", &OirType::TypeRef { name: "MatchedIndex".to_string() })
+        ]);
+        assert!(matches!(module.named_types.get("MatchedText"), Some(OirType::Struct { .. })));
+        assert!(matches!(module.named_types.get("MatchedIndex"), Some(OirType::Struct { .. })));
+    }
+
+    /// One declared name with two shapes across orbitals is refused; the same shape twice is one type.
+    #[test]
+    fn a_declared_type_name_with_two_shapes_is_refused_and_one_shape_twice_resolves() {
+        let other = r#"[{ "name": "text", "type": "number", "required": true }]"#;
+        assert!(matches!(
+            resolve_to_oir(&alias_schema(other)),
+            Err(ResolveError::ConflictingTypeAlias(name)) if name == "MatchedText"
+        ));
+        let same = r#"[{ "name": "text", "type": "string", "required": true }]"#;
+        assert!(resolve_to_oir(&alias_schema(same)).is_ok(), "control: the same shape declared twice is one type");
     }
 
     /// `(navigate path payload)` must resolve the payload arg into
@@ -3260,6 +3356,7 @@ mod tests {
             site: None,
             public_dir: None,
             locales: None,
+            messages: None,
             lazy_pages: None,
             theme: None,
             name: "TestApp".to_string(),
@@ -3310,6 +3407,7 @@ mod tests {
             site: None,
             public_dir: None,
             locales: None,
+            messages: None,
             lazy_pages: None,
             theme: None,
             name: "Test".to_string(),

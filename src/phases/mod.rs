@@ -86,6 +86,9 @@ pub enum CompilerError {
     #[error("Reflection error: {0}")]
     Reflection(String),
 
+    #[error("Catalog error: {0}")]
+    Catalog(String),
+
     #[error("{path} was resolved by orb {orb} for type contract {resolved}; this orb reads {current} — resolve it again from source")]
     ResolvedContract {
         path: String,
@@ -304,6 +307,11 @@ pub(crate) fn resolve_schema_with_inline(
 
     // The declared type of every `json/parse` / `as` shape naming a program alias, and the knob types that name aliases.
     validation::effect::record_declared_shapes(&mut schema).map_err(ResolveError::from)?;
+
+    if let (Some(path), true) = (source_path, schema.locales.as_ref().is_some_and(|l| !l.is_empty())) {
+        let messages = messages::merged_catalogs(&schema, path.parent().unwrap_or(Path::new("."))).map_err(CompilerError::Catalog)?;
+        schema.messages = Some(messages);
+    }
 
     schema.resolved = Some(orbital_core_base::schema::ResolvedMark {
         orb: env!("CARGO_PKG_VERSION").to_string(),
@@ -580,7 +588,8 @@ mod tests {
         let err = resolve_schema_with_path(program, &CompilerOptions::default(), Some(Path::new("/app/app.orb")))
             .expect_err("refused")
             .to_string();
-        assert!(err.contains("/app/app.orb was resolved by orb 0.0.1 for type contract 2; this orb reads 1"), "{err}");
+        let (theirs, ours) = (orbital_core_base::schema::TYPE_CONTRACT_VERSION + 1, orbital_core_base::schema::TYPE_CONTRACT_VERSION);
+        assert!(err.contains(&format!("/app/app.orb was resolved by orb 0.0.1 for type contract {theirs}; this orb reads {ours}")), "{err}");
         assert!(err.contains("resolve it again from source"), "{err}");
     }
 

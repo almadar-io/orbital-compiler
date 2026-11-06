@@ -4910,6 +4910,7 @@ mod tests {
             site: None,
             public_dir: None,
             locales: None,
+            messages: None,
             lazy_pages: None,
             name: consumer_name,
             version: None,
