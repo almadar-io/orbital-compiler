@@ -7,7 +7,9 @@ Every open gap this repo owns lives here. This file is the source of truth; the 
 - **Codes:** new gaps use this repo's prefix `G-ORBITAL-COMPILER-`. Take the "Next code" below, then bump it in the same edit. Codes are never reused or renamed.
 - **Close by deleting.** Remove the entry in the same commit as the fix.
 
-Next code: `G-ORBITAL-COMPILER-007`
+Next code: `G-ORBITAL-COMPILER-008`
+
+- **G-ORBITAL-COMPILER-007** [mechanical] — `orb validate` accepted `draw-sprite { frame: @entity.player.frame }` where `frame` is a number but the pattern types it `DrawSpriteFrame` (a `{x, y, w, h}` record) — `ui-skatepark-board-3d` carried it (2026-11-06, fixed in the program; found by the P-025 parity run: orbital-canvas refuses it where three and the 2D painter silently ignored it). The binding check compares only top-level props; an item of a drawable layer's `items` list is not checked against its pattern's props. Rung: (2) orb validate. Root cause: one-off.
 
 
 - **G-ORBITAL-COMPILER-005** [mechanical] — `orb validate` rejects a list literal of a narrowed binding in an emit payload: with `(let ((p0 (bytes/write-uint 0 4 "le"))) (if (= @p0 null) … (emit GPU_STEP { params: [@p0] })))` and `GPU_STEP { params : [bytes]! }`, it reports ORB_EMIT_PAYLOAD_FIELD_TYPE_MISMATCH "has a list item of type 'bytes', declared as '[bytes]'", comparing the item with the whole list type; the same value built as `(array/map (array/range 1) (fn k @p0))` passes. Found writing almadar-behaviors std-physics-fluid-sph (LEARN_RESET), which carries the array/map spelling until this is fixed. Prevention rung: `.lolo` type system (the emit payload check's list-literal element compare). Root cause: one-off.
