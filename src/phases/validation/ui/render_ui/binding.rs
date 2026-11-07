@@ -1408,7 +1408,7 @@ mod array_into_record_tests {
             .collect()
     }
 
-    fn popover_skeleton(data_type: &str) -> Vec<ValidationError> {
+    fn page_header_status(data_type: &str) -> Vec<ValidationError> {
         let t = bare_trait();
         let entities = HashMap::new();
         let fields = payload(data_type);
@@ -1419,7 +1419,7 @@ mod array_into_record_tests {
             sibling_trait_names: &[],
         };
         let mut out = Vec::new();
-        walk_pattern_props(&pattern("popover", "skeleton", "@payload.data"), &ctx, "test", &mut out);
+        walk_pattern_props(&pattern("page-header", "status", "@payload.data"), &ctx, "test", &mut out);
         out.into_iter()
             .filter(|e| e.code == ErrorCode::RenderUIBindingTypeMismatch)
             .collect()
@@ -1427,8 +1427,8 @@ mod array_into_record_tests {
 
     #[test]
     fn g_orbital_compiler_007_a_scalar_the_prop_also_accepts_is_not_refused() {
-        assert!(popover_skeleton("string").is_empty(), "popover.skeleton takes string or object");
-        assert_eq!(popover_skeleton("number").len(), 1, "control: a number fits neither string nor object");
+        assert!(page_header_status("string").is_empty(), "page-header.status takes object or string");
+        assert_eq!(page_header_status("number").len(), 1, "control: a number fits neither string nor object");
     }
 
     /// G-ORBITAL-COMPILER-007: a number bound into a drawable layer item's record prop (`frame`) is refused.
