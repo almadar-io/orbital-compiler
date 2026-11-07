@@ -23,7 +23,7 @@ fn make_trait_with_transition(
     guard: Option<SExpression>,
     effects: Vec<SExpression>,
 ) -> TraitDefinition {
-    TraitDefinition {
+    TraitDefinition { dropped_listens: None,
         dispatch: None,
         effect_row: None,
         type_params: None,

@@ -1108,6 +1108,7 @@ mod tests {
     fn a_union_knob_read_at_an_os_target_carrying_its_declared_type_raises_no_arg_type_mismatch() {
         let knob: orbital_core_base::schema::ConfigField = serde_json::from_value(serde_json::json!({
             "type": "string",
+            "union": true,
             "values": ["string", "Env"],
             "properties": {
                 "string": { "name": "string", "type": "string" },
@@ -2540,6 +2541,38 @@ mod tests {
                 ),
                 0
             );
+        }
+
+        #[test]
+        fn g_std_290_a_null_test_on_an_event_optional_payload_field_is_a_valid_operand() {
+            let null_errors = |optional: bool| {
+                let mut types = BindingTypes {
+                    payload: [("q".to_string(), orbital_core_base::ir::OirType::String)]
+                        .into_iter()
+                        .collect(),
+                    optional_payload: if optional {
+                        ["q".to_string()].into_iter().collect()
+                    } else {
+                        Default::default()
+                    },
+                    ..no_types()
+                };
+                types.type_optional_payload();
+                validate_operator_arg_types(
+                    &parse(r#"["!=", "@payload.q", null]"#),
+                    "p",
+                    &HashMap::new(),
+                    &HashMap::new(),
+                    &types,
+                    None,
+                )
+                .errors
+                .iter()
+                .filter(|e| e.code == ErrorCode::OperatorArgTypeMismatch && e.message.contains("never null"))
+                .count()
+            };
+            assert_eq!(null_errors(true), 0, "an optional field may be absent");
+            assert_eq!(null_errors(false), 1, "control: a required field is never null");
         }
 
         #[test]

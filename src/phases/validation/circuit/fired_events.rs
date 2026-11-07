@@ -542,7 +542,7 @@ mod tests {
     }
 
     fn bare_trait(name: &str) -> TraitDefinition {
-        TraitDefinition {
+        TraitDefinition { dropped_listens: None,
             dispatch: None,
             effect_row: None,
             type_params: None,

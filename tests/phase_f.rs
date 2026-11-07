@@ -131,7 +131,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
         SExpression::object(payload_obj),
     ].into());
 
-    let trait_def = TraitDefinition {
+    let trait_def = TraitDefinition { dropped_listens: None,
         dispatch: None,
         effect_row: None,
         type_params: None,

@@ -165,15 +165,26 @@ pub(crate) fn validate_dispatch_residence(
                 )
             }));
         for (at, event, effects) in arms {
-            let touches = effects.iter().fold(
+            let touches = effects.iter().try_fold(
                 BTreeSet::from([orbital_core_base::runs_on::LegTouch::NONE]),
                 |acc, e| {
-                    let next = expr_leg_touches(e, &residence);
-                    acc.iter()
-                        .flat_map(|a| next.iter().map(move |b| a.then(*b)))
-                        .collect()
+                    let next = expr_leg_touches(e, &residence)?;
+                    Ok::<_, orbital_core_base::language_data::LanguageDataError>(
+                        acc.iter().flat_map(|a| next.iter().map(move |b| a.then(*b))).collect::<BTreeSet<_>>(),
+                    )
                 },
             );
+            let touches: BTreeSet<_> = match touches {
+                Ok(touches) => touches,
+                Err(fault) => {
+                    result.add_error(ValidationError::error(
+                        ErrorCode::LanguageDataFault,
+                        &at,
+                        format!("{}: {fault}", fault.code()),
+                    ));
+                    continue;
+                }
+            };
             if touches.iter().any(|t| t.is_mixed()) {
                 result.add_error(ValidationError::error(
                     ErrorCode::DispatchMixedResidence,

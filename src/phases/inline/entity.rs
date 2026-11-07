@@ -758,7 +758,7 @@ mod render_ui_pattern_contract_reference_tests {
             SExpression::String(("main".to_string()).into()),
             node,
         ].into());
-        TraitDefinition {
+        TraitDefinition { dropped_listens: None,
             dispatch: None,
             effect_row: None,
             type_params: None,

@@ -436,6 +436,8 @@ impl<'a> Resolver<'a> {
             }
         }
         module.named_types = self.named_types.take();
+        let ctx = self.named_type_ctx();
+        module.close_named_types(|name| lookup_named_type_shape(name, &ctx))?;
 
         Ok(module)
     }
@@ -1014,9 +1016,12 @@ impl<'a> Resolver<'a> {
         if let Some(items) = &field.items {
             return Ok(OirType::array(self.resolve_field_shape(items)?));
         }
-        // Union slot: `host : string | Env` lowers `values` (the variant names, in declaration order) beside
-        // `properties` (their shapes), the carrier a field definition's union uses.
-        if let (Some(names), Some(props)) = (&field.values, &field.properties) {
+        // Union slot: lowering tags `host : string | Env` `union`, with `values` (the variant names, in
+        // declaration order) beside `properties` (their shapes).
+        if field.union == Some(true) {
+            let (Some(names), Some(props)) = (&field.values, &field.properties) else {
+                return Err(ResolveError::InvalidType("a union knob carries no variant names or shapes".to_string()));
+            };
             let mut variants: Vec<OirField> = Vec::new();
             for name in names {
                 let Some(def) = props.get(name) else { continue };
@@ -1327,7 +1332,7 @@ impl<'a> Resolver<'a> {
                         key.clone(),
                         OirConfigFieldType {
                             field_type: self.resolve_config_field_shape(field)?,
-                            values: field.values.clone(),
+                            values: field.values.clone().filter(|_| field.union != Some(true)),
                         },
                     );
                     if let Some(default_expr) = &field.default {
@@ -2063,10 +2068,10 @@ mod tests {
         }
     }
 
-    /// A config knob declared `string | Env` carries its variant names in `values` and their shapes in `properties`
-    /// (the union carrier a field definition uses): reading `properties` alone made a record of optional members.
+    /// A config knob declared `string | Env` is tagged `union`, its variant names in `values` and their shapes in
+    /// `properties`: reading `properties` alone made a record of optional members (G-ORB-629).
     #[test]
-    fn a_config_knob_carrying_values_and_properties_resolves_to_a_union_not_a_struct() {
+    fn a_config_knob_tagged_union_resolves_to_a_union_not_a_struct() {
         let knob = |carrier: serde_json::Value| -> OirType {
             let field: orbital_core_base::schema::ConfigField = serde_json::from_value(carrier).expect("knob");
             config_field_carried_type(&field).expect("resolves")
@@ -2075,13 +2080,17 @@ mod tests {
             "string": { "name": "string", "type": "string" },
             "Env": { "name": "Env", "type": "object", "properties": { "anchor": { "name": "anchor", "type": "string", "required": true } } }
         });
-        let OirType::Union { variants } = knob(serde_json::json!({ "type": "string", "values": ["string", "Env"], "properties": members })) else {
+        let OirType::Union { variants } = knob(serde_json::json!({ "type": "string", "union": true, "values": ["string", "Env"], "properties": members })) else {
             panic!("a union knob is a union");
         };
         assert_eq!(variants.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["string", "Env"], "declaration order");
         assert!(variants.iter().all(|v| v.required), "a member is never optional");
         assert!(matches!(knob(serde_json::json!({ "type": "Env", "properties": { "anchor": { "name": "anchor", "type": "string" } } })), OirType::Struct { .. }), "control: properties alone is a record");
         assert_eq!(knob(serde_json::json!({ "type": "string", "values": ["a", "b"] })), OirType::String, "control: a literal union has no properties and stays a string");
+        assert!(
+            !matches!(knob(serde_json::json!({ "type": "Env", "values": ["string", "Env"], "properties": members })), OirType::Union { .. }),
+            "an untagged knob is never read as a union from its field combination"
+        );
     }
 
     /// A payload field tagged `union` carries VARIANTS in `properties`, not the

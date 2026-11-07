@@ -18,7 +18,7 @@ use orbital_core_base::schema::{
     TraitReference,
 };
 use orbital_core_base::type_compat::{
-    bound_shape_of_payload_field, prop_admits_scalar, record_prop_binding_mismatch, BoundShape,
+    bound_shape_of_payload_field, record_prop_binding_mismatch, BoundShape,
     RecordBindingMismatch,
 };
 use std::collections::HashMap;
@@ -388,7 +388,9 @@ fn check_record_prop_binding(
             BindingType::Array => BoundShape::Collection,
             BindingType::Entity(name) => BoundShape::Record(Some(name)),
             BindingType::Object => BoundShape::Record(None),
-            BindingType::String | BindingType::Number | BindingType::Boolean => BoundShape::Scalar,
+            BindingType::String => BoundShape::Scalar("string"),
+            BindingType::Number => BoundShape::Scalar("number"),
+            BindingType::Boolean => BoundShape::Scalar("boolean"),
             BindingType::Unknown | BindingType::TraitRef => return,
             _ => BoundShape::Other,
         }
@@ -403,8 +405,7 @@ fn check_record_prop_binding(
         None
     };
     let is_entity = |n: &str| bctx.entity_definitions.contains_key(n);
-    let admits_scalar = prop_admits_scalar(expected_types);
-    let Some(mismatch) = record_prop_binding_mismatch(&bound, admits_scalar, expected, is_entity)
+    let Some(mismatch) = record_prop_binding_mismatch(&bound, expected_types, expected, is_entity)
     else {
         return;
     };
@@ -1422,10 +1423,15 @@ mod array_into_record_tests {
         assert!(sprite_layer_frame("@payload.data", "object").is_empty());
     }
 
-    /// `skeleton` accepts `string | object`: a string fills it, a collection still does not.
+    /// `skeleton` accepts `string | object`: a string fills it, a number or a collection does not.
     #[test]
     fn a_string_into_a_prop_that_also_takes_a_string_is_no_record_mismatch() {
         assert!(mismatches("theme-toggle", "skeleton", "@payload.data", "string").is_empty());
+        assert_eq!(
+            mismatches("theme-toggle", "skeleton", "@payload.data", "number").len(),
+            1,
+            "control: a number is not a type `skeleton` admits"
+        );
         assert_eq!(
             mismatches("theme-toggle", "skeleton", "@payload.data", "[object]").len(),
             1

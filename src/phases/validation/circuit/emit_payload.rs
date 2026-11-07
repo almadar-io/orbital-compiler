@@ -16,7 +16,8 @@
 use std::collections::HashMap;
 
 use orbital_core_base::schema::{
-    EntityDefinition, EventScope, OrbitalSchema, PayloadField, SExpression, TraitReference,
+    EntityDefinition, EventScope, ListenSource, Orbital, OrbitalSchema, PayloadField, SExpression,
+    TraitDefinition, TraitReference,
 };
 
 use super::effect::{
@@ -42,6 +43,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
     // disagree about the same event.
     let all_fired_events = super::fired_events::collect_schema_fired_events(schema);
     let guaranteed = GuaranteedPayloads::new();
+    validate_listen_payload_types(schema, ctx);
 
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         for (ti, trait_ref) in orbital.traits.iter().enumerate() {
@@ -197,6 +199,158 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
             }
         }
     }
+}
+
+/// G-ORB-310: the payload an `emits` entry declares must fit the payload the listening trait declares for the
+/// event the route triggers, field by field, under the kernel's one type relation.
+fn validate_listen_payload_types(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    let resolve = |name: &str| {
+        crate::phases::resolve::declared_struct_type(schema, name)
+            .ok()
+            .flatten()
+    };
+    for (li, listener_orbital) in schema.orbitals.iter().enumerate() {
+        for (lti, listener_ref) in listener_orbital.traits.iter().enumerate() {
+            let TraitReference::Inline(listener) = listener_ref else {
+                continue;
+            };
+            let listener_path = super::trait_path(li, &listener_orbital.name, lti, listener_ref);
+            for (ri, route) in listener.listens.iter().flatten().enumerate() {
+                if route.payload_mapping.is_some() {
+                    continue;
+                }
+                let trigger = route.triggers.as_deref().unwrap_or(&route.event);
+                let Some(expected) = listener
+                    .state_machine
+                    .events
+                    .iter()
+                    .flatten()
+                    .find(|e| e.key == trigger)
+                    .and_then(|e| e.payload_schema.as_deref())
+                else {
+                    continue;
+                };
+                for (ei, emitter_orbital) in schema.orbitals.iter().enumerate() {
+                    for emitter_ref in &emitter_orbital.traits {
+                        let TraitReference::Inline(emitter) = emitter_ref else {
+                            continue;
+                        };
+                        if !route_names_emitter(route, li == ei, emitter_orbital, emitter) {
+                            continue;
+                        }
+                        for emit in emitter.emits.iter().flatten().filter(|e| e.event == route.event) {
+                            let Some(declared) = emit.payload_schema.as_deref() else {
+                                continue;
+                            };
+                            for field in declared {
+                                let Some(slot) = expected.iter().find(|f| f.name == field.name) else {
+                                    continue;
+                                };
+                                let (Some(sent), Some(taken)) =
+                                    (declared_oir(field, schema), declared_oir(slot, schema))
+                                else {
+                                    continue;
+                                };
+                                if !type_is_decidable(&sent, &resolve, ctx)
+                                    || !type_is_decidable(&taken, &resolve, ctx)
+                                {
+                                    continue;
+                                }
+                                if orbital_core_base::type_compat::sub_with_named(&sent, &taken, &resolve)
+                                    .is_some()
+                                {
+                                    continue;
+                                }
+                                ctx.add_error(
+                                    ValidationError::error(
+                                        ErrorCode::ListenPayloadTypeMismatch,
+                                        format!("{listener_path}.listens[{ri}]"),
+                                        format!(
+                                            "Trait '{}' emits '{}' with '{}' as '{}', but '{}' listens to it as '{}' and declares '{}' as '{}'",
+                                            emitter.name,
+                                            route.event,
+                                            field.name,
+                                            describe_declared_type(field),
+                                            listener.name,
+                                            trigger,
+                                            field.name,
+                                            describe_declared_type(slot)
+                                        ),
+                                    )
+                                    .with_suggestion(format!(
+                                        "Emit '{}.{}' as a type '{}' accepts, or change the payload '{}' declares for '{}'",
+                                        route.event, field.name, listener.name, listener.name, trigger
+                                    )),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Whether `route` takes the events `emitter` declares: a trait source pins the emitter inside the listener's own
+/// orbital, an orbital source pins orbital and trait, an absent or `*` source takes any emitter.
+fn route_names_emitter(
+    route: &orbital_core_base::schema::ListenDefinition,
+    same_orbital: bool,
+    emitter_orbital: &Orbital,
+    emitter: &TraitDefinition,
+) -> bool {
+    match &route.source {
+        None | Some(ListenSource::Any) => true,
+        Some(ListenSource::Trait { trait_name, .. }) => same_orbital && emitter.name == *trait_name,
+        Some(ListenSource::Orbital {
+            orbital, trait_name, ..
+        }) => emitter_orbital.name == *orbital && emitter.name == *trait_name,
+    }
+}
+
+/// A type the relation can judge: no open type variable, and every name it reaches (transitively) is a declared
+/// type, a sealed type or an entity. Anything else is another check's to report.
+fn type_is_decidable(
+    ty: &orbital_core_base::ir::OirType,
+    resolve: &dyn Fn(&str) -> Option<orbital_core_base::ir::OirType>,
+    ctx: &ValidationContext,
+) -> bool {
+    let open = std::cell::Cell::new(false);
+    ty.clone().rewrite(&|node| {
+        if matches!(node, orbital_core_base::ir::OirType::Var { .. }) {
+            open.set(true);
+        }
+        None
+    });
+    if open.get() {
+        return false;
+    }
+    let mut pending = Vec::new();
+    orbital_core_base::ir::types::names_in(ty, &mut pending);
+    let mut seen = std::collections::HashSet::new();
+    while let Some(name) = pending.pop() {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        match resolve(&name) {
+            Some(body) => orbital_core_base::ir::types::names_in(&body, &mut pending),
+            None if orbital_core_base::sealed::is_sealed_type(&name)
+                || ctx.entity_definitions.contains_key(&name) => {}
+            None => return false,
+        }
+    }
+    true
+}
+
+fn describe_declared_type(field: &PayloadField) -> String {
+    let spelled = field
+        .projected_from
+        .as_ref()
+        .filter(|p| p.field.is_none())
+        .map_or(field.field_type.as_str(), |p| p.type_name.as_str());
+    orbital_core_base::type_compat::rename_type_names(spelled, &|name| {
+        Some(orbital_core_base::type_compat::describe_type_name(name))
+    })
 }
 
 /// What one trait's emit checks read, shared by every effect of a transition or tick.
@@ -630,30 +784,43 @@ fn validate_emit_success_return(
     // Each slot a call can fire: the bus key it fires on and the payload the
     // operator puts there. `None` = undecidable at this call site (no effect
     // metadata, an opaque `any`, an unresolvable union): never guess.
-    let slots: [(&[&str], Option<Vec<PayloadField>>); 3] = [
-        (
-            &["success"],
-            produced_shape::produced_payload(
-                op_name.as_str(),
-                arr.as_slice(),
-                entity_definitions,
-                registry,
-                &|name| {
-                    crate::phases::resolve::declared_struct_type(schema, name)
-                        .ok()
-                        .flatten()
-                },
+    let produced_slots = (|| {
+        Ok::<_, orbital_core_base::language_data::LanguageDataError>([
+            (
+                &["success"] as &[&str],
+                produced_shape::produced_payload(
+                    op_name.as_str(),
+                    arr.as_slice(),
+                    entity_definitions,
+                    registry,
+                    &|name| {
+                        crate::phases::resolve::declared_struct_type(schema, name)
+                            .ok()
+                            .flatten()
+                    },
+                )?,
             ),
-        ),
-        (
-            &["failure"],
-            produced_shape::produced_failure_payload(op_name.as_str(), arr.as_slice()),
-        ),
-        (
-            &["onMessage"],
-            produced_shape::produced_message_payload(op_name.as_str(), arr.as_slice()),
-        ),
-    ];
+            (
+                &["failure"] as &[&str],
+                produced_shape::produced_failure_payload(op_name.as_str(), arr.as_slice())?,
+            ),
+            (
+                &["onMessage"] as &[&str],
+                produced_shape::produced_message_payload(op_name.as_str(), arr.as_slice())?,
+            ),
+        ])
+    })();
+    let slots: [(&[&str], Option<Vec<PayloadField>>); 3] = match produced_slots {
+        Ok(slots) => slots,
+        Err(fault) => {
+            result.add_error(ValidationError::error(
+                ErrorCode::LanguageDataFault,
+                path,
+                format!("{}: {fault}", fault.code()),
+            ));
+            return result;
+        }
+    };
     for (emit_keys, produced) in slots {
         let Some(produced) = produced else { continue };
         let Some((emit_key, success_event)) = emit_keys
@@ -2629,5 +2796,206 @@ mod tests {
     fn a_scalar_never_fills_a_program_type_slot() {
         assert!(!primitive_types_compatible("Viewer", "number"));
         assert!(!primitive_types_compatible("Viewer", "string"));
+    }
+
+    const LISTEN_PAYLOAD_CODE: &str = "ORB_LISTEN_PAYLOAD_TYPE_MISMATCH";
+
+    fn listen_program(
+        emitted: &str,
+        listened: &str,
+        emitter_types: &str,
+        listener_types: &str,
+        source: &str,
+    ) -> OrbitalSchema {
+        let json = r#"{
+            "name": "listen-app",
+            "orbitals": [
+                { "name": "Sender", "types": @EMITTER_TYPES@,
+                  "entity": { "name": "SenderRow", "fields": [] },
+                  "traits": [{ "name": "Emitter",
+                    "emits": [{ "event": "EVT", "payloadSchema": [@EMITTED@] }],
+                    "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] } }] },
+                { "name": "Receiver", "types": @LISTENER_TYPES@,
+                  "entity": { "name": "ReceiverRow", "fields": [] },
+                  "traits": [{ "name": "Listener",
+                    "listens": [{ "event": "EVT", "triggers": "MY_EVT", "source": @SOURCE@ }],
+                    "stateMachine": { "states": [{ "name": "idle", "isInitial": true }],
+                      "events": [{ "key": "MY_EVT", "payloadSchema": [@LISTENED@] }],
+                      "transitions": [] } }] }
+            ]
+        }"#
+        .replace("@EMITTER_TYPES@", emitter_types)
+        .replace("@LISTENER_TYPES@", listener_types)
+        .replace("@EMITTED@", emitted)
+        .replace("@LISTENED@", listened)
+        .replace("@SOURCE@", source);
+        serde_json::from_str(&json).expect("schema parses")
+    }
+
+    const FROM_EMITTER: &str = r#"{ "kind": "orbital", "orbital": "Sender", "trait": "Emitter" }"#;
+
+    fn listen_mismatches(schema: &OrbitalSchema) -> Vec<String> {
+        let mut ctx = ctx_with_seeded_entities(schema);
+        validate_all_emit_payloads(schema, &mut ctx);
+        ctx.result
+            .errors
+            .iter()
+            .filter(|e| e.code.as_str() == LISTEN_PAYLOAD_CODE)
+            .map(|e| e.message.clone())
+            .collect()
+    }
+
+    const ML_INPUT_ALIAS: &str = r#"{ "MlInputLike": [{ "name": "", "type": "union", "properties": [
+        { "name": "columns", "type": "Map<string,[number]>" },
+        { "name": "rows", "type": "[[number]]" } ] }] }"#;
+
+    const ML_INPUT_FIELD: &str = r#"{ "name": "input", "type": "union", "projectedFrom": { "type": "MlInputLike" }, "properties": [
+        { "name": "columns", "type": "Map<string,[number]>" },
+        { "name": "rows", "type": "[[number]]" } ] }"#;
+
+    #[test]
+    fn g_orb_310_a_string_emitted_into_a_union_slot_that_has_no_string_arm_is_refused() {
+        let schema = listen_program(
+            r#"{ "name": "input", "type": "string" }"#,
+            ML_INPUT_FIELD,
+            "{}",
+            ML_INPUT_ALIAS,
+            FROM_EMITTER,
+        );
+        let found = listen_mismatches(&schema);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].contains("Emitter")
+                && found[0].contains("EVT")
+                && found[0].contains("input")
+                && found[0].contains("string")
+                && found[0].contains("MlInputLike"),
+            "names emitter, event, field, both types: {}",
+            found[0]
+        );
+    }
+
+    #[test]
+    fn g_orb_310_a_map_of_numbers_emitted_into_a_map_of_lists_union_is_refused() {
+        let schema = listen_program(
+            r#"{ "name": "input", "type": "Map<string,number>" }"#,
+            ML_INPUT_FIELD,
+            "{}",
+            ML_INPUT_ALIAS,
+            FROM_EMITTER,
+        );
+        assert_eq!(listen_mismatches(&schema).len(), 1);
+    }
+
+    #[test]
+    fn g_orb_310_a_nested_record_member_of_the_wrong_type_is_refused() {
+        let schema = listen_program(
+            r#"{ "name": "cfg", "type": "object", "properties": [{ "name": "n", "type": "string" }] }"#,
+            r#"{ "name": "cfg", "type": "object", "properties": [{ "name": "n", "type": "number" }] }"#,
+            "{}",
+            "{}",
+            FROM_EMITTER,
+        );
+        assert_eq!(listen_mismatches(&schema).len(), 1);
+    }
+
+    #[test]
+    fn g_orb_310_a_wildcard_and_an_absent_source_still_reach_the_emitter() {
+        for source in [r#"{ "kind": "any" }"#, "null"] {
+            let schema = listen_program(
+                r#"{ "name": "n", "type": "string" }"#,
+                r#"{ "name": "n", "type": "number" }"#,
+                "{}",
+                "{}",
+                source,
+            );
+            assert_eq!(listen_mismatches(&schema).len(), 1, "source {source}");
+        }
+    }
+
+    #[test]
+    fn g_orb_310_control_a_route_pinned_to_another_trait_is_not_this_emitters() {
+        let schema = listen_program(
+            r#"{ "name": "n", "type": "string" }"#,
+            r#"{ "name": "n", "type": "number" }"#,
+            "{}",
+            "{}",
+            r#"{ "kind": "orbital", "orbital": "Sender", "trait": "Other" }"#,
+        );
+        assert!(listen_mismatches(&schema).is_empty());
+    }
+
+    fn recursive_alias(behavior: &str, name: &str) -> String {
+        let me = format!("{behavior}::{name}");
+        format!(
+            r#"{{ "{me}": [{{ "name": "", "type": "union", "properties": [
+                {{ "name": "s", "type": "string" }},
+                {{ "name": "n", "type": "number" }},
+                {{ "name": "b", "type": "boolean" }},
+                {{ "name": "items", "type": "[{me}]" }},
+                {{ "name": "byName", "type": "Map<string,{me}>" }} ] }}] }}"#
+        )
+    }
+
+    #[test]
+    fn g_orb_310_control_identical_shape_aliases_from_two_behaviors_are_silent() {
+        let schema = listen_program(
+            r#"{ "name": "effects", "type": "[behA::TrcVal]" }"#,
+            r#"{ "name": "effects", "type": "[behB::FiredNode]" }"#,
+            &recursive_alias("behA", "TrcVal"),
+            &recursive_alias("behB", "FiredNode"),
+            FROM_EMITTER,
+        );
+        assert!(listen_mismatches(&schema).is_empty());
+    }
+
+    #[test]
+    fn g_orb_310_control_a_record_with_a_nullable_extra_member_accepts_the_narrower_record() {
+        let schema = listen_program(
+            r#"{ "name": "cfg", "type": "object", "properties": [{ "name": "effects", "type": "[behA::TrcVal]" }] }"#,
+            r#"{ "name": "cfg", "type": "object", "properties": [
+                { "name": "guard", "type": "behB::FiredNode", "nullable": true },
+                { "name": "effects", "type": "[behB::FiredNode]" }] }"#,
+            &recursive_alias("behA", "TrcVal"),
+            &recursive_alias("behB", "FiredNode"),
+            FROM_EMITTER,
+        );
+        assert!(listen_mismatches(&schema).is_empty());
+    }
+
+    #[test]
+    fn g_orb_310_control_a_value_into_a_nullable_slot_is_silent() {
+        let schema = listen_program(
+            r#"{ "name": "n", "type": "number" }"#,
+            r#"{ "name": "n", "type": "number", "nullable": true }"#,
+            "{}",
+            "{}",
+            FROM_EMITTER,
+        );
+        assert!(listen_mismatches(&schema).is_empty());
+    }
+
+    #[test]
+    fn g_orb_310_control_a_field_one_side_does_not_declare_is_not_this_checks_to_report() {
+        let schema = listen_program(
+            r#"{ "name": "only_sent", "type": "string" }"#,
+            r#"{ "name": "only_taken", "type": "number" }"#,
+            "{}",
+            "{}",
+            FROM_EMITTER,
+        );
+        assert!(listen_mismatches(&schema).is_empty());
+    }
+
+    #[test]
+    fn g_orb_310_control_a_map_of_lists_fits_the_union_that_holds_it() {
+        let schema = listen_program(
+            r#"{ "name": "input", "type": "Map<string,[number]>" }"#,
+            ML_INPUT_FIELD,
+            "{}",
+            ML_INPUT_ALIAS,
+            FROM_EMITTER,
+        );
+        assert!(listen_mismatches(&schema).is_empty());
     }
 }

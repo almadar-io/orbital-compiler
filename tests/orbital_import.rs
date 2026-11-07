@@ -2255,6 +2255,7 @@ mod os_grants_follow_the_importing_orbital {
 
     fn missing_in(schema: &OrbitalSchema) -> Vec<String> {
         os_grant_findings(schema, OsGrantPass::Written)
+            .expect("table")
             .into_iter()
             .filter(|f| f.code == OsGrantFindingCode::Missing)
             .filter_map(|f| f.orbital)

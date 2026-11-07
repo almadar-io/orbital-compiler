@@ -342,6 +342,9 @@ pub enum InlineError {
         event: String,
         site: String,
     },
+
+    #[error("{0}")]
+    LanguageData(#[from] orbital_core_base::language_data::LanguageDataError),
 }
 
 impl InlineError {
@@ -389,6 +392,7 @@ impl InlineError {
             InlineError::LazyEagerRef { .. } => "ORB_LAZY_EAGER_REF",
             InlineError::LazyNoPages { .. } => "ORB_LAZY_NO_PAGES",
             InlineError::LazyNotSplit { .. } => "ORB_LAZY_NOT_SPLIT",
+            InlineError::LanguageData(error) => error.code(),
             InlineError::PageAccessWeakened { .. } => "ORB_O_PAGE_ACCESS_WEAKENED",
             InlineError::PageProtocolMismatch { .. } => "ORB_O_PAGE_PROTOCOL_MISMATCH",
             InlineError::BehaviorRefUnresolved { .. } => "ORB_T_BEHAVIOR_REF_UNRESOLVED",
@@ -1030,7 +1034,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // EXEC-GRANTS-2: composition stamps an import's grants onto every orbital it brings, but a grant belongs on the
     // orbital whose `os/` call uses it. With every trait inlined and every knob folded, drop the stamped entries no
     // call of their orbital uses; what the program wrote on an orbital stays.
-    orbital_core_base::os_grants::prune_composed_unused_grants(schema, &written_os_grants);
+    orbital_core_base::os_grants::prune_composed_unused_grants(schema, &written_os_grants)?;
 
     // Emit the config→knob provenance into `_metadata.configProvenance` so a
     // consumer (Studio contextual edit) can trace a substituted render-ui
@@ -4443,7 +4447,7 @@ mod tests {
     /// tests don't have to hand-construct every field.
     fn make_trait(name: &str) -> TraitDefinition {
         use orbital_core_base::schema::StateMachine;
-        TraitDefinition {
+        TraitDefinition { dropped_listens: None,
             dispatch: None,
             effect_row: None,
             type_params: None,
@@ -5991,7 +5995,7 @@ mod tests {
         use orbital_core_base::schema::{
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
-        let mut trait_def = TraitDefinition {
+        let mut trait_def = TraitDefinition { dropped_listens: None,
             dispatch: None,
             effect_row: None,
             type_params: None,
@@ -6262,7 +6266,7 @@ mod tests {
         use orbital_core_base::schema::{
             EventDefinition, StateDefinition, StateMachine, StringOrArray, TransitionDefinition,
         };
-        let mut trait_def = TraitDefinition {
+        let mut trait_def = TraitDefinition { dropped_listens: None,
             dispatch: None,
             effect_row: None,
             type_params: None,
@@ -6560,7 +6564,7 @@ mod tests {
         // both effect shapes are rewritten to the new entity.
         use orbital_core_base::schema::{StateMachine, StringOrArray, TransitionDefinition};
 
-        let mut trait_def = TraitDefinition {
+        let mut trait_def = TraitDefinition { dropped_listens: None,
             dispatch: None,
             effect_row: None,
             type_params: None,

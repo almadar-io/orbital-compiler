@@ -237,7 +237,8 @@ fn walk(expr: &SExpression, producers: &mut Producers, scope: &Scope<'_>) {
                         let SExpression::String(event) = route else {
                             continue;
                         };
-                        match (key.as_str(), produced_failure_payload(op, items.as_slice())) {
+                        // A table fault leaves the event unguaranteed; `validate_emit_success_return` reports it on the same call.
+                        match (key.as_str(), produced_failure_payload(op, items.as_slice()).ok().flatten()) {
                             ("failure", Some(shape)) => {
                                 producers.narrow(
                                     event.as_str(),

@@ -49,6 +49,7 @@ pub(crate) fn validate_set_value_type(
         return result;
     };
     let entity_ty = &entity_meta.field_type;
+    let declared_optional = types.is_some_and(|t| t.optional_payload.contains(payload_field));
 
     let resolve = |name: &str| {
         schema.and_then(|s| {
@@ -82,7 +83,11 @@ pub(crate) fn validate_set_value_type(
                     orbital_core_base::signature::describe_type(payload_shape)
                 ),
             )
-            .with_suggestion(if entity_ty == "relation" {
+            .with_suggestion(if declared_optional {
+                format!(
+                    "Payload field '{payload_field}' is optional on this event, so the set can write an absent value into '{entity_field}'. Declare it `{payload_field} : <type>!` on the event where every sender provides it, or guard the set with `when (!= ?{payload_field} null)`."
+                )
+            } else if entity_ty == "relation" {
                 // The source often looks IDENTICAL on both sides (`topics :
                 // [ReviewTopic]` in the entity AND the payload) — the entity
                 // side lowers to `relation` because the element type is a
@@ -874,6 +879,17 @@ pub(crate) struct BindingTypes {
 }
 
 impl BindingTypes {
+    /// Types every payload field the event does not require as `T?`, so each reader sees one declared type.
+    pub(crate) fn type_optional_payload(&mut self) {
+        for name in &self.optional_payload {
+            if let Some(shape) = self.payload.get_mut(name) {
+                if !matches!(shape, orbital_core_base::ir::OirType::Optional { .. }) {
+                    *shape = orbital_core_base::ir::OirType::optional(shape.clone());
+                }
+            }
+        }
+    }
+
     pub(crate) fn record_of(
         fields: &HashMap<String, orbital_core_base::ir::OirType>,
     ) -> orbital_core_base::ir::OirType {
@@ -1852,6 +1868,83 @@ mod set_value_type_tests {
         let r = check_guarded("?note", None);
         assert_eq!(r.errors.len(), 1, "{:?}", r.errors);
         assert_eq!(r.errors[0].code, ErrorCode::SetValueTypeMismatch);
+    }
+
+    fn check_declared_optional(
+        optional: bool,
+        target_shape: OirType,
+        value: &str,
+        guard: Option<SExpression>,
+    ) -> ValidationResult {
+        let entity = HashMap::from([(
+            "id".to_string(),
+            EntityFieldMeta {
+                field_type: "string".into(),
+                shape: target_shape,
+                required: true,
+                defaulted: false,
+            },
+        )]);
+        let mut types = BindingTypes {
+            payload: HashMap::from([("id".to_string(), OirType::String)]),
+            user: OirType::Struct {
+                additional: None,
+                fields: Default::default(),
+            },
+            config: HashMap::new(),
+            prev_payload: None,
+            optional_payload: if optional {
+                ["id".to_string()].into_iter().collect()
+            } else {
+                Default::default()
+            },
+            locals: HashMap::new(),
+            type_params: Default::default(),
+        };
+        types.type_optional_payload();
+        let payload = types.payload.clone();
+        let arr = vec![st("set"), st("@entity.id"), st(value)];
+        validate_set_value_type(
+            &arr,
+            "p",
+            &entity,
+            &payload,
+            None,
+            Some(&types),
+            guard.as_ref(),
+        )
+    }
+
+    #[test]
+    fn g_orb_232_a_required_field_set_from_a_payload_field_the_event_declares_optional_is_refused() {
+        for value in ["?id", "@payload.id"] {
+            let r = check_declared_optional(true, OirType::String, value, None);
+            assert_eq!(r.errors.len(), 1, "{value}: {:?}", r.errors);
+            assert_eq!(r.errors[0].code, ErrorCode::SetValueTypeMismatch);
+        }
+        let r = check_declared_optional(true, OirType::String, "?id", Some(present("@payload.id")));
+        assert!(r.errors.is_empty(), "control: a presence guard narrows: {:?}", r.errors);
+        let r = check_declared_optional(false, OirType::String, "?id", None);
+        assert!(r.errors.is_empty(), "control: a required (`!`) payload field fits: {:?}", r.errors);
+        let r = check_declared_optional(true, OirType::optional(OirType::String), "?id", None);
+        assert!(r.errors.is_empty(), "control: a nullable target takes it: {:?}", r.errors);
+    }
+
+    #[test]
+    fn g_orb_232_a_default_that_fell_through_proves_the_payload_field_present() {
+        let defaulted = |fallback: &str, compared: &str| {
+            call(vec![
+                st("!="),
+                call(vec![st("default"), st("@payload.id"), st(fallback)]),
+                st(compared),
+            ])
+        };
+        let r = check_declared_optional(true, OirType::String, "?id", Some(defaulted("", "")));
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        let r = check_declared_optional(true, OirType::String, "?id", Some(defaulted("d", "d")));
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        let r = check_declared_optional(true, OirType::String, "?id", Some(defaulted("", "zz")));
+        assert_eq!(r.errors.len(), 1, "control: a different literal proves nothing: {:?}", r.errors);
     }
 
     #[test]

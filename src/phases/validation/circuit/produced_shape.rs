@@ -197,7 +197,7 @@ mod tests {
     fn the_selected_result_is_the_shape_the_event_is_judged_against() {
         let op = stepping();
         let members = |call: &[SExpression]| -> Vec<String> {
-            let payload = program_result_payload("program/step", call, op.result_for_call(call).unwrap(), &|_| None);
+            let payload = program_result_payload("program/step", call_has_key("program/step", call).expect("table"), op.result_for_call(call).unwrap(), &|_| None);
             let result = payload.iter().find(|f| f.name == "result").expect("result");
             result.properties.iter().flatten().map(|f| f.name.clone()).collect()
         };
@@ -333,13 +333,14 @@ pub(super) fn scalar_field(name: &str, field_type: &str) -> PayloadField {
 /// that are not a known record carry no shape to check.
 fn keyed_call_service_payload(
     args: &[SExpression],
+    keyed: bool,
     registry: &ServiceRegistryData,
 ) -> Option<Vec<PayloadField>> {
     let (SExpression::String(service), SExpression::String(action)) = (args.get(1)?, args.get(2)?)
     else {
         return None;
     };
-    if !call_has_key("call-service", args) {
+    if !keyed {
         return None;
     }
     let mut fields: Vec<PayloadField> = registry
@@ -386,11 +387,10 @@ fn produced_to_fields(produced: ProducedPayload) -> Option<Vec<PayloadField>> {
 
 /// The `browser/page-facts` payload: `available` plus the facts the call requested; a fact left out is not
 /// readable. An undecidable field list yields no shape (no check).
-fn page_facts_payload(args: &[SExpression]) -> Option<Vec<PayloadField>> {
+fn page_facts_payload(args: &[SExpression], keyed: bool) -> Option<Vec<PayloadField>> {
     let SExpression::Array(words) = args.get(1)? else {
         return None;
     };
-    let keyed = call_has_key("browser/page-facts", args);
     let requested: Vec<&str> = words
         .iter()
         .map(SExpression::as_str)
@@ -413,12 +413,12 @@ fn page_facts_payload(args: &[SExpression]) -> Option<Vec<PayloadField>> {
 }
 
 /// The `random-bytes` payload: `value`, plus the call's `key` when it is keyed.
-fn random_bytes_payload(args: &[SExpression]) -> Option<Vec<PayloadField>> {
+fn random_bytes_payload(keyed: bool) -> Option<Vec<PayloadField>> {
     let ProducedPayload::Shape(shape) = success_payload("random-bytes", CallVariant::Plain) else {
         return None;
     };
     let mut fields = shape_fields(shape);
-    if call_has_key("random-bytes", args) {
+    if keyed {
         fields.push(scalar_field("key", "string"));
         fields.sort_by(|a, b| a.name.cmp(&b.name));
     }
@@ -438,17 +438,30 @@ pub(crate) fn produced_payload(
     entity_definitions: &HashMap<String, EntityDefinition>,
     registry: &ServiceRegistryData,
     named_type: &dyn Fn(&str) -> Option<OirType>,
+) -> Result<Option<Vec<PayloadField>>, orbital_core_base::language_data::LanguageDataError> {
+    let keyed = call_has_key(op_name, args)?;
+    let message_route = op_name == "os/stdin-read" && keyed && stdin_has_message_route(args)?;
+    Ok(produced_payload_for(op_name, args, keyed, message_route, entity_definitions, registry, named_type))
+}
+
+fn produced_payload_for(
+    op_name: &str,
+    args: &[SExpression],
+    keyed: bool,
+    message_route: bool,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+    registry: &ServiceRegistryData,
+    named_type: &dyn Fn(&str) -> Option<OirType>,
 ) -> Option<Vec<PayloadField>> {
     if orbital_core_base::os::OsOp::from_name(op_name).is_some() {
-        let keyed = call_has_key(op_name, args);
-        let variant = if op_name == "os/stdin-read" && keyed && stdin_has_message_route(args) {
+        let variant = if message_route {
             CallVariant::StdinStream
         } else {
             CallVariant::Plain
         };
         return with_os_key(
             op_name,
-            args,
+            keyed,
             produced_to_fields(success_payload(op_name, variant)),
         );
     }
@@ -470,19 +483,19 @@ pub(crate) fn produced_payload(
         return produced_to_fields(success_payload(op_name, CallVariant::Plain));
     }
     if op_name == "browser/page-facts" {
-        return page_facts_payload(args);
+        return page_facts_payload(args, keyed);
     }
     if op_name == "random-bytes" {
-        return random_bytes_payload(args);
+        return random_bytes_payload(keyed);
     }
     if op_name == "call-service" {
-        return keyed_call_service_payload(args, registry);
+        return keyed_call_service_payload(args, keyed, registry);
     }
     let operator = get_operator(op_name)?;
     if operator.effect.as_ref().and_then(|e| e.produces.as_ref()).is_none()
         && orbital_core_base::ir::is_substrate_operator(op_name)
     {
-        return Some(program_result_payload(op_name, args, operator.result_for_call(args)?, named_type));
+        return Some(program_result_payload(op_name, keyed, operator.result_for_call(args)?, named_type));
     }
     let produces = operator.effect.as_ref()?.produces.as_ref()?;
     let narrowed = narrow(op_name, args, produces)?;
@@ -498,7 +511,7 @@ pub(crate) fn produced_payload(
         }
         OperatorTypeRef::Tagged(OperatorTypeRefKind::Object { fields, .. }) => {
             let mut payload = object_payload_fields(fields, entity);
-            if op_name == "fetch" && call_has_key(op_name, args) {
+            if op_name == "fetch" && keyed {
                 payload.push(scalar_field("key", "string"));
                 payload.sort_by(|a, b| a.name.cmp(&b.name));
             }
@@ -515,7 +528,7 @@ pub(crate) fn produced_payload(
 /// program or the language declares for that name (`named_type`); a name neither declares is undecidable: `any`.
 fn program_result_payload(
     op_name: &str,
-    args: &[SExpression],
+    keyed: bool,
     return_type: &OperatorTypeRef,
     named_type: &dyn Fn(&str) -> Option<OirType>,
 ) -> Vec<PayloadField> {
@@ -541,7 +554,7 @@ fn program_result_payload(
     if orbital_core_base::agent_ports::is_agent_port_operator(op_name) {
         fields.push(scalar_field("text", "string"));
     }
-    if call_has_key(op_name, args) {
+    if keyed {
         fields.push(scalar_field("key", "string"));
     }
     fields
@@ -609,13 +622,17 @@ fn names_unspelled_type(type_ref: &OperatorTypeRef) -> bool {
     }
 }
 
-fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
+fn call_has_key(op_name: &str, args: &[SExpression]) -> Result<bool, orbital_core_base::language_data::LanguageDataError> {
     if let Some(op) = orbital_core_base::os::OsOp::from_name(op_name) {
         let (_, envelope) =
-            orbital_core_base::os::split_envelope(op, args.get(1..).unwrap_or_default());
-        return envelope
-            .is_some_and(|options| !matches!(options.get("key"), None | Some(SExpression::Null)));
+            orbital_core_base::os::split_envelope(op, args.get(1..).unwrap_or_default())?;
+        return Ok(envelope
+            .is_some_and(|options| !matches!(options.get("key"), None | Some(SExpression::Null))));
     }
+    Ok(call_has_key_outside_os(op_name, args))
+}
+
+fn call_has_key_outside_os(op_name: &str, args: &[SExpression]) -> bool {
     match op_name {
         "browser/page-facts" | "random-bytes" | "fetch" => matches!(
             args.get(2),
@@ -647,26 +664,26 @@ fn call_has_key(op_name: &str, args: &[SExpression]) -> bool {
     }
 }
 
-fn stdin_has_message_route(args: &[SExpression]) -> bool {
+fn stdin_has_message_route(args: &[SExpression]) -> Result<bool, orbital_core_base::language_data::LanguageDataError> {
     let (_, envelope) = orbital_core_base::os::split_envelope(
         orbital_core_base::os::OsOp::StdinRead,
         args.get(1..).unwrap_or_default(),
-    );
+    )?;
     let Some(SExpression::Object(routes)) = envelope.and_then(|options| options.get("emit")) else {
-        return false;
+        return Ok(false);
     };
-    !matches!(routes.get("onMessage"), None | Some(SExpression::Null))
+    Ok(!matches!(routes.get("onMessage"), None | Some(SExpression::Null)))
 }
 
 fn with_os_key(
     op_name: &str,
-    args: &[SExpression],
+    keyed: bool,
     fields: Option<Vec<PayloadField>>,
 ) -> Option<Vec<PayloadField>> {
     let mut fields = fields?;
     if orbital_core_base::os::OsOp::from_name(op_name).is_some() {
         fields.retain(|field| field.name != "key");
-        if call_has_key(op_name, args) {
+        if keyed {
             fields.push(scalar_field("key", "string"));
             fields.sort_by(|a, b| a.name.cmp(&b.name));
         }
@@ -679,26 +696,24 @@ fn with_os_key(
 pub(crate) fn produced_failure_payload(
     op_name: &str,
     args: &[SExpression],
-) -> Option<Vec<PayloadField>> {
+) -> Result<Option<Vec<PayloadField>>, orbital_core_base::language_data::LanguageDataError> {
+    let keyed = call_has_key(op_name, args)?;
     let variant = match (op_name, persist_action(args)) {
         ("persist", Some(action)) => CallVariant::PersistAction(action),
         _ => CallVariant::Plain,
     };
-    with_os_key(
+    Ok(with_os_key(
         op_name,
-        args,
-        produced_to_fields(failure_payload(
-            op_name,
-            variant,
-            call_has_key(op_name, args),
-        )),
-    )
+        keyed,
+        produced_to_fields(failure_payload(op_name, variant, keyed)),
+    ))
 }
 
 /// The payload an operator call site puts on `emit.onMessage` (an `http` `stream`).
 pub(crate) fn produced_message_payload(
     op_name: &str,
     args: &[SExpression],
-) -> Option<Vec<PayloadField>> {
-    with_os_key(op_name, args, produced_to_fields(message_payload(op_name)))
+) -> Result<Option<Vec<PayloadField>>, orbital_core_base::language_data::LanguageDataError> {
+    let keyed = call_has_key(op_name, args)?;
+    Ok(with_os_key(op_name, keyed, produced_to_fields(message_payload(op_name))))
 }

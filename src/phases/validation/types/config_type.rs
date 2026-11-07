@@ -1403,7 +1403,7 @@ fn check_config_default_shape(
         }
         return result;
     }
-    if let Some(arms) = union_arms(field.values.as_ref(), field.properties.as_ref()) {
+    if let Some(arms) = union_arms(field.values.as_ref(), field.properties.as_ref()).filter(|_| field.union == Some(true)) {
         if let SExpression::String(s) = default {
             if !s.starts_with('@') && !arms.iter().any(|(_, def)| def.field_type == FieldType::String) {
                 result.add_error(ValidationError::error(
@@ -3157,6 +3157,7 @@ mod recursive_type_literal_tests {
             synonyms: None,
             tier: None,
             values: None,
+            union: None,
             items: Some(Box::new(menu_item)),
             properties: None,
             required: None,

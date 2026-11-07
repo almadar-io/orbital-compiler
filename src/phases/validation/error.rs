@@ -145,6 +145,8 @@ pub enum ErrorCode {
     PersistBatchOpsNotArray,
     /// one dispatch's delegated effects reach browser-stored rows and server work
     DispatchMixedResidence,
+    /// the installed language data cannot answer a lookup the validated program needs
+    LanguageDataFault,
     /// Multiple render_ui effects targeting same slot
     EffectSlotConflict,
     /// Unknown effect type
@@ -289,6 +291,12 @@ pub enum ErrorCode {
     /// `EmitSuccessPayloadReturnMismatch` (empty-payload-only) checks.
     /// Error severity.
     EmitPayloadNotProduced,
+    /// An `emit` declares a payload field whose type does not fit the type the listening trait declares for the
+    /// same field of the event its `listens` route triggers: the emitted value would be refused or misread on
+    /// delivery. Compared by structure under the kernel's one type relation (aliases resolved, a missing optional
+    /// member and a non-null value into a nullable slot are fine), never by the spelling of the type names. Error
+    /// severity.
+    ListenPayloadTypeMismatch,
     /// An effect (`emit`, `persist`, `set`, `notify`, …) inside the `fn` body of a collection operator: a lambda is
     /// evaluated for its value, an effect there never runs. Error severity.
     EffectInLambda,
@@ -402,6 +410,7 @@ impl ErrorCode {
             ErrorCode::TabRequestRefused => "ORB_TAB_REQUEST_REFUSED",
             ErrorCode::PersistBatchOpsNotArray => "ORB_PERSIST_BATCH_OPS_NOT_ARRAY",
             ErrorCode::DispatchMixedResidence => "ORB_X_DISPATCH_MIXED_RESIDENCE",
+            ErrorCode::LanguageDataFault => "ORB_LANGUAGE_DATA_FAULT",
             ErrorCode::EffectSlotConflict => "ORB_EFF_SLOT_CONFLICT",
             ErrorCode::EffectUnknownType => "ORB_EFF_UNKNOWN_TYPE",
             ErrorCode::EffectNotifyRetired => "ORB_EFF_NOTIFY_RETIRED",
@@ -447,6 +456,7 @@ impl ErrorCode {
             ErrorCode::EmitRepeatsIdentically => "ORB_EMIT_REPEATS_IDENTICALLY",
             ErrorCode::EntityPropContract => "ORB_X_ENTITY_PROP_CONTRACT",
             ErrorCode::EmitPayloadNotProduced => "ORB_EMIT_PAYLOAD_NOT_PRODUCED",
+            ErrorCode::ListenPayloadTypeMismatch => "ORB_LISTEN_PAYLOAD_TYPE_MISMATCH",
             ErrorCode::EffectInLambda => "ORB_EFFECT_IN_LAMBDA",
 
             // Entity Mutation / Tick
@@ -529,6 +539,7 @@ impl ErrorCode {
             | ErrorCode::EffectNotifyRetired
             | ErrorCode::PersistBatchOpsNotArray
             | ErrorCode::DispatchMixedResidence
+            | ErrorCode::LanguageDataFault
             | ErrorCode::EffectSlotConflict
             | ErrorCode::EffectUnknownType
             | ErrorCode::EffectEmitKeyInvalid
@@ -567,6 +578,7 @@ impl ErrorCode {
             | ErrorCode::EmitPayloadFieldTypeMismatch
             | ErrorCode::EmitRepeatsIdentically
             | ErrorCode::EmitPayloadNotProduced
+            | ErrorCode::ListenPayloadTypeMismatch
             | ErrorCode::EffectInLambda => "binding",
 
             ErrorCode::SharedEntityRenderAuthority => "entity_mutation",

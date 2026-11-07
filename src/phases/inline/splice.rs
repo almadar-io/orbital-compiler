@@ -602,7 +602,7 @@ mod tests {
     }
 
     fn render_only_trait(name: &str, pattern: SExpression) -> TraitDefinition {
-        TraitDefinition {
+        TraitDefinition { dropped_listens: None,
             dispatch: None,
             effect_row: None,
             type_params: None,

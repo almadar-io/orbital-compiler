@@ -100,7 +100,7 @@ fn os_arity_drift(registry: &HashMap<String, EmbeddedOperator>) -> Vec<String> {
             out.push(format!("{}: in orbital-core's OsOp table but not in the registry", op.name()));
             continue;
         };
-        let (min, max) = (op.min_args() as u32, op.max_args() as u32 + 1);
+        let (min, max) = (op.min_args().expect("table") as u32, op.max_args().expect("table") as u32 + 1);
         if entry.min_arity != min || entry.max_arity != Some(max) {
             out.push(format!(
                 "{}: registry arity {}..{:?}, orbital-core {min}..{max}",

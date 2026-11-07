@@ -390,6 +390,17 @@ fn validate_state_machine(trait_def: &TraitDefinition, path: &str, ctx: &mut Val
         }
     }
 
+    for (i, tick) in trait_def.ticks.iter().flatten().enumerate() {
+        for state in tick.applies_to.iter().flatten() {
+            if !state_names.contains(state.as_str()) {
+                ctx.add_error(ValidationError::invalid_reference(
+                    format!("{}.ticks[{}].appliesTo", path, i),
+                    state,
+                ));
+            }
+        }
+    }
+
     // Validate modal transitions have CLOSE/CANCEL
     validate_modal_transitions(trait_def, path, ctx);
 }
@@ -845,7 +856,7 @@ mod tests {
         states: Vec<StateDefinition>,
         transitions: Vec<TransitionDefinition>,
     ) -> TraitDefinition {
-        TraitDefinition {
+        TraitDefinition { dropped_listens: None,
             dispatch: None,
             effect_row: None,
             type_params: None,
@@ -873,6 +884,32 @@ mod tests {
             entity_ref_ids: None,
             trait_embed_ids: None,
         }
+    }
+
+    #[test]
+    fn a_tick_may_only_name_states_its_trait_declares() {
+        use orbital_core_base::schema::{StringOrNumber, TickDefinition};
+        let tick_in = |states: &[&str]| TickDefinition {
+            name: "beat".to_string(),
+            interval: StringOrNumber::Number(100.0),
+            guard: None,
+            effects: vec![],
+            applies_to: Some(states.iter().map(|s| s.to_string()).collect()),
+            description: None,
+            background: true,
+            while_visible: false,
+        };
+        let check = |states: &[&str]| {
+            let mut trait_def = create_test_trait("T", vec![create_state("idle", true), create_state("waiting", false)], vec![]);
+            trait_def.ticks = Some(vec![tick_in(states)]);
+            let mut ctx = ValidationContext::new();
+            validate_state_machine(&trait_def, "t", &mut ctx);
+            ctx.errors.len()
+        };
+        assert_eq!(check(&["waiting"]), 0, "control: a declared state");
+        assert_eq!(check(&["idle", "waiting"]), 0, "control: several declared states");
+        assert_eq!(check(&["backoff"]), 1, "an undeclared state is refused");
+        assert_eq!(check(&["waiting", "backoff"]), 1, "edge: one bad name among good ones");
     }
 
     #[test]

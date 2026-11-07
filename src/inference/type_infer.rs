@@ -2515,7 +2515,7 @@ fn intersection_of<T: PartialEq>(mut lists: impl Iterator<Item = Vec<T>>) -> Vec
 }
 
 /// The operands `expr` shows present when it evaluates to `truth`: `(validate/required x)`, `(!= x null)`,
-/// `(object/has m k)` (which shows `m`), a bare `x`, and `and` / `or` / `not` over them. Nothing else narrows.
+/// `(object/has m k)` (which shows `m`), `(!= (default x d) d)` (a default is answered only when `x` is absent), a bare `x`, and `and` / `or` / `not` over them. Nothing else narrows.
 fn presence(expr: &OirExpr, truth: bool) -> Vec<OirBinding> {
     if truth {
         if let Some(key) = operand_key(expr) {
@@ -2542,6 +2542,19 @@ fn presence(expr: &OirExpr, truth: bool) -> Vec<OirBinding> {
             _ => None,
         }
     };
+    let default_fell_through = |args: &[&OirExpr]| -> Option<OirBinding> {
+        let (call, literal) = match args {
+            [call, literal] | [literal, call] => (*call, *literal),
+            _ => return None,
+        };
+        let ("default", inner) = as_call(call)? else {
+            return None;
+        };
+        match inner.as_slice() {
+            [operand, fallback] if literal.is_literal() && *fallback == literal => operand_key(operand),
+            _ => None,
+        }
+    };
     match name {
         "validate/required" | "required" if truth => args
             .first()
@@ -2561,8 +2574,14 @@ fn presence(expr: &OirExpr, truth: bool) -> Vec<OirBinding> {
         "and" => intersection_of(args.iter().map(|a| presence(a, false))),
         "or" if truth => intersection_of(args.iter().map(|a| presence(a, true))),
         "or" => union_of(args.iter().map(|a| presence(a, false))),
-        "!=" if truth => null_compared(&args).into_iter().collect(),
-        "=" | "==" if !truth => null_compared(&args).into_iter().collect(),
+        "!=" if truth => null_compared(&args)
+            .or_else(|| default_fell_through(&args))
+            .into_iter()
+            .collect(),
+        "=" | "==" if !truth => null_compared(&args)
+            .or_else(|| default_fell_through(&args))
+            .into_iter()
+            .collect(),
         _ => Vec::new(),
     }
 }

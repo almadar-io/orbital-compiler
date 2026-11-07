@@ -114,7 +114,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         invariants: None,
         indexes: None,
     };
-    let trait_def = TraitDefinition {
+    let trait_def = TraitDefinition { dropped_listens: None,
         dispatch: None,
         effect_row: None,
         type_params: None,

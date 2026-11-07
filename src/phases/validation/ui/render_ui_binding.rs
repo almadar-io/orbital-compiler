@@ -669,7 +669,7 @@ mod tests {
     use orbital_core_base::schema::{StateMachine, StringOrArray, TransitionDefinition};
 
     fn empty_trait(name: &str, linked: Option<&str>) -> TraitDefinition {
-        TraitDefinition {
+        TraitDefinition { dropped_listens: None,
             dispatch: None,
             effect_row: None,
             type_params: None,

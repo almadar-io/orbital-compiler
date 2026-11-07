@@ -1044,6 +1044,16 @@ pub(crate) fn apply_post_subst_overrides_to_trait(
                 trigger: delivered(dropped),
             });
         }
+        let dropped: Vec<orbital_core_base::schema::ListenDefinition> = trait_def
+            .listens
+            .iter()
+            .flatten()
+            .filter(|l| !new_listens.iter().any(|n| delivered(n) == delivered(l)))
+            .cloned()
+            .collect();
+        if !dropped.is_empty() {
+            trait_def.dropped_listens = Some(dropped.into());
+        }
         let mut new_listens = new_listens.clone();
         stamp_call_site_triggers(&mut new_listens, trait_def);
         trait_def.listens = Some(new_listens.into());
@@ -3133,7 +3143,7 @@ mod entity_id_reader_tests {
                 inbound: None,
             }]
         });
-        TraitDefinition {
+        TraitDefinition { dropped_listens: None,
             dispatch: None,
             effect_row: None,
             type_params: None,
@@ -3302,7 +3312,7 @@ mod entity_id_reader_tests {
     /// name `token` in an `@<name>.title` read and a `["fetch", name]`.
     /// `linked_entity`/`entity_ref_ids` are set by the caller so the two scenarios (renamed vs not) can be expressed.
     fn trait_with_entity_token(token: &str) -> TraitDefinition {
-        TraitDefinition {
+        TraitDefinition { dropped_listens: None,
             dispatch: None,
             effect_row: None,
             type_params: None,
@@ -4632,36 +4642,40 @@ mod call_site_listen_tests {
         }))
         .expect("trait");
         td.listens = Some(
-            vec![serde_json::from_value(serde_json::json!({ "event": "CLI_DONE", "triggers": "UPTIME_DONE" })).expect("listen")].into(),
+            vec![serde_json::from_value(serde_json::json!({ "event": "CLI_DONE", "triggers": "UPTIME_DONE", "source": { "kind": "trait", "trait": "OrbUptimeRunner" } })).expect("listen")].into(),
         );
         td
     }
 
-    fn listened_flag(td: &TraitDefinition) -> Option<bool> {
-        td.state_machine
-            .events
-            .as_ref()
-            .expect("events")
-            .iter()
-            .find(|e| e.key == "UPTIME_DONE")
-            .expect("event")
-            .listened
+    fn dropped_listens(td: &TraitDefinition) -> serde_json::Value {
+        serde_json::to_value(td).expect("trait json")["droppedListens"].clone()
     }
 
     #[test]
-    #[ignore = "G-CROSS-436: clearing `listened` flags every HttpClient composition that drops ClientFrame routes on purpose; needs an owner ruling on how a drop is declared"]
-    fn g_cross_436_a_call_site_listens_that_drops_the_route_to_a_listened_event_clears_its_listened_flag() {
+    fn g_cross_436_a_call_site_listens_that_drops_a_route_records_it_with_its_source() {
         let mut td = routed_atom();
         apply_post_subst_overrides_to_trait(&mut td, Some(&vec![listen("OTHER")]), None).unwrap();
-        assert_eq!(listened_flag(&td), None);
+        let dropped = dropped_listens(&td);
+        assert_eq!(dropped.as_array().map(Vec::len), Some(1));
+        assert_eq!(dropped[0]["event"], "CLI_DONE");
+        assert_eq!(dropped[0]["triggers"], "UPTIME_DONE");
+        assert_eq!(dropped[0]["source"]["trait"], "OrbUptimeRunner");
     }
 
     #[test]
-    fn control_g_cross_436_a_call_site_listens_that_restates_the_route_keeps_the_listened_flag() {
+    fn g_cross_436_a_call_site_listens_that_drops_a_route_keeps_the_listened_flag() {
+        let mut td = routed_atom();
+        apply_post_subst_overrides_to_trait(&mut td, Some(&vec![listen("OTHER")]), None).unwrap();
+        let listened = td.state_machine.events.as_ref().expect("events")[0].listened;
+        assert_eq!(listened, Some(true));
+    }
+
+    #[test]
+    fn control_g_cross_436_a_call_site_listens_that_restates_the_route_records_nothing() {
         let mut td = routed_atom();
         let restated: orbital_core_base::schema::ListenDefinition =
-            serde_json::from_value(serde_json::json!({ "event": "CLI_DONE", "triggers": "UPTIME_DONE" })).expect("listen");
+            serde_json::from_value(serde_json::json!({ "event": "CLI_DONE", "triggers": "UPTIME_DONE", "source": { "kind": "trait", "trait": "OrbUptimeRunner" } })).expect("listen");
         apply_post_subst_overrides_to_trait(&mut td, Some(&vec![restated]), None).unwrap();
-        assert_eq!(listened_flag(&td), Some(true));
+        assert!(dropped_listens(&td).is_null());
     }
 }

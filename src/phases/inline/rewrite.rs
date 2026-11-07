@@ -6213,7 +6213,7 @@ mod unchanged_rewrite_tests {
             "name": "T",
             "linkedEntity": "Task",
             "config": {
-                "inline": { "type": "string", "default": "a.test", "values": ["string", "Env"], "properties": members },
+                "inline": { "type": "string", "default": "a.test", "union": true, "values": ["string", "Env"], "properties": members },
                 "named": { "type": "HostPart", "default": "b.test", "properties": members },
                 "plain": { "type": "string", "default": "c.test" }
             },
