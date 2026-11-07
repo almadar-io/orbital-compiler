@@ -31,6 +31,9 @@ pub enum ErrorCode {
     // =========================================================================
     /// Entity is missing a name
     EntityMissingName,
+    /// An entity field's declared default does not fit the field's declared type: the singleton row built from
+    /// the defaults would be refused by the kernel's row intake.
+    EntityFieldDefaultShapeMismatch,
     /// Interaction trait missing render_ui effects
     TraitMissingRenderUI,
     /// A program trait is listed on no page
@@ -345,6 +348,7 @@ impl ErrorCode {
         match self {
             // Entity
             ErrorCode::EntityMissingName => "ORB_E_MISSING_NAME",
+            ErrorCode::EntityFieldDefaultShapeMismatch => "ORB_ENTITY_FIELD_DEFAULT_SHAPE_MISMATCH",
 
             // Trait
             ErrorCode::TraitMissingRenderUI => "ORB_T_MISSING_RENDER_UI",
@@ -476,7 +480,7 @@ impl ErrorCode {
     /// Get the category for this error code
     pub fn category(&self) -> &'static str {
         match self {
-            ErrorCode::EntityMissingName => "entity",
+            ErrorCode::EntityMissingName | ErrorCode::EntityFieldDefaultShapeMismatch => "entity",
 
             // A generic type in a declaration position — a TYPE-system rejection
             ErrorCode::TraitUnmounted

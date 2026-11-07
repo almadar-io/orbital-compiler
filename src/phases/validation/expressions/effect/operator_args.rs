@@ -383,6 +383,10 @@ fn report(
                 format!("`({function} …)` argument {position} is a {actual}, which is never null, but {expected}: {call}"),
                 "Compare a value that can be null (`T?`), or drop the null comparison: a value of a present type needs no presence check".to_string(),
             ),
+            Mismatch::Type { expected, actual } if expected == crate::type_infer::NON_NEGATIVE_WHOLE => (
+                format!("`({function} …)` argument {position} is `{actual}`, which is not shown to be {expected}, and the kernel raises on a negative one: {call}"),
+                "Guard it with `(>= i 0)`, or read with `array/find`".to_string(),
+            ),
             Mismatch::Type { expected, actual } => (
                 format!("`({function} …)` argument {position} is a {actual}, but the operator declares {expected}: {call}"),
                 "Pass a value of the declared type: convert it first (e.g. `time/parse`, `json/parse`, `str/concat`), or use the operator that takes this type".to_string(),

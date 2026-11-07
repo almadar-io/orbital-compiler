@@ -1054,7 +1054,8 @@ pub fn inline_schema_with_orbital_diagnostics(
         }
     }
 
-    if schema.locales.is_some() {
+    if let Some(locales) = loader.composed_locales(schema.locales.as_deref()) {
+        schema.locales = Some(locales);
         if let Some(root) = source_path {
             let sources = loader.message_sources(root, &schema.name);
             schema

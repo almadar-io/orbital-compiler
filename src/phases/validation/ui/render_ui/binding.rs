@@ -387,6 +387,7 @@ fn check_record_prop_binding(
             BindingType::Array => BoundShape::Collection,
             BindingType::Entity(name) => BoundShape::Record(Some(name)),
             BindingType::Object => BoundShape::Record(None),
+            BindingType::String | BindingType::Number | BindingType::Boolean => BoundShape::Scalar,
             BindingType::Unknown | BindingType::TraitRef => return,
             _ => BoundShape::Other,
         }
@@ -416,6 +417,15 @@ fn check_record_prop_binding(
                 "Bind '{}' to one row (a by-id fetch's result, or the selected row), not a list",
                 prop_name
             ),
+        ),
+        RecordBindingMismatch::ScalarIntoRecord => (
+            format!(
+                "Prop '{}' on '{}' takes a single record ({}) but is bound to a number, string or boolean",
+                prop_name,
+                pat,
+                expected_types.join(", ")
+            ),
+            format!("Bind '{}' to a record (an object or entity row)", prop_name),
         ),
         RecordBindingMismatch::WrongEntity { expected, actual } => (
             format!(
@@ -1360,6 +1370,50 @@ mod array_into_record_tests {
             particles_with(SExpression::String("@payload.data".into()), "string").len(),
             1
         );
+    }
+
+    fn sprite_layer_frame(value: &str, data_type: &str) -> Vec<ValidationError> {
+        let t = bare_trait();
+        let entities = HashMap::new();
+        let fields = payload(data_type);
+        let ctx = BindingContext {
+            trait_def: &t,
+            entity_definitions: &entities,
+            event_payload: Some(&fields),
+            sibling_trait_names: &[],
+        };
+        let sprite = pattern("draw-sprite", "frame", value);
+        let layer = SExpression::object(
+            [
+                ("type".into(), SExpression::String("draw-sprite-layer".into())),
+                ("items".into(), SExpression::Array(vec![sprite].into())),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let mut out = Vec::new();
+        walk_pattern_props(&layer, &ctx, "test", &mut out);
+        out.into_iter()
+            .filter(|e| e.code == ErrorCode::RenderUIBindingTypeMismatch)
+            .collect()
+    }
+
+    /// G-ORBITAL-COMPILER-007: a number bound into a drawable layer item's record prop (`frame`) is refused.
+    #[test]
+    fn g_orbital_compiler_007_number_into_a_drawable_items_record_prop_is_refused() {
+        let errs = sprite_layer_frame("@payload.data", "number");
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.contains("frame"));
+    }
+
+    #[test]
+    fn control_g_orbital_compiler_007_layer_items_are_walked_and_a_record_fits() {
+        assert_eq!(
+            sprite_layer_frame("@payload.data", "[object]").len(),
+            1,
+            "a collection is already refused inside a layer item"
+        );
+        assert!(sprite_layer_frame("@payload.data", "object").is_empty());
     }
 
     #[test]

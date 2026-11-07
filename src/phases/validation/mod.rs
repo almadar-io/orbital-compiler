@@ -440,6 +440,7 @@ pub fn validate_comprehensive_full(
     collect_names(schema, &mut ctx);
 
     // Phase 2: Entity validation
+    config_type::validate_all_entity_field_defaults(schema, &mut ctx);
 
     // Phase 3: Trait validation
 

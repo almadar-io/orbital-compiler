@@ -1019,6 +1019,24 @@ impl ExternalOrbitalLoader {
         self.cache.len()
     }
 
+    /// The program's locales with every loaded behavior's declared locales appended, in first-seen order;
+    /// `None` when neither the program nor any behavior declares any.
+    pub fn composed_locales(&self, root: Option<&[String]>) -> Option<Vec<String>> {
+        let mut out: Vec<String> = root.unwrap_or_default().to_vec();
+        let mut declared = root.is_some();
+        self.each_touched_schema(&mut |loaded| {
+            if let Some(locales) = &loaded.schema.locales {
+                declared = true;
+                for locale in locales {
+                    if !out.contains(locale) {
+                        out.push(locale.clone());
+                    }
+                }
+            }
+        });
+        declared.then_some(out)
+    }
+
     /// Every behavior this loader loaded (plus the program at `root` itself,
     /// named `root_name`): name → the folder of its source file, relative to
     /// the program's folder. A program's message catalogs are found there.

@@ -147,8 +147,8 @@ fn guard_narrows_into(
 /// `(set @entity.<field> @config.<knob>)` where the value is STILL the
 /// literal `@config.<knob>` token post-inline — no declared default resolved
 /// it and no call-site override supplied one; a substituted value would no
-/// longer read as the bare token — and `<field>` is declared REQUIRED on the
-/// trait's linked entity. The emitter has nothing honest to assign: it
+/// longer read as the bare token — and `<field>` declares no null (not `T?`) on the
+/// trait's linked entity, where the kernel refuses the write (EXEC-STEP-3). The emitter has nothing honest to assign: it
 /// lowers to `entity.field = (undefined) as E['field']`, which is wrong for
 /// an OPTIONAL field's honest `undefined` but a live TS2352 lie for a
 /// REQUIRED one. The post-inline exact-token test is decidable and cheap —
@@ -186,7 +186,9 @@ pub(crate) fn validate_set_required_field_from_optional_knob(
     let Some(meta) = entity_field_types.get(entity_field) else {
         return result;
     };
-    if !meta.required {
+    if matches!(meta.shape, orbital_core_base::ir::OirType::Optional { .. })
+        || orbital_core_base::type_compat::is_unknowable(&meta.shape)
+    {
         return result;
     }
     let SExpression::String(value) = &arr[2] else {
@@ -204,15 +206,15 @@ pub(crate) fn validate_set_required_field_from_optional_knob(
             ErrorCode::SetRequiredFieldFromOptionalKnob,
             path,
             format!(
-                "set @entity.{} (required) on trait '{}' is assigned config knob '{}', which \
-                 declares no default and receives no call-site value here — the token is still \
-                 unresolved and the field is left `undefined`.",
+                "set @entity.{} on trait '{}' is assigned config knob '{}', which declares no \
+                 default and receives no call-site value here — the token is still unresolved \
+                 and the kernel refuses the null it writes into a field that declares no null.",
                 entity_field, trait_name, knob
             ),
         )
         .with_suggestion(format!(
-            "Give knob '{}' a default value on trait '{}' (`{} : <type> = <default>`), or make \
-             field '{}' optional if it is honestly allowed to be unset.",
+            "Give knob '{}' a default value on trait '{}' (`{} : <type> = <default>`), or declare \
+             field '{}' `T?` if it is honestly allowed to be unset.",
             knob, trait_name, knob, entity_field
         )),
     );
@@ -1504,6 +1506,14 @@ mod required_field_from_optional_knob_tests {
         m
     }
 
+    fn optional_meta(ty: &str) -> HashMap<String, EntityFieldMeta> {
+        let mut m = meta(ty, false);
+        if let Some(field) = m.get_mut("value") {
+            field.shape = orbital_core_base::ir::OirType::optional(field.shape.clone());
+        }
+        m
+    }
+
     fn set_effect(field: &str, value: &str) -> SExpression {
         SExpression::Array(
             vec![
@@ -1540,9 +1550,21 @@ mod required_field_from_optional_knob_tests {
             &effect,
             "p",
             "InputBinding",
-            &meta("string", false),
+            &optional_meta("string"),
         );
         assert!(r.errors.is_empty());
+    }
+
+    #[test]
+    fn unresolved_config_token_into_a_non_required_non_null_field_errors() {
+        let effect = set_effect("value", "@config.value");
+        let r = validate_set_required_field_from_optional_knob(
+            &effect,
+            "p",
+            "InputBinding",
+            &meta("string", false),
+        );
+        assert_eq!(r.errors.len(), 1, "errors: {:?}", r.errors);
     }
 
     #[test]
@@ -2066,6 +2088,20 @@ mod absent_entity_read_tests {
             0,
             "control: a nullable target takes it"
         );
+    }
+
+    #[test]
+    fn g_orbital_compiler_003_a_default_less_knob_set_into_a_non_null_field_is_refused() {
+        let fields = entity();
+        let knob_errors = |target: &str| {
+            let effect: SExpression =
+                serde_json::from_value(serde_json::json!(["set", format!("@entity.{target}"), "@config.k"])).unwrap();
+            validate_set_required_field_from_optional_knob(&effect, "p", "T", &fields).errors.len()
+        };
+        assert_eq!(knob_errors("dst"), 1, "control: a required field is refused today");
+        assert_eq!(knob_errors("slot"), 0, "control: a nullable field takes the null");
+        assert_eq!(knob_errors("kept"), 1, "a defaulted, non-null field is refused by the kernel at dispatch");
+        assert_eq!(knob_errors("loose"), 1, "a non-required, non-null field is refused by the kernel at dispatch");
     }
 
     #[test]

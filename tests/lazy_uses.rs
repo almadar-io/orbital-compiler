@@ -455,6 +455,21 @@ fn a_program_with_locales_records_where_each_loaded_behavior_lives() {
 }
 
 #[test]
+fn g_orb_616_an_imported_behaviors_locales_join_the_programs() {
+    let post = POST.replacen(r#""version": "1.0.0","#, r#""version": "1.0.0", "locales": ["en", "sl"],"#, 1);
+    let s = site_with(&[home(EAGER_USE, ""), blog(EAGER_USE, REMAP)], Some(&post));
+    let mut schema = parse_file(&s.path).unwrap();
+    schema.locales = Some(vec!["en".into(), "ar".into()]);
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&s.path)).expect("inline");
+    assert_eq!(schema.locales, Some(vec!["en".into(), "ar".into(), "sl".into()]));
+
+    let mut bare = parse_file(&s.path).unwrap();
+    inline_schema(&mut bare, &InlineConfig::default(), Some(&s.path)).expect("inline");
+    assert_eq!(bare.locales, Some(vec!["en".into(), "sl".into()]), "a locale-less root takes the atom's");
+    assert!(bare.metadata.and_then(|m| m.message_sources).is_some());
+}
+
+#[test]
 fn control_a_program_without_locales_records_no_message_sources() {
     let s = site(&[home(EAGER_USE, ""), blog(EAGER_USE, REMAP)], true);
     let mut schema = parse_file(&s.path).unwrap();

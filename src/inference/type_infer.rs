@@ -89,6 +89,28 @@ pub struct Diagnostic {
     pub argument: String,
 }
 
+/// What a call is expected to hold at a position its operator rejects unless non-negative.
+pub const NON_NEGATIVE_WHOLE: &str = "a whole number from 0";
+
+#[cfg(test)]
+mod test_rejects {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    thread_local! {
+        static DECLARED: RefCell<HashMap<String, &'static [usize]>> = RefCell::new(HashMap::new());
+    }
+
+    /// Declares `rejects.unlessNonNegative` for `name` on this thread, as the std operator table does.
+    pub(super) fn declare(name: &str, positions: &'static [usize]) {
+        DECLARED.with(|declared| declared.borrow_mut().insert(name.to_string(), positions));
+    }
+
+    pub(super) fn declared(name: &str) -> Option<&'static [usize]> {
+        DECLARED.with(|declared| declared.borrow().get(name).copied())
+    }
+}
+
 /// The signature of an operator that evaluates to a value: the evaluator's (alias-aware) first, then the
 /// installed table's for operators the evaluator does not run (the Python-target ones).
 pub(crate) fn signature_of(name: &str) -> Option<Signature<'static>> {
@@ -569,6 +591,7 @@ impl<'c> Inferer<'c> {
                 else_branch,
             } => match live_branch(expr) {
                 Some((live, dead)) => {
+                    self.check_decided_condition(condition);
                     // The dead branch still says what type the other one stands for (an empty list); its own
                     // findings are dropped, because it never runs.
                     let mark = self.diagnostics.borrow().len();
@@ -1497,6 +1520,41 @@ impl<'c> Inferer<'c> {
         });
     }
 
+    /// The argument positions of `name` the kernel raises on when negative, as the operator table declares them.
+    fn rejected_unless_non_negative(&self, name: &str) -> &'static [usize] {
+        #[cfg(test)]
+        if let Some(declared) = test_rejects::declared(name) {
+            return declared;
+        }
+        get_operator(name)
+            .and_then(|op| op.rejects.as_ref())
+            .map_or(&[][..], |rejects| rejects.unless_non_negative.as_slice())
+    }
+
+    /// A condition decided without running the program is still read against the `if` signature's `cond`: the kernel
+    /// refuses a non-boolean one however it would have branched.
+    fn check_decided_condition(&self, condition: &OirExpr) {
+        let Some(signature) = signature_of("if") else {
+            return;
+        };
+        let actual = Actual {
+            known: self.known(condition),
+            text: Self::literal_text(condition),
+            texts: None,
+            lambda: None,
+        };
+        let mut bindings = CallBindings::new();
+        if let Err(mismatch) = signature.bind(&mut bindings, 0, &actual, Mode::Proof) {
+            self.diagnostics.borrow_mut().push(Diagnostic {
+                function: "if".into(),
+                index: 0,
+                mismatch,
+                expression: printed_arg(Some(&condition)),
+                argument: printed_arg(Some(&condition)),
+            });
+        }
+    }
+
     fn call(&self, name: &str, args: &[&OirExpr]) -> Option<OirType> {
         let signature = signature_of(name)?;
         self.call_signed(name, &signature, args)
@@ -1554,6 +1612,20 @@ impl<'c> Inferer<'c> {
                     },
                     expression: printed(name, args),
                     argument: printed_arg(args.get(index)),
+                });
+            }
+        }
+        for &index in self.rejected_unless_non_negative(name_fn) {
+            if let Some(arg) = args.get(index).filter(|arg| !self.shows_sign(arg, Sign::NonNegative)) {
+                self.diagnostics.borrow_mut().push(Diagnostic {
+                    function: name.to_string(),
+                    index,
+                    mismatch: Mismatch::Type {
+                        expected: NON_NEGATIVE_WHOLE.to_string(),
+                        actual: printed_arg(Some(arg)),
+                    },
+                    expression: printed(name, args),
+                    argument: printed_arg(Some(arg)),
                 });
             }
         }
@@ -4505,6 +4577,38 @@ mod tests {
         assert_eq!(over(call("array/range", vec![num(-1.0), len(rows())]), rows(), &["i"]), 1, "control: a negative start");
         assert_eq!(over(call("array/range", vec![num(0.0), len(rows()), num(-1.0)]), rows(), &["i"]), 1, "control: a negative step");
         assert_eq!(over(call("array/range", vec![num(0.0), len(rows())]), rows(), &["j"]), 1, "control: the index is not the range's element");
+    }
+
+    #[test]
+    fn g_cross_418_an_nth_index_not_proved_non_negative_is_refused() {
+        test_rejects::declare("array/nth", &[1]);
+        let xs = || checked_local(list_of(vec![num(1.0), num(2.0)]), OirType::array(OirType::Number));
+        let miss = || OirExpr::Lambda { params: vec!["x".to_string()], body: Box::new(call("=", vec![local("x"), num(1.0)])) };
+        let found = || checked_local(call("array/findIndex", vec![xs(), miss()]), OirType::Integer);
+        let nth = |index: OirExpr| call("array/nth", vec![xs(), index]);
+        let refused = |expr: OirExpr| !check_oir_expr(&expr, &NoCtx).is_empty();
+        assert!(refused(nth(found())), "findIndex answers -1 on a miss, which `array/nth` raises on");
+        assert!(refused(nth(num(-1.0))), "edge: a negative literal always raises");
+        assert!(!refused(call("if", vec![call(">=", vec![found(), num(0.0)]), nth(found()), OirExpr::Null])), "control: a guard shows it at least zero");
+        assert!(!refused(nth(num(1.0))), "control: a literal index");
+        assert!(!refused(nth(call("array/len", vec![xs()]))), "control: a length is non-negative");
+        assert!(!refused(found()), "control: findIndex alone is fine");
+    }
+
+    #[test]
+    fn g_cross_190_a_non_boolean_if_condition_is_refused() {
+        let refused = |expr: OirExpr| !check_oir_expr(&expr, &NoCtx).is_empty();
+        let branching = |condition: OirExpr| OirExpr::Conditional {
+            condition: Box::new(condition),
+            then_branch: Box::new(num(1.0)),
+            else_branch: Box::new(num(2.0)),
+        };
+        assert!(refused(branching(num(1.0))), "a literal number decides the branch by truthiness, which the kernel refuses");
+        assert!(refused(branching(text("yes"))), "a literal string decides the branch by truthiness, which the kernel refuses");
+        assert!(refused(branching(checked_local(num(1.0), OirType::Number))), "control: a typed non-boolean is refused");
+        assert!(refused(call("if", vec![num(1.0), num(1.0), num(2.0)])), "control: the call form is refused");
+        assert!(!refused(branching(OirExpr::Bool { value: true })), "control: a boolean literal decides the branch");
+        assert!(!refused(branching(checked_local(OirExpr::Bool { value: true }, OirType::Boolean))), "control: a typed boolean");
     }
 
     #[test]

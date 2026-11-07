@@ -4620,4 +4620,48 @@ mod call_site_listen_tests {
         apply_post_subst_overrides_to_trait(&mut other, Some(&vec![listen("OTHER")]), None)
             .unwrap();
     }
+
+    fn routed_atom() -> TraitDefinition {
+        let mut td: TraitDefinition = serde_json::from_value(serde_json::json!({
+            "name": "OrbStatsReader",
+            "stateMachine": {
+                "states": [{ "name": "idle", "isInitial": true }],
+                "events": [{ "key": "UPTIME_DONE", "name": "UPTIME_DONE", "id": "evt_done", "listened": true }],
+                "transitions": [{ "from": "idle", "to": "idle", "event": "UPTIME_DONE", "eventId": "evt_done", "effects": [] }]
+            }
+        }))
+        .expect("trait");
+        td.listens = Some(
+            vec![serde_json::from_value(serde_json::json!({ "event": "CLI_DONE", "triggers": "UPTIME_DONE" })).expect("listen")].into(),
+        );
+        td
+    }
+
+    fn listened_flag(td: &TraitDefinition) -> Option<bool> {
+        td.state_machine
+            .events
+            .as_ref()
+            .expect("events")
+            .iter()
+            .find(|e| e.key == "UPTIME_DONE")
+            .expect("event")
+            .listened
+    }
+
+    #[test]
+    #[ignore = "G-CROSS-436: clearing `listened` flags every HttpClient composition that drops ClientFrame routes on purpose; needs an owner ruling on how a drop is declared"]
+    fn g_cross_436_a_call_site_listens_that_drops_the_route_to_a_listened_event_clears_its_listened_flag() {
+        let mut td = routed_atom();
+        apply_post_subst_overrides_to_trait(&mut td, Some(&vec![listen("OTHER")]), None).unwrap();
+        assert_eq!(listened_flag(&td), None);
+    }
+
+    #[test]
+    fn control_g_cross_436_a_call_site_listens_that_restates_the_route_keeps_the_listened_flag() {
+        let mut td = routed_atom();
+        let restated: orbital_core_base::schema::ListenDefinition =
+            serde_json::from_value(serde_json::json!({ "event": "CLI_DONE", "triggers": "UPTIME_DONE" })).expect("listen");
+        apply_post_subst_overrides_to_trait(&mut td, Some(&vec![restated]), None).unwrap();
+        assert_eq!(listened_flag(&td), Some(true));
+    }
 }

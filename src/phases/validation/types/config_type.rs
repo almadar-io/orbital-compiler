@@ -773,6 +773,56 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
     ctx.merge(result);
 }
 
+/// An entity row's declared defaults seed the singleton row, so each literal default must fit its field's
+/// declared type. Required-member completeness of an object default is deferred to persist, so it is not
+/// checked here.
+pub fn validate_all_entity_field_defaults(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    let mut result = ValidationResult::new();
+    for (oi, orbital) in schema.orbitals.iter().enumerate() {
+        let Some(entity) = orbital.entity.as_inline() else {
+            continue;
+        };
+        let events = EventScope {
+            events: orbital_event_names(orbital),
+            orbital: &orbital.name,
+            refs: None,
+        };
+        for field in &entity.fields {
+            let (Some(default), Some(name)) = (&field.default, &field.name) else {
+                continue;
+            };
+            if matches!(default, SExpression::Null) && field.nullable == Some(true) {
+                continue;
+            }
+            let path = format!("orbitals[{}].entity({}).field({})", oi, entity.name, name);
+            let shape = without_required_members(field);
+            let found = check_field_def_shape(&shape, default, &path, &events, &HashMap::new());
+            for e in found.errors {
+                result.add_error(ValidationError::error(
+                    ErrorCode::EntityFieldDefaultShapeMismatch,
+                    e.path,
+                    e.message,
+                ));
+            }
+        }
+    }
+    ctx.merge(result);
+}
+
+fn without_required_members(field: &FieldDefinition) -> FieldDefinition {
+    let mut out = field.clone();
+    out.required = None;
+    if let Some(props) = out.properties.as_mut() {
+        for member in props.values_mut() {
+            *member = without_required_members(member);
+        }
+    }
+    if let Some(items) = out.items.as_mut() {
+        **items = without_required_members(items);
+    }
+    out
+}
+
 /// Validate a single config field's default value against its declared type.
 /// `event_ctx` carries the owning trait's event universe + definer-knob set
 /// and this field's knob name; `None` = Reference arm / shape-only callers
@@ -2307,6 +2357,103 @@ mod event_config_tests {
             "{:?}",
             result.errors
         );
+    }
+
+    fn entity_default_fixture(birth_default: &str, age_default: &str) -> String {
+        format!(
+            r#"{{
+      "name": "t", "version": "1.0.0",
+      "orbitals": [{{
+        "name": "O",
+        "entity": {{ "name": "FormEntry", "fields": [
+          {{ "name": "birthDate", "type": "datetime", "default": {birth_default} }},
+          {{ "name": "age", "type": "number", "default": {age_default} }}
+        ] }},
+        "traits": [{{
+          "name": "Panel",
+          "config": {{ "limit": {{ "type": "number", "default": "abc" }} }},
+          "stateMachine": {{
+            "states": [{{ "name": "idle", "isInitial": true }}],
+            "transitions": [{{ "from": "idle", "to": "idle", "event": "INIT", "effects": [] }}]
+          }}
+        }}]
+      }}]
+    }}"#
+        )
+    }
+
+    fn run_with_entities(schema_json: &str) -> ValidationResult {
+        let schema: OrbitalSchema = serde_json::from_str(schema_json).expect("fixture parses");
+        let mut ctx = ValidationContext::new();
+        validate_all_config_types(&schema, &mut ctx);
+        validate_all_entity_field_defaults(&schema, &mut ctx);
+        ctx.result
+    }
+
+    #[test]
+    fn g_orbital_core_133_every_primitive_tag_checks_its_entity_default() {
+        let cases = [
+            ("string", r#"1"#, r#""a""#),
+            ("number", r#""abc""#, r#"1.5"#),
+            ("int", r#""abc""#, r#"3"#),
+            ("boolean", r#""true""#, r#"true"#),
+            ("date", r#""""#, r#""2024-01-01""#),
+            ("datetime", r#""""#, r#""2024-01-01T00:00:00Z""#),
+            ("timestamp", r#""""#, r#""2024-01-01T00:00:00Z""#),
+            ("instant", r#""""#, r#""2024-01-01T00:00:00Z""#),
+        ];
+        for (ty, bad, good) in cases {
+            let doc = |default: &str| {
+                format!(
+                    r#"{{ "name": "t", "version": "1.0.0", "orbitals": [{{ "name": "O",
+                    "entity": {{ "name": "Row", "fields": [{{ "name": "f", "type": "{ty}", "default": {default} }}] }},
+                    "traits": [] }}] }}"#
+                )
+            };
+            let fit = run_with_entities(&doc(good));
+            assert!(fit.errors.is_empty(), "{ty}: a fitting default raises nothing: {:?}", fit.errors);
+            let misfit = run_with_entities(&doc(bad));
+            assert!(
+                misfit.errors.iter().any(|e| e.code == ErrorCode::EntityFieldDefaultShapeMismatch),
+                "{ty}: default {bad} does not fit: {:?}",
+                misfit.errors
+            );
+        }
+    }
+
+    #[test]
+    fn g_orbital_core_133_nullable_null_and_partial_object_defaults_are_accepted() {
+        let doc = r#"{ "name": "t", "version": "1.0.0", "orbitals": [{ "name": "O",
+            "entity": { "name": "Row", "fields": [
+              { "name": "when", "type": "datetime", "nullable": true, "default": null },
+              { "name": "box", "type": "object", "default": {},
+                "properties": { "a": { "type": "string", "required": true } } }
+            ] }, "traits": [] }] }"#;
+        let result = run_with_entities(doc);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn g_orbital_core_133_entity_field_default_must_fit_its_declared_type() {
+        let bad = run_with_entities(&entity_default_fixture(r#""""#, r#""abc""#));
+        assert!(
+            bad.errors.iter().any(|e| e.path.contains("config(limit)")),
+            "control: the config default check runs on this fixture: {:?}",
+            bad.errors
+        );
+        let good = run_with_entities(&entity_default_fixture(r#""2024-01-01T00:00:00Z""#, "3"));
+        assert!(
+            !good.errors.iter().any(|e| e.path.contains("FormEntry")),
+            "control: fitting entity defaults raise nothing: {:?}",
+            good.errors
+        );
+        for field in ["birthDate", "age"] {
+            assert!(
+                bad.errors.iter().any(|e| e.path.contains("FormEntry") && e.path.contains(field)),
+                "entity field {field} has a default that does not fit its type and must be an error: {:?}",
+                bad.errors
+            );
+        }
     }
 }
 
