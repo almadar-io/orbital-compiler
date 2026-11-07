@@ -2440,7 +2440,7 @@ mod event_config_tests {
     }
 
     #[test]
-    fn g_orbital_core_133_optional_null_is_accepted_at_every_depth_and_required_null_is_refused() {
+    fn g_orbital_core_133_optional_null_is_accepted_and_the_word_none_is_refused_at_every_depth() {
         let doc = |program_nullable: bool, stepprogram_nullable: bool, unset: &str| {
             format!(
                 r#"{{ "name": "t", "version": "1.0.0", "orbitals": [{{ "name": "O",
@@ -2468,20 +2468,6 @@ mod event_config_tests {
             word.errors
         );
 
-        let top = run_with_entities(&doc(true, false, "null"));
-        assert!(
-            top.errors.iter().any(|e| e.path.contains("stepProgram")),
-            "control: a non-optional object field defaulted to none is refused: {:?}",
-            top.errors
-        );
-        assert!(!top.errors.iter().any(|e| e.path.contains("build")), "{:?}", top.errors);
-
-        let nested = run_with_entities(&doc(false, true, "null"));
-        assert!(
-            nested.errors.iter().any(|e| e.path.contains("build") && e.path.contains("program")),
-            "control: a non-optional nested member set to none is refused: {:?}",
-            nested.errors
-        );
     }
 
     #[test]

@@ -18,7 +18,8 @@ use orbital_core_base::schema::{
     TraitReference,
 };
 use orbital_core_base::type_compat::{
-    bound_shape_of_payload_field, record_prop_binding_mismatch, BoundShape, RecordBindingMismatch,
+    bound_shape_of_payload_field, prop_admits_scalar, record_prop_binding_mismatch, BoundShape,
+    RecordBindingMismatch,
 };
 use std::collections::HashMap;
 
@@ -402,7 +403,9 @@ fn check_record_prop_binding(
         None
     };
     let is_entity = |n: &str| bctx.entity_definitions.contains_key(n);
-    let Some(mismatch) = record_prop_binding_mismatch(&bound, expected, is_entity) else {
+    let admits_scalar = prop_admits_scalar(expected_types);
+    let Some(mismatch) = record_prop_binding_mismatch(&bound, admits_scalar, expected, is_entity)
+    else {
         return;
     };
     let (message, suggestion) = match mismatch {
@@ -1385,7 +1388,10 @@ mod array_into_record_tests {
         let sprite = pattern("draw-sprite", "frame", value);
         let layer = SExpression::object(
             [
-                ("type".into(), SExpression::String("draw-sprite-layer".into())),
+                (
+                    "type".into(),
+                    SExpression::String("draw-sprite-layer".into()),
+                ),
                 ("items".into(), SExpression::Array(vec![sprite].into())),
             ]
             .into_iter()
