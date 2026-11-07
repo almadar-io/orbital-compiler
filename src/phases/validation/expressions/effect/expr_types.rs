@@ -241,6 +241,18 @@ fn call(
                 payload: Some(payload),
                 ..
             } if args.len() >= 2 => arg(2, payload, out),
+            OirEffect::Fetch { id, filter, order_by, offset, limit, nearest, .. } => {
+                if let Some(SExpression::Object(options)) = items.get(2) {
+                    let lowered_options = [("id", id), ("filter", filter), ("orderBy", order_by), ("offset", offset), ("limit", limit), ("nearest", nearest)];
+                    for (key, source) in options.iter() {
+                        let key = key.to_string();
+                        if let Some((_, Some(l))) = lowered_options.iter().find(|(name, _)| *name == key) {
+                            walk(source, l, &format!("{path}[2].{key}"), trace, out);
+                        }
+                    }
+                }
+            }
+            OirEffect::Persist { data, .. } if args.len() >= 3 => arg(3, data, out),
             OirEffect::Custom {
                 args: lowered_args, ..
             } => {
@@ -345,5 +357,39 @@ mod tests {
         assert_eq!(at(".effects[0][2].body[0][1]"), Some("boolean"));
         assert_eq!(at(".effects[0][2].body[0].then"), Some("int"));
         assert!(types.keys().all(|path| !path.contains(".guard")));
+    }
+
+    #[test]
+    fn expression_types_name_the_nodes_of_a_fetch_filter_and_a_persist_payload() {
+        let schema = program(
+            serde_json::Value::Null,
+            serde_json::json!([
+                ["fetch", "Row", { "filter": ["and", "@entity.ok", [">", "@entity.count", 1]], "offset": ["*", 2, 5] }],
+                ["persist", "create", "Row", { "count": ["+", 1, 2] }]
+            ]),
+        );
+        let types = expression_types(&schema);
+        let at = |rest: &str| types.get(&format!("{AT}{rest}")).map(String::as_str);
+        assert_eq!(at(".effects[0][2].filter"), Some("boolean"));
+        assert_eq!(at(".effects[0][2].filter[2]"), Some("boolean"));
+        assert_eq!(at(".effects[0][2].filter[2][1]"), Some("number"));
+        assert_eq!(at(".effects[0][2].offset"), Some("int"));
+        assert_eq!(at(".effects[1][3].count"), Some("int"));
+        assert_eq!(at(".effects[0][1]"), None, "control: the entity name is not an expression");
+    }
+
+    #[test]
+    fn a_null_operand_takes_the_type_its_position_requires() {
+        let schema = program(
+            serde_json::json!(["and", ["=", "@entity.count", null], ["=", null, null]]),
+            serde_json::json!([["set", "@entity.ok", ["str/includes", "abc", null]]]),
+        );
+        let types = expression_types(&schema);
+        let at = |rest: &str| types.get(&format!("{AT}{rest}")).map(String::as_str);
+        assert_eq!(at(".guard[1][2]"), Some("number?"));
+        assert_eq!(at(".effects[0][2][2]"), Some("string?"));
+        assert_eq!(at(".guard[2][1]"), None, "control: nothing determines the type of two nulls");
+        assert_eq!(at(".guard[2][2]"), None);
+        assert_eq!(at(".guard[1][1]"), Some("number"), "control: a typed operand keeps its own type");
     }
 }

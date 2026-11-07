@@ -33,8 +33,6 @@ pub mod loader;
 pub mod phases;
 
 // inference — expression type inference
-#[path = "inference/ir_helpers.rs"]
-pub mod ir_helpers;
 #[path = "inference/type_infer.rs"]
 pub mod type_infer;
 

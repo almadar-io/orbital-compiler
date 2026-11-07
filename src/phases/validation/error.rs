@@ -346,6 +346,18 @@ pub enum ErrorCode {
     MissingField,
     /// Generic duplicate entity/item
     DuplicateEntity,
+
+    // =========================================================================
+    // Binding Errors, appended
+    // =========================================================================
+    /// A `let` binding or `fn` parameter is named after a binding root (`entity`, `payload`, `config`, `user`, and so on), so `@name` in its scope reads the local instead of the root.
+    BindingRootShadowed,
+
+    // =========================================================================
+    // Render-UI Errors, appended
+    // =========================================================================
+    /// A render-ui pattern whose registry props take both `entity` and `fields`/`columns` is bound to entity rows but declares neither, so a host would have to derive the shown fields from the first row.
+    RenderUICollectionFieldsMissing,
 }
 
 include!(concat!(env!("OUT_DIR"), "/error_code_docs.rs"));
@@ -431,6 +443,8 @@ impl ErrorCode {
 
             // Binding
             ErrorCode::BindingUnknownRoot => "ORB_BINDING_UNKNOWN_ROOT",
+            ErrorCode::BindingRootShadowed => "ORB_BINDING_ROOT_SHADOWED",
+            ErrorCode::RenderUICollectionFieldsMissing => "ORB_RUI_COLLECTION_FIELDS_MISSING",
             ErrorCode::ConfigFieldRefUnknown => "ORB_CONFIG_FIELD_REF_UNKNOWN",
             ErrorCode::ConfigFieldRefTypeMismatch => "ORB_CONFIG_FIELD_REF_TYPE_MISMATCH",
             ErrorCode::BindingInvalidPath => "ORB_BINDING_INVALID_PATH",
@@ -519,6 +533,7 @@ impl ErrorCode {
             ErrorCode::RenderUIInvalidPattern
             | ErrorCode::RenderUIInvalidProp
             | ErrorCode::RenderUIInvalidRowRoute
+            | ErrorCode::RenderUICollectionFieldsMissing
             | ErrorCode::RenderUIUnknownItemActionProp
             | ErrorCode::RenderUIInvalidFieldPath
             | ErrorCode::RenderUIBindingTypeMismatch
@@ -569,6 +584,7 @@ impl ErrorCode {
             ErrorCode::UnresolvedPatternFieldRef => "cross",
 
             ErrorCode::BindingUnknownRoot
+            | ErrorCode::BindingRootShadowed
             | ErrorCode::ConfigFieldRefUnknown
             | ErrorCode::ConfigFieldRefTypeMismatch
             | ErrorCode::BindingInvalidPath

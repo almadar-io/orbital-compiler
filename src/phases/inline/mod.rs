@@ -380,44 +380,96 @@ impl InlineError {
     pub fn structured_code(&self) -> &'static str {
         match self {
             InlineError::DuplicateTraitName { .. } => "ORB_T_DUPLICATE_NAME",
-            InlineError::LambdaStatefulTrait { .. } => "ORB_T_LAMBDA_STATEFUL_TRAIT",
-            InlineError::EmitMergeConflict { .. } => "ORB_T_EMIT_MERGE_CONFLICT",
-            InlineError::ConflictingTypeAlias { .. } => "ORB_T_CONFLICTING_TYPE_ALIAS",
-            InlineError::AmbiguousTypeName { .. } => "ORB_T_AMBIGUOUS_TYPE_NAME",
-            InlineError::AmbiguousSiblingEntity { .. } => "ORB_O_SIBLING_ENTITY_AMBIGUOUS",
-            InlineError::TypeImportRefused { .. } => "ORB_T_TYPE_IMPORT_REFUSED",
+            InlineError::LambdaStatefulTrait { .. } => T_LAMBDA_STATEFUL_TRAIT.code,
+            InlineError::EmitMergeConflict { .. } => T_EMIT_MERGE_CONFLICT.code,
+            InlineError::ConflictingTypeAlias { .. } => T_CONFLICTING_TYPE_ALIAS.code,
+            InlineError::AmbiguousTypeName { .. } => T_AMBIGUOUS_TYPE_NAME.code,
+            InlineError::AmbiguousSiblingEntity { .. } => O_SIBLING_ENTITY_AMBIGUOUS.code,
+            InlineError::TypeImportRefused { .. } => T_TYPE_IMPORT_REFUSED.code,
             InlineError::DuplicateUseAlias { .. } => "ORB_O_DUPLICATE_USE_ALIAS",
-            InlineError::OrbitalRefListenTargetUnknown { .. } => "ORB_O_LISTEN_TARGET_UNKNOWN",
-            InlineError::OrbitalRefListenSourceUnknown { .. } => "ORB_O_LISTEN_SOURCE_UNKNOWN",
-            InlineError::LazyEagerRef { .. } => "ORB_LAZY_EAGER_REF",
-            InlineError::LazyNoPages { .. } => "ORB_LAZY_NO_PAGES",
-            InlineError::LazyNotSplit { .. } => "ORB_LAZY_NOT_SPLIT",
+            InlineError::OrbitalRefListenTargetUnknown { .. } => O_LISTEN_TARGET_UNKNOWN.code,
+            InlineError::OrbitalRefListenSourceUnknown { .. } => O_LISTEN_SOURCE_UNKNOWN.code,
+            InlineError::LazyEagerRef { .. } => LAZY_EAGER_REF.code,
+            InlineError::LazyNoPages { .. } => LAZY_NO_PAGES.code,
+            InlineError::LazyNotSplit { .. } => LAZY_NOT_SPLIT.code,
             InlineError::LanguageData(error) => error.code(),
-            InlineError::PageAccessWeakened { .. } => "ORB_O_PAGE_ACCESS_WEAKENED",
-            InlineError::PageProtocolMismatch { .. } => "ORB_O_PAGE_PROTOCOL_MISMATCH",
+            InlineError::PageAccessWeakened { .. } => O_PAGE_ACCESS_WEAKENED.code,
+            InlineError::PageProtocolMismatch { .. } => O_PAGE_PROTOCOL_MISMATCH.code,
             InlineError::BehaviorRefUnresolved { .. } => "ORB_T_BEHAVIOR_REF_UNRESOLVED",
             InlineError::BehaviorRefNotLiteral { .. } => "ORB_T_BEHAVIOR_REF_NOT_LITERAL",
             InlineError::UnquoteOutsideQuasiquote { .. } => "ORB_T_UNQUOTE_OUTSIDE_QUASIQUOTE",
             InlineError::UnknownEventRef { .. } => "ORB_ID_UNKNOWN_REF",
-            InlineError::ListenKeyDropped { .. } => "ORB_T_LISTEN_KEY_DROPPED",
+            InlineError::ListenKeyDropped { .. } => T_LISTEN_KEY_DROPPED.code,
             InlineError::ConfigWiringTypeMismatch { .. } | InlineError::UnstampedConfigKnob { .. } => "ORB_T_CONFIG_SHAPE_MISMATCH",
             InlineError::Loader(LoaderError::PackageNotInstalled { .. })
             | InlineError::Loader(LoaderError::BehaviorPackageNotInstalled { .. }) => {
-                "ORB_BEHAVIOR_PACKAGE_NOT_INSTALLED"
+                BEHAVIOR_PACKAGE_NOT_INSTALLED.code
             }
-            InlineError::Loader(LoaderError::BehaviorNotFound { .. }) => "ORB_BEHAVIOR_NOT_FOUND",
-            InlineError::Loader(LoaderError::BehaviorAmbiguous { .. }) => "ORB_BEHAVIOR_AMBIGUOUS",
+            InlineError::Loader(LoaderError::BehaviorNotFound { .. }) => BEHAVIOR_NOT_FOUND.code,
+            InlineError::Loader(LoaderError::BehaviorAmbiguous { .. }) => BEHAVIOR_AMBIGUOUS.code,
             InlineError::Loader(LoaderError::BehaviorPackage(
                 orbital_core_base::behavior_packages::DiscoverError::DuplicateBehaviorName { .. },
-            )) => "ORB_BEHAVIOR_NAME_DUPLICATE",
-            InlineError::Loader(LoaderError::BehaviorPackage(_)) => "ORB_BEHAVIOR_PACKAGE_INVALID",
+            )) => BEHAVIOR_NAME_DUPLICATE.code,
+            InlineError::Loader(LoaderError::BehaviorPackage(_)) => BEHAVIOR_PACKAGE_INVALID.code,
             InlineError::Loader(LoaderError::PrefixConflict { .. }) => {
-                "ORB_BEHAVIOR_PREFIX_CONFLICT"
+                BEHAVIOR_PREFIX_CONFLICT.code
             }
             _ => "INLINE_ERROR",
         }
     }
 }
+
+/// A code `InlineError::structured_code` raises that `validation::ErrorCode` does not own.
+pub struct InlineCode {
+    pub code: &'static str,
+    pub category: &'static str,
+    pub description: &'static str,
+}
+
+const BEHAVIOR_AMBIGUOUS: InlineCode = InlineCode { code: "ORB_BEHAVIOR_AMBIGUOUS", category: "behavior", description: "A behavior name resolves in more than one installed package" };
+const BEHAVIOR_NAME_DUPLICATE: InlineCode = InlineCode { code: "ORB_BEHAVIOR_NAME_DUPLICATE", category: "behavior", description: "A package declares the same behavior name twice" };
+const BEHAVIOR_NOT_FOUND: InlineCode = InlineCode { code: "ORB_BEHAVIOR_NOT_FOUND", category: "behavior", description: "An imported behavior is found in no installed package" };
+const BEHAVIOR_PACKAGE_INVALID: InlineCode = InlineCode { code: "ORB_BEHAVIOR_PACKAGE_INVALID", category: "behavior", description: "An installed behavior package cannot be read or has an invalid layout" };
+const BEHAVIOR_PACKAGE_NOT_INSTALLED: InlineCode = InlineCode { code: "ORB_BEHAVIOR_PACKAGE_NOT_INSTALLED", category: "behavior", description: "A behavior package a program imports from is not installed" };
+const BEHAVIOR_PREFIX_CONFLICT: InlineCode = InlineCode { code: "ORB_BEHAVIOR_PREFIX_CONFLICT", category: "behavior", description: "Two installed packages claim the same behavior prefix" };
+const LAZY_EAGER_REF: InlineCode = InlineCode { code: "ORB_LAZY_EAGER_REF", category: "uses", description: "An eager orbital references a lazily imported alias beyond a whole page-bearing orbital" };
+const LAZY_NOT_SPLIT: InlineCode = InlineCode { code: "ORB_LAZY_NOT_SPLIT", category: "uses", description: "An orbital that references a lazy import reached inlining before the lazy split" };
+const LAZY_NO_PAGES: InlineCode = InlineCode { code: "ORB_LAZY_NO_PAGES", category: "uses", description: "An orbital imported lazily declares no pages, so nothing can load it" };
+const O_LISTEN_SOURCE_UNKNOWN: InlineCode = InlineCode { code: "ORB_O_LISTEN_SOURCE_UNKNOWN", category: "orbital_ref", description: "An orbital import listens route names a source trait that is neither imported nor authored in the import body" };
+const O_LISTEN_TARGET_UNKNOWN: InlineCode = InlineCode { code: "ORB_O_LISTEN_TARGET_UNKNOWN", category: "orbital_ref", description: "An orbital import listens route targets a trait that is not in the imported set" };
+const O_PAGE_ACCESS_WEAKENED: InlineCode = InlineCode { code: "ORB_O_PAGE_ACCESS_WEAKENED", category: "orbital_ref", description: "A page reference sets public access on an upstream page that requires authentication" };
+const O_PAGE_PROTOCOL_MISMATCH: InlineCode = InlineCode { code: "ORB_O_PAGE_PROTOCOL_MISMATCH", category: "orbital_ref", description: "A page reference is written with a protocol other than the referenced page's" };
+const O_SIBLING_ENTITY_AMBIGUOUS: InlineCode = InlineCode { code: "ORB_O_SIBLING_ENTITY_AMBIGUOUS", category: "orbital_ref", description: "A sibling entity is declared by two imports with different fields" };
+const T_AMBIGUOUS_TYPE_NAME: InlineCode = InlineCode { code: "ORB_T_AMBIGUOUS_TYPE_NAME", category: "trait", description: "A type name is declared by two sources with different shapes" };
+const T_CONFLICTING_TYPE_ALIAS: InlineCode = InlineCode { code: "ORB_T_CONFLICTING_TYPE_ALIAS", category: "trait", description: "A struct alias is declared both locally and by an imported trait with different shapes" };
+const T_EMIT_MERGE_CONFLICT: InlineCode = InlineCode { code: "ORB_T_EMIT_MERGE_CONFLICT", category: "trait", description: "An emit from an inline-expanded trait collides with an emit of different payload" };
+const T_LAMBDA_STATEFUL_TRAIT: InlineCode = InlineCode { code: "ORB_T_LAMBDA_STATEFUL_TRAIT", category: "trait", description: "A trait used as a lambda keeps its own state machine" };
+const T_LISTEN_KEY_DROPPED: InlineCode = InlineCode { code: "ORB_T_LISTEN_KEY_DROPPED", category: "trait", description: "A call-site listens override restates a keyed route without its per clause" };
+const T_TYPE_IMPORT_REFUSED: InlineCode = InlineCode { code: "ORB_T_TYPE_IMPORT_REFUSED", category: "trait", description: "A program uses a type declared by a behavior instead of declaring or sharing it" };
+
+/// Every code `structured_code` takes from the constants above, so `orb reference` lists them.
+pub const INLINE_CODES: &[&InlineCode] = &[
+    &BEHAVIOR_AMBIGUOUS,
+    &BEHAVIOR_NAME_DUPLICATE,
+    &BEHAVIOR_NOT_FOUND,
+    &BEHAVIOR_PACKAGE_INVALID,
+    &BEHAVIOR_PACKAGE_NOT_INSTALLED,
+    &BEHAVIOR_PREFIX_CONFLICT,
+    &LAZY_EAGER_REF,
+    &LAZY_NOT_SPLIT,
+    &LAZY_NO_PAGES,
+    &O_LISTEN_SOURCE_UNKNOWN,
+    &O_LISTEN_TARGET_UNKNOWN,
+    &O_PAGE_ACCESS_WEAKENED,
+    &O_PAGE_PROTOCOL_MISMATCH,
+    &O_SIBLING_ENTITY_AMBIGUOUS,
+    &T_AMBIGUOUS_TYPE_NAME,
+    &T_CONFLICTING_TYPE_ALIAS,
+    &T_EMIT_MERGE_CONFLICT,
+    &T_LAMBDA_STATEFUL_TRAIT,
+    &T_LISTEN_KEY_DROPPED,
+    &T_TYPE_IMPORT_REFUSED,
+];
 
 // ============================================================================
 // Main Inline Function
@@ -4128,6 +4180,21 @@ mod tests {
 
     fn fixtures_dir() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/loader/fixtures")
+    }
+
+    #[test]
+    fn g_orb_625_inline_codes_are_unique_and_disjoint_from_error_code() {
+        let mut seen = std::collections::BTreeSet::new();
+        for c in INLINE_CODES {
+            assert!(seen.insert(c.code), "{} is listed twice", c.code);
+            assert!(!c.description.trim().is_empty(), "{} has no description", c.code);
+            assert!(
+                !crate::phases::validation::ErrorCode::ALL.iter().any(|e| e.as_str() == c.code),
+                "{} is already owned by ErrorCode",
+                c.code
+            );
+        }
+        assert_eq!(InlineError::LazyNoPages { orbital: "O".into() }.structured_code(), "ORB_LAZY_NO_PAGES");
     }
 
     #[test]

@@ -71,6 +71,7 @@ pub fn validate_all_render_ui(schema: &OrbitalSchema, ctx: &mut ValidationContex
     // from the registry.
     validate_all_render_ui_bindings(schema, ctx);
     validate_row_action_routes(schema, ctx);
+    validate_collection_fields(schema, ctx);
 }
 
 const ROW_ACTION_PATTERNS: [&str; 2] = ["data-grid", "data-list"];
@@ -162,6 +163,70 @@ fn validate_row_action_routes(schema: &OrbitalSchema, ctx: &mut ValidationContex
                         effect,
                         &format!("{path}.stateMachine.transitions[{transition_index}].effects[{effect_index}]"),
                         trait_def.config.as_ref().map(|fields| (fields, path.as_str())),
+                        &mut result,
+                    );
+                }
+            }
+        }
+    }
+    ctx.merge(result);
+}
+
+/// A pattern node bound to entity rows (`entity` is a binding, array or call) whose registry props take both
+/// `entity` and `fields`/`columns`, yet declares neither.
+fn collection_fields_missing(fields: &orbital_core_base::schema::SObject) -> Option<String> {
+    let pattern = fields.get("type").and_then(SExpression::as_str)?;
+    let embedded = crate::embedded::get_pattern(pattern)?;
+    let takes_fields = ["fields", "columns"].iter().any(|name| {
+        embedded.props_schema.get(*name).is_some_and(|prop| prop.types.iter().any(|t| t == "array"))
+    });
+    if !embedded.props_schema.contains_key("entity") || !takes_fields {
+        return None;
+    }
+    let bound = match fields.get("entity")? {
+        SExpression::String(s) => s.starts_with('@'),
+        _ => true,
+    };
+    let renders_items = embedded.props_schema.contains_key("renderItem") && fields.contains_key("renderItem");
+    (bound && !renders_items && !fields.contains_key("fields") && !fields.contains_key("columns")).then(|| pattern.to_string())
+}
+
+fn inspect_collection_patterns(expr: &SExpression, path: &str, result: &mut ValidationResult) {
+    match expr {
+        SExpression::Object(fields) => {
+            if let Some(pattern) = collection_fields_missing(fields) {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::RenderUICollectionFieldsMissing,
+                        path,
+                        format!("`{pattern}` is bound to entity rows but declares no `fields` or `columns`: name the fields to show"),
+                    )
+                    .with_suggestion("Add `fields` (or `columns`) listing the entity fields this pattern shows"),
+                );
+            }
+            for (key, value) in fields.iter() {
+                inspect_collection_patterns(value, &format!("{path}.{key}"), result);
+            }
+        }
+        SExpression::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                inspect_collection_patterns(item, &format!("{path}[{index}]"), result);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn validate_collection_fields(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
+    let mut result = ValidationResult::new();
+    for (trait_def, path) in super::inline_traits(schema) {
+        for (transition_index, transition) in trait_def.state_machine.transitions.iter().enumerate() {
+            let Some(effects) = &transition.effects else { continue };
+            for (effect_index, effect) in effects.iter().enumerate() {
+                if is_render_ui_effect(effect) {
+                    inspect_collection_patterns(
+                        effect,
+                        &format!("{path}.stateMachine.transitions[{transition_index}].effects[{effect_index}]"),
                         &mut result,
                     );
                 }
@@ -297,6 +362,45 @@ mod tests {
                 vec!["source[2].itemActions[0].navigatesTo".to_string()],
                 "{bad}"
             );
+        }
+    }
+
+    #[test]
+    fn g_orbital_shell_typescript_136_collection_without_fields_is_reported() {
+        let mut result = ValidationResult::new();
+        inspect_collection_patterns(&sx(r#"["render-ui","main",{"type":"data-list","entity":"@payload.data"}]"#), "p", &mut result);
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, ErrorCode::RenderUICollectionFieldsMissing);
+    }
+
+    #[test]
+    fn g_orbital_shell_typescript_136_render_item_replaces_fields() {
+        let mut silent = ValidationResult::new();
+        inspect_collection_patterns(&sx(r#"["render-ui","main",{"type":"data-list","entity":"@payload.data","renderItem":["fn","item",{"type":"typography"}]}]"#), "p", &mut silent);
+        assert!(silent.errors.is_empty(), "a data-list with renderItem needs no fields");
+        let mut flagged = ValidationResult::new();
+        inspect_collection_patterns(&sx(r#"["render-ui","main",{"type":"data-list","entity":"@payload.data"}]"#), "p", &mut flagged);
+        assert_eq!(flagged.errors.len(), 1, "control: without renderItem it is flagged");
+    }
+
+    #[test]
+    fn g_orbital_shell_typescript_136_numeric_columns_are_not_field_definitions() {
+        let mut result = ValidationResult::new();
+        inspect_collection_patterns(&sx(r#"["render-ui","main",{"type":"media-gallery","entity":"@payload.data","srcField":"url"}]"#), "p", &mut result);
+        assert!(result.errors.is_empty(), "media-gallery `columns` is a column count");
+    }
+
+    #[test]
+    fn g_orbital_shell_typescript_136_control_declared_fields_or_other_patterns_pass() {
+        for json in [
+            r#"["render-ui","main",{"type":"data-list","entity":"@payload.data","fields":[{"name":"title"}]}]"#,
+            r#"["render-ui","main",{"type":"data-grid","entity":"@payload.data","columns":[{"name":"title"}]}]"#,
+            r#"["render-ui","main",{"type":"data-list"}]"#,
+            r#"["render-ui","main",{"type":"stack","entity":"@payload.data"}]"#,
+        ] {
+            let mut result = ValidationResult::new();
+            inspect_collection_patterns(&sx(json), "p", &mut result);
+            assert!(result.errors.is_empty(), "{json}");
         }
     }
 

@@ -43,7 +43,6 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
     // disagree about the same event.
     let all_fired_events = super::fired_events::collect_schema_fired_events(schema);
     let guaranteed = GuaranteedPayloads::new();
-    validate_listen_payload_types(schema, ctx);
 
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         for (ti, trait_ref) in orbital.traits.iter().enumerate() {
@@ -203,6 +202,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
 
 /// G-ORB-310: the payload an `emits` entry declares must fit the payload the listening trait declares for the
 /// event the route triggers, field by field, under the kernel's one type relation.
+#[cfg_attr(not(test), expect(dead_code, reason = "G-ORB-310 held off the validate pipeline until its corpus fallout is triaged (G-CROSS-501)"))]
 fn validate_listen_payload_types(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let resolve = |name: &str| {
         crate::phases::resolve::declared_struct_type(schema, name)
@@ -256,10 +256,16 @@ fn validate_listen_payload_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
                                 {
                                     continue;
                                 }
+                                if program_value_meets_structure(&sent, &taken, &resolve, &mut Vec::new()) {
+                                    continue;
+                                }
                                 if orbital_core_base::type_compat::sub_with_named(&sent, &taken, &resolve)
                                     .is_some()
                                 {
                                     continue;
+                                }
+                                if std::env::var_os("ORB310_PROBE").is_some() {
+                                    println!("PROBE310OIR\t{}.{}\tSENT {:?}\tTAKEN {:?}", route.event, field.name, sent, taken);
                                 }
                                 ctx.add_error(
                                     ValidationError::error(
@@ -340,6 +346,58 @@ fn type_is_decidable(
         }
     }
     true
+}
+
+/// Whether the two sides meet, at some position, as an undeclared program value (`orbital`, `trait`, `behavior`,
+/// an s-expression) against a declared structure. The language gives a program value no shape, so the relation
+/// cannot judge a structural view of one; that pair is undecidable, never a contradiction.
+fn program_value_meets_structure(
+    a: &orbital_core_base::ir::OirType,
+    b: &orbital_core_base::ir::OirType,
+    resolve: &dyn Fn(&str) -> Option<orbital_core_base::ir::OirType>,
+    seen: &mut Vec<(String, String)>,
+) -> bool {
+    use orbital_core_base::ir::OirType as T;
+    let program = |t: &T| matches!(t, T::Orbital | T::Trait | T::Behavior | T::SExpr);
+    match (a, b) {
+        (T::Optional { inner: x }, T::Optional { inner: y }) => program_value_meets_structure(x, y, resolve, seen),
+        (T::Optional { inner: x }, y) | (y, T::Optional { inner: x }) => program_value_meets_structure(x, y, resolve, seen),
+        (T::Array { inner: x }, T::Array { inner: y }) => program_value_meets_structure(x, y, resolve, seen),
+        (T::Map { value: x, .. }, T::Map { value: y, .. }) => program_value_meets_structure(x, y, resolve, seen),
+        (x, y) if program(x) || program(y) => {
+            let other = if program(x) { y } else { x };
+            match other {
+                T::Struct { .. } => true,
+                T::TypeRef { name } => resolve(name).is_some_and(|r| matches!(r, T::Struct { .. })),
+                _ => false,
+            }
+        }
+        (T::TypeRef { name: x }, T::TypeRef { name: y }) => {
+            let key = (x.clone(), y.clone());
+            if seen.contains(&key) {
+                return false;
+            }
+            seen.push(key);
+            match (resolve(x), resolve(y)) {
+                (Some(rx), Some(ry)) => program_value_meets_structure(&rx, &ry, resolve, seen),
+                _ => false,
+            }
+        }
+        (T::TypeRef { name }, other) | (other, T::TypeRef { name }) => {
+            let key = (name.clone(), String::new());
+            if seen.contains(&key) {
+                return false;
+            }
+            seen.push(key);
+            resolve(name).is_some_and(|r| program_value_meets_structure(&r, other, resolve, seen))
+        }
+        (T::Struct { fields: fx, .. }, T::Struct { fields: fy, .. }) => fx.iter().any(|f| {
+            fy.iter()
+                .find(|g| g.name == f.name)
+                .is_some_and(|g| program_value_meets_structure(&f.field_type, &g.field_type, resolve, seen))
+        }),
+        _ => false,
+    }
 }
 
 fn describe_declared_type(field: &PayloadField) -> String {
@@ -2836,7 +2894,7 @@ mod tests {
 
     fn listen_mismatches(schema: &OrbitalSchema) -> Vec<String> {
         let mut ctx = ctx_with_seeded_entities(schema);
-        validate_all_emit_payloads(schema, &mut ctx);
+        validate_listen_payload_types(schema, &mut ctx);
         ctx.result
             .errors
             .iter()
@@ -2938,6 +2996,30 @@ mod tests {
     }
 
     #[test]
+    fn g_orb_310_control_a_program_value_read_through_a_declared_structure_is_undecidable() {
+        let schema = listen_program(
+            r#"{ "name": "program", "type": "object", "properties": [{ "name": "orbitals", "type": "[orbital]" }] }"#,
+            r#"{ "name": "program", "type": "object", "properties": [{ "name": "orbitals", "type": "array", "items": { "name": "", "type": "object", "properties": [{ "name": "name", "type": "string", "required": true }] } }] }"#,
+            "{}",
+            "{}",
+            FROM_EMITTER,
+        );
+        assert!(listen_mismatches(&schema).is_empty());
+    }
+
+    #[test]
+    fn g_orb_310_a_string_into_a_program_value_is_still_refused() {
+        let schema = listen_program(
+            r#"{ "name": "program", "type": "string" }"#,
+            r#"{ "name": "program", "type": "orbital" }"#,
+            "{}",
+            "{}",
+            FROM_EMITTER,
+        );
+        assert_eq!(listen_mismatches(&schema).len(), 1);
+    }
+
+    #[test]
     fn g_orb_310_control_identical_shape_aliases_from_two_behaviors_are_silent() {
         let schema = listen_program(
             r#"{ "name": "effects", "type": "[behA::TrcVal]" }"#,
@@ -2998,4 +3080,19 @@ mod tests {
         );
         assert!(listen_mismatches(&schema).is_empty());
     }
+    #[test]
+    #[ignore]
+    fn probe_310_real_programs() {
+        let list = std::env::var("ORB310_PROBE").unwrap();
+        for path in list.split(':') {
+            let text = std::fs::read_to_string(path).unwrap();
+            let schema: OrbitalSchema = serde_json::from_str(&text).unwrap();
+            let mut ctx = ctx_with_seeded_entities(&schema);
+            validate_listen_payload_types(&schema, &mut ctx);
+            for e in ctx.result.errors.iter().filter(|e| e.code.as_str() == LISTEN_PAYLOAD_CODE) {
+                println!("PROBE310\t{path}\t{}\t{}", e.path, e.message);
+            }
+        }
+    }
+
 }

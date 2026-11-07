@@ -44,7 +44,7 @@ Directories under `src/` are organizational only: modules are declared with `#[p
 | `src/phases/` | The pipeline: `parse`, `inline`, `compose`, `enrich`, `validate` and `validation/`, `resolve`, `nominalize`, `lazy`, `reflect` |
 | `src/composition/` | Composing behaviors into an app: `compose_behaviors`, `compose_app`, event wiring, layout strategy |
 | `src/loader/` | Resolves `uses` imports |
-| `src/inference/` | Expression type inference (`type_infer`, `ir_helpers`) |
+| `src/inference/` | Expression type inference (`type_infer`) |
 | `src/codegen/` | IR handed to a shell backend: `generate`, `mixed`, `shell` |
 | `src/testing/` | The exhaustive-test generator |
 | `src/bin/compose_only.rs` | The `compose_only` binary: runs `compose_behaviors` on a JSON fixture and prints the schema |

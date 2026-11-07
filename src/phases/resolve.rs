@@ -17,7 +17,7 @@ use orbital_core_base::schema::{
 };
 use orbital_core_eval::lower::{ExprLowerer, LowerError};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use thiserror::Error;
 
 /// Resolution error
@@ -1695,6 +1695,19 @@ pub(crate) fn config_field_oir_type(
     schema: &OrbitalSchema,
 ) -> Result<OirType, ResolveError> {
     Resolver::new(schema).resolve_config_field_shape(field)
+}
+
+/// The `OirType` of each config knob in `fields`, read through one resolver so the program's entity names and named
+/// types are worked out once for the lot; a knob whose type does not resolve is erased.
+pub(crate) fn config_field_oir_types<'f>(
+    fields: impl IntoIterator<Item = (&'f String, &'f orbital_core_base::schema::ConfigField)>,
+    schema: &OrbitalSchema,
+) -> HashMap<String, OirType> {
+    let resolver = Resolver::new(schema);
+    fields
+        .into_iter()
+        .map(|(name, field)| (name.clone(), resolver.resolve_config_field_shape(field).unwrap_or_else(|_| OirType::erased())))
+        .collect()
 }
 
 /// The `OirType` of a config knob whose shape its own `items` / `properties` carriers spell out, read where no program

@@ -1884,6 +1884,21 @@ impl<'c> Inferer<'c> {
         if recording {
             self.record_proven(name, args, if sound { proven_at } else { vec![false; args.len()] });
         }
+        // A null operand is traced at the type its position requires, for readers that write a typed null.
+        if let Some(trace) = self.trace.borrow_mut().as_mut() {
+            for (index, arg) in args.iter().enumerate() {
+                if !matches!(arg, OirExpr::Null) {
+                    continue;
+                }
+                if let Some(ty) = signature.formal_type(index, &bindings).filter(|ty| !orbital_core_base::signature::is_absent_slot(ty)) {
+                    let ty = match ty {
+                        OirType::Optional { .. } => ty,
+                        other => OirType::optional(other),
+                    };
+                    trace.insert(*arg as *const OirExpr, ty);
+                }
+            }
+        }
         if matches!(name_fn, "=" | "!=") {
             self.null_comparison(name_fn, args, &arg_types);
         }

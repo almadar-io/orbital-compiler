@@ -97,6 +97,9 @@ pub(crate) struct TraitScopes<'g> {
     pub(crate) payload_field_types: HashMap<String, String>,
     per_event_shapes: HashMap<String, HashMap<String, orbital_core_base::ir::OirType>>,
     pub(crate) tick_types: set::BindingTypes,
+    /// The trait's types no event changes (config, user, type parameters, the earlier delivery's payload), worked out
+    /// once: a transition's types are these with its event's payload.
+    base: set::BindingTypes,
     guaranteed: &'g GuaranteedPayloads,
 }
 
@@ -118,12 +121,9 @@ impl<'g> TraitScopes<'g> {
         let per_event_payloads = collect_per_event_payload_field_types(trait_def);
         let payload_field_types = collect_payload_field_types(trait_def);
         let per_event_shapes = collect_per_event_payload_shapes(trait_def, schema);
-        let mut tick_types = binding_types(
-            trait_def,
-            schema,
-            collect_payload_shapes(trait_def, schema),
-            &per_event_shapes,
-        );
+        let base = binding_base(trait_def, schema, &per_event_shapes);
+        let mut tick_types = base.clone();
+        tick_types.payload = collect_payload_shapes(trait_def, schema);
         tick_types.optional_payload = optional_payload_fields(trait_def, None);
         Self {
             entity_field_types,
@@ -131,6 +131,7 @@ impl<'g> TraitScopes<'g> {
             payload_field_types,
             per_event_shapes,
             tick_types,
+            base,
             guaranteed,
         }
     }
@@ -152,8 +153,8 @@ impl<'g> TraitScopes<'g> {
     ) -> set::BindingTypes {
         match self.per_event_shapes.get(event) {
             Some(shapes) => {
-                let shapes = hydrate_included_relations(schema, trait_def, event, shapes.clone());
-                let mut types = binding_types(trait_def, schema, shapes, &self.per_event_shapes);
+                let mut types = self.base.clone();
+                types.payload = hydrate_included_relations(schema, trait_def, event, shapes.clone());
                 types.optional_payload = optional_payload_fields(trait_def, Some(event));
                 if !types.optional_payload.is_empty() {
                     let guaranteed = self.guaranteed.get_or_init(|| {
@@ -559,10 +560,22 @@ fn hydrate_included_relations(
 }
 
 /// The full declared types of the bindings one transition (or tick) of `trait_def` reads.
+#[cfg(test)]
 fn binding_types(
     trait_def: &orbital_core_base::schema::TraitDefinition,
     schema: &OrbitalSchema,
     payload: HashMap<String, orbital_core_base::ir::OirType>,
+    per_event: &HashMap<String, HashMap<String, orbital_core_base::ir::OirType>>,
+) -> set::BindingTypes {
+    let mut types = binding_base(trait_def, schema, per_event);
+    types.payload = payload;
+    types
+}
+
+/// The declared types of the bindings every transition and tick of `trait_def` shares: everything but the payload.
+fn binding_base(
+    trait_def: &orbital_core_base::schema::TraitDefinition,
+    schema: &OrbitalSchema,
     per_event: &HashMap<String, HashMap<String, orbital_core_base::ir::OirType>>,
 ) -> set::BindingTypes {
     // The events the trait receives: an earlier delivery in the dispatch is one of them, so its payload is the record
@@ -613,7 +626,7 @@ fn binding_types(
         )
     });
     set::BindingTypes {
-        payload,
+        payload: HashMap::new(),
         prev_payload,
         optional_payload: Default::default(),
         locals: Default::default(),
@@ -624,18 +637,10 @@ fn binding_types(
             .map(|param| param.name.clone())
             .collect(),
         user: super::user_identity::identity_type(schema, &trait_def.name),
-        config: orbital_config_of(schema, trait_def)
-            .into_iter()
-            .flatten()
-            .chain(trait_def.config.iter().flatten())
-            .map(|(name, field)| {
-                (
-                    name.clone(),
-                    crate::phases::resolve::config_field_oir_type(field, schema)
-                        .unwrap_or_else(|_| orbital_core_base::ir::OirType::erased()),
-                )
-            })
-            .collect(),
+        config: crate::phases::resolve::config_field_oir_types(
+            orbital_config_of(schema, trait_def).into_iter().flatten().chain(trait_def.config.iter().flatten()),
+            schema,
+        ),
     }
 }
 

@@ -190,6 +190,21 @@ pub fn validate_sexpr(
     validate_sexpr_with_locals(expr, path, context, known_entities, &HashSet::new())
 }
 
+/// The finding for a `let` binding or `fn` parameter named after a binding root.
+fn shadowed_binding_root(name: &str, path: &str) -> Option<ValidationError> {
+    let is_root = crate::embedded::binding_context_rules()
+        .values()
+        .any(|allowed| allowed.iter().any(|root| root == name));
+    is_root.then(|| {
+        ValidationError::error(
+            ErrorCode::BindingRootShadowed,
+            path,
+            format!("'{name}' names a binding root, so `@{name}` in this scope reads the local and the root is unreachable"),
+        )
+        .with_suggestion("Rename the local")
+    })
+}
+
 /// Validate a single S-expression with lambda-local variable tracking.
 pub(crate) fn validate_sexpr_with_locals(
     expr: &SExpression,
@@ -252,10 +267,12 @@ pub(crate) fn validate_sexpr_with_locals(
                         if let SExpression::Array(params) = &arr[1] {
                             for param in params {
                                 if let SExpression::String(name) = param {
+                                    result.add_errors(shadowed_binding_root(name, &format!("{}[1]", path)));
                                     extended_locals.insert(name.clone().into_inner());
                                 }
                             }
                         } else if let SExpression::String(param_name) = &arr[1] {
+                            result.add_errors(shadowed_binding_root(param_name, &format!("{}[1]", path)));
                             extended_locals.insert(param_name.clone().into_inner());
                         }
                         // Validate the body with extended locals
@@ -290,6 +307,7 @@ pub(crate) fn validate_sexpr_with_locals(
                                             ));
                                         }
                                         if let Some(SExpression::String(name)) = pair.first() {
+                                            result.add_errors(shadowed_binding_root(name, &format!("{}[1][{}][0]", path, bi)));
                                             extended_locals.insert(name.clone().into_inner());
                                         }
                                     }
@@ -300,6 +318,7 @@ pub(crate) fn validate_sexpr_with_locals(
                                 // names first (permissive). lolo lowers `let` to the
                                 // ordered array form above.
                                 for name in bindings.keys() {
+                                    result.add_errors(shadowed_binding_root(&name.to_string(), &format!("{}[1].{}", path, name)));
                                     extended_locals.insert(name.to_string());
                                 }
                                 for (name, value_expr) in bindings.iter() {
@@ -568,6 +587,26 @@ mod tests {
             codes(&program(ok, effect)).contains(&ErrorCode::SExprEffectInGuard),
             "@holds"
         );
+    }
+
+    #[test]
+    fn g_orb_434_a_let_or_fn_named_after_a_binding_root_is_refused() {
+        let codes = |expr: serde_json::Value| -> Vec<ErrorCode> {
+            let expr: SExpression = serde_json::from_value(expr).unwrap();
+            validate_sexpr(&expr, "p", SExprContext::Effect, &HashSet::new())
+                .errors
+                .into_iter()
+                .map(|e| e.code)
+                .collect()
+        };
+        for root in ["entity", "payload", "pages"] {
+            let shadowing = serde_json::json!(["let", [[root, 1, "{}"]], ["+", 1, 2]]);
+            assert!(codes(shadowing).contains(&ErrorCode::BindingRootShadowed), "let {root}");
+            let lambda = serde_json::json!(["array/map", "@entity.xs", ["fn", [root], ["+", 1, 2]]]);
+            assert!(codes(lambda).contains(&ErrorCode::BindingRootShadowed), "fn {root}");
+        }
+        let plain = serde_json::json!(["let", [["total", 1, "{}"]], ["+", "@total", 2]]);
+        assert!(!codes(plain).contains(&ErrorCode::BindingRootShadowed), "control: an ordinary local name");
     }
 
     #[test]
