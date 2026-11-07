@@ -1422,6 +1422,16 @@ mod array_into_record_tests {
         assert!(sprite_layer_frame("@payload.data", "object").is_empty());
     }
 
+    /// `skeleton` accepts `string | object`: a string fills it, a collection still does not.
+    #[test]
+    fn a_string_into_a_prop_that_also_takes_a_string_is_no_record_mismatch() {
+        assert!(mismatches("theme-toggle", "skeleton", "@payload.data", "string").is_empty());
+        assert_eq!(
+            mismatches("theme-toggle", "skeleton", "@payload.data", "[object]").len(),
+            1
+        );
+    }
+
     #[test]
     fn collection_into_record_prop_is_an_error() {
         let errs = mismatches("form-section", "initialData", "@payload.data", "[object]");
