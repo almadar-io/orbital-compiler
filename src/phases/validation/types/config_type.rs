@@ -1705,11 +1705,7 @@ fn check_payload_of_member(
 /// `null`, or the bare word `none` (which lowers to the string `"none"` outside trait/orbital/behavior-typed
 /// fields): the unset value an optional (`T?`) field may hold at any depth.
 fn is_unset_literal(value: &SExpression) -> bool {
-    match value {
-        SExpression::Null => true,
-        SExpression::String(s) => s == "none",
-        _ => false,
-    }
+    matches!(value, SExpression::Null)
 }
 
 pub(crate) fn check_field_def_shape(
@@ -2444,15 +2440,15 @@ mod event_config_tests {
     }
 
     #[test]
-    fn g_orbital_core_133_optional_none_is_accepted_at_every_depth_and_required_none_is_refused() {
-        let doc = |program_nullable: bool, stepprogram_nullable: bool| {
+    fn g_orbital_core_133_optional_null_is_accepted_at_every_depth_and_required_null_is_refused() {
+        let doc = |program_nullable: bool, stepprogram_nullable: bool, unset: &str| {
             format!(
                 r#"{{ "name": "t", "version": "1.0.0", "orbitals": [{{ "name": "O",
                 "entity": {{ "name": "WorkspaceView", "fields": [
-                  {{ "name": "stepProgram", "type": "object", "nullable": {stepprogram_nullable}, "default": "none",
+                  {{ "name": "stepProgram", "type": "object", "nullable": {stepprogram_nullable}, "default": {unset},
                     "properties": {{ "name": {{ "type": "string" }} }} }},
                   {{ "name": "build", "type": "object",
-                    "default": {{ "request": "", "program": "none", "tags": [] }},
+                    "default": {{ "request": "", "program": {unset}, "tags": [] }},
                     "properties": {{
                       "request": {{ "type": "string" }},
                       "program": {{ "type": "object", "nullable": {program_nullable},
@@ -2462,10 +2458,17 @@ mod event_config_tests {
                 ] }}, "traits": [] }}] }}"#
             )
         };
-        let optional = run_with_entities(&doc(true, true));
-        assert!(optional.errors.is_empty(), "optional none, top-level and nested: {:?}", optional.errors);
+        let optional = run_with_entities(&doc(true, true, "null"));
+        assert!(optional.errors.is_empty(), "optional null, top-level and nested: {:?}", optional.errors);
 
-        let top = run_with_entities(&doc(true, false));
+        let word = run_with_entities(&doc(true, true, r#""none""#));
+        assert!(
+            word.errors.iter().any(|e| e.path.contains("stepProgram")) && word.errors.iter().any(|e| e.path.contains("program")),
+            "`none` outside a trait-typed field is the text \"none\", not an unset value: {:?}",
+            word.errors
+        );
+
+        let top = run_with_entities(&doc(true, false, "null"));
         assert!(
             top.errors.iter().any(|e| e.path.contains("stepProgram")),
             "control: a non-optional object field defaulted to none is refused: {:?}",
@@ -2473,7 +2476,7 @@ mod event_config_tests {
         );
         assert!(!top.errors.iter().any(|e| e.path.contains("build")), "{:?}", top.errors);
 
-        let nested = run_with_entities(&doc(false, true));
+        let nested = run_with_entities(&doc(false, true, "null"));
         assert!(
             nested.errors.iter().any(|e| e.path.contains("build") && e.path.contains("program")),
             "control: a non-optional nested member set to none is refused: {:?}",
