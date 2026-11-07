@@ -313,11 +313,47 @@ pub(crate) fn resolve_schema_with_inline(
         schema.messages = Some(messages);
     }
 
+    tracing::info_span!(target: ns::COMPILER, "callbacks").in_scope(|| raw_callbacks_as_lambdas(&mut schema));
+
     schema.resolved = Some(orbital_core_base::schema::ResolvedMark {
         orb: env!("CARGO_PKG_VERSION").to_string(),
         type_contract_version: orbital_core_base::schema::TYPE_CONTRACT_VERSION,
     });
     Ok(schema)
+}
+
+/// A raw callback body is lowered to the lambda its operator binds (core's `raw_callback_params`); the resolved
+/// program carries that lambda, so the kernel, which runs the resolved program, binds the element as the compiled
+/// path does.
+fn raw_callbacks_as_lambdas(schema: &mut OrbitalSchema) {
+    use orbital_core_eval::lower::raw_callbacks_as_lambdas as wrap;
+    for orbital in &mut schema.orbitals {
+        for t in &mut orbital.traits {
+            let orbital_core_base::schema::TraitReference::Inline(td) = t else {
+                continue;
+            };
+            let td = std::sync::Arc::make_mut(td);
+            td.state_machine.edit(|machine| {
+                for transition in &mut machine.transitions {
+                    transition.guard.iter_mut().for_each(wrap);
+                    transition.effects.iter_mut().flatten().for_each(wrap);
+                    transition.ensures.iter_mut().flatten().for_each(wrap);
+                }
+            });
+            for tick in td.ticks.iter_mut().flatten() {
+                tick.guard.iter_mut().for_each(wrap);
+                tick.effects.iter_mut().for_each(wrap);
+            }
+            if let Some(listens) = td.listens.as_mut() {
+                listens.edit(|listens| {
+                    for listen in listens.iter_mut() {
+                        listen.guard.iter_mut().for_each(wrap);
+                        listen.key.iter_mut().for_each(wrap);
+                    }
+                });
+            }
+        }
+    }
 }
 
 /// The program exactly as the compiled path compiles it: lazy behaviors compiled in
@@ -608,6 +644,25 @@ mod tests {
         let oir = result.unwrap();
         assert_eq!(oir.name, "TestApp");
         assert_eq!(oir.version, "1.0.0");
+    }
+
+    #[test]
+    fn a_resolved_program_carries_the_lambda_a_raw_callback_body_lowers_to() {
+        use std::path::Path;
+        let schema = orbital_test_support::installed_schema(
+            "almadar-std",
+            Path::new(env!("CARGO_MANIFEST_DIR")),
+            "std-learn-trace-player",
+        );
+        let resolved = resolve_schema_with_path(schema, &CompilerOptions::default(), None)
+            .expect("resolve std-learn-trace-player");
+        let text = serde_json::to_string(&resolved).unwrap();
+        let wrapped = r#"["array/map",["object/get","@fr","values"],["fn",["item","index"],"#;
+        assert!(text.contains(wrapped), "the bars map's raw body is a lambda in the resolved program");
+        assert!(
+            !text.contains(r#"["array/map",["object/get","@fr","values"],{"#),
+            "control: no raw body is left in its callback slot"
+        );
     }
 
     // Wave-8: the wasm mount resolves its schema through `resolve_schema_with_path(.., None)`
