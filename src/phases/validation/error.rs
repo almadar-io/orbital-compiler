@@ -68,6 +68,8 @@ pub enum ErrorCode {
     TypeWrongArgCount,
     /// An `emits` entry names a declared type that is not an Event type
     EventTypeWrongKind,
+    /// Two arms of one union name the same model arm (two lists, two maps, two objects)
+    TypeUnionArmCollision,
     /// A page names a protocol that is no row of the protocol table
     PageUnknownProtocol,
     /// An `http` endpoint has no covering `net` listen grant
@@ -361,6 +363,7 @@ impl ErrorCode {
             ErrorCode::TypeUnknownParam => "ORB_T_TYPE_UNKNOWN_PARAM",
             ErrorCode::TypeWrongArgCount => "ORB_T_TYPE_WRONG_ARG_COUNT",
             ErrorCode::EventTypeWrongKind => "ORB_T_EVENT_TYPE_WRONG_KIND",
+            ErrorCode::TypeUnionArmCollision => "ORB_T_TYPE_UNION_ARM_COLLISION",
 
             // Page
             ErrorCode::PageUnknownProtocol => "ORB_P_UNKNOWN_PROTOCOL",
@@ -491,7 +494,8 @@ impl ErrorCode {
             | ErrorCode::TypeAnnotationMismatch
             | ErrorCode::TypeUnknownParam
             | ErrorCode::TypeWrongArgCount
-            | ErrorCode::EventTypeWrongKind => "trait",
+            | ErrorCode::EventTypeWrongKind
+            | ErrorCode::TypeUnionArmCollision => "trait",
 
             ErrorCode::PageUnknownProtocol
             | ErrorCode::PageEndpointGrantMissing
@@ -824,6 +828,7 @@ mod tests {
             "ORB_T_TYPE_UNKNOWN_PARAM",
             "ORB_T_TYPE_WRONG_ARG_COUNT",
             "ORB_T_EVENT_TYPE_WRONG_KIND",
+            "ORB_T_TYPE_UNION_ARM_COLLISION",
         ] {
             assert!(known(code), "{code} is not in ErrorCode::ALL");
         }

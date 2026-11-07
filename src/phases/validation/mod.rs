@@ -67,6 +67,8 @@ pub mod sexpr;
 pub mod config_type;
 #[path = "types/generic_types.rs"]
 pub mod generic_types;
+#[path = "types/union_arms.rs"]
+pub mod union_arms;
 
 // ui — render-ui, patterns, slots, pages
 #[path = "ui/page.rs"]
@@ -472,6 +474,7 @@ pub fn validate_comprehensive_full(
     // generic types (json / shapeless object / any) in declaration
     // positions.
     generic_types::validate_generic_types(schema, &mut ctx);
+    union_arms::validate_union_arms(schema, &mut ctx);
 
     // Phase 5e': a bridged embed (`behavior/apply` with `bridge`) whose events the
     // host never sends or never handles is a dead wire.
