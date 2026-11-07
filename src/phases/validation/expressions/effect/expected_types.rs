@@ -43,8 +43,8 @@ pub fn expected_types(schema: &OrbitalSchema) -> BTreeMap<String, String> {
     out
 }
 
-/// Every declared record alias (an orbital's `types` or the program's) with its member names in declared order, for
-/// readers that build a model from a whole payload.
+/// Every declared record alias (an orbital's `types` or the program's) with its member names in name order, the
+/// canonical field order of every generated record model, for readers that build a model from a whole payload.
 pub fn expected_models(schema: &OrbitalSchema) -> BTreeMap<String, Vec<String>> {
     schema
         .orbitals
@@ -53,7 +53,11 @@ pub fn expected_models(schema: &OrbitalSchema) -> BTreeMap<String, Vec<String>> 
         .chain(schema.types.iter())
         .flat_map(|types| types.iter())
         .filter(|(_, members)| !matches!(members.as_slice(), [only] if only.name.is_empty()))
-        .map(|(name, members)| (name.clone(), members.iter().map(|m| m.name.clone()).collect()))
+        .map(|(name, members)| {
+            let mut names: Vec<String> = members.iter().map(|m| m.name.clone()).collect();
+            names.sort();
+            (name.clone(), names)
+        })
         .collect()
 }
 
@@ -254,7 +258,8 @@ mod tests {
                         { "name": "MatchedIndex", "type": "object", "projectedFrom": { "type": "MatchedIndex" }, "properties": [
                             { "name": "type", "type": "string", "values": ["index"] },
                             { "name": "index", "type": "int", "required": true } ] } ] }],
-                    "Tag": [{ "name": "label", "type": "string", "required": true }]
+                    "Tag": [{ "name": "label", "type": "string", "required": true }],
+                    "Pair": [{ "name": "b", "type": "string" }, { "name": "a", "type": "string" }]
                 },
                 "entity": { "name": "W", "fields": [{ "name": "status", "type": "string", "values": ["idle", "busy"] }, { "name": "note", "type": "string" }] },
                 "traits": [{
@@ -316,9 +321,10 @@ mod tests {
     }
 
     #[test]
-    fn expected_models_lists_each_record_alias_in_declared_order_and_skips_a_union() {
+    fn expected_models_lists_each_record_alias_in_name_order_and_skips_a_union() {
         let models = expected_models(&ladder(serde_json::json!(null)));
         assert_eq!(models.get("Tag"), Some(&vec!["label".to_string()]));
+        assert_eq!(models.get("Pair"), Some(&vec!["a".to_string(), "b".to_string()]), "name order, not declared order");
         assert_eq!(models.get("Matched"), None, "control: a union alias is not a record");
     }
 }
