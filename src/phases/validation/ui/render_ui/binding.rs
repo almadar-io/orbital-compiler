@@ -380,7 +380,6 @@ fn check_record_prop_binding(
             return;
         };
         match bound_shape_of_payload_field(&declared.field_type, declared.entity.as_deref()) {
-            Some(BoundShape::Scalar) if expected_types.contains(&declared.field_type.trim_end_matches('!')) => return,
             Some(shape) => shape,
             None => return,
         }
@@ -389,9 +388,6 @@ fn check_record_prop_binding(
             BindingType::Array => BoundShape::Collection,
             BindingType::Entity(name) => BoundShape::Record(Some(name)),
             BindingType::Object => BoundShape::Record(None),
-            BindingType::String if expected_types.contains(&"string") => return,
-            BindingType::Number if expected_types.contains(&"number") => return,
-            BindingType::Boolean if expected_types.contains(&"boolean") => return,
             BindingType::String | BindingType::Number | BindingType::Boolean => BoundShape::Scalar,
             BindingType::Unknown | BindingType::TraitRef => return,
             _ => BoundShape::Other,
@@ -1406,29 +1402,6 @@ mod array_into_record_tests {
         out.into_iter()
             .filter(|e| e.code == ErrorCode::RenderUIBindingTypeMismatch)
             .collect()
-    }
-
-    fn page_header_status(data_type: &str) -> Vec<ValidationError> {
-        let t = bare_trait();
-        let entities = HashMap::new();
-        let fields = payload(data_type);
-        let ctx = BindingContext {
-            trait_def: &t,
-            entity_definitions: &entities,
-            event_payload: Some(&fields),
-            sibling_trait_names: &[],
-        };
-        let mut out = Vec::new();
-        walk_pattern_props(&pattern("page-header", "status", "@payload.data"), &ctx, "test", &mut out);
-        out.into_iter()
-            .filter(|e| e.code == ErrorCode::RenderUIBindingTypeMismatch)
-            .collect()
-    }
-
-    #[test]
-    fn g_orbital_compiler_007_a_scalar_the_prop_also_accepts_is_not_refused() {
-        assert!(page_header_status("string").is_empty(), "page-header.status takes object or string");
-        assert_eq!(page_header_status("number").len(), 1, "control: a number fits neither string nor object");
     }
 
     /// G-ORBITAL-COMPILER-007: a number bound into a drawable layer item's record prop (`frame`) is refused.
