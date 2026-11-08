@@ -120,10 +120,11 @@ impl<'g> TraitScopes<'g> {
             .unwrap_or_default();
         let per_event_payloads = collect_per_event_payload_field_types(trait_def);
         let payload_field_types = collect_payload_field_types(trait_def);
-        let per_event_shapes = collect_per_event_payload_shapes(trait_def, schema);
-        let base = binding_base(trait_def, schema, &per_event_shapes);
+        let declared = crate::phases::resolve::DeclaredTypes::new(schema);
+        let per_event_shapes = collect_per_event_payload_shapes_with(trait_def, &declared);
+        let base = binding_base(trait_def, schema, &per_event_shapes, &declared);
         let mut tick_types = base.clone();
-        tick_types.payload = collect_payload_shapes(trait_def, schema);
+        tick_types.payload = collect_payload_shapes(trait_def, &declared);
         tick_types.optional_payload = optional_payload_fields(trait_def, None);
         Self {
             entity_field_types,
@@ -383,14 +384,23 @@ pub(crate) fn collect_per_event_payload_field_types(
 /// The `{ event -> { field -> OirType } }` payload shapes of a trait: the full declared type of every payload
 /// field (lists, maps, structs, named types resolved), not the bare kind string. The same precedence as
 /// [`collect_per_event_payload_field_types`]: an inbound event's declared payload wins over an emit's.
+#[cfg(test)]
 pub(crate) fn collect_per_event_payload_shapes(
     trait_def: &orbital_core_base::schema::TraitDefinition,
     schema: &OrbitalSchema,
 ) -> HashMap<String, HashMap<String, orbital_core_base::ir::OirType>> {
+    collect_per_event_payload_shapes_with(trait_def, &crate::phases::resolve::DeclaredTypes::new(schema))
+}
+
+/// [`collect_per_event_payload_shapes`] typing every field through `declared`.
+fn collect_per_event_payload_shapes_with(
+    trait_def: &orbital_core_base::schema::TraitDefinition,
+    declared: &crate::phases::resolve::DeclaredTypes<'_>,
+) -> HashMap<String, HashMap<String, orbital_core_base::ir::OirType>> {
     let shapes = |fields: &[orbital_core_base::schema::PayloadField]| -> HashMap<String, orbital_core_base::ir::OirType> {
         fields
             .iter()
-            .map(|f| (f.name.clone(), crate::phases::resolve::payload_field_oir_type(f, schema).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased())))
+            .map(|f| (f.name.clone(), declared.payload_field(f).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased())))
             .collect()
     };
     let mut map = HashMap::new();
@@ -567,7 +577,7 @@ fn binding_types(
     payload: HashMap<String, orbital_core_base::ir::OirType>,
     per_event: &HashMap<String, HashMap<String, orbital_core_base::ir::OirType>>,
 ) -> set::BindingTypes {
-    let mut types = binding_base(trait_def, schema, per_event);
+    let mut types = binding_base(trait_def, schema, per_event, &crate::phases::resolve::DeclaredTypes::new(schema));
     types.payload = payload;
     types
 }
@@ -577,6 +587,7 @@ fn binding_base(
     trait_def: &orbital_core_base::schema::TraitDefinition,
     schema: &OrbitalSchema,
     per_event: &HashMap<String, HashMap<String, orbital_core_base::ir::OirType>>,
+    declared: &crate::phases::resolve::DeclaredTypes<'_>,
 ) -> set::BindingTypes {
     // The events the trait receives: an earlier delivery in the dispatch is one of them, so its payload is the record
     // carrying every field any of them declares, a field optional when not all declare it. A field the events
@@ -637,10 +648,12 @@ fn binding_base(
             .map(|param| param.name.clone())
             .collect(),
         user: super::user_identity::identity_type(schema, &trait_def.name),
-        config: crate::phases::resolve::config_field_oir_types(
-            orbital_config_of(schema, trait_def).into_iter().flatten().chain(trait_def.config.iter().flatten()),
-            schema,
-        ),
+        config: orbital_config_of(schema, trait_def)
+            .into_iter()
+            .flatten()
+            .chain(trait_def.config.iter().flatten())
+            .map(|(name, field)| (name.clone(), declared.config_field(field).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased())))
+            .collect(),
     }
 }
 
@@ -718,15 +731,14 @@ fn optional_payload_fields(
 /// The payload shapes of a trait with no triggering event (ticks): the first declared emit's type of each field.
 pub(crate) fn collect_payload_shapes(
     trait_def: &orbital_core_base::schema::TraitDefinition,
-    schema: &OrbitalSchema,
+    declared: &crate::phases::resolve::DeclaredTypes<'_>,
 ) -> HashMap<String, orbital_core_base::ir::OirType> {
     let mut map = HashMap::new();
     if let Some(emits) = &trait_def.emits {
         for emit in emits {
             for field in emit.payload_schema.iter().flatten() {
                 map.entry(field.name.clone()).or_insert_with(|| {
-                    crate::phases::resolve::payload_field_oir_type(field, schema)
-                        .unwrap_or_else(|_| orbital_core_base::ir::OirType::erased())
+                    declared.payload_field(field).unwrap_or_else(|_| orbital_core_base::ir::OirType::erased())
                 });
             }
         }

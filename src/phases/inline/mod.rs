@@ -1272,7 +1272,8 @@ fn drop_unreferenced_colliding_auxiliaries(schema: &mut OrbitalSchema) {
         // Conservative reference test over the RESOLVED traits: if the name
         // appears anywhere in them we keep the entity, so this can only ever
         // narrow where the analysis is provably complete.
-        let traits_blob = serde_json::to_string(&orbital.traits).unwrap_or_default();
+        let traits = &orbital.traits;
+        let traits_blob = std::cell::OnceCell::new();
         aux.retain(|e| {
             let EntityRef::Inline(def) = e else {
                 return true;
@@ -1288,7 +1289,8 @@ fn drop_unreferenced_colliding_auxiliaries(schema: &mut OrbitalSchema) {
             }
             // `retain` KEEPS on true: hold the entity only while something
             // still names it. Unreferenced + colliding is the drop case.
-            let kept = trait_blob_mentions(&traits_blob, &def.name);
+            let blob = traits_blob.get_or_init(|| serde_json::to_string(traits).unwrap_or_default());
+            let kept = trait_blob_mentions(blob, &def.name);
             if !kept {
                 if let (Some(dropped), Some(Some(owner))) = (&def.id, primary_ids.get(&def.name)) {
                     dropped_ids.insert(dropped.clone(), owner.clone());

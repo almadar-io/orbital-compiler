@@ -544,14 +544,7 @@ impl ExternalOrbitalLoader {
         import_path: &str,
         chain: &mut ImportChain,
     ) -> Result<&LoadedSchema, LoaderError> {
-        let source = absolute_path.with_extension("lolo");
-        orbital_core_base::read_set::note(&absolute_path);
-        orbital_core_base::read_set::note(&source);
-        let absolute_path = if !absolute_path.exists() && source.exists() && self.source_lowerer().is_some() {
-            source
-        } else {
-            absolute_path
-        };
+        let absolute_path = self.source_file(absolute_path);
         let canonical = self.canonical(&absolute_path);
         if let Some(error) = chain.push_canonical(canonical.clone()) {
             return Err(LoaderError::CircularImport(error));
@@ -578,12 +571,9 @@ impl ExternalOrbitalLoader {
     /// actionable error, never a silent substitute. A miss on the installed
     /// std package's own registry is NEVER retried against std again, only
     /// against every other installed package.
-    fn load_std_behavior(
-        &mut self,
-        import_path: &str,
-        behavior_name: &str,
-        chain: &mut ImportChain,
-    ) -> Result<&LoadedSchema, LoaderError> {
+    /// The file `std/behaviors/<behavior_name>` names: the installed std's, else the one other installed package
+    /// declaring it.
+    fn locate_std_behavior(&mut self, behavior_name: &str) -> Result<PathBuf, LoaderError> {
         let std_package = self
             .config
             .packages
@@ -598,7 +588,7 @@ impl ExternalOrbitalLoader {
         };
         let std_source_label = format!("{}@{}", pkg.name, pkg.version);
         if let Some(path) = self.registry_lookup(behavior_name, &pkg.registry)? {
-            return self.load_from_path(path, import_path, chain);
+            return Ok(path);
         }
 
         // Miss on the std source: search every OTHER installed package.
@@ -627,10 +617,7 @@ impl ExternalOrbitalLoader {
                     searched,
                 })
             }
-            1 => {
-                let (_, path) = hits.into_iter().next().expect("len checked above");
-                self.load_from_path(path, import_path, chain)
-            }
+            1 => Ok(hits.into_iter().next().expect("len checked above").1),
             _ => {
                 let mut names = hits.into_iter().map(|(name, _)| name);
                 Err(LoaderError::BehaviorAmbiguous {
@@ -644,11 +631,8 @@ impl ExternalOrbitalLoader {
 
     /// Bare `<prefix>/<name>` resolution: the package declaring `orb.prefix ==
     /// prefix` only — never any other package, never std.
-    fn load_scoped_behavior(
-        &mut self,
-        import_path: &str,
-        chain: &mut ImportChain,
-    ) -> Result<&LoadedSchema, LoaderError> {
+    /// The file a bare `<prefix>/<name>` names in the package declaring that prefix.
+    fn locate_scoped_behavior(&mut self, import_path: &str) -> Result<PathBuf, LoaderError> {
         let (prefix, name) = import_path
             .split_once('/')
             .expect("caller verified a '/' is present");
@@ -664,7 +648,7 @@ impl ExternalOrbitalLoader {
             });
         };
         match self.registry_lookup(name, &pkg.registry)? {
-            Some(path) => self.load_from_path(path, import_path, chain),
+            Some(path) => Ok(path),
             None => Err(LoaderError::BehaviorNotFound {
                 name: name.to_string(),
                 searched: vec![format!("{}@{}", pkg.name, pkg.version)],
@@ -691,10 +675,39 @@ impl ExternalOrbitalLoader {
             }
         };
 
+        let path = self.locate_mapped(import_path, from_path)?;
+        self.load_from_path(path, import_path, chain)
+    }
+
+    /// The file `load` would read for `import_path`, found exactly as `load` finds it, without reading or lowering it.
+    pub fn locate(&mut self, import_path: &str, from_path: Option<&Path>) -> Result<PathBuf, LoaderError> {
+        let path = match map_browse_specifier(import_path) {
+            BrowseMapping::NotBrowseForm => self.locate_mapped(import_path, from_path)?,
+            BrowseMapping::Mapped(canonical) => self.locate_mapped(&canonical, from_path)?,
+            BrowseMapping::Malformed => return Err(LoaderError::InvalidPrimitiveImport(import_path.to_string())),
+        };
+        Ok(self.source_file(path))
+    }
+
+    /// The file a located path is read from: its `.lolo` source when the `.orb` is absent and a lowerer is registered.
+    /// Both candidates count as read, so a cache keyed on the reads sees either appear.
+    fn source_file(&self, absolute_path: PathBuf) -> PathBuf {
+        let source = absolute_path.with_extension("lolo");
+        orbital_core_base::read_set::note(&absolute_path);
+        orbital_core_base::read_set::note(&source);
+        if !absolute_path.exists() && source.exists() && self.source_lowerer().is_some() {
+            source
+        } else {
+            absolute_path
+        }
+    }
+
+    /// [`Self::locate`] for a specifier already in the canonical loader form.
+    fn locate_mapped(&mut self, import_path: &str, from_path: Option<&Path>) -> Result<PathBuf, LoaderError> {
         // std/behaviors/<name>: installed std (if present) is authoritative,
-        // else the embedded phf map, else every other installed package.
+        // else every other installed package.
         if let Some(behavior_name) = import_path.strip_prefix("std/behaviors/") {
-            return self.load_std_behavior(import_path, behavior_name, chain);
+            return self.locate_std_behavior(behavior_name);
         }
 
         // Bare `<prefix>/<name>` against an installed package — not std/, @,
@@ -706,13 +719,12 @@ impl ExternalOrbitalLoader {
             && !import_path.starts_with("std/")
             && !Path::new(import_path).is_absolute()
         {
-            return self.load_scoped_behavior(import_path, chain);
+            return self.locate_scoped_behavior(import_path);
         }
 
         // Everything else: filesystem resolution (relative / scoped / absolute
         // / topic-qualified `std/...` paths that aren't the canonical form).
-        let absolute_path = self.resolve_path(import_path, from_path)?;
-        self.load_from_path(absolute_path, import_path, chain)
+        self.resolve_path(import_path, from_path)
     }
 
     /// The `orb.prefix` of the installed package whose registry holds `path`.
@@ -731,11 +743,7 @@ impl ExternalOrbitalLoader {
     /// (`"<name>@<version>"`, or the local path when it resolved outside any
     /// installed package's registry).
     pub fn resolve_owned(&mut self, import_path: &str) -> Result<(PathBuf, String), LoaderError> {
-        let mut chain = ImportChain::new();
-        let path = self
-            .load(import_path, None, &mut chain)?
-            .source_path
-            .clone();
+        let path = self.locate(import_path, None)?;
         let owner = self
             .config
             .packages
@@ -1562,6 +1570,31 @@ mod tests {
             .load("almadar-behaviors/rpg-hero", None, &mut chain)
             .expect("prefix hit should load");
         assert_eq!(loaded.schema.name, "rpg-hero");
+    }
+
+    /// `locate` finds the file `load` reads without lowering it, so a caller that needs only the path (`behavior/resolve`
+    /// naming its file, `orb behaviors which`) pays for no lowering.
+    #[test]
+    fn locate_answers_the_path_load_reads_without_loading_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = fake_package(tmp.path(), "@almadar-io/behaviors", "almadar-behaviors", "1.0.0", &["rpg-hero"]);
+        let config = LoaderConfig { base_path: fixtures_dir(), packages: vec![pkg], ..Default::default() };
+        let mut loader = ExternalOrbitalLoader::new(config);
+        let located = loader.locate("almadar-behaviors/rpg-hero", None).expect("prefix hit should locate");
+        assert_eq!(loader.cache_size(), 0, "locating loads nothing");
+        let loaded = loader.load("almadar-behaviors/rpg-hero", None, &mut ImportChain::new()).expect("prefix hit should load");
+        assert_eq!(located, loaded.source_path);
+    }
+
+    #[test]
+    fn control_locate_reports_the_error_load_reports() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = fake_package(tmp.path(), "@almadar-io/behaviors", "almadar-behaviors", "1.0.0", &["rpg-hero"]);
+        let config = LoaderConfig { base_path: fixtures_dir(), packages: vec![pkg], ..Default::default() };
+        let mut loader = ExternalOrbitalLoader::new(config);
+        let located = loader.locate("no-such-package/rpg-hero", None).unwrap_err().to_string();
+        let loaded = loader.load("no-such-package/rpg-hero", None, &mut ImportChain::new()).unwrap_err().to_string();
+        assert_eq!(located, loaded);
     }
 
     #[test]

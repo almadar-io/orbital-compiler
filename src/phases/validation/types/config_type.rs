@@ -2471,6 +2471,30 @@ mod event_config_tests {
     }
 
     #[test]
+    fn g_orbital_compiler_008_null_default_on_a_non_nullable_entity_field_is_refused() {
+        let doc = |nullable: &str| {
+            format!(
+                r#"{{ "name": "t", "version": "1.0.0", "orbitals": [{{ "name": "O",
+                "entity": {{ "name": "Row", "fields": [
+                  {{ "name": "owner", "type": "string", {nullable} "default": null }}
+                ] }}, "traits": [] }}] }}"#
+            )
+        };
+        let refused = run_with_entities(&doc(""));
+        assert!(
+            refused.errors.iter().any(|e| e.code == ErrorCode::EntityFieldDefaultShapeMismatch && e.path.contains("owner")),
+            "non-nullable string with default null: {:?}",
+            refused.errors
+        );
+        let accepted = run_with_entities(&doc(r#""nullable": true,"#));
+        assert!(
+            !accepted.errors.iter().any(|e| e.path.contains("owner")),
+            "nullable field with default null: {:?}",
+            accepted.errors
+        );
+    }
+
+    #[test]
     fn g_orbital_core_133_entity_field_default_must_fit_its_declared_type() {
         let bad = run_with_entities(&entity_default_fixture(r#""""#, r#""abc""#));
         assert!(

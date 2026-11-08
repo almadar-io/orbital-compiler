@@ -6,7 +6,7 @@
 
 use super::set::ExprReturnCtx;
 use super::{GuaranteedPayloads, TraitScopes};
-use crate::type_infer::trace_types_under;
+use crate::type_infer::{trace_narrowed_under, trace_types_under};
 use orbital_core_base::ir::{OirEffect, OirExpr, OirType};
 use orbital_core_base::schema::{EntityDefinition, OrbitalSchema, SExpression, TraitReference};
 use orbital_core_eval::lower::{lower_sexpr, recognized_call_head};
@@ -16,6 +16,16 @@ type Trace = HashMap<*const OirExpr, OirType>;
 
 /// Every typed node of the program's inline traits: path → the type in `.lolo` spelling.
 pub fn expression_types(schema: &OrbitalSchema) -> BTreeMap<String, String> {
+    traced(schema, false)
+}
+
+/// Every node whose declared optional type the check narrowed to a present one (a read under a presence guard), by
+/// path: a reader that writes typed code unwraps it there.
+pub fn expression_narrowings(schema: &OrbitalSchema) -> Vec<String> {
+    traced(schema, true).into_keys().collect()
+}
+
+fn traced(schema: &OrbitalSchema, narrowings: bool) -> BTreeMap<String, String> {
     let entity_definitions: HashMap<String, EntityDefinition> = schema
         .orbitals
         .iter()
@@ -46,6 +56,7 @@ pub fn expression_types(schema: &OrbitalSchema) -> BTreeMap<String, String> {
                     transition.effects.iter().flatten(),
                     &at,
                     &ctx,
+                    narrowings,
                     &mut out,
                 );
             }
@@ -61,6 +72,7 @@ pub fn expression_types(schema: &OrbitalSchema) -> BTreeMap<String, String> {
                     tick.effects.iter(),
                     &format!("{base}.ticks[{k}]"),
                     &ctx,
+                    narrowings,
                     &mut out,
                 );
             }
@@ -74,18 +86,26 @@ fn unit<'a>(
     effects: impl Iterator<Item = &'a SExpression>,
     at: &str,
     ctx: &ExprReturnCtx<'_>,
+    narrowings: bool,
     out: &mut BTreeMap<String, String>,
 ) {
+    let trace_of = |expr: &OirExpr, condition: Option<&OirExpr>| -> Trace {
+        if narrowings {
+            trace_narrowed_under(expr, condition, ctx).into_iter().map(|node| (node, OirType::Boolean)).collect()
+        } else {
+            trace_types_under(expr, condition, ctx)
+        }
+    };
     let condition = guard.and_then(|guard| lower_sexpr(guard).ok());
     if let (Some(guard), Some(lowered)) = (guard, condition.as_ref()) {
-        let trace = trace_types_under(lowered, None, ctx);
+        let trace = trace_of(lowered, None);
         walk(guard, lowered, &format!("{at}.guard"), &trace, out);
     }
     for (m, effect) in effects.enumerate() {
         let Ok(lowered) = lower_sexpr(effect) else {
             continue;
         };
-        let trace = trace_types_under(&lowered, condition.as_ref(), ctx);
+        let trace = trace_of(&lowered, condition.as_ref());
         walk(effect, &lowered, &format!("{at}.effects[{m}]"), &trace, out);
     }
 }
@@ -376,6 +396,28 @@ mod tests {
         assert_eq!(at(".effects[0][2].offset"), Some("int"));
         assert_eq!(at(".effects[1][3].count"), Some("int"));
         assert_eq!(at(".effects[0][1]"), None, "control: the entity name is not an expression");
+    }
+
+    #[test]
+    fn a_read_a_presence_guard_narrows_is_a_narrowing() {
+        let mut schema = program(
+            serde_json::json!(["!=", "@entity.note", null]),
+            serde_json::json!([["set", "@entity.label", "@entity.note"], ["when", ["validate/required", "@entity.note"], ["set", "@entity.label", "@entity.note"]], ["set", "@entity.label", ["default", "@entity.other", ""]]]),
+        );
+        let fields = serde_json::json!([
+            { "name": "id", "type": "string", "required": true },
+            { "name": "note", "type": "string" },
+            { "name": "other", "type": "string" },
+            { "name": "label", "type": "string", "required": true }
+        ]);
+        let mut value = serde_json::to_value(&schema).expect("value");
+        value["orbitals"][0]["entity"]["fields"] = fields;
+        schema = serde_json::from_value(value).expect("program");
+        let narrowed = expression_narrowings(&schema);
+        assert!(narrowed.contains(&format!("{AT}.effects[0][2]")), "the guard narrows the set's read: {narrowed:?}");
+        assert!(narrowed.contains(&format!("{AT}.effects[1].then[0][2]")), "a when narrows its body's read: {narrowed:?}");
+        assert!(!narrowed.contains(&format!("{AT}.effects[2][2][1]")), "control: an unguarded optional read is not narrowed: {narrowed:?}");
+        assert!(!narrowed.iter().any(|p| p.ends_with(".guard[1]")), "control: the guard's own read is not narrowed: {narrowed:?}");
     }
 
     #[test]

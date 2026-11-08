@@ -1697,17 +1697,26 @@ pub(crate) fn config_field_oir_type(
     Resolver::new(schema).resolve_config_field_shape(field)
 }
 
-/// The `OirType` of each config knob in `fields`, read through one resolver so the program's entity names and named
-/// types are worked out once for the lot; a knob whose type does not resolve is erased.
-pub(crate) fn config_field_oir_types<'f>(
-    fields: impl IntoIterator<Item = (&'f String, &'f orbital_core_base::schema::ConfigField)>,
-    schema: &OrbitalSchema,
-) -> HashMap<String, OirType> {
-    let resolver = Resolver::new(schema);
-    fields
-        .into_iter()
-        .map(|(name, field)| (name.clone(), resolver.resolve_config_field_shape(field).unwrap_or_else(|_| OirType::erased())))
-        .collect()
+/// The declared types of one program's config knobs and payload fields, read through one resolver: the program's
+/// entity names and named types are worked out once for every field typed through it, not once per field.
+pub(crate) struct DeclaredTypes<'a> {
+    resolver: Resolver<'a>,
+}
+
+impl<'a> DeclaredTypes<'a> {
+    pub(crate) fn new(schema: &'a OrbitalSchema) -> Self {
+        Self { resolver: Resolver::new(schema) }
+    }
+
+    /// [`config_field_oir_type`] through this program's resolver.
+    pub(crate) fn config_field(&self, field: &orbital_core_base::schema::ConfigField) -> Result<OirType, ResolveError> {
+        self.resolver.resolve_config_field_shape(field)
+    }
+
+    /// [`payload_field_oir_type`] through this program's resolver.
+    pub(crate) fn payload_field(&self, field: &orbital_core_base::schema::PayloadField) -> Result<OirType, ResolveError> {
+        payload_field_to_oir_type(field, &self.resolver.named_type_ctx())
+    }
 }
 
 /// The `OirType` of a config knob whose shape its own `items` / `properties` carriers spell out, read where no program

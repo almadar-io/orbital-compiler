@@ -188,6 +188,8 @@ struct Inferer<'c> {
     null_slot: RefCell<Option<OirType>>,
     /// The type each node was last inferred as, by node address; on only for [`trace_types_under`].
     trace: RefCell<Option<std::collections::HashMap<*const OirExpr, OirType>>>,
+    /// The nodes whose declared optional type a refinement narrowed to present; on only for [`trace_narrowed_under`].
+    narrowed: RefCell<Option<std::collections::HashSet<*const OirExpr>>>,
 }
 
 struct ScopeState {
@@ -223,6 +225,7 @@ impl<'c> Inferer<'c> {
             iterated_literals: std::cell::Cell::new(false),
             null_slot: RefCell::new(None),
             trace: RefCell::new(None),
+            narrowed: RefCell::new(None),
         }
     }
 
@@ -531,6 +534,10 @@ impl<'c> Inferer<'c> {
 
     fn infer(&self, expr: &OirExpr) -> Option<OirType> {
         let mut inferred = self.unfold_values(self.infer_bare(expr)?);
+        let declared_optional = match expr {
+            OirExpr::Binding { binding } => self.ctx.binding_type(binding).is_some_and(|ty| matches!(ty, OirType::Optional { .. })),
+            _ => matches!(inferred, OirType::Optional { .. }),
+        };
         if let Some((operand, projection)) = guarded_operand(expr) {
             for fact in self
                 .refinements
@@ -543,6 +550,11 @@ impl<'c> Inferer<'c> {
         }
         if let Some(trace) = self.trace.borrow_mut().as_mut() {
             trace.insert(expr as *const OirExpr, inferred.clone());
+        }
+        if declared_optional && !matches!(inferred, OirType::Optional { .. }) {
+            if let Some(narrowed) = self.narrowed.borrow_mut().as_mut() {
+                narrowed.insert(expr as *const OirExpr);
+            }
         }
         Some(inferred)
     }
@@ -3474,6 +3486,20 @@ pub fn trace_types_under<C: TypeCtx>(
     *inferer.trace.borrow_mut() = Some(std::collections::HashMap::new());
     inferer.known(expr);
     inferer.trace.into_inner().unwrap_or_default()
+}
+
+/// The nodes of `expr` (an effect where `condition` holds) whose declared optional type a refinement narrowed to a
+/// present one, by node address: a reader that writes typed code unwraps them.
+pub fn trace_narrowed_under<C: TypeCtx>(
+    expr: &OirExpr,
+    condition: Option<&OirExpr>,
+    ctx: &C,
+) -> std::collections::HashSet<*const OirExpr> {
+    let inferer = Inferer::new(ctx);
+    inferer.assume(condition);
+    *inferer.narrowed.borrow_mut() = Some(std::collections::HashSet::new());
+    inferer.known(expr);
+    inferer.narrowed.into_inner().unwrap_or_default()
 }
 
 /// The diagnostics of `expr` where `condition` holds, as a transition's guard holds for its effects.

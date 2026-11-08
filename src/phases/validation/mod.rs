@@ -331,59 +331,8 @@ pub const VALID_SLOTS: &[&str] = &[
     "overlay.pause",
 ];
 
-/// Valid field types
-pub const VALID_FIELD_TYPES: &[&str] = &[
-    "string",
-    "number",
-    "int",
-    "i8",
-    "i16",
-    "i32",
-    "i64",
-    "u8",
-    "u16",
-    "u32",
-    "u64",
-    "f32",
-    "f64",
-    "boolean",
-    "date",
-    "datetime",
-    "timestamp",
-    "instant",
-    // Semantic string domains.
-    "email",
-    "url",
-    "phone",
-    "uuid",
-    "image",
-    // Promoted value types (2026-08-20): money = numeric at rest; file = the
-    // canonical {name, url, mimeType, sizeBytes} struct value.
-    "money",
-    "file",
-    "bytes",
-    // A nominal string: only `(as <string> CallKey)` makes one.
-    "CallKey",
-    "array",
-    "object",
-    "enum",
-    "relation",
-    // `trait` was missing here while being a real `FieldType` variant — a latent
-    // bug that would reject any trait-typed field reaching this check.
-    "trait",
-    "orbital",
-    "behavior",
-    "slot",
-    "pattern",
-    // Renderable UI content (type-integrity campaign).
-    "node",
-    // Event-name reference (Phase B / SCAN-EVENT-KNOB-2 struct-field carrier).
-    "event",
-    // A union of type variants (`string | FileItem`). Its `values` carry the
-    // VARIANT NAMES, not enum members — see the enum-member check, which skips
-    // this type for exactly that reason.
-    "union",
-];
+/// Valid field types: core's `FIELD_TYPE_NAMES`, the one list.
+pub const VALID_FIELD_TYPES: &[&str] = orbital_core_base::schema::FIELD_TYPE_NAMES;
 
 /// Valid page view types
 pub const VALID_VIEW_TYPES: &[&str] = &["list", "detail", "create", "edit", "dashboard", "custom"];
@@ -788,5 +737,14 @@ mod valid_field_types_tests {
                 "{name} missing from VALID_FIELD_TYPES"
             );
         }
+    }
+
+    #[test]
+    fn g_std_145_the_compilers_field_types_are_cores_one_list() {
+        assert_eq!(VALID_FIELD_TYPES, orbital_core_base::schema::FIELD_TYPE_NAMES);
+        for name in ["i64", "f64"] {
+            assert!(VALID_FIELD_TYPES.contains(&name), "{name} missing");
+        }
+        assert!(!VALID_FIELD_TYPES.contains(&"tuple"));
     }
 }
