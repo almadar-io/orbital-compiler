@@ -2877,6 +2877,7 @@ pub fn compose_programs(
                 .map(|value| (key, value.clone()))
         })
         .collect();
+    let messages = merged_messages(&programs)?;
     let catalog_orbital_of = |name: &str| -> Option<(String, String)> {
         let (from, orbital) = import_of.get(name)?.clone()?;
         Some((behavior_name(&from).to_string(), orbital))
@@ -2935,6 +2936,9 @@ pub fn compose_programs(
             schema[key] = value;
         }
     }
+    if let Some(messages) = messages {
+        schema["messages"] = messages;
+    }
     if let Some(theme) = theme {
         schema["theme"] = Value::string(theme.to_string());
     }
@@ -2942,6 +2946,36 @@ pub fn compose_programs(
         apply_compose_overrides(&mut schema, overrides)?;
     }
     Ok(schema)
+}
+
+/// Every program's message catalogs merged per locale (keys are already qualified `<behavior>:<key>`), the first
+/// program's text winning a shared key as the app header does; `None` when no program carries any.
+fn merged_messages(programs: &[Value]) -> Result<Option<Value>, String> {
+    let mut merged: BTreeMap<String, BTreeMap<String, Value>> = BTreeMap::new();
+    for program in programs {
+        let locales = match program.get("messages") {
+            None | Some(Value::Null) => continue,
+            Some(Value::Object(locales)) => locales,
+            Some(other) => return Err(format!("a composed program's messages must be an object of locales, not {other}")),
+        };
+        for (locale, catalog) in locales.iter() {
+            let Value::Object(catalog) = catalog else {
+                return Err(format!("a composed program's messages for locale \"{locale}\" must be an object of message strings"));
+            };
+            let into = merged.entry(locale.to_string()).or_default();
+            for (key, text) in catalog.iter() {
+                into.entry(key.to_string()).or_insert_with(|| text.clone());
+            }
+        }
+    }
+    Ok((!merged.is_empty()).then(|| {
+        Value::Object(
+            merged
+                .into_iter()
+                .map(|(locale, catalog)| (locale.into(), Value::Object(catalog.into_iter().map(|(key, text)| (key.into(), text)).collect())))
+                .collect(),
+        )
+    }))
 }
 
 /// The composing caller's explicit overrides: `"<Trait>.<knob>": value` sets that composed trait's knob default (the
@@ -3349,9 +3383,29 @@ mod tests {
     }
 
     #[test]
+    fn composing_keeps_every_programs_messages_merged_per_locale() {
+        let mut app = composable("app", "Notes", None, None, None);
+        app["messages"] = jv!({ "en": { "notes:title": "Notes", "shared:k": "app" }, "ar": { "notes:title": "ملاحظات" } });
+        let mut seed = composable("seed", "Seeder", None, None, None);
+        seed["messages"] = jv!({ "en": { "seed:busy": "Seeding", "shared:k": "seed" }, "sl": { "seed:busy": "Sejanje" } });
+        let composed = compose(&[app, seed], None).unwrap();
+        assert_eq!(
+            composed["messages"],
+            jv!({ "en": { "notes:title": "Notes", "seed:busy": "Seeding", "shared:k": "app" }, "ar": { "notes:title": "ملاحظات" }, "sl": { "seed:busy": "Sejanje" } }),
+            "every program's catalogs, the first program's text on a shared key: {}",
+            composed["messages"]
+        );
+        let mut later = composable("seed", "Seeder", None, None, None);
+        later["messages"] = jv!({ "en": { "seed:busy": "Seeding" } });
+        let only_later = compose(&[composable("app", "Notes", None, None, None), later], None).unwrap();
+        assert_eq!(only_later["messages"], jv!({ "en": { "seed:busy": "Seeding" } }), "edge: only a later program has text");
+    }
+
+    #[test]
     fn control_programs_declaring_no_header_compose_to_none_of_it() {
         let composed = compose(&[composable("app", "Notes", None, None, None)], None).unwrap();
         assert!(composed.get("locales").is_none() && composed.get("publicDir").is_none(), "{composed}");
+        assert!(composed.get("messages").is_none(), "no program has text, so none is invented: {composed}");
     }
 
     #[test]
