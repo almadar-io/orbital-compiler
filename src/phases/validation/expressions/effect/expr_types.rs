@@ -421,6 +421,20 @@ mod tests {
     }
 
     #[test]
+    fn a_payload_read_its_presence_guard_proves_is_a_narrowing() {
+        let schema = program(
+            serde_json::Value::Null,
+            serde_json::json!([["when", ["validate/required", "@payload.note"], ["set", "@entity.count", ["str/len", "@payload.note"]]], ["set", "@entity.count", ["str/len", ["default", "@payload.note", ""]]]]),
+        );
+        let mut value = serde_json::to_value(&schema).expect("value");
+        value["orbitals"][0]["traits"][0]["stateMachine"]["events"][0]["payloadSchema"] = serde_json::json!([{ "name": "note", "type": "string" }]);
+        let schema: OrbitalSchema = serde_json::from_value(value).expect("program");
+        let narrowed = expression_narrowings(&schema);
+        assert!(narrowed.contains(&format!("{AT}.effects[0].then[0][2][1]")), "the when proves the payload field present: {narrowed:?}");
+        assert!(!narrowed.contains(&format!("{AT}.effects[1][2][1][1]")), "control: an unguarded optional payload read is not narrowed: {narrowed:?}");
+    }
+
+    #[test]
     fn a_null_operand_takes_the_type_its_position_requires() {
         let schema = program(
             serde_json::json!(["and", ["=", "@entity.count", null], ["=", null, null]]),

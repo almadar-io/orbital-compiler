@@ -551,7 +551,10 @@ impl<'c> Inferer<'c> {
         if let Some(trace) = self.trace.borrow_mut().as_mut() {
             trace.insert(expr as *const OirExpr, inferred.clone());
         }
-        if declared_optional && !matches!(inferred, OirType::Optional { .. }) {
+        // A read a presence fact proves, of a binding the contract lets be missing, is narrowed too.
+        let proved_present = operand_binding(expr)
+            .is_some_and(|binding| self.present.borrow().contains(&binding) && self.ctx.may_be_absent(&binding));
+        if (declared_optional && !matches!(inferred, OirType::Optional { .. })) || proved_present {
             if let Some(narrowed) = self.narrowed.borrow_mut().as_mut() {
                 narrowed.insert(expr as *const OirExpr);
             }
