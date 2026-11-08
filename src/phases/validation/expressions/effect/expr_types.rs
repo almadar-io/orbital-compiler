@@ -382,7 +382,7 @@ mod tests {
     fn a_null_operand_takes_the_type_its_position_requires() {
         let schema = program(
             serde_json::json!(["and", ["=", "@entity.count", null], ["=", null, null]]),
-            serde_json::json!([["set", "@entity.ok", ["str/includes", "abc", null]]]),
+            serde_json::json!([["set", "@entity.ok", ["str/includes", "abc", null]], ["set", "@entity.ok", ["=", ["object/get", "@entity", null], 1]]]),
         );
         let types = expression_types(&schema);
         let at = |rest: &str| types.get(&format!("{AT}{rest}")).map(String::as_str);
@@ -391,5 +391,6 @@ mod tests {
         assert_eq!(at(".guard[2][1]"), None, "control: nothing determines the type of two nulls");
         assert_eq!(at(".guard[2][2]"), None);
         assert_eq!(at(".guard[1][1]"), Some("number"), "control: a typed operand keeps its own type");
+        assert_eq!(at(".effects[1][2][1][2]"), Some("string?"), "a record key is a field name");
     }
 }
