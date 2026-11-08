@@ -225,13 +225,11 @@ fn call(
                         (pair, binding)
                     {
                         if let (Some(value), Some(lowered_value)) = (kv.get(1), lowered_kv.get(1)) {
-                            walk(
-                                value,
-                                lowered_value,
-                                &format!("{path}[1][{k}][1]"),
-                                trace,
-                                out,
-                            );
+                            let at = format!("{path}[1][{k}][1]");
+                            walk(value, lowered_value, &at, trace, out);
+                            if let Some(shape) = kv.get(2).and_then(|a| a.as_str()).and_then(orbital_core_base::ir::types::DeclaredShape::parse) {
+                                out.entry(at).or_insert_with(|| orbital_core_base::signature::describe_type(&shape.ty));
+                            }
                         }
                     }
                 }
@@ -432,6 +430,22 @@ mod tests {
         let narrowed = expression_narrowings(&schema);
         assert!(narrowed.contains(&format!("{AT}.effects[0].then[0][2][1]")), "the when proves the payload field present: {narrowed:?}");
         assert!(!narrowed.contains(&format!("{AT}.effects[1][2][1][1]")), "control: an unguarded optional payload read is not narrowed: {narrowed:?}");
+    }
+
+    #[test]
+    fn an_annotated_let_value_the_inference_leaves_untyped_takes_its_annotation() {
+        let list = serde_json::json!({"version":1,"type":{"kind":"array","inner":{"kind":"number"}}}).to_string();
+        let schema = program(
+            serde_json::Value::Null,
+            serde_json::json!([
+                ["set", "@entity.count", ["let", [["een", [], list]], ["array/len", "@een"]]],
+                ["set", "@entity.count", ["let", [["n", ["array/len", "@entity.tags"], serde_json::json!({"version":1,"type":{"kind":"number"}}).to_string()]], "@n"]]
+            ]),
+        );
+        let types = expression_types(&schema);
+        let at = |rest: &str| types.get(&format!("{AT}{rest}")).map(String::as_str);
+        assert_eq!(at(".effects[0][2][1][0][1]"), Some("[number]"), "the empty list takes its annotation");
+        assert_eq!(at(".effects[1][2][1][0][1]"), Some("int"), "control: an inferred value keeps the inferred type");
     }
 
     #[test]

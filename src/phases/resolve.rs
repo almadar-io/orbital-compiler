@@ -757,8 +757,10 @@ impl<'a> Resolver<'a> {
         oir_field.merged_from = field.merged_from.clone();
         oir_field.declared = serde_json::to_value(field).ok();
 
-        // Add enum values
-        oir_field.enum_values = field.values.clone();
+        // A type union carries its arm names in `values` beside their types; they are not literal values.
+        if !matches!(oir_field.effective_type().0, OirType::Union { .. }) {
+            oir_field.enum_values = field.values.clone();
+        }
 
         // Carry the field's @description into the OIR — codegen turns it
         // into the form input's help text (`hint`), the compiled twin of
@@ -3840,7 +3842,9 @@ mod tests {
                     { "name": "type", "type": "string", "values": ["income", "expense"] },
                     { "name": "status", "type": "enum", "values": ["draft", "posted"] },
                     { "name": "account", "type": "relation", "relation": { "entity": "Account", "cardinality": "one" } },
-                    { "name": "description", "type": "string" }
+                    { "name": "description", "type": "string" },
+                    { "name": "when", "type": "union", "nullable": true, "values": ["date", "datetime"], "properties": {
+                        "date": { "name": "date", "type": "date" }, "datetime": { "name": "datetime", "type": "datetime" } } }
                 ] },
                 "traits": [],
                 "pages": []
@@ -3859,6 +3863,9 @@ mod tests {
         assert_eq!(values("status"), Some(vec!["draft".to_string(), "posted".to_string()]));
         assert_eq!(values("description"), None);
         assert_eq!(values("account"), None);
+        assert_eq!(values("when"), None, "a type union's arm names are not literal values");
+        let when = entity.fields.iter().find(|f| f.name == "when").expect("field");
+        assert!(matches!(when.effective_type().0, OirType::Union { .. }), "{:?}", when.field_type);
     }
 
     fn resolve_json(value: serde_json::Value) -> OirExpr {
