@@ -1105,6 +1105,7 @@ pub fn inline_schema_with_orbital_diagnostics(
                     operator_sites: None,
                     dispatch_facts: None,
                     protocols: None,
+                    server_listens: None,
                 });
             }
         }
