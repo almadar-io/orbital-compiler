@@ -3982,6 +3982,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                 if let Some(incoming) = access_waivers {
                     let waivers = existing_waivers.get_or_insert_with(Default::default);
                     waivers.read = waivers.read.take().or(incoming.read);
+                    waivers.read_server = waivers.read_server.take().or(incoming.read_server);
                     waivers.create = waivers.create.take().or(incoming.create);
                     waivers.update = waivers.update.take().or(incoming.update);
                     waivers.delete = waivers.delete.take().or(incoming.delete);
