@@ -126,6 +126,7 @@ pub(crate) fn fold_declared_config_override(
                 let mut field = field.clone();
                 if let Some(over) = overrides.and_then(|o| o.get(k)) {
                     field.default = over.default.clone();
+                    field.ref_id = over.ref_id.clone();
                 }
                 (k.clone(), field)
             })
@@ -3088,6 +3089,31 @@ mod tests {
     use super::*;
     use orbital_core_base::schema::{OrbitalSchema, UseDeclaration};
     use serde_json::json;
+
+    /// G-ORB-622: the orbital-level fold replaces a declared knob's default with the call-site value; the `refId`
+    /// follows the value. Control: a knob the call site does not name keeps its default and id.
+    #[test]
+    fn a_folded_entity_knob_takes_the_call_sites_ref_id() {
+        let knob = |default: &str, ref_id: Option<&str>| -> ConfigField {
+            let mut field: ConfigField =
+                serde_json::from_value(json!({ "type": "entity", "default": default })).expect("config field deserializes");
+            field.ref_id = ref_id.map(str::to_string);
+            field
+        };
+        let declared = orbital_core_base::collections::IndexMap::from([
+            ("who".to_string(), knob("AtomRow", Some("ent_atom"))),
+            ("kept".to_string(), knob("AtomRow", Some("ent_atom"))),
+        ]);
+        let named = orbital_core_base::collections::IndexMap::from([("who".to_string(), knob("AppRow", Some("ent_app")))]);
+        let folded = fold_declared_config_override(Some(&declared), Some(&named)).expect("declared folds");
+        assert_eq!(folded["who"].default, Some(SExpression::string("AppRow")));
+        assert_eq!(folded["who"].ref_id.as_deref(), Some("ent_app"));
+        assert_eq!(folded["kept"].ref_id.as_deref(), Some("ent_atom"), "control: untouched knob");
+
+        let unstamped = orbital_core_base::collections::IndexMap::from([("who".to_string(), knob("AppRow", None))]);
+        let folded = fold_declared_config_override(Some(&declared), Some(&unstamped)).expect("declared folds");
+        assert_eq!(folded["who"].ref_id, None, "an unstamped call-site value drops the atom's id");
+    }
 
     /// Upstream orbital fixture: `A` embeds `@trait.B` and listens on it via
     /// `ListenSource::Trait`; `B` and `C` are plain siblings. No config, no

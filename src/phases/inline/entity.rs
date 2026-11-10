@@ -172,37 +172,22 @@ pub(crate) fn merge_into_named_entity(
     required_data: &HashSet<String>,
     referenced_fields: &HashSet<String>,
 ) -> bool {
+    // Every copy of the target is the same entity (orbitals that each pull it hold a copy), so the merge lands
+    // on all of them: a copy left without the merged fields would disagree with the one its trait reads.
+    let mut landed = false;
     for orbital in orbitals.iter_mut() {
-        if let EntityRef::Inline(entity) = &mut orbital.entity {
-            if entity.name == target {
-                merge_imported_entity_fields(
-                    entity,
-                    imported,
-                    intrinsic_only,
-                    required_data,
-                    referenced_fields,
-                );
-                return true;
-            }
-        }
-        if let Some(aux_list) = orbital.auxiliary_entities.as_mut() {
-            for aux in aux_list.iter_mut() {
-                if let EntityRef::Inline(entity) = aux {
-                    if entity.name == target {
-                        merge_imported_entity_fields(
-                            entity,
-                            imported,
-                            intrinsic_only,
-                            required_data,
-                            referenced_fields,
-                        );
-                        return true;
-                    }
+        let primary = std::iter::once(&mut orbital.entity);
+        let auxiliaries = orbital.auxiliary_entities.iter_mut().flatten();
+        for entity_ref in primary.chain(auxiliaries) {
+            if let EntityRef::Inline(entity) = entity_ref {
+                if entity.name == target {
+                    merge_imported_entity_fields(entity, imported, intrinsic_only, required_data, referenced_fields);
+                    landed = true;
                 }
             }
         }
     }
-    false
+    landed
 }
 
 /// A target only an `expects entity` names has no entity to land on: the composed atom's `@intrinsic` machinery

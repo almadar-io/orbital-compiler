@@ -729,7 +729,7 @@ mod valid_field_types_tests {
 
     #[test]
     fn the_behavior_value_types_are_valid_field_types() {
-        for ty in [FieldType::Trait, FieldType::Orbital, FieldType::Behavior, FieldType::CallKey, FieldType::Int] {
+        for ty in [FieldType::Trait, FieldType::Orbital, FieldType::Behavior, FieldType::CallKey, FieldType::Int, FieldType::Tuple] {
             let name = serde_json::to_value(&ty).expect("serializes");
             let name = name.as_str().expect("a string tag");
             assert!(
@@ -745,6 +745,5 @@ mod valid_field_types_tests {
         for name in ["i64", "f64"] {
             assert!(VALID_FIELD_TYPES.contains(&name), "{name} missing");
         }
-        assert!(!VALID_FIELD_TYPES.contains(&"tuple"));
     }
 }

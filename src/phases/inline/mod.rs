@@ -1026,6 +1026,7 @@ pub fn inline_schema_with_orbital_diagnostics(
     // target still unresolved after this is left unmerged; there is no
     // further fallback, and `ORB_T_REBIND_TARGET_UNRESOLVED` reports it.
     let shadow_dropped = settle_shadowed_auxiliaries(&mut schema.orbitals, &deferred_merges);
+    rewrite::resolve_schema_type_param_sentinels(&mut schema.orbitals);
     if let Some(ledger) = schema.ledger.as_mut() {
         for id in shadow_dropped.keys() {
             ledger.entries.remove(id);
@@ -2590,7 +2591,7 @@ fn inline_orbital(
                 // orbital's entity, may still resolve it once every orbital
                 // has inlined.
                 Some(target) => {
-                    let resolved = merge_into_named_entity(
+                    merge_into_named_entity(
                         std::slice::from_mut(orbital),
                         &target,
                         &pm.imported,
@@ -2598,15 +2599,15 @@ fn inline_orbital(
                         &pm.required_data,
                         &pm.referenced_fields,
                     );
-                    if !resolved {
-                        deferred_merges.push(DeferredMerge {
-                            target,
-                            imported: pm.imported,
-                            intrinsic_only: pm.intrinsic_only,
-                            required_data: pm.required_data,
-                            referenced_fields: pm.referenced_fields,
-                        });
-                    }
+                    // Deferred even when it landed here: the schema-wide pass carries it onto every other
+                    // orbital's copy of the same entity (G-CROSS-576).
+                    deferred_merges.push(DeferredMerge {
+                        target,
+                        imported: pm.imported,
+                        intrinsic_only: pm.intrinsic_only,
+                        required_data: pm.required_data,
+                        referenced_fields: pm.referenced_fields,
+                    });
                 }
             }
         }

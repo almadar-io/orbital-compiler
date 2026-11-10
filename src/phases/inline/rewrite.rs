@@ -3452,6 +3452,41 @@ pub(crate) fn resolve_orbital_type_param_sentinels(orbital: &mut Orbital) {
     }
 }
 
+/// The schema-wide follow-up to [`resolve_orbital_type_param_sentinels`]: a trait bound to an entity its own
+/// orbital does not carry (another orbital's primary, or a copy only another orbital pulled) found no entity in
+/// the per-orbital pass, so its `@entity` payloads were left as the atom wrote them. Once every orbital has
+/// inlined, those traits resolve against every orbital's entities (G-CROSS-575).
+pub(crate) fn resolve_schema_type_param_sentinels(orbitals: &mut [Orbital]) {
+    let mut all: HashMap<String, EntityDefinition> = HashMap::new();
+    for orbital in orbitals.iter() {
+        for e in std::iter::once(&orbital.entity).chain(orbital.auxiliary_entities.iter().flatten()) {
+            if let EntityRef::Inline(def) = e {
+                all.entry(def.name.clone()).or_insert_with(|| def.clone());
+            }
+        }
+    }
+    for orbital in orbitals.iter_mut() {
+        let own: HashSet<String> = std::iter::once(&orbital.entity)
+            .chain(orbital.auxiliary_entities.iter().flatten())
+            .filter_map(|e| match e {
+                EntityRef::Inline(def) => Some(def.name.clone()),
+                _ => None,
+            })
+            .collect();
+        let types_by_name: BTreeMap<String, Vec<PayloadField>> = orbital.types.clone().unwrap_or_default();
+        for tr in orbital.traits.iter_mut() {
+            if let TraitReference::Inline(trait_def) = tr {
+                let Some(name) = trait_def.linked_entity.clone() else { continue };
+                if own.contains(&name) {
+                    continue;
+                }
+                let Some(entity_def) = all.get(&name) else { continue };
+                resolve_type_param_sentinels(Arc::make_mut(trait_def), Some(entity_def), &all, &types_by_name);
+            }
+        }
+    }
+}
+
 /// One `events { FROM: TO }` rename resolved to the declaring event's stable id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EventIdRename {

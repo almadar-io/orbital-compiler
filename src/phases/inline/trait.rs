@@ -494,6 +494,7 @@ pub(crate) fn apply_overrides_to_trait(
                         ));
                         field.forwarded_from = cf.forwarded_from.clone();
                         field.nested_forwarded_from = cf.nested_forwarded_from.clone();
+                        field.ref_id = cf.ref_id.clone();
                     }
                     if cf.label.is_some() {
                         field.label = cf.label.clone();
@@ -4120,6 +4121,58 @@ mod unbound_trait_knob_override_tests {
                 .collect(),
         );
         td
+    }
+
+    fn entity_knob(default: &str, ref_id: Option<&str>) -> ConfigField {
+        let mut field = config_field("entity", serde_json::json!(default));
+        field.ref_id = ref_id.map(str::to_string);
+        field
+    }
+
+    fn override_entity_knob(over: ConfigField) -> ConfigField {
+        let mut td = trait_with_config(
+            "Binder",
+            orbital_core_base::collections::IndexMap::from([("who".to_string(), entity_knob("AtomRow", Some("ent_atom")))]),
+        );
+        let config = orbital_core_base::collections::IndexMap::from([("who".to_string(), over)]);
+        let mut recorder = Vec::new();
+        apply_overrides_to_trait(
+            &mut td,
+            None,
+            &orbital_core_base::collections::IndexMap::new(),
+            Some(&config),
+            None,
+            None,
+            None,
+            false,
+            &mut recorder,
+            None,
+        )
+        .expect("overrides apply");
+        td.config.expect("config kept").swap_remove("who").expect("knob kept")
+    }
+
+    /// G-ORB-622: a call-site value for an `entity`-typed knob replaces the default; the knob's `refId` follows the
+    /// value, so the atom's own default entity (no node of the composed program) is never left behind as a dangling id.
+    #[test]
+    fn a_call_site_entity_value_does_not_keep_the_atoms_ref_id() {
+        let forwarded = override_entity_knob(config_field("unknown", serde_json::json!("@config.who")));
+        assert_eq!(forwarded.default, Some(SExpression::string("@config.who")));
+        assert_eq!(forwarded.ref_id, None, "a forward names no entity: the atom's id is dropped");
+
+        let named = override_entity_knob(entity_knob("AppRow", Some("ent_app")));
+        assert_eq!(named.default, Some(SExpression::string("AppRow")));
+        assert_eq!(named.ref_id.as_deref(), Some("ent_app"), "the id is the call-site entity's");
+    }
+
+    /// Control: a call site that gives the knob no value keeps the atom's default and its id.
+    #[test]
+    fn control_a_call_site_without_a_value_keeps_the_atoms_default_and_ref_id() {
+        let mut silent = config_field("unknown", serde_json::Value::Null);
+        silent.default = None;
+        let kept = override_entity_knob(silent);
+        assert_eq!(kept.default, Some(SExpression::string("AtomRow")));
+        assert_eq!(kept.ref_id.as_deref(), Some("ent_atom"));
     }
 
     /// An atom persisting to an `entity`-typed knob (`persist create @config.e`) keeps the knob DEFAULT's entity in its

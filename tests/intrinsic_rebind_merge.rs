@@ -265,3 +265,72 @@ fn control_intrinsic_field_carried_onto_a_same_named_primary_and_never_onto_anot
     assert!(entity_field_names(&schema, "WidgetView").contains(&"viewState".to_string()));
     assert_eq!(entity_field_names(&schema, "Session"), vec!["id".to_string()]);
 }
+
+// G-CROSS-576: an entity two orbitals both carry (each pulls the same atom's record) is ONE entity; a trait
+// rebound onto it in the second orbital must find its intrinsic machinery on the copy that orbital holds,
+// not only on the first orbital's.
+fn two_orbitals_sharing_record(rebind_in: usize) -> String {
+    let record = serde_json::json!({
+        "name": "Record", "persistence": "persistent",
+        "fields": [ { "name": "id", "type": "string", "required": true }, { "name": "payload", "type": "string" } ]
+    });
+    let orbital = |i: usize| {
+        let own = serde_json::json!({
+            "name": format!("Own{i}"), "persistence": "runtime",
+            "fields": [ { "name": "id", "type": "string", "required": true } ]
+        });
+        let traits = if i == rebind_in {
+            serde_json::json!([ { "ref": "Base.traits.WidgetReview", "name": "RecordReview", "linkedEntity": "Record" } ])
+        } else {
+            serde_json::json!([])
+        };
+        serde_json::json!({
+            "name": format!("Orbital{i}"),
+            "uses": [ { "from": "./base.orb", "as": "Base" } ],
+            "entity": own,
+            "auxiliaryEntities": [ record.clone() ],
+            "traits": traits
+        })
+    };
+    serde_json::json!({ "name": "test-shared-record", "version": "1.0.0", "orbitals": [ orbital(0), orbital(1) ] }).to_string()
+}
+
+fn record_copies(schema: &OrbitalSchema) -> Vec<(String, Vec<String>)> {
+    schema
+        .orbitals
+        .iter()
+        .flat_map(|o| {
+            std::iter::once(&o.entity).chain(o.auxiliary_entities.iter().flatten()).filter_map(move |e| match e {
+                EntityRef::Inline(def) if def.name == "Record" => {
+                    Some((o.name.clone(), def.fields.iter().filter_map(|f| f.name.clone()).collect()))
+                }
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn intrinsic_lands_on_the_copy_the_rebinding_orbital_holds_when_two_orbitals_carry_the_entity() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_chain(dir.path());
+    let path = dir.path().join("consumer.orb");
+    std::fs::write(&path, two_orbitals_sharing_record(1)).expect("write consumer");
+    let copies = record_copies(&inline(&path));
+    assert!(!copies.is_empty(), "Record is declared");
+    for (orbital, fields) in &copies {
+        assert!(fields.contains(&"viewState".to_string()), "{orbital}'s Record lacks the intrinsic: {copies:?}");
+    }
+}
+
+#[test]
+fn control_intrinsic_lands_when_the_rebinding_orbital_is_the_first_to_carry_the_entity() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_chain(dir.path());
+    let path = dir.path().join("consumer.orb");
+    std::fs::write(&path, two_orbitals_sharing_record(0)).expect("write consumer");
+    let copies = record_copies(&inline(&path));
+    for (orbital, fields) in &copies {
+        assert!(fields.contains(&"viewState".to_string()), "{orbital}'s Record lacks the intrinsic: {copies:?}");
+    }
+}

@@ -128,3 +128,95 @@ fn linked_entity_rebind_carries_the_payload_entity_marker() {
          not stay the atom's original entity: {row_field:?}"
     );
 }
+
+// G-CROSS-575: an `Event @entity` payload on a trait rebound onto an entity ANOTHER orbital owns is the row of
+// that entity, exactly as when the entity is the trait's own orbital's.
+const ROW_EVENT_ATOM: &str = r#"{
+  "name": "test-row-event-atom",
+  "version": "1.0.0",
+  "orbitals": [
+    {
+      "name": "BoardOrbital",
+      "entity": {
+        "name": "BoardItem",
+        "persistence": "runtime",
+        "fields": [ { "name": "id", "type": "string", "required": true }, { "name": "label", "type": "string" } ]
+      },
+      "traits": [
+        {
+          "name": "ItemBoard",
+          "linkedEntity": "BoardItem",
+          "entityRebindable": true,
+          "stateMachine": {
+            "states": [ { "name": "idle", "isInitial": true } ],
+            "events": [
+              { "key": "SAVED", "payloadEntity": "@entity", "payloadSchema": [ { "name": "value", "type": "@entity" } ] }
+            ],
+            "transitions": [ { "from": "idle", "to": "idle", "event": "SAVED", "effects": [] } ]
+          }
+        }
+      ]
+    }
+  ]
+}"#;
+
+fn row_event_consumer(bound_in_own_orbital: bool) -> String {
+    let task = serde_json::json!({
+        "name": "Task", "persistence": "persistent",
+        "fields": [ { "name": "id", "type": "string", "required": true }, { "name": "title", "type": "string" } ]
+    });
+    let screen = serde_json::json!({
+        "name": "Screen", "persistence": "runtime",
+        "fields": [ { "name": "id", "type": "string", "required": true } ]
+    });
+    let board = serde_json::json!([ { "ref": "Board.traits.ItemBoard", "name": "TaskBoard", "linkedEntity": "Task" } ]);
+    let uses = serde_json::json!([ { "from": "./board.orb", "as": "Board" } ]);
+    let orbitals = if bound_in_own_orbital {
+        serde_json::json!([ { "name": "TaskOrbital", "uses": uses, "entity": task, "traits": board } ])
+    } else {
+        serde_json::json!([
+            { "name": "ProjectOrbital", "uses": uses, "entity": screen, "traits": board },
+            { "name": "TaskOrbital", "entity": task, "traits": [] }
+        ])
+    };
+    serde_json::json!({ "name": "test-row-event-consumer", "version": "1.0.0", "orbitals": orbitals }).to_string()
+}
+
+fn saved_payload_names(bound_in_own_orbital: bool) -> Vec<String> {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    std::fs::write(dir.path().join("board.orb"), ROW_EVENT_ATOM).expect("write atom");
+    let consumer_path = dir.path().join("consumer.orb");
+    std::fs::write(&consumer_path, row_event_consumer(bound_in_own_orbital)).expect("write consumer");
+    let mut schema = parse_file(&consumer_path).expect("consumer parses");
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&consumer_path)).expect("inline succeeds");
+    let board = schema.orbitals[0]
+        .traits
+        .iter()
+        .find_map(|t| match t {
+            TraitReference::Inline(td) if td.name == "TaskBoard" => Some(td),
+            _ => None,
+        })
+        .expect("TaskBoard inlined");
+    let saved = board
+        .state_machine
+        .events
+        .as_ref()
+        .expect("events carried")
+        .iter()
+        .find(|e| e.key == "SAVED")
+        .expect("SAVED carried");
+    saved.payload_schema.as_ref().expect("payload").iter().map(|f| f.name.clone()).collect()
+}
+
+#[test]
+fn a_row_event_on_a_trait_bound_to_another_orbitals_entity_carries_that_entitys_row() {
+    let names = saved_payload_names(false);
+    assert!(names.contains(&"title".to_string()), "SAVED must carry Task's row: {names:?}");
+    assert!(!names.contains(&"value".to_string()), "the atom's placeholder field must not survive: {names:?}");
+}
+
+#[test]
+fn control_a_row_event_on_a_trait_bound_to_its_own_orbitals_entity_carries_that_entitys_row() {
+    let names = saved_payload_names(true);
+    assert!(names.contains(&"title".to_string()), "SAVED must carry Task's row: {names:?}");
+}
