@@ -19,9 +19,9 @@ pub mod services;
 
 pub use action_affinity::{
     get_invalid_actions_for_component, get_valid_actions_for_component,
-    is_action_invalid_for_component, is_form_action, is_form_pattern, is_interactive_pattern,
-    is_list_action, is_list_pattern, ACTION_AFFINITY, FORM_ACTIONS, FORM_PATTERNS,
-    INTERACTIVE_PATTERNS, LIST_ACTIONS, LIST_PATTERNS,
+    is_action_invalid_for_component, is_form_action, is_form_pattern,
+    is_list_action, ACTION_AFFINITY, FORM_ACTIONS, FORM_PATTERNS,
+    LIST_ACTIONS,
 };
 pub use content::{is_content_body_pattern, is_content_body_pattern_type, is_main_slot_render_ui};
 pub use icons::{

@@ -263,20 +263,12 @@ pub static ACTION_AFFINITY: LazyLock<HashMap<&'static str, ActionAffinity>> = La
     map
 });
 
-/// Interactive patterns that typically need itemActions. Empty since the
-/// entity-* patterns retired: gating data-list/data-grid/table-view is an
-/// owner decision (a read-only list is legitimate) — see G-ORB-053.
-pub static INTERACTIVE_PATTERNS: LazyLock<HashSet<&'static str>> = LazyLock::new(HashSet::new);
-
 /// Form-related patterns
 pub static FORM_PATTERNS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     ["form", "form-section", "form-actions"]
         .into_iter()
         .collect()
 });
-
-/// List/table patterns. Empty for the same reason as INTERACTIVE_PATTERNS (G-ORB-053).
-pub static LIST_PATTERNS: LazyLock<HashSet<&'static str>> = LazyLock::new(HashSet::new);
 
 /// Form-related actions
 pub static FORM_ACTIONS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
@@ -326,19 +318,9 @@ pub fn get_invalid_actions_for_component(component: &str) -> Vec<&'static str> {
     }
 }
 
-/// Check if a pattern is interactive (typically needs itemActions)
-pub fn is_interactive_pattern(pattern_type: &str) -> bool {
-    INTERACTIVE_PATTERNS.contains(pattern_type)
-}
-
 /// Check if a pattern is form-related
 pub fn is_form_pattern(pattern_type: &str) -> bool {
     FORM_PATTERNS.contains(pattern_type)
-}
-
-/// Check if a pattern is list-related
-pub fn is_list_pattern(pattern_type: &str) -> bool {
-    LIST_PATTERNS.contains(pattern_type)
 }
 
 /// Check if an action is form-related
@@ -368,13 +350,6 @@ mod tests {
         assert!(actions.contains(&"VIEW"));
         assert!(actions.contains(&"EDIT"));
         assert!(actions.contains(&"DELETE"));
-    }
-
-    #[test]
-    fn test_interactive_patterns() {
-        assert!(!is_interactive_pattern("table-view"));
-        assert!(!is_interactive_pattern("data-list"));
-        assert!(!is_interactive_pattern("form"));
     }
 
     #[test]

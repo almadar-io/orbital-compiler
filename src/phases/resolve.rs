@@ -385,31 +385,7 @@ impl<'a> Resolver<'a> {
         // ALL orbitals, deduped by path. Only a page that declares its nav
         // entry (`@label`) is listed, in declaration order, with its `@icon`
         // and `@roles` when present.
-        let page_entries: Vec<NavEntry> = {
-            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-            let mut entries = Vec::new();
-            for o in &self.schema.orbitals {
-                if let Some(ps) = o.pages.as_ref() {
-                    for pr in ps {
-                        if let Some(p) = self.get_page_from_ref(pr) {
-                            let Some(label) = p.label.clone() else {
-                                continue;
-                            };
-                            if p.path.contains(':') || !seen.insert(p.path.clone()) {
-                                continue;
-                            }
-                            entries.push(NavEntry {
-                                href: p.path.clone(),
-                                label,
-                                icon: p.icon.clone(),
-                                roles: p.roles.clone(),
-                            });
-                        }
-                    }
-                }
-            }
-            entries
-        };
+        let page_entries = orbital_core_base::schema::types::nav_entries(self.schema.orbitals.iter().flat_map(|o| o.pages.iter().flatten()));
         for oir_trait in &mut module.traits {
             let theme_key = resolve_theme_key(
                 self.schema
@@ -448,13 +424,7 @@ impl<'a> Resolver<'a> {
 /// this default): core's default, the preset a program without themes paints.
 use orbital_core_base::theme::DEFAULT_THEME_KEY;
 
-/// One `@pages` nav entry: a root page that declares `@label`.
-struct NavEntry {
-    href: String,
-    label: String,
-    icon: Option<String>,
-    roles: Option<Vec<String>>,
-}
+use orbital_core_base::schema::types::NavEntry;
 
 /// Derive the `data-theme` selector-key string from an orbital's `Orbital.theme`.
 /// `Reference(name)` → the name; `Inline(ThemeDefinition { name, .. })` → the
