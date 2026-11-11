@@ -1151,9 +1151,43 @@ fn nested_field_refs<'a>(
     }
 }
 
-/// `<relation>.<field>` on the entity `record`: the type of `<field>` on the entity the relation targets (a row
-/// fetched with that relation included carries it), or the target's name, the unknown tail and the target's fields.
-/// `None` when `record` is no entity of the program, `name` is not one dotted step, or its head is no relation field.
+/// Whether a `fetch` of `entity` in `trait_def` includes `relation`: its `include` option lists it, as a literal or
+/// through the `@config.<knob>` the option reads (the knob's default).
+fn fetch_includes(trait_def: &TraitDefinition, entity: &str, relation: &str) -> bool {
+    fn lists(value: &SExpression, trait_def: &TraitDefinition, relation: &str) -> bool {
+        match value {
+            SExpression::Array(items) => items.iter().any(|item| item.as_str() == Some(relation)),
+            SExpression::String(token) => token
+                .strip_prefix("@config.")
+                .and_then(|knob| trait_def.config.as_ref()?.get(knob)?.default.as_ref())
+                .is_some_and(|default| matches!(default, SExpression::Array(_)) && lists(default, trait_def, relation)),
+            _ => false,
+        }
+    }
+    fn walk(node: &SExpression, trait_def: &TraitDefinition, entity: &str, relation: &str) -> bool {
+        let SExpression::Array(items) = node else {
+            return false;
+        };
+        let fetches = items.first().and_then(SExpression::as_str) == Some("fetch")
+            && items.get(1).and_then(SExpression::as_str) == Some(entity);
+        if fetches
+            && items[2..].iter().filter_map(SExpression::as_object).any(|options| {
+                options.get("include").is_some_and(|include| lists(include, trait_def, relation))
+            })
+        {
+            return true;
+        }
+        items.iter().any(|item| walk(item, trait_def, entity, relation))
+    }
+    let transitions = trait_def.state_machine.transitions.iter().filter_map(|t| t.effects.as_ref()).flatten();
+    let ticks = trait_def.ticks.iter().flatten().flat_map(|tick| tick.effects.iter());
+    transitions.chain(ticks).any(|effect| walk(effect, trait_def, entity, relation))
+}
+
+/// `<relation>.<field>` on the entity `record`, when the trait fetches `record` with that relation included (the row
+/// then carries it): the type of `<field>` on the entity the relation targets, or the target's name, the unknown tail
+/// and the target's fields. `None` when `record` is no entity of the program, `name` is not one dotted step, its head
+/// is no relation field, or no fetch of the trait includes it.
 #[allow(clippy::type_complexity)]
 fn related_entity_field(
     record: &str,
@@ -1161,6 +1195,9 @@ fn related_entity_field(
     bctx: &ReferenceBindingCtx,
 ) -> Option<Result<OrbitalOirType, (String, String, Vec<String>)>> {
     let (head, tail) = name.split_once('.')?;
+    if !fetch_includes(bctx.trait_def, record, head) {
+        return None;
+    }
     let entity = bctx.entity_definitions.get(record)?;
     let relation = entity
         .fields
@@ -2902,6 +2939,10 @@ mod reference_binding_type_tests {
 
     /// [`field_knob_schema`] with `Contact.tag`, a relation to a `Tag { name, weight }` entity of a second orbital.
     fn relation_knob_schema(names: &str) -> String {
+        relation_knob_schema_fetching(names, r#"["fetch", "Contact", { "include": ["tag"] }]"#)
+    }
+
+    fn relation_knob_schema_fetching(names: &str, fetch: &str) -> String {
         let config = format!(
             r#""columns": {{ "type": "[field]", "items": {{ "type": "field", "record": "@entity", "items": {{ "type": "string" }} }}, "default": [{names}] }}"#
         );
@@ -2911,6 +2952,12 @@ mod reference_binding_type_tests {
             r#"{ "name": "name", "type": "string" }, { "name": "tag", "type": "relation", "relation": { "entity": "Tag", "cardinality": "one" } },"#,
         );
         assert_ne!(with_relation, schema);
+        let fetching = with_relation.replace(
+            r#""event": "INIT", "effects": []"#,
+            &format!(r#""event": "INIT", "effects": [{fetch}]"#),
+        );
+        assert_ne!(fetching, with_relation);
+        let with_relation = fetching;
         let tags = r#"{ "name": "Tags", "entity": { "name": "Tag", "fields": [{ "name": "name", "type": "string" }, { "name": "weight", "type": "number" }, { "name": "owner", "type": "relation", "relation": { "entity": "Contact", "cardinality": "one" } }] }, "traits": [] }"#;
         let end = with_relation.rfind("]\n    }").expect("the orbitals list ends the schema");
         format!("{}, {tags}{}", &with_relation[..end], &with_relation[end..])
@@ -2933,6 +2980,19 @@ mod reference_binding_type_tests {
 
         let two_steps = run(&relation_knob_schema(r#""tag.owner.name""#));
         assert_eq!(field_ref_errors(&two_steps, ErrorCode::ConfigFieldRefUnknown).len(), 1, "edge: one step only: {:?}", two_steps.errors);
+
+        let not_included = run(&relation_knob_schema_fetching(r#""tag.name""#, r#"["fetch", "Contact", { "limit": 10 }]"#));
+        let unknown = field_ref_errors(&not_included, ErrorCode::ConfigFieldRefUnknown);
+        assert_eq!(unknown.len(), 1, "a relation no fetch of the trait includes is not on the row: {:?}", not_included.errors);
+        assert!(unknown[0].message.contains("which is not a field of Contact"), "{}", unknown[0].message);
+
+        let through_a_knob = run(&relation_knob_schema_fetching(r#""tag.name""#, r#"["fetch", "Contact", { "include": "@config.columns" }]"#));
+        assert_eq!(
+            field_ref_errors(&through_a_knob, ErrorCode::ConfigFieldRefUnknown).len(),
+            1,
+            "edge: the knob the include reads does not list the relation: {:?}",
+            through_a_knob.errors
+        );
 
         let wrong_kind = run(&relation_knob_schema(r#""tag.weight""#));
         assert_eq!(
