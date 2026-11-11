@@ -339,10 +339,18 @@ fn the_split_schema_keeps_the_importers_egress() {
 fn the_split_schema_keeps_the_importers_declared_themes() {
     let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
     let mut schema = parse_file(&s.path).unwrap();
-    schema.themes = Some(vec!["prism-dark".into(), "scandi-light".into()]);
+    schema.themes = Some(
+        serde_json::from_value(serde_json::json!([
+            "prism-dark",
+            "scandi-light",
+            { "name": "brand-serif", "tokens": { "colors": { "primary": "#111111" } } }
+        ]))
+        .unwrap(),
+    );
     let artifacts = orbital_compiler::phases::lazy::split_lazy(&mut schema);
     assert_eq!(
-        artifacts[0].schema.themes, schema.themes,
+        serde_json::to_value(&artifacts[0].schema.themes).unwrap(),
+        serde_json::to_value(&schema.themes).unwrap(),
         "a lazy page runs inside the importer, which ships a stylesheet for every theme it declares"
     );
 }
@@ -353,7 +361,7 @@ fn control_an_importer_without_themes_splits_without_them() {
     let mut schema = parse_file(&s.path).unwrap();
     schema.themes = None;
     let artifacts = orbital_compiler::phases::lazy::split_lazy(&mut schema);
-    assert_eq!(artifacts[0].schema.themes, None);
+    assert!(artifacts[0].schema.themes.is_none());
 }
 
 #[test]

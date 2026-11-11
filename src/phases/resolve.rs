@@ -329,13 +329,19 @@ impl<'a> Resolver<'a> {
                 }
             }
         }
-        // The themes it switches to inside a page: their CSS ships too, but none is the default.
-        for key in self.schema.themes.iter().flatten() {
-            let base = key
-                .strip_suffix("-dark")
-                .or_else(|| key.strip_suffix("-light"))
-                .unwrap_or(key);
-            if let Some(theme) = presets.get(base) {
+        // The themes it switches to: their CSS ships too, but none is the default.
+        for theme_ref in self.schema.themes.iter().flatten() {
+            let definition = match theme_ref {
+                ThemeRef::Inline(theme) => Some(theme),
+                ThemeRef::Reference(key) => {
+                    let base = key
+                        .strip_suffix("-dark")
+                        .or_else(|| key.strip_suffix("-light"))
+                        .unwrap_or(key);
+                    presets.get(base)
+                }
+            };
+            if let Some(theme) = definition {
                 if seen_themes.insert(theme.name.clone()) {
                     module.themes.push(theme.clone());
                 }

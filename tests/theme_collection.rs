@@ -79,6 +79,29 @@ fn control_a_switched_to_theme_alone_is_collected_but_never_the_default() {
 }
 
 #[test]
+fn a_theme_the_program_defines_in_its_themes_list_is_collected_in_list_order() {
+    let mut s = fixture();
+    s["theme"] = json!("terminal-light");
+    s["themes"] = json!([
+        "clay-dark",
+        { "name": "brand-serif", "tokens": { "colors": { "primary": "#111111" } } },
+        "gazette-light"
+    ]);
+    let m = compile(s);
+    assert_eq!(names(&m), vec!["terminal", "clay", "brand-serif", "gazette"]);
+    assert_eq!(m.default_theme.as_deref(), Some("terminal-light"));
+}
+
+#[test]
+fn control_a_theme_defined_in_the_list_alone_is_collected_but_never_the_default() {
+    let mut s = fixture();
+    s["themes"] = json!([{ "name": "brand-serif", "tokens": { "colors": { "primary": "#111111" } } }]);
+    let m = compile(s);
+    assert_eq!(names(&m), vec!["brand-serif"]);
+    assert_eq!(m.default_theme, None);
+}
+
+#[test]
 fn control_no_theme_declared_collects_nothing() {
     let m = compile(fixture());
     assert!(m.themes.is_empty());
