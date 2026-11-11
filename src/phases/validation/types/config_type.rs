@@ -1151,6 +1151,35 @@ fn nested_field_refs<'a>(
     }
 }
 
+/// `<relation>.<field>` on the entity `record`: the type of `<field>` on the entity the relation targets (a row
+/// fetched with that relation included carries it), or the target's name, the unknown tail and the target's fields.
+/// `None` when `record` is no entity of the program, `name` is not one dotted step, or its head is no relation field.
+#[allow(clippy::type_complexity)]
+fn related_entity_field(
+    record: &str,
+    name: &str,
+    bctx: &ReferenceBindingCtx,
+) -> Option<Result<OrbitalOirType, (String, String, Vec<String>)>> {
+    let (head, tail) = name.split_once('.')?;
+    let entity = bctx.entity_definitions.get(record)?;
+    let relation = entity
+        .fields
+        .iter()
+        .find(|f| f.merged_from.is_none() && f.name.as_deref() == Some(head))?
+        .relation
+        .as_ref()?;
+    let target = bctx.entity_definitions.get(relation.entity.as_str())?;
+    let declared = || target.fields.iter().filter(|f| f.merged_from.is_none());
+    Some(match declared().find(|f| f.name.as_deref() == Some(tail)) {
+        Some(field) => Ok(orbital_core_base::ir::types::field_shape(field).unwrap_or_else(|_| OrbitalOirType::erased())),
+        None => {
+            let mut names: Vec<String> = declared().filter_map(|f| f.name.clone()).collect();
+            names.sort();
+            Err((relation.entity.clone(), tail.to_string(), names))
+        }
+    })
+}
+
 fn check_field_ref_names(
     knob: &str,
     named: Vec<(String, &str)>,
@@ -1178,17 +1207,34 @@ fn check_field_ref_names(
         if name.starts_with('@') {
             continue;
         }
-        let Some((_, actual)) = fields.iter().find(|(candidate, _)| candidate == name) else {
-            result.add_error(
-                ValidationError::error(
-                    ErrorCode::ConfigFieldRefUnknown,
-                    &at,
-                    format!("`{knob}` names `{name}`, which is not a field of {label}"),
-                )
-                .with_suggestion(format!("name one of the fields of {label}: {}", valid.join(", ")))
-                .with_valid_values(valid.clone()),
-            );
-            continue;
+        let related = related_entity_field(&label, name, bctx);
+        let actual = match (fields.iter().find(|(candidate, _)| candidate == name), &related) {
+            (Some((_, actual)), _) => actual,
+            (None, Some(Ok(actual))) => actual,
+            (None, Some(Err((target, tail, target_fields)))) => {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::ConfigFieldRefUnknown,
+                        &at,
+                        format!("`{knob}` names `{name}`, and `{tail}` is not a field of {target}"),
+                    )
+                    .with_suggestion(format!("name one of the fields of {target}: {}", target_fields.join(", ")))
+                    .with_valid_values(target_fields.clone()),
+                );
+                continue;
+            }
+            (None, None) => {
+                result.add_error(
+                    ValidationError::error(
+                        ErrorCode::ConfigFieldRefUnknown,
+                        &at,
+                        format!("`{knob}` names `{name}`, which is not a field of {label}"),
+                    )
+                    .with_suggestion(format!("name one of the fields of {label}: {}", valid.join(", ")))
+                    .with_valid_values(valid.clone()),
+                );
+                continue;
+            }
         };
         if let Some(expected) = &expected {
             if !fits(actual) {
@@ -2852,6 +2898,49 @@ mod reference_binding_type_tests {
     fn no_field_ref_errors(result: &ValidationResult) -> bool {
         field_ref_errors(result, ErrorCode::ConfigFieldRefUnknown).is_empty()
             && field_ref_errors(result, ErrorCode::ConfigFieldRefTypeMismatch).is_empty()
+    }
+
+    /// [`field_knob_schema`] with `Contact.tag`, a relation to a `Tag { name, weight }` entity of a second orbital.
+    fn relation_knob_schema(names: &str) -> String {
+        let config = format!(
+            r#""columns": {{ "type": "[field]", "items": {{ "type": "field", "record": "@entity", "items": {{ "type": "string" }} }}, "default": [{names}] }}"#
+        );
+        let schema = field_knob_schema(&config, "");
+        let with_relation = schema.replace(
+            r#"{ "name": "name", "type": "string" },"#,
+            r#"{ "name": "name", "type": "string" }, { "name": "tag", "type": "relation", "relation": { "entity": "Tag", "cardinality": "one" } },"#,
+        );
+        assert_ne!(with_relation, schema);
+        let tags = r#"{ "name": "Tags", "entity": { "name": "Tag", "fields": [{ "name": "name", "type": "string" }, { "name": "weight", "type": "number" }, { "name": "owner", "type": "relation", "relation": { "entity": "Contact", "cardinality": "one" } }] }, "traits": [] }"#;
+        let end = with_relation.rfind("]\n    }").expect("the orbitals list ends the schema");
+        format!("{}, {tags}{}", &with_relation[..end], &with_relation[end..])
+    }
+
+    #[test]
+    fn a_field_knob_may_name_a_field_one_step_through_a_relation() {
+        let ok = run(&relation_knob_schema(r#""name", "tag.name""#));
+        assert!(no_field_ref_errors(&ok), "a field of the related entity: {:?}", ok.errors);
+
+        let wrong_tail = run(&relation_knob_schema(r#""tag.nope""#));
+        let unknown = field_ref_errors(&wrong_tail, ErrorCode::ConfigFieldRefUnknown);
+        assert_eq!(unknown.len(), 1, "{:?}", wrong_tail.errors);
+        assert!(unknown[0].message.contains("`columns` names `tag.nope`, and `nope` is not a field of Tag"), "{}", unknown[0].message);
+
+        let not_a_relation = run(&relation_knob_schema(r#""email.name""#));
+        let unknown = field_ref_errors(&not_a_relation, ErrorCode::ConfigFieldRefUnknown);
+        assert_eq!(unknown.len(), 1, "control: the head is no relation: {:?}", not_a_relation.errors);
+        assert!(unknown[0].message.contains("which is not a field of Contact"), "{}", unknown[0].message);
+
+        let two_steps = run(&relation_knob_schema(r#""tag.owner.name""#));
+        assert_eq!(field_ref_errors(&two_steps, ErrorCode::ConfigFieldRefUnknown).len(), 1, "edge: one step only: {:?}", two_steps.errors);
+
+        let wrong_kind = run(&relation_knob_schema(r#""tag.weight""#));
+        assert_eq!(
+            field_ref_errors(&wrong_kind, ErrorCode::ConfigFieldRefTypeMismatch).len(),
+            1,
+            "edge: the related field is still held to the knob's element type: {:?}",
+            wrong_kind.errors
+        );
     }
 
     #[test]
