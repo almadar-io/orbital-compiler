@@ -201,7 +201,7 @@ fn walk_pattern_props(
         // is the deeper contract.
         if let SExpression::String(event_name) = prop_value {
             if !event_name.starts_with('@') {
-                check_event_binding_payload(pat, prop_name, event_name, bctx, path, diagnostics);
+                check_event_binding_payload(pat, prop_name, event_name, obj, bctx, path, diagnostics);
             }
         }
 
@@ -476,6 +476,7 @@ fn check_event_binding_payload(
     pattern_type: &str,
     prop_name: &str,
     event_name: &str,
+    node: &orbital_core_base::schema::SObject,
     bctx: &BindingContext,
     path: &str,
     diagnostics: &mut Vec<ValidationError>,
@@ -523,6 +524,24 @@ fn check_event_binding_payload(
     };
 
     if is_event_ref {
+        if let Some(carried) = control_carried_fields(pattern, prop_name, prop_meta, node) {
+            for field in declared.iter().filter(|f| f.required == Some(true) && !carried.contains(f.name.as_str())) {
+                diagnostics.push(
+                    ValidationError::error(
+                        ErrorCode::RenderUIEventBindingPayloadMismatch,
+                        path,
+                        format!(
+                            "Prop '{}' on '{}' fires '{}', which requires '{} : {}', but the control never carries '{}': the pattern declares no such payload field and no paired payload prop states it",
+                            prop_name, pattern_type, event_name, field.name, field.field_type, field.name,
+                        ),
+                    )
+                    .with_suggestion(format!(
+                        "State '{}' in the control's paired payload prop, fire the event from a control that carries it, or declare the field optional on '{}'",
+                        field.name, event_name
+                    )),
+                );
+            }
+        }
         // Compare emitPayloadSchema (registry) vs declared payload.
         let Some(emit_schema) = &prop_meta.emit_payload_schema else {
             return; // legacy `event` kind without emitPayloadSchema
@@ -665,6 +684,37 @@ fn check_event_binding_payload(
             }
         }
     }
+}
+
+/// The payload fields a control is declared to carry on the event `prop_name` fires: every member of the pattern's
+/// `emitPayloadSchema` for that prop (required or optional) and the keys of the object literal held by a prop the
+/// pattern pairs to it (`payloadFor`). `None` when the pattern declares neither, or a paired prop holds anything but
+/// an object literal: there is then no declared fact to judge by.
+fn control_carried_fields<'a>(
+    pattern: &'a crate::embedded::EmbeddedPattern,
+    prop_name: &str,
+    prop_meta: &'a EmbeddedPatternProp,
+    node: &'a orbital_core_base::schema::SObject,
+) -> Option<std::collections::HashSet<&'a str>> {
+    let paired: Vec<&str> = pattern
+        .props_schema
+        .iter()
+        .filter(|(_, meta)| meta.payload_for.as_deref() == Some(prop_name))
+        .map(|(name, _)| name.as_str())
+        .collect();
+    if prop_meta.emit_payload_schema.is_none() && paired.is_empty() {
+        return None;
+    }
+    let mut carried: std::collections::HashSet<&str> =
+        prop_meta.emit_payload_schema.iter().flatten().map(|f| f.name.as_str()).collect();
+    for name in paired {
+        match node.get(name) {
+            None => {}
+            Some(SExpression::Object(literal)) => carried.extend(literal.keys().map(|k| k.as_str())),
+            Some(_) => return None,
+        }
+    }
+    Some(carried)
 }
 
 /// Lenient primitive compatibility for event-payload comparisons. Same
@@ -1164,6 +1214,83 @@ fn check_callback_arg_schema(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod control_payload_tests {
+    //! G-ORB-002: a control that never carries a field its event declares required validated clean and the
+    //! handler read nothing (`button action: SEND` with no `actionPayload`, `SEND { value : string! }`).
+    use super::*;
+    use orbital_core_base::schema::TraitDefinition;
+
+    fn trait_with(event: &str, field: &str, required: bool) -> TraitDefinition {
+        serde_json::from_value(serde_json::json!({
+            "name": "Composer",
+            "stateMachine": {
+                "states": [],
+                "events": [{ "key": event, "name": event, "payloadSchema": [{ "name": field, "type": "string", "required": required }] }],
+                "transitions": []
+            }
+        }))
+        .expect("minimal trait")
+    }
+
+    fn never_carried(t: &TraitDefinition, node: serde_json::Value) -> Vec<String> {
+        let entities = HashMap::new();
+        let ctx = BindingContext { trait_def: t, entity_definitions: &entities, event_payload: None, sibling_trait_names: &[] };
+        let node: SExpression = serde_json::from_value(node).expect("pattern");
+        let mut out = Vec::new();
+        walk_pattern_props(&node, &ctx, "test", &mut out);
+        out.into_iter()
+            .filter(|e| e.code == ErrorCode::RenderUIEventBindingPayloadMismatch && e.message.contains("never carries"))
+            .map(|e| e.message)
+            .collect()
+    }
+
+    #[test]
+    fn a_button_that_never_carries_a_required_field_is_refused() {
+        let t = trait_with("SEND", "value", true);
+        let found = never_carried(&t, serde_json::json!({ "type": "button", "label": "Send", "action": "SEND" }));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("'value'") && found[0].contains("SEND"), "{found:?}");
+        let other = never_carried(&t, serde_json::json!({ "type": "button", "label": "Send", "action": "SEND", "actionPayload": { "id": "1" } }));
+        assert_eq!(other.len(), 1, "a payload that states other keys still lacks the field: {other:?}");
+    }
+
+    #[test]
+    fn control_a_button_whose_action_payload_states_the_field_is_fine() {
+        let t = trait_with("SEND", "value", true);
+        assert!(never_carried(&t, serde_json::json!({ "type": "button", "label": "Send", "action": "SEND", "actionPayload": { "value": "hello" } })).is_empty());
+        assert!(
+            never_carried(&t, serde_json::json!({ "type": "button", "label": "Send", "action": "SEND", "actionPayload": { "value": "@entity.text" } })).is_empty(),
+            "a bound value still states the key"
+        );
+    }
+
+    #[test]
+    fn edge_an_optional_field_or_an_undecidable_payload_is_not_judged() {
+        let optional = trait_with("SEND", "value", false);
+        assert!(never_carried(&optional, serde_json::json!({ "type": "button", "label": "Send", "action": "SEND" })).is_empty(), "the event does not require it");
+        let t = trait_with("SEND", "value", true);
+        assert!(
+            never_carried(&t, serde_json::json!({ "type": "button", "label": "Send", "action": "SEND", "actionPayload": "@payload.row" })).is_empty(),
+            "a payload held in a binding has no keys to read here"
+        );
+    }
+
+    #[test]
+    fn the_patterns_own_declared_payload_counts_as_carried() {
+        let value = trait_with("CHANGED", "value", true);
+        assert!(never_carried(&value, serde_json::json!({ "type": "textarea", "onChange": "CHANGED" })).is_empty(), "textarea declares it carries `value`");
+        let x = trait_with("TILE", "x", true);
+        assert!(
+            never_carried(&x, serde_json::json!({ "type": "canvas", "tileClickEvent": "TILE" })).is_empty(),
+            "a field the pattern declares optional is carried; optional-into-required is another rule's"
+        );
+        let term = trait_with("SEARCH", "searchTerm", true);
+        let found = never_carried(&term, serde_json::json!({ "type": "range-slider", "action": "SEARCH" }));
+        assert_eq!(found.len(), 1, "a slider declares only `value`: {found:?}");
     }
 }
 

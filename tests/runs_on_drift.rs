@@ -1,7 +1,7 @@
 // `orbital_core::effects::runs_on` must agree with the baked registry's `runsOn` for every operator; twin of `emit_contract_drift.rs`.
 
 use orbital_compiler::embedded::{operators, EmbeddedOperator};
-use orbital_core_base::runs_on::{entity_arg, runs_on, EFFECT_SITES, ENTITY_ARGS};
+use orbital_core_base::runs_on::{entity_arg, forwarded_to_client, runs_on, EFFECT_SITES, ENTITY_ARGS, FORWARDED_TO_CLIENT};
 use orbital_core_base::os::OsOp;
 use std::collections::HashMap;
 
@@ -28,6 +28,23 @@ fn drift(registry: &HashMap<String, EmbeddedOperator>) -> Vec<String> {
                 op.entity_arg_position,
                 entity_arg(name)
             ));
+        }
+    }
+    for (name, op) in registry {
+        if op.forwarded_to_client != forwarded_to_client(name) {
+            out.push(format!(
+                "{name}: registry forwardedToClient {}, orbital-core {}",
+                op.forwarded_to_client,
+                forwarded_to_client(name)
+            ));
+        }
+        if op.forwarded_to_client && op.runs_on.as_deref() != Some("client") {
+            out.push(format!("{name}: forwardedToClient on an effect that does not run on the client"));
+        }
+    }
+    for name in FORWARDED_TO_CLIENT {
+        if !registry.contains_key(*name) {
+            out.push(format!("{name}: in orbital-core's forwarded table but not in the registry"));
         }
     }
     for (name, _) in ENTITY_ARGS {
@@ -87,6 +104,23 @@ fn an_entity_argument_change_is_reported() {
         vec![
             "call-service: registry entityArgPosition Some(0), orbital-core None".to_string(),
             "persist: registry entityArgPosition Some(2), orbital-core Some(1)".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn a_forwarded_fact_change_is_reported() {
+    let mut registry = operators().clone();
+    registry.get_mut("render-ui").unwrap().forwarded_to_client = false;
+    registry.get_mut("send-server").unwrap().forwarded_to_client = true;
+    registry.get_mut("persist").unwrap().forwarded_to_client = true;
+    assert_eq!(
+        drift(&registry),
+        vec![
+            "persist: forwardedToClient on an effect that does not run on the client".to_string(),
+            "persist: registry forwardedToClient true, orbital-core false".to_string(),
+            "render-ui: registry forwardedToClient false, orbital-core true".to_string(),
+            "send-server: registry forwardedToClient true, orbital-core false".to_string(),
         ]
     );
 }

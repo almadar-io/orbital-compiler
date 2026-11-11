@@ -2978,10 +2978,48 @@ fn merged_messages(programs: &[Value]) -> Result<Option<Value>, String> {
     }))
 }
 
+fn reads_config_knob(node: &Value, knob: &str) -> bool {
+    match node {
+        Value::String(s) => s
+            .strip_prefix(CONFIG_FORWARD_PREFIX)
+            .and_then(|rest| rest.strip_prefix(knob))
+            .is_some_and(|tail| tail.is_empty() || tail.starts_with('.')),
+        Value::Array(a) => a.iter().any(|x| reads_config_knob(x, knob)),
+        Value::Object(o) => o.values().any(|x| reads_config_knob(x, knob)),
+        _ => false,
+    }
+}
+
+/// Whether anything in `owner` outside its own `config` block (and, for an orbital, outside its traits) reads `@config.<knob>`.
+fn body_reads_config_knob(owner: &Value, knob: &str, skip_traits: bool) -> bool {
+    owner
+        .as_object()
+        .into_iter()
+        .flatten()
+        .any(|(key, v)| key != "config" && !(skip_traits && key == "traits") && reads_config_knob(v, knob))
+}
+
+/// An orbital knob is read by its own body, by a trait that declares no knob of that name and reads it, or through a
+/// trait knob that forwards it and that the trait itself still reads.
+fn orbital_knob_is_read(orbital: &Value, knob: &str) -> bool {
+    if body_reads_config_knob(orbital, knob, true) {
+        return true;
+    }
+    let forward = format!("{CONFIG_FORWARD_PREFIX}{knob}");
+    arr_of(orbital, "traits").iter().any(|t| {
+        let config = t.get("config").and_then(Value::as_object);
+        let declares = config.is_some_and(|c| c.get(knob).is_some());
+        (!declares && body_reads_config_knob(t, knob, false))
+            || config.into_iter().flatten().any(|(name, entry)| {
+                config_forward_tokens(entry).iter().any(|token| *token == forward) && body_reads_config_knob(t, name.as_ref(), false)
+            })
+    })
+}
+
 /// The composing caller's explicit overrides: `"<Trait>.<knob>": value` sets that composed trait's knob default (the
 /// value of the knob's own kind), `"<Orbital>.<knob>"` the orbital's own knob, and `grants` (an `osGrants` object) is unioned into the program's grants. Both land in
 /// the program itself, so they are visible in it; a key naming no trait or no knob of it is refused, as is a trait name
-/// more than one orbital uses.
+/// more than one orbital uses, and a knob the resolved program no longer reads (its reads were folded when it resolved).
 pub fn apply_compose_overrides(schema: &mut Value, overrides: &Value) -> Result<(), String> {
     let Some(entries) = overrides.as_object() else {
         return Err("overrides must be an object".to_string());
@@ -3016,6 +3054,21 @@ pub fn apply_compose_overrides(schema: &mut Value, overrides: &Value) -> Result<
         };
         let owner = str_of(&schema["orbitals"][oi], "name").unwrap_or_default().to_string();
         let orbital = &mut schema["orbitals"][oi];
+        let declared = match ti {
+            None => orbital.get("config").and_then(|c| c.get(knob)),
+            Some(ti) => orbital["traits"][ti].get("config").and_then(|c| c.get(knob)),
+        }
+        .is_some_and(Value::is_object);
+        let forwarded = ti.is_some_and(|ti| orbital["traits"][ti]["config"][knob].get("forwardedFrom").is_some());
+        let read = match ti {
+            None => orbital_knob_is_read(orbital, knob),
+            Some(ti) => body_reads_config_knob(&orbital["traits"][ti], knob, false),
+        };
+        if declared && !forwarded && !read {
+            return Err(format!(
+                "override \"{key}\" sets a knob {trait_name} no longer reads: the resolved program holds no @config.{knob} read, so the override would change nothing"
+            ));
+        }
         let field = match ti {
             None => orbital.get_mut("config").and_then(|c| c.get_mut(knob)),
             Some(ti) => orbital["traits"][ti].get_mut("config").and_then(|c| c.get_mut(knob)),
@@ -3415,7 +3468,7 @@ mod tests {
     }
 
     fn knobbed() -> Value {
-        composable("server", "Http", None, None, Some(jv!({ "port": { "type": "number", "default": 3000 } })))
+        composable("server", "Http", None, Some(jv!(["set", "@entity.id", "@config.port"])), Some(jv!({ "port": { "type": "number", "default": 3000 } })))
     }
 
     #[test]
@@ -3455,7 +3508,7 @@ mod tests {
             "traits": [{ "name": "ApiHttp1", "config": {
                 "backlog": { "type": "number", "default": 16 },
                 "port": { "type": "number", "default": 3000, "forwardedFrom": "@config.port" }
-            } }]
+            }, "ticks": [{ "effects": [["set", "@entity.backlog", "@config.backlog"], ["set", "@entity.port", "@config.port"]] }] }]
         }] });
         let mut schema = program();
         apply_compose_overrides(&mut schema, &jv!({ "Api.port": 4100, "ApiHttp1.backlog": 32 })).unwrap();
@@ -3470,6 +3523,39 @@ mod tests {
         assert!(error.contains("names no knob host"), "{error}");
         let error = apply_compose_overrides(&mut program(), &jv!({ "ApiHttp1.port": 4100 })).unwrap_err();
         assert!(error.contains("override \"Api.port\" instead"), "a forwarded trait knob is set through its orbital knob: {error}");
+    }
+
+    #[test]
+    fn an_override_of_a_knob_the_resolved_program_no_longer_reads_is_refused() {
+        let program = |effect: Value| composable("seed", "Seed", None, Some(effect), Some(jv!({ "seedRuntime": { "type": "boolean", "default": false } })));
+        let overrides = jv!({ "SeedTrait.seedRuntime": true });
+        let error = compose(&[program(jv!(["set", "@entity.id", "folded"]))], Some(&overrides)).unwrap_err();
+        assert!(error.contains("override \"SeedTrait.seedRuntime\" sets a knob SeedTrait no longer reads"), "{error}");
+        let live = compose(&[program(jv!(["when", "@config.seedRuntime", ["set", "@entity.id", "x"]]))], Some(&overrides)).unwrap();
+        assert_eq!(live["orbitals"][0]["traits"][0]["config"]["seedRuntime"]["default"], jv!(true), "control: a knob the trait still reads is set");
+        let path = compose(
+            &[composable("seed", "Seed", None, Some(jv!(["set", "@entity.id", "@config.names.first"])), Some(jv!({ "names": { "type": "object", "default": { "first": "a" } } })))],
+            Some(&jv!({ "SeedTrait.names": { "first": "b" } })),
+        );
+        assert!(path.is_ok(), "edge: a path read under the knob is a read: {path:?}");
+        let other = compose(&[program(jv!(["set", "@entity.id", "@config.seedRuntimeLabel"]))], Some(&overrides)).unwrap_err();
+        assert!(other.contains("no longer reads"), "edge: a read of a knob with a longer name is not a read of this one: {other}");
+    }
+
+    #[test]
+    fn an_override_of_an_orbital_knob_is_refused_when_no_trait_reads_what_it_forwards() {
+        let program = |effects: Value| jv!({ "orbitals": [{
+            "name": "Api",
+            "config": { "port": { "type": "number", "default": 3000 } },
+            "traits": [{ "name": "ApiHttp1",
+                "config": { "port": { "type": "number", "default": 3000, "forwardedFrom": "@config.port" } },
+                "stateMachine": { "transitions": [{ "from": "idle", "to": "idle", "event": "GO", "effects": effects }] } }]
+        }] });
+        let error = apply_compose_overrides(&mut program(jv!([])), &jv!({ "Api.port": 4100 })).unwrap_err();
+        assert!(error.contains("override \"Api.port\" sets a knob Api no longer reads"), "{error}");
+        let mut live = program(jv!([["set", "@entity.port", "@config.port"]]));
+        apply_compose_overrides(&mut live, &jv!({ "Api.port": 4100 })).unwrap();
+        assert_eq!(live["orbitals"][0]["traits"][0]["config"]["port"]["default"], jv!(4100), "control: the forwarding trait reads its knob, so the orbital knob is live");
     }
 
     #[test]
