@@ -142,9 +142,8 @@ pub struct CompilerOptions {
     pub compose: ComposeConfig,
     /// Run the Phase-3D nominalization pass post-Resolve: replace every
     /// anonymous `OirType::Struct`/`Union` with a `TypeRef` registered in
-    /// `OirModule::named_types`. Default OFF — every shell's `type_ref`
-    /// readiness landed in the same change set, but the owner flips the
-    /// default only after reviewing the TS before/after diff.
+    /// `OirModule::named_types`. On for every compile from [`Self::from_env`] (owner 2026-11-12); a test that builds
+    /// options by hand chooses.
     pub nominalize: bool,
     /// Set when behavior-package discovery (`orbital_core::behavior_packages::
     /// discover`, run from the process cwd) failed — a `PrefixConflict` or a
@@ -168,14 +167,9 @@ impl CompilerOptions {
     /// `node_modules` (or `~/.orb` with none above cwd) already puts the
     /// live package sources on the walk.
     pub fn from_env() -> Self {
-        // `ORBITAL_NOMINALIZE=1` opts into the Phase-3D nominalization pass —
-        // it changes codegen output for every shell, so it stays a dedicated
-        // toggle rather than folding into package discovery.
-        let nominalize = std::env::var("ORBITAL_NOMINALIZE")
-            .map(|v| v == "1" || v == "true")
-            .unwrap_or(false);
+        // Every compile nominalizes (owner 2026-11-12, G-CROSS-520): a shell names an alias instead of a per-field record.
         let mut opts = Self {
-            nominalize,
+            nominalize: true,
             ..Self::default()
         };
 

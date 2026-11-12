@@ -3401,6 +3401,7 @@ mod tests {
             description: None,
             background: false,
             while_visible: false,
+            after_entry_ms: None,
         }
     }
 

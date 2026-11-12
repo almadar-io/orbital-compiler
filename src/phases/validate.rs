@@ -898,6 +898,7 @@ mod tests {
             description: None,
             background: true,
             while_visible: false,
+            after_entry_ms: None,
         };
         let check = |states: &[&str]| {
             let mut trait_def = create_test_trait("T", vec![create_state("idle", true), create_state("waiting", false)], vec![]);
