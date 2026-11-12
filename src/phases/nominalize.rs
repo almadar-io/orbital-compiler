@@ -46,6 +46,7 @@
 //! registered entry untouched — the shells' field-layer enum handling reads
 //! them off the hoisted declaration exactly as it does off an inline one.
 
+use orbital_core_base::ir::render::decode_order;
 use orbital_core_base::ir::{OirEntity, OirField, OirModule, OirType};
 use orbital_core_base::str_utils::split_to_pascal_case;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -114,7 +115,7 @@ fn nominalize_type(ty: &OirType, hint: &str, ctx: &mut Ctx) -> OirType {
             nominalize_shape(sorted_fields(fields.to_vec()), hint, ctx, ShapeKind::Struct(additional.clone()))
         }
         OirType::Union { variants } => {
-            nominalize_shape(sorted_fields(variants.to_vec()), hint, ctx, ShapeKind::Union)
+            nominalize_shape(decode_order(variants), hint, ctx, ShapeKind::Union)
         }
         other => other.clone(),
     }
@@ -199,7 +200,7 @@ fn canonicalize(ty: &OirType) -> OirType {
             additional: additional.clone(),
         },
         OirType::Union { variants } => OirType::Union {
-            variants: sorted_fields(variants.to_vec()).into(),
+            variants: decode_order(variants).into(),
         },
         other => other.clone(),
     }

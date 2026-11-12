@@ -491,6 +491,70 @@ pub(crate) fn validate_set_return_type(
     result
 }
 
+/// `(persist create|upsert|update E { field: <expr> })`: each expression-valued field of the row literal is checked
+/// against the declared type of `E`'s field, as `set` checks a value against its target (the same finding); literal
+/// values are the lint's (`ORB_X_ROW_LITERAL_FIELD_TYPE_MISMATCH` in std-orb-lint-effect-forms).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn validate_persist_row_types(
+    arr: &[SExpression],
+    path: &str,
+    entity_definitions: &HashMap<String, EntityDefinition>,
+    entity_field_types: &HashMap<String, EntityFieldMeta>,
+    payload_field_types: &HashMap<String, String>,
+    schema: Option<&OrbitalSchema>,
+    types: Option<&BindingTypes>,
+    guard: Option<&SExpression>,
+) -> ValidationResult {
+    let mut result = ValidationResult::new();
+    let (
+        Some(SExpression::String(action)),
+        Some(SExpression::String(entity)),
+        Some(SExpression::Object(row)),
+    ) = (arr.get(1), arr.get(2), arr.get(3))
+    else {
+        return result;
+    };
+    if !matches!(action.as_str(), "create" | "upsert" | "update") {
+        return result;
+    }
+    let Some(definition) = entity_definitions.get(entity.as_str()) else {
+        return result;
+    };
+    let declared = entity_field_type_map(definition);
+    let ctx = ExprReturnCtx {
+        entity: entity_field_types,
+        payload: payload_field_types,
+        types,
+        schema,
+    };
+    for (key, value) in row.iter() {
+        let Some(meta) = declared.get(key.as_str()) else {
+            continue;
+        };
+        if !matches!(value, SExpression::Array(_)) {
+            continue;
+        }
+        if let Some(inferred) = expr_return_incompatible_given(value, &meta.shape, &ctx, guard) {
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::SetReturnTypeMismatch,
+                    path,
+                    format!(
+                        "persist {action} '{entity}': '{entity}.{key}' declares {}, the value evaluates to '{}'.",
+                        orbital_core_base::signature::describe_type(&meta.shape),
+                        orbital_core_base::signature::describe_type(&inferred)
+                    ),
+                )
+                .with_suggestion(format!(
+                    "Write a {} value for '{key}': narrow it with `(as x T)` or convert it, or change the field type",
+                    meta.field_type
+                )),
+            );
+        }
+    }
+    result
+}
+
 /// The declared type of the never-null slot a literal `null` written inside `value` flows into, read top-down from
 /// `declared`; `None` when no such null is written.
 pub(crate) fn null_written_into_never_null_slot<C: crate::type_infer::TypeCtx>(
@@ -1086,6 +1150,79 @@ fn field_type_str(ft: &FieldType) -> std::borrow::Cow<'static, str> {
 #[cfg(test)]
 mod return_type_tests {
     use super::*;
+
+    fn persist_row_errors(field_type: &str, value: &str) -> usize {
+        let target: EntityDefinition = serde_json::from_value(serde_json::json!({
+            "name": "Row", "collection": "rows", "fields": [{ "name": "at", "type": field_type }]
+        }))
+        .unwrap();
+        let linked: EntityDefinition = serde_json::from_value(serde_json::json!({
+            "name": "E", "collection": "es", "fields": [{ "name": "count", "type": "number" }, { "name": "when", "type": "instant", "required": true }, { "name": "items", "type": "array", "items": { "type": "string" }, "required": true }]
+        }))
+        .unwrap();
+        let definitions = HashMap::from([("Row".to_string(), target)]);
+        let arr: Vec<SExpression> = serde_json::from_str(&format!(
+            r#"["persist", "create", "Row", {{ "at": {value} }}]"#
+        ))
+        .unwrap();
+        let r = validate_persist_row_types(
+            &arr,
+            "p",
+            &definitions,
+            &entity_field_type_map(&linked),
+            &HashMap::new(),
+            None,
+            None,
+            None,
+        );
+        r.errors.len()
+    }
+
+    #[test]
+    fn a_persist_row_field_takes_an_optional_only_once_its_absence_is_said() {
+        assert_eq!(
+            persist_row_errors("string", r#"["array/nth", "@entity.items", 0]"#),
+            1,
+            "an element read may be missing"
+        );
+        assert_eq!(
+            persist_row_errors("string", r#"["as", ["array/nth", "@entity.items", 0], "string"]"#),
+            1,
+            "`as` answers null for a misfit, so it narrows the shape and not the presence"
+        );
+        assert_eq!(
+            persist_row_errors("string", r#"["default", ["array/nth", "@entity.items", 0], ""]"#),
+            0,
+            "control: a default says what a missing element means"
+        );
+    }
+
+    #[test]
+    fn a_persist_row_field_refuses_an_expression_of_another_type() {
+        assert_eq!(
+            persist_row_errors("instant", r#"["+", "@entity.count", 1]"#),
+            1
+        );
+        assert_eq!(
+            persist_row_errors("string", r#"["+", "@entity.count", 1]"#),
+            1
+        );
+    }
+
+    #[test]
+    fn control_a_persist_row_field_takes_an_expression_of_its_type_and_leaves_literals_to_the_lint()
+    {
+        assert_eq!(
+            persist_row_errors("number", r#"["+", "@entity.count", 1]"#),
+            0
+        );
+        assert_eq!(
+            persist_row_errors("instant", r#"["if", true, "@entity.when", "@entity.when"]"#),
+            0
+        );
+        assert_eq!(persist_row_errors("instant", "5"), 0);
+        assert_eq!(persist_row_errors("instant", r#""@entity.when""#), 0);
+    }
 
     fn field(name: &str, ty: &str) -> HashMap<String, EntityFieldMeta> {
         let mut m = HashMap::new();

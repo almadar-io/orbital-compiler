@@ -524,7 +524,16 @@ fn validate_leaf_effect(
                             condition,
                         ));
                     }
-                    "persist" => {}
+                    "persist" => result.merge(super::set::validate_persist_row_types(
+                        arr,
+                        path,
+                        entity_definitions,
+                        entity_field_types,
+                        payload_field_types,
+                        schema,
+                        types,
+                        condition,
+                    )),
                     "emit" => {}
                     "render-ui" => {
                         // render_ui is validated separately in render_ui.rs

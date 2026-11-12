@@ -341,3 +341,33 @@ fn unions_nominalize_and_register() {
     assert!(module.named_types.contains_key("ItemKindBook"));
     assert!(module.named_types.contains_key("ItemKindMovie"));
 }
+
+fn vector_union() -> OirType {
+    let record = |names: &[&str]| OirType::Struct {
+        additional: None,
+        fields: names.iter().map(|n| OirField::new(*n, OirType::Number)).collect::<Vec<_>>().into(),
+    };
+    OirType::Union {
+        variants: vec![
+            OirField::new("v2", record(&["x", "y"])),
+            OirField::new("n", OirType::Number),
+            OirField::new("v3", record(&["x", "y", "z"])),
+        ]
+        .into(),
+    }
+}
+
+#[test]
+fn a_union_keeps_its_wider_record_arm_first_after_nominalize() {
+    let mut entity = OirEntity::new("ops");
+    entity.fields.push(OirField::new("cross", vector_union()));
+    let mut module = module_with(entity);
+    nominalize_module(&mut module);
+    let name = match &module.entities[0].fields[0].field_type {
+        OirType::TypeRef { name } => name.clone(),
+        other => panic!("the union field becomes a TypeRef, got {other:?}"),
+    };
+    let OirType::Union { variants } = &module.named_types[&name] else { panic!("the entry is a union") };
+    let order: Vec<&str> = variants.iter().map(|v| v.name.as_str()).collect();
+    assert_eq!(order, ["v3", "n", "v2"], "widest record first; the non-record arm keeps its slot");
+}

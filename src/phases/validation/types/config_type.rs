@@ -774,8 +774,7 @@ pub fn validate_all_config_types(schema: &OrbitalSchema, ctx: &mut ValidationCon
 }
 
 /// An entity row's declared defaults seed the singleton row, so each literal default must fit its field's
-/// declared type. Required-member completeness of an object default is deferred to persist, so it is not
-/// checked here.
+/// declared type; a record default must also carry every required member.
 pub fn validate_all_entity_field_defaults(schema: &OrbitalSchema, ctx: &mut ValidationContext) {
     let mut result = ValidationResult::new();
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
@@ -792,8 +791,7 @@ pub fn validate_all_entity_field_defaults(schema: &OrbitalSchema, ctx: &mut Vali
                 continue;
             };
             let path = format!("orbitals[{}].entity({}).field({})", oi, entity.name, name);
-            let shape = without_required_members(field);
-            let found = check_field_def_shape(&shape, default, &path, &events, &HashMap::new());
+            let found = check_field_def_shape(field, default, &path, &events, &HashMap::new());
             for e in found.errors {
                 result.add_error(ValidationError::error(
                     ErrorCode::EntityFieldDefaultShapeMismatch,
@@ -804,20 +802,6 @@ pub fn validate_all_entity_field_defaults(schema: &OrbitalSchema, ctx: &mut Vali
         }
     }
     ctx.merge(result);
-}
-
-fn without_required_members(field: &FieldDefinition) -> FieldDefinition {
-    let mut out = field.clone();
-    out.required = None;
-    if let Some(props) = out.properties.as_mut() {
-        for member in props.values_mut() {
-            *member = without_required_members(member);
-        }
-    }
-    if let Some(items) = out.items.as_mut() {
-        **items = without_required_members(items);
-    }
-    out
 }
 
 /// Validate a single config field's default value against its declared type.
@@ -2511,15 +2495,44 @@ mod event_config_tests {
     }
 
     #[test]
-    fn g_orbital_core_133_nullable_null_and_partial_object_defaults_are_accepted() {
+    fn g_orbital_core_133_nullable_null_default_is_accepted() {
         let doc = r#"{ "name": "t", "version": "1.0.0", "orbitals": [{ "name": "O",
             "entity": { "name": "Row", "fields": [
-              { "name": "when", "type": "datetime", "nullable": true, "default": null },
-              { "name": "box", "type": "object", "default": {},
-                "properties": { "a": { "type": "string", "required": true } } }
+              { "name": "when", "type": "datetime", "nullable": true, "default": null }
             ] }, "traits": [] }] }"#;
         let result = run_with_entities(doc);
         assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn entity_record_default_must_fit_the_declared_record_shape() {
+        let doc = |default: &str| {
+            format!(
+                r#"{{ "name": "t", "version": "1.0.0", "orbitals": [{{ "name": "O",
+                "entity": {{ "name": "Row", "fields": [
+                  {{ "name": "operand", "type": "object", "default": {default},
+                    "properties": {{ "id": {{ "type": "string", "required": true }},
+                                     "recognized": {{ "type": "string", "required": true }} }} }}
+                ] }}, "traits": [] }}] }}"#
+            )
+        };
+        let empty = run_with_entities(&doc("{}"));
+        let msgs: Vec<&str> = empty.errors.iter().map(|e| e.message.as_str()).collect();
+        assert!(
+            empty.errors.iter().all(|e| e.code == ErrorCode::EntityFieldDefaultShapeMismatch)
+                && msgs.iter().any(|m| m.contains("'id'"))
+                && msgs.iter().any(|m| m.contains("'recognized'")),
+            "an empty record default names the missing required fields: {:?}",
+            empty.errors
+        );
+        let full = run_with_entities(&doc(r#"{ "id": "a", "recognized": "b" }"#));
+        assert!(full.errors.is_empty(), "a complete record default passes: {:?}", full.errors);
+        let wrong = run_with_entities(&doc(r#"{ "id": 5, "recognized": "b" }"#));
+        assert!(
+            wrong.errors.iter().any(|e| e.code == ErrorCode::EntityFieldDefaultShapeMismatch && e.path.contains("id")),
+            "a misfitting member is refused by name: {:?}",
+            wrong.errors
+        );
     }
 
     #[test]
