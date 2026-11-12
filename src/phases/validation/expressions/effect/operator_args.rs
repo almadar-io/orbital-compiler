@@ -815,9 +815,10 @@ mod tests {
     #[test]
     fn a_declared_iso_literal_knob_is_a_point_in_time() {
         let read = |kind: &str, text: &str| {
+            let now = if kind == "date" { serde_json::json!(["time/toDate", "@now"]) } else { serde_json::json!("@now") };
             serde_json::json!([
                 "time/diff",
-                "@now",
+                now,
                 [
                     "let",
                     [["knob_at", text, format!(r#"{{"kind":"{kind}"}}"#)]],
