@@ -296,6 +296,54 @@ pub(crate) fn validate_set_return_type(
             .with_suggestion("Write a value of the declared type, or declare the field optional (`T?`)"),
         );
     }
+    if matches!(&arr[2], SExpression::Object(_))
+        && matches!(&meta.shape, orbital_core_base::ir::OirType::Struct { .. })
+    {
+        let fits = orbital_core_eval::lower::lower_sexpr(&arr[2])
+            .ok()
+            .is_none_or(|lowered| crate::type_infer::admits(&lowered, &meta.shape, condition.as_ref(), &ctx));
+        if !fits {
+            let missing: Vec<String> = match (&arr[2], &meta.shape) {
+                (SExpression::Object(written), orbital_core_base::ir::OirType::Struct { fields, .. }) => fields
+                    .iter()
+                    .filter(|f| f.required && !written.contains_key(&f.name))
+                    .map(|f| format!("'{}'", f.name))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            let misfit: Vec<String> = match (&arr[2], &meta.shape) {
+                (SExpression::Object(written), orbital_core_base::ir::OirType::Struct { fields, .. }) => fields
+                    .iter()
+                    .filter_map(|f| {
+                        let value = written.get(&f.name)?;
+                        let lowered = orbital_core_eval::lower::lower_sexpr(value).ok()?;
+                        (!crate::type_infer::admits(&lowered, &f.field_type, condition.as_ref(), &ctx))
+                            .then(|| format!("'{}' (declared '{}')", f.name, orbital_core_base::signature::describe_type(&f.field_type)))
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            let why = if missing.is_empty() && misfit.is_empty() {
+                "a field's value does not fit its declared type".to_string()
+            } else if missing.is_empty() {
+                format!("the value of {} does not fit its declared type", misfit.join(", "))
+            } else {
+                format!("it leaves out the required field(s) {}", missing.join(", "))
+            };
+            result.add_error(
+                ValidationError::error(
+                    ErrorCode::SetReturnTypeMismatch,
+                    path,
+                    format!(
+                        "set @entity.{entity_field} writes a record that does not fit '{}': {why}.",
+                        orbital_core_base::signature::describe_type(&meta.shape)
+                    ),
+                )
+                .with_suggestion("Write every required field of the record with a value of its declared type"),
+            );
+        }
+        return result;
+    }
     if !reads_entity_field && !numeric_literal && !matches!(&arr[2], SExpression::Array(_)) {
         return result;
     }
@@ -1134,6 +1182,33 @@ mod return_type_tests {
             0,
             "control: a non-numeric field is left to its own check"
         );
+    }
+
+    // G-STD-360: a record literal set into a record-typed field is checked against the record's fields.
+    #[test]
+    fn a_record_literal_set_into_a_record_field_must_carry_its_required_fields_with_their_types() {
+        let errors = |literal: serde_json::Value| {
+            let entity: EntityDefinition = serde_json::from_value(serde_json::json!({
+                "name": "E", "collection": "es", "fields": [{
+                    "name": "tool", "type": "object", "properties": {
+                        "event": { "name": "event", "type": "string", "required": true },
+                        "roles": { "name": "roles", "type": "array", "required": true, "items": { "type": "string" } }
+                    }
+                }]
+            }))
+            .unwrap();
+            let arr = vec![
+                SExpression::String("set".into()),
+                SExpression::string("@entity.tool"),
+                serde_json::from_value(literal).unwrap(),
+            ];
+            validate_set_return_type(&arr, "p", &entity_field_type_map(&entity), &HashMap::new(), None, None, None)
+                .errors
+                .len()
+        };
+        assert_eq!(errors(serde_json::json!({ "event": "x" })), 1, "a required field is missing");
+        assert_eq!(errors(serde_json::json!({ "event": "x", "roles": 5 })), 1, "a field of the wrong type");
+        assert_eq!(errors(serde_json::json!({ "event": "x", "roles": ["admin"] })), 0, "control: a whole record fits");
     }
 
     #[test]
