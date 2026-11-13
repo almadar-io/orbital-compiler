@@ -532,6 +532,22 @@ mod tests {
     }
 
     #[test]
+    fn a_message_key_is_a_literal_or_a_value_typed_message_key() {
+        assert!(mismatches(r#"["i18n/t", "hero.title"]"#, HashMap::new()).is_empty());
+        assert!(mismatches(r#"["i18n/t", "@entity.key"]"#, field("key", "MessageKey")).is_empty());
+        assert_eq!(
+            mismatches(r#"["i18n/t", "@entity.key"]"#, field("key", "string")).len(),
+            1,
+            "control: a string field is no catalog key"
+        );
+        assert_eq!(
+            mismatches(r#"["i18n/t", ["str/concat", "hero.", "title"]]"#, HashMap::new()).len(),
+            1,
+            "a computed key cannot be checked against a catalog"
+        );
+    }
+
+    #[test]
     fn a_mismatch_inside_an_object_value_is_found() {
         let got = mismatches(r#"{"content": ["str/upper", 5]}"#, HashMap::new());
         assert_eq!(got.len(), 1, "{got:?}");

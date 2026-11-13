@@ -1128,6 +1128,7 @@ fn field_type_str(ft: &FieldType) -> std::borrow::Cow<'static, str> {
         FieldType::File => "file".into(),
         FieldType::Bytes => "bytes".into(),
         FieldType::CallKey => "callkey".into(),
+        FieldType::MessageKey => "messagekey".into(),
         FieldType::Array | FieldType::Tuple => "array".into(),
         FieldType::Object => "object".into(),
         FieldType::Enum => "enum".into(),

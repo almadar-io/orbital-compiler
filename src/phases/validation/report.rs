@@ -313,7 +313,8 @@ fn catalog_findings(schema: &OrbitalSchema, path: &Path) -> Vec<Finding> {
     let Ok(program) = serde_json::to_value(schema) else {
         return Vec::new();
     };
-    issues.extend(check_catalogs(&program, &schema.name, schema.locales.as_deref(), &catalogs));
+    let knob_keys = orbital_core_base::messages::config_message_keys(schema);
+    issues.extend(check_catalogs(&program, &knob_keys, &schema.name, schema.locales.as_deref(), &catalogs));
     issues
         .into_iter()
         .map(|issue| Finding::new(issue.code().to_string(), "locales".to_string(), issue.message(), None))

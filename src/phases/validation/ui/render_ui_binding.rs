@@ -440,6 +440,7 @@ fn field_type_to_binding(ft: &FieldType) -> BindingType {
         FieldType::File => BindingType::Object,
         FieldType::Bytes => BindingType::String,
         FieldType::CallKey => BindingType::String,
+        FieldType::MessageKey => BindingType::String,
         FieldType::Array | FieldType::Tuple => BindingType::Array,
         FieldType::Object => BindingType::Object,
         FieldType::Enum => BindingType::String,
