@@ -3153,6 +3153,7 @@ fn param_sub_field(sub: &ParamSub) -> Option<FieldDefinition> {
         projected_from: None,
         record: None,
         derived: None,
+        update: None,
     })
 }
 

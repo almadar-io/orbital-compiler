@@ -53,6 +53,7 @@ fn schema_with_effects(effects: Vec<SExpression>) -> OrbitalSchema {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         }],
         instances: None,
         id: None,

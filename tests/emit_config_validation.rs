@@ -84,6 +84,7 @@ fn schema_with_effects(
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         }],
         instances: None,
         id: None,

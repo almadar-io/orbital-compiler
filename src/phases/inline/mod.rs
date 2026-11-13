@@ -5390,6 +5390,7 @@ mod tests {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         };
         EntityDefinition {
             timestamps: None,
@@ -5488,6 +5489,7 @@ mod tests {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         }
     }
 
@@ -7128,6 +7130,7 @@ mod tests {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         }
     }
 

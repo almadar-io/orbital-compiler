@@ -98,6 +98,7 @@ fn task_entity() -> EntityDefinition {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         }],
         instances: None,
         id: None,

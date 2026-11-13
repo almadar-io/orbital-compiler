@@ -108,6 +108,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         }],
         instances: None,
         id: None,

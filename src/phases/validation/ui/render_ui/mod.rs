@@ -855,6 +855,7 @@ mod tests {
                     projected_from: None,
                     record: None,
                     derived: None,
+                    update: None,
                 }],
                 collection: Some("companies".to_string()),
                 persistence: None,
@@ -907,6 +908,7 @@ mod tests {
                         projected_from: None,
                         record: None,
                         derived: None,
+                        update: None,
                     },
                     FieldDefinition {
                         nullable: None,
@@ -935,6 +937,7 @@ mod tests {
                         projected_from: None,
                         record: None,
                         derived: None,
+                        update: None,
                     },
                 ],
                 collection: Some("inspections".to_string()),

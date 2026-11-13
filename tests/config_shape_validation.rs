@@ -45,6 +45,7 @@ fn metric_spec_items() -> FieldDefinition {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         },
     );
     props.insert(
@@ -70,6 +71,7 @@ fn metric_spec_items() -> FieldDefinition {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         },
     );
     props.insert(
@@ -99,6 +101,7 @@ fn metric_spec_items() -> FieldDefinition {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         },
     );
     props.insert(
@@ -124,6 +127,7 @@ fn metric_spec_items() -> FieldDefinition {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         },
     );
     props.insert(
@@ -153,6 +157,7 @@ fn metric_spec_items() -> FieldDefinition {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         },
     );
     FieldDefinition {
@@ -176,6 +181,7 @@ fn metric_spec_items() -> FieldDefinition {
         projected_from: None,
         record: None,
         derived: None,
+        update: None,
     }
 }
 
@@ -220,6 +226,7 @@ fn schema_with_config(config: orbital_core_base::collections::IndexMap<String, C
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         }],
         instances: None,
         id: None,
@@ -455,6 +462,7 @@ fn bare_string_in_array_of_objects_fails() {
                 projected_from: None,
                 record: None,
                 derived: None,
+                update: None,
             },
         );
     }
@@ -479,6 +487,7 @@ fn bare_string_in_array_of_objects_fails() {
         projected_from: None,
         record: None,
         derived: None,
+        update: None,
     };
     let mut config = IndexMap::new();
     config.insert(
@@ -795,6 +804,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         },
     );
     let format_items = FieldDefinition {
@@ -818,6 +828,7 @@ fn literal_wrong_shape_still_errors_alongside_computed_defer() {
         projected_from: None,
         record: None,
         derived: None,
+        update: None,
     };
     let mut config = IndexMap::new();
     config.insert(
@@ -1104,6 +1115,7 @@ fn string_value_field() -> FieldDefinition {
         projected_from: None,
         record: None,
         derived: None,
+        update: None,
     }
 }
 
@@ -1253,6 +1265,7 @@ fn sexpr_args_slot(item_type: FieldType, default: Vec<SExpression>) -> OrbitalSc
         projected_from: None,
         record: None,
         derived: None,
+        update: None,
     };
     let mut config = IndexMap::new();
     config.insert(
@@ -1341,6 +1354,7 @@ fn sexpr_member_schema(member_type: FieldType, value: SExpression) -> OrbitalSch
         projected_from: None,
         record: None,
         derived: None,
+        update: None,
     };
     let mut props = IndexMap::new();
     props.insert("guard".to_string(), member);
@@ -1365,6 +1379,7 @@ fn sexpr_member_schema(member_type: FieldType, value: SExpression) -> OrbitalSch
         projected_from: None,
         record: None,
         derived: None,
+        update: None,
     };
     let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("guard".into(), value);
@@ -1454,6 +1469,7 @@ fn field_ref_alias_schema(name: &str, alias_in_orbital_types: bool) -> OrbitalSc
         projected_from: None,
         record: None,
         derived: None,
+        update: None,
     };
     props.insert("amount".to_string(), member(FieldType::Number, "amount"));
     config.insert(
@@ -1612,6 +1628,7 @@ fn arm(name: &str, field_type: FieldType) -> FieldDefinition {
         projected_from: None,
         record: None,
         derived: None,
+        update: None,
     }
 }
 

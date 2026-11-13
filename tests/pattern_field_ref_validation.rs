@@ -73,6 +73,7 @@ fn make_entity_with_fields(name: &str, field_names: &[&str]) -> EntityDefinition
                 projected_from: None,
                 record: None,
                 derived: None,
+                update: None,
             })
             .collect(),
         collection: Some(format!("{}s", name.to_lowercase())),

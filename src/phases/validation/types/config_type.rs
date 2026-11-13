@@ -1566,6 +1566,7 @@ fn check_config_default_shape(
                 projected_from: None,
                 record: None,
                 derived: None,
+                update: None,
             };
             let ancestors = root_ancestor_map(field, Some(&root_struct));
             let mut probe = ValidationResult::new();
@@ -3263,6 +3264,7 @@ mod recursive_type_literal_tests {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         };
         let sub_menu_array = FieldDefinition {
             nullable: None,
@@ -3285,6 +3287,7 @@ mod recursive_type_literal_tests {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         };
         let label = FieldDefinition {
             nullable: None,
@@ -3307,6 +3310,7 @@ mod recursive_type_literal_tests {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         };
         let mut props = orbital_core_base::collections::IndexMap::new();
         props.insert("label".to_string(), label);
@@ -3332,6 +3336,7 @@ mod recursive_type_literal_tests {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         };
         ConfigField {
             nullable: None,
@@ -3452,6 +3457,7 @@ mod required_member_tests {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         };
         let mut props = orbital_core_base::collections::IndexMap::new();
         props.insert("id".to_string(), required_string("id"));
@@ -3477,6 +3483,7 @@ mod required_member_tests {
             projected_from: None,
             record: None,
             derived: None,
+            update: None,
         }
     }
 
