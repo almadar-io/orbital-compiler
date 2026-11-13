@@ -1093,6 +1093,8 @@ impl<'a> Resolver<'a> {
             "render-ui" => OirType::SExpr,
             // `SExpr` brand config knob — emits the recursive `SExpr` TS type.
             "SExpr" => OirType::SExpr,
+            "MessageKey" => OirType::MessageKey,
+            "CallKey" => OirType::CallKey,
             _ => OirType::String, // Default to string for unknown types
         })
     }
@@ -1896,6 +1898,18 @@ mod tests {
     use super::*;
     use orbital_core_base::ir::{OirBinaryOp, OirBinding};
     use orbital_core_base::schema::DispatchMode;
+
+    #[test]
+    fn a_key_typed_knob_keeps_its_nominal_type() {
+        let schema = empty_schema();
+        let knob = |ty: &str| -> orbital_core_base::schema::ConfigField {
+            serde_json::from_value(serde_json::json!({ "type": ty })).unwrap()
+        };
+        assert_eq!(config_field_oir_type(&knob("MessageKey"), &schema).unwrap(), OirType::MessageKey);
+        assert_eq!(config_field_oir_type(&knob("[MessageKey]"), &schema).unwrap(), OirType::array(OirType::MessageKey));
+        assert_eq!(config_field_oir_type(&knob("CallKey"), &schema).unwrap(), OirType::CallKey);
+        assert_eq!(config_field_oir_type(&knob("string"), &schema).unwrap(), OirType::String, "control");
+    }
 
     #[test]
     fn native_contract_nested_explicit_entity_markers_keep_nominal_identity() {

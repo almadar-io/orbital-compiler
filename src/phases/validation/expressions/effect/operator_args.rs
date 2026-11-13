@@ -515,13 +515,13 @@ mod tests {
             let mut fields = field("value", ty);
             fields.get_mut("value").unwrap().required = true;
             let got = mismatches(
-                r#"["i18n/t", "invite.sent", {"who": "@entity.value"}]"#,
+                r#"["i18n/t", "site:invite.sent", {"who": "@entity.value"}]"#,
                 fields,
             );
             assert!(got.is_empty(), "{ty}: {got:?}");
         }
         let got = mismatches(
-            r#"["i18n/t", "invite.sent", {"who": "@entity.value"}]"#,
+            r#"["i18n/t", "site:invite.sent", {"who": "@entity.value"}]"#,
             field("value", "object"),
         );
         assert_eq!(
@@ -533,7 +533,12 @@ mod tests {
 
     #[test]
     fn a_message_key_is_a_literal_or_a_value_typed_message_key() {
-        assert!(mismatches(r#"["i18n/t", "hero.title"]"#, HashMap::new()).is_empty());
+        assert!(mismatches(r#"["i18n/t", "site:hero.title"]"#, HashMap::new()).is_empty());
+        assert_eq!(
+            mismatches(r#"["i18n/t", "hero.title"]"#, HashMap::new()).len(),
+            1,
+            "lowering qualifies every key a program writes, so an unqualified one came from a string value (a string knob's default)"
+        );
         assert!(mismatches(r#"["i18n/t", "@entity.key"]"#, field("key", "MessageKey")).is_empty());
         assert_eq!(
             mismatches(r#"["i18n/t", "@entity.key"]"#, field("key", "string")).len(),

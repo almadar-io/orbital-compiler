@@ -1008,6 +1008,12 @@ impl<'c> Inferer<'c> {
         if matches!((expr, expected), (OirExpr::Lambda { .. }, OirType::SExpr)) {
             return Some(expected.clone());
         }
+        // A key the lowering qualified is a `MessageKey`: a knob's key reaches the checker as the literal it holds.
+        if let (OirExpr::String { value }, OirType::MessageKey) = (expr, expected) {
+            if orbital_core_base::messages::is_qualified_key(value) {
+                return Some(expected.clone());
+            }
+        }
         if let Some((condition, then_branch, else_branch)) = conditional_parts(expr) {
             for (branch, truth) in [(then_branch, true), (else_branch, false)] {
                 let refined = self.refinements.borrow().len();
@@ -4878,6 +4884,16 @@ mod tests {
         let ratio = || call("/", vec![checked_local(num(8.0), OirType::Number), checked_local(num(4.0), OirType::Number)]);
         assert_eq!(missing_results(&call("array/sum", vec![list_of(vec![num(1.0), ratio()])])), 1, "an item can be missing");
         assert_eq!(missing_results(&call("array/sum", vec![list_of(vec![num(1.0), call("or", vec![ratio(), num(0.0)])])])), 0, "control: a defaulted item is a value");
+    }
+
+    #[test]
+    fn a_qualified_key_literal_is_admitted_where_a_message_key_is_declared() {
+        let slot = OirType::array(OirType::Struct { additional: None, fields: vec![OirField::new("key", OirType::MessageKey)].into() });
+        let record = |key: &str| OirExpr::Object { fields: [("key".to_string(), text(key))].into_iter().collect() };
+        let guarded = |key: &str| call("if", vec![OirExpr::Bool { value: true }, list_of(vec![record(key)]), list_of(vec![])]);
+        assert!(admits(&guarded("panel:sound"), &slot, None, &NoCtx), "a key the lowering qualified, under a conditional");
+        assert!(!admits(&guarded("sound"), &slot, None, &NoCtx), "control: an unqualified string is no key");
+        assert!(!admits(&text("panel:sound"), &OirType::Number, None, &NoCtx), "control: other slots are unchanged");
     }
 
     #[test]

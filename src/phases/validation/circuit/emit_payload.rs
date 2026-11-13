@@ -681,7 +681,7 @@ fn validate_emit_literal(
                             })
                             .unwrap_or_default();
                         let fits = if members.is_empty() {
-                            primitive_types_compatible(expected, actual)
+                            literal_fits(expected, actual, value)
                         } else {
                             members
                                 .iter()
@@ -1256,12 +1256,65 @@ fn record_literal_incompatible<C: crate::type_infer::TypeCtx>(
         return None;
     }
     let condition = guard.and_then(|g| crate::phases::resolve::resolve_sexpr_standalone(g).ok());
-    let literal = literal_record_type(value, ctx, condition.as_ref());
+    let literal = with_message_keys(value, literal_record_type(value, ctx, condition.as_ref()), declared, &|name| {
+        ctx.named_type(name)
+    });
     let fits = orbital_core_base::type_compat::sub_with_named(&literal, declared, &|name| {
         ctx.named_type(name)
     })
     .is_some_and(|c| !c.requires_cast());
     (!fits).then_some(literal)
+}
+
+/// `literal` with each member typed `MessageKey` where `value` writes a key the lowering qualified and `declared`
+/// declares a `MessageKey`: a knob's key reaches the check as the literal it holds, so its type is read off the slot.
+fn with_message_keys(
+    value: &SExpression,
+    literal: orbital_core_base::ir::OirType,
+    declared: &orbital_core_base::ir::OirType,
+    named: &dyn Fn(&str) -> Option<orbital_core_base::ir::OirType>,
+) -> orbital_core_base::ir::OirType {
+    use orbital_core_base::ir::{OirField, OirType};
+    let declared = match declared {
+        OirType::Optional { inner } => return with_message_keys(value, literal, inner, named),
+        OirType::TypeRef { name } => match named(name) {
+            Some(resolved) => return with_message_keys(value, literal, &resolved, named),
+            None => return literal,
+        },
+        other => other,
+    };
+    match (value, literal, declared) {
+        (SExpression::String(text), _, OirType::MessageKey) if orbital_core_base::messages::is_qualified_key(text) => {
+            OirType::MessageKey
+        }
+        (SExpression::Object(members), OirType::Struct { fields, additional }, OirType::Struct { fields: slots, .. }) => {
+            let fields: Vec<OirField> = fields
+                .iter()
+                .map(|field| {
+                    let slot = slots.iter().find(|slot| slot.name == field.name);
+                    let member = members.iter().find(|(name, _)| name.as_str() == field.name);
+                    match (slot, member) {
+                        (Some(slot), Some((_, member))) => {
+                            let mut typed = field.clone();
+                            typed.field_type = with_message_keys(member, field.field_type.clone(), &slot.field_type, named);
+                            typed
+                        }
+                        _ => field.clone(),
+                    }
+                })
+                .collect();
+            OirType::Struct { fields: fields.into(), additional }
+        }
+        (_, literal, _) => literal,
+    }
+}
+
+/// Whether a literal of primitive kind `actual` fits a field declared `expected`; a key the lowering qualified fits a
+/// `MessageKey` field.
+fn literal_fits(expected: &str, actual: &str, value: &SExpression) -> bool {
+    primitive_types_compatible(expected, actual)
+        || (expected == "MessageKey"
+            && matches!(value, SExpression::String(text) if orbital_core_base::messages::is_qualified_key(text)))
 }
 
 /// The closed set (`"a" | "b"`) a string literal written inside `value` falls outside, read top-down through the
@@ -1319,6 +1372,25 @@ fn primitive_types_compatible(declared: &str, actual: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_qualified_key_literal_fits_a_message_key_slot() {
+        use orbital_core_base::ir::{OirField, OirType};
+        let lit = |v: serde_json::Value| -> SExpression { serde_json::from_value(v).unwrap() };
+        assert!(literal_fits("MessageKey", "string", &lit(serde_json::json!("panel:begin"))));
+        assert!(!literal_fits("MessageKey", "string", &lit(serde_json::json!("begin"))), "control: a plain string");
+        assert!(!literal_fits("string", "number", &lit(serde_json::json!(3))), "control: other kinds unchanged");
+        let slot = OirType::Struct { fields: vec![OirField::new("key", OirType::MessageKey), OirField::new("x", OirType::Number)].into(), additional: None };
+        let string_record = |x: OirType| OirType::Struct { fields: vec![OirField::new("key", OirType::String), OirField::new("x", x)].into(), additional: None };
+        let named = |name: &str| (name == "T").then(|| slot.clone());
+        let typed = with_message_keys(&lit(serde_json::json!({ "key": "panel:begin", "x": 1 })), string_record(OirType::Number), &OirType::TypeRef { name: "T".into() }, &named);
+        let OirType::Struct { fields, .. } = typed else { panic!("a record") };
+        assert_eq!(fields[0].field_type, OirType::MessageKey);
+        assert_eq!(fields[1].field_type, OirType::Number, "control: a number member is untouched");
+        let plain = with_message_keys(&lit(serde_json::json!({ "key": "begin", "x": 1 })), string_record(OirType::Number), &slot, &named);
+        let OirType::Struct { fields, .. } = plain else { panic!("a record") };
+        assert_eq!(fields[0].field_type, OirType::String, "edge: an unqualified literal stays a string");
+    }
 
     #[test]
     fn a_produced_point_in_time_is_only_ever_iso_text_of_its_own_shape() {
