@@ -3985,6 +3985,7 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
                     waivers.read = waivers.read.take().or(incoming.read);
                     waivers.read_server = waivers.read_server.take().or(incoming.read_server);
                     waivers.create = waivers.create.take().or(incoming.create);
+                    waivers.create_server = waivers.create_server.take().or(incoming.create_server);
                     waivers.update = waivers.update.take().or(incoming.update);
                     waivers.delete = waivers.delete.take().or(incoming.delete);
                 }
