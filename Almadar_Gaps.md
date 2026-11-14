@@ -7,7 +7,9 @@ Every open gap this repo owns lives here. This file is the source of truth; the 
 - **Codes:** new gaps use this repo's prefix `G-ORBITAL-COMPILER-`. Take the "Next code" below, then bump it in the same edit. Codes are never reused or renamed.
 - **Close by deleting.** Remove the entry in the same commit as the fix.
 
-Next code: `G-ORBITAL-COMPILER-014`
+Next code: `G-ORBITAL-COMPILER-015`
+
+- **G-ORBITAL-COMPILER-014** [mechanical] — The config shape check refuses a knob value that its declared union type allows: a knob typed `{ anchor : "cwd" | "exe-dir" | { env : string! }!, path : string! }` (std-chrome's `ChromePath`, the shape every anchored-path knob uses) answers `ORB_T_CONFIG_SHAPE_MISMATCH ... anchor: expected string, got object` for `{ anchor: { env: "HOME" }, path: ... }`, so no composer can anchor a path to an environment variable through a config knob. Found 2026-11-13 composing std-chrome into std-orb-profile (worked around by anchoring Chrome's profile to cwd under .orbital/profile) and in std-samply's first draft. Reproduce: set std-chrome's profileDir to `{ anchor: { env: "HOME" } path: "x" }` in a composer and validate. Prevention rung: (1) the type system: the config check must read the union the knob declares, the same way an emit payload check does. Severity: medium. Root cause: one-off.
 
 - **G-ORBITAL-COMPILER-013** [mechanical] — ORB_T_EVENT_REF_NOT_EXTERNAL_INPUT suggests the retired spelling: its hint says to declare the input as `listens { EV -> external { … } }`, but the lowerer refuses `-> external` on a listen (ORB_L_LISTEN_EXTERNAL_RETIRED, "write `-> input {`"), so following the hint gives a parse error. Owner: orbital-compiler `phases/validation/types/config_type.rs` (the hint string). Seen 2026-11-13 adding the dj-set assistant tool. Reproduce: name an event that is not a declared input in an agent tool `{ event: T.EV }`, validate, apply the hint. Fix: the hint writes `-> input {`. Prevention rung: none (diagnostic text). Severity: low. Root cause: one-off.
 
