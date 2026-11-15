@@ -331,3 +331,127 @@ fn edge_a_catalog_that_does_not_parse_fails_the_resolve_naming_it() {
     .expect("a broken catalog fails");
     assert!(error.to_string().contains("post.json"), "{error}");
 }
+
+/// A lazy-resolve cache that holds its entries in memory and counts each store.
+#[derive(Default)]
+struct MemoryLazyCache {
+    entries: std::sync::Mutex<std::collections::HashMap<String, orbital_compiler::phases::lazy::CachedLazy>>,
+    stores: std::sync::atomic::AtomicUsize,
+}
+
+impl orbital_compiler::phases::lazy::LazyResolveCache for MemoryLazyCache {
+    fn get(&self, key: &str) -> Option<orbital_compiler::phases::lazy::CachedLazy> {
+        self.entries.lock().unwrap().get(key).cloned()
+    }
+    fn put(&self, _slot: &str, key: &str, entry: orbital_compiler::phases::lazy::CachedLazy) {
+        self.stores.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.entries.lock().unwrap().insert(key.to_string(), entry);
+    }
+}
+
+impl MemoryLazyCache {
+    fn stores(&self) -> usize {
+        self.stores.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    fn reads_of(&self, orbital: &str) -> Vec<String> {
+        let entries = self.entries.lock().unwrap();
+        let entry = entries.values().find(|e| e.resolved.orbital == orbital).expect("a cached lazy behavior");
+        entry.reads.paths().filter_map(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).collect()
+    }
+}
+
+/// Two lazy blogs over `post` (which imports `leaf`), and an eager orbital over `other`.
+fn lazy_blogs() -> Program {
+    program(
+        &[
+            reference("BlogA", "./post.orb", "Why", "Post", "/post", "/a", true),
+            reference("BlogB", "./post.orb", "Why", "Post", "/post", "/b", true),
+            reference("Oth", "./other.orb", "O", "Other", "/other", "/oth", false),
+        ],
+        false,
+    )
+}
+
+fn resolve_with(path: &Path, cache: Option<std::sync::Arc<MemoryLazyCache>>) -> (serde_json::Value, serde_json::Value) {
+    let options = CompilerOptions {
+        lazy_cache: orbital_compiler::phases::lazy::LazyCache(cache.map(|c| c as std::sync::Arc<dyn orbital_compiler::phases::lazy::LazyResolveCache>)),
+        ..CompilerOptions::default()
+    };
+    let (schema, lazy) = resolve_program_with_path(parse_file(path).expect("parses"), &options, Some(path)).expect("resolves");
+    let children: Vec<serde_json::Value> = lazy.iter().map(|l| without_ids(serde_json::to_value(&l.schema).expect("serializes"))).collect();
+    (without_ids(serde_json::to_value(&schema).expect("serializes")), serde_json::Value::Array(children))
+}
+
+#[test]
+fn a_cached_lazy_behavior_resolves_exactly_as_a_fresh_one_and_is_not_resolved_again() {
+    let site = lazy_blogs();
+    let cache = std::sync::Arc::new(MemoryLazyCache::default());
+    let first = resolve_with(&site.path, Some(cache.clone()));
+    assert_eq!(cache.stores(), 2, "each lazy behavior is resolved and stored once");
+    let second = resolve_with(&site.path, Some(cache.clone()));
+    assert_eq!(cache.stores(), 2, "nothing it read changed, so neither is resolved again");
+    assert_eq!(first, second);
+    assert_eq!(resolve_with(&site.path, None), first, "control: the same program without a cache resolves the same");
+}
+
+#[test]
+fn a_lazy_behavior_records_every_file_it_resolved_from_even_when_a_sibling_loaded_it_first() {
+    let site = lazy_blogs();
+    let cache = std::sync::Arc::new(MemoryLazyCache::default());
+    resolve_with(&site.path, Some(cache.clone()));
+    for blog in ["BlogA", "BlogB"] {
+        let reads = cache.reads_of(blog);
+        assert!(reads.contains(&"post.orb".to_string()) && reads.contains(&"leaf.orb".to_string()), "{blog} read {reads:?}");
+    }
+}
+
+#[test]
+fn editing_a_file_a_lazy_behavior_read_resolves_it_again_and_an_unrelated_edit_does_not() {
+    let site = lazy_blogs();
+    let dir = site.path.parent().expect("a program directory").to_path_buf();
+    let cache = std::sync::Arc::new(MemoryLazyCache::default());
+    resolve_with(&site.path, Some(cache.clone()));
+    std::fs::write(dir.join("other.orb"), OTHER.replace("\"Other\" }", "\"Other, edited\" }")).expect("edit other");
+    resolve_with(&site.path, Some(cache.clone()));
+    assert_eq!(cache.stores(), 2, "control: a file only the eager orbital read changes no lazy behavior");
+    std::fs::write(dir.join("leaf.orb"), LEAF.replace("\"Leaf\" }", "\"Leaf, edited\" }")).expect("edit leaf");
+    resolve_with(&site.path, Some(cache.clone()));
+    assert_eq!(cache.stores(), 4, "both blogs read leaf, so both resolve again");
+}
+
+fn resolve_on(path: &Path, workers: usize) -> (serde_json::Value, serde_json::Value) {
+    let options = CompilerOptions { lazy_workers: workers, ..CompilerOptions::default() };
+    let (schema, lazy) = resolve_program_with_path(parse_file(path).expect("parses"), &options, Some(path)).expect("resolves");
+    let children: Vec<serde_json::Value> = lazy.iter().map(|l| without_ids(serde_json::to_value(&l.schema).expect("serializes"))).collect();
+    (without_ids(serde_json::to_value(&schema).expect("serializes")), serde_json::Value::Array(children))
+}
+
+#[test]
+fn lazy_behaviors_resolved_on_several_threads_resolve_exactly_as_on_one() {
+    let site = program(
+        &[
+            reference("BlogA", "./post.orb", "Why", "Post", "/post", "/a", true),
+            reference("BlogB", "./post.orb", "Why", "Post", "/post", "/b", true),
+            reference("OthA", "./other.orb", "O", "Other", "/other", "/oa", true),
+            reference("OthB", "./other.orb", "O", "Other", "/other", "/ob", true),
+        ],
+        false,
+    );
+    assert_eq!(resolve_on(&site.path, 4), resolve_on(&site.path, 1), "the same program, its lazy behaviors in the same order");
+}
+
+#[test]
+fn edge_a_lazy_behavior_that_fails_on_a_worker_fails_the_resolve_as_it_does_on_one_thread() {
+    let site = program(
+        &[
+            reference("BlogA", "./post.orb", "Why", "Post", "/post", "/a", true),
+            reference("Gone", "./missing.orb", "M", "Missing", "/m", "/gone", true),
+        ],
+        false,
+    );
+    let fail = |workers: usize| {
+        let options = CompilerOptions { lazy_workers: workers, ..CompilerOptions::default() };
+        resolve_program_with_path(parse_file(&site.path).expect("parses"), &options, Some(&site.path)).expect_err("a missing import fails").to_string()
+    };
+    assert_eq!(fail(4), fail(1));
+}

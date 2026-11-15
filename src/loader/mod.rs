@@ -446,6 +446,8 @@ pub struct ExternalOrbitalLoader {
     /// Open recordings: every load is also added to each, so a caller can learn
     /// which files one piece of work loaded (`begin_recording`/`end_recording`).
     recordings: Vec<HashSet<PathBuf>>,
+    /// The files each cached load read (its own nested imports included), replayed when the cache answers it again.
+    cache_reads: HashMap<PathBuf, orbital_core_base::read_set::ReadSet>,
 }
 
 impl ExternalOrbitalLoader {
@@ -461,6 +463,7 @@ impl ExternalOrbitalLoader {
             canonical_paths: HashMap::new(),
             touched: HashSet::new(),
             recordings: Vec::new(),
+            cache_reads: HashMap::new(),
         }
     }
 
@@ -551,8 +554,13 @@ impl ExternalOrbitalLoader {
         }
         let loaded: Result<(), LoaderError> = (|| {
             if self.cache.get_canonical(&canonical).is_none() {
-                let schema = self.load_file(&absolute_path, import_path, chain)?;
-                self.cache.insert(canonical.clone(), schema);
+                orbital_core_base::read_set::begin();
+                let schema = self.load_file(&absolute_path, import_path, chain);
+                let reads = orbital_core_base::read_set::end();
+                self.cache.insert(canonical.clone(), schema?);
+                self.cache_reads.insert(canonical.clone(), reads);
+            } else if let Some(reads) = self.cache_reads.get(&canonical) {
+                reads.replay();
             }
             Ok(())
         })();

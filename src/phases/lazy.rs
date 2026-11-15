@@ -26,12 +26,68 @@ pub struct LazyArtifact {
 
 /// A resolved lazily-loaded behavior, ready to write at `orb_ref` (relative to
 /// its importer's `.orb`). Its own lazy imports nest under it the same way.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ResolvedLazy {
     pub orbital: String,
     pub orb_ref: String,
     pub schema: OrbitalSchema,
     pub lazy: Vec<ResolvedLazy>,
+}
+
+/// One lazily-used behavior resolved, with every file its resolution read: reused while each is as it was read.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CachedLazy {
+    pub resolved: ResolvedLazy,
+    pub reads: orbital_core_base::read_set::ReadSet,
+}
+
+/// Where resolved lazy behaviors are kept between resolves, by the key [`split_lazy_and_resolve`] computes. Storage only:
+/// the resolver decides whether an entry is still current from its reads.
+pub trait LazyResolveCache: Send + Sync {
+    fn get(&self, key: &str) -> Option<CachedLazy>;
+    /// Store `entry` under `key`; `slot` names the lazy behavior (its importer and file), whose older entries it replaces.
+    fn put(&self, slot: &str, key: &str, entry: CachedLazy);
+}
+
+/// The resolve options' lazy-resolve cache; none by default.
+#[derive(Clone, Default)]
+pub struct LazyCache(pub Option<std::sync::Arc<dyn LazyResolveCache>>);
+
+impl std::fmt::Debug for LazyCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "LazyCache(set)" } else { "LazyCache(none)" })
+    }
+}
+
+/// The lazy behavior an entry is for, whatever its sources say: its importer and its file.
+fn lazy_cache_slot(artifact: &LazyArtifact, source_path: Option<&Path>) -> String {
+    let text = format!("{}\n{}", source_path.map(|p| p.display().to_string()).unwrap_or_default(), artifact.orb_ref);
+    orbital_core_base::codec::sha256(text.as_bytes()).iter().take(12).map(|b| format!("{b:02x}")).collect()
+}
+
+/// What a lazy behavior's resolution depends on besides the files it reads: its own split program, where it was
+/// imported from, and the resolve options that change the result.
+fn lazy_cache_key(artifact: &LazyArtifact, options: &CompilerOptions, source_path: Option<&Path>) -> Option<String> {
+    let mut text = String::from("lazy-resolve 1\n");
+    text.push_str(&serde_json::to_string(&artifact.schema).ok()?);
+    text.push('\n');
+    text.push_str(&artifact.orb_ref);
+    text.push('\n');
+    text.push_str(&source_path.map(|p| p.display().to_string()).unwrap_or_default());
+    text.push_str(if options.nominalize { "\nnominalize" } else { "\nplain" });
+    for package in &options.inline.loader_config.packages {
+        text.push_str(&format!("\n{}@{}:{}:{}", package.name, package.version, package.prefix, package.registry.root().display()));
+        if let Some(source) = &package.lolo_source {
+            text.push_str(&format!(":{}", source.display()));
+        }
+    }
+    let mut scoped: Vec<String> = options.inline.loader_config.scoped_paths.iter().map(|(scope, path)| format!("{scope}={}", path.display())).collect();
+    scoped.sort();
+    for scope in scoped {
+        text.push('\n');
+        text.push_str(&scope);
+    }
+    Some(orbital_core_base::codec::sha256(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect())
 }
 
 pub fn lazy_orb_ref(orbital: &str) -> String {
@@ -225,20 +281,165 @@ fn split_lazy_and_resolve_in(
     if super::already_resolved(schema, source_path)? {
         return Ok(Vec::new());
     }
-    let mut resolved = Vec::new();
-    for artifact in split_lazy(schema) {
+    let artifacts = split_lazy(schema);
+    let cache = options.lazy_cache.0.as_ref();
+    let keys: Vec<Option<String>> = artifacts.iter().map(|a| cache.and_then(|_| lazy_cache_key(a, options, source_path))).collect();
+    let mut done: Vec<Option<ResolvedLazy>> = Vec::with_capacity(artifacts.len());
+    let mut misses = Vec::new();
+    for (i, key) in keys.iter().enumerate() {
+        let held = match (cache, key) {
+            (Some(cache), Some(key)) => cache.get(key).filter(|entry| entry.reads.is_current()),
+            _ => None,
+        };
+        match held {
+            Some(entry) => {
+                entry.reads.replay();
+                done.push(Some(entry.resolved));
+            }
+            None => {
+                done.push(None);
+                misses.push(i);
+            }
+        }
+    }
+    for (i, built, reads) in resolve_lazy_misses(&artifacts, &misses, options, inline, source_path) {
+        reads.replay();
+        let built = built?;
+        if let (Some(cache), Some(key)) = (cache, &keys[i]) {
+            cache.put(&lazy_cache_slot(&artifacts[i], source_path), key, CachedLazy { resolved: built.clone(), reads });
+        }
+        done[i] = Some(built);
+    }
+    let mut resolved = Vec::with_capacity(artifacts.len());
+    for (artifact, child) in artifacts.iter().zip(done) {
+        let child = child.expect("every lazy behavior was read from the cache or resolved");
+        record_lazy_pages(schema, artifact, &child.schema)?;
+        resolved.push(child);
+    }
+    Ok(resolved)
+}
+
+/// One lazy behavior resolved with `inline`, recording every file it read.
+fn resolve_lazy_artifact(
+    artifact: &LazyArtifact,
+    options: &CompilerOptions,
+    inline: &InlineConfig,
+    source_path: Option<&Path>,
+) -> (CompileResult<ResolvedLazy>, orbital_core_base::read_set::ReadSet) {
+    orbital_core_base::read_set::begin();
+    let built = (|| {
         let mut child = artifact.schema.clone();
         let nested = split_lazy_and_resolve_in(&mut child, options, inline, source_path)?;
         let child = resolve_schema_with_inline(child, options, inline, source_path)?;
-        record_lazy_pages(schema, &artifact, &child)?;
-        resolved.push(ResolvedLazy {
-            orbital: artifact.orbital,
-            orb_ref: artifact.orb_ref,
-            schema: child,
-            lazy: nested,
-        });
+        Ok(ResolvedLazy { orbital: artifact.orbital.clone(), orb_ref: artifact.orb_ref.clone(), schema: child, lazy: nested })
+    })();
+    (built, orbital_core_base::read_set::end())
+}
+
+/// Lazy behaviors resolved at most at once: each worker loads its own files.
+const LAZY_WORKERS: usize = 4;
+/// Inlining recurses deeply; a worker gets the stack the CLI's own workers get.
+const LAZY_WORKER_STACK: usize = 8 * 1024 * 1024;
+
+/// The lazy behaviors at `misses` resolved, each with its index and the files it read, in index order. Several run at once,
+/// in contiguous chunks that each share one inline session of their own, unless `lazy_workers` is 1 or the options
+/// cannot leave this thread; then each shares `inline`, the program's own session.
+fn resolve_lazy_misses(
+    artifacts: &[LazyArtifact],
+    misses: &[usize],
+    options: &CompilerOptions,
+    inline: &InlineConfig,
+    source_path: Option<&Path>,
+) -> Vec<(usize, CompileResult<ResolvedLazy>, orbital_core_base::read_set::ReadSet)> {
+    let limit = match options.lazy_workers {
+        0 => std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(LAZY_WORKERS),
+        n => n,
+    };
+    let workers = limit.min(misses.len());
+    let worker_options = WorkerOptions::of(options);
+    let Some(worker_options) = worker_options.filter(|_| workers > 1) else {
+        return misses
+            .iter()
+            .map(|&i| {
+                let (built, reads) = resolve_lazy_artifact(&artifacts[i], options, inline, source_path);
+                (i, built, reads)
+            })
+            .collect();
+    };
+    let chunk = misses.len().div_ceil(workers);
+    let worker_options = &worker_options;
+    let mut results: Vec<_> = std::thread::scope(|scope| {
+        let handles: Vec<_> = misses
+            .chunks(chunk)
+            .map(|indices| {
+                std::thread::Builder::new()
+                    .stack_size(LAZY_WORKER_STACK)
+                    .spawn_scoped(scope, move || {
+                        let options = worker_options.options();
+                        let inline = program_inline(&options);
+                        indices
+                            .iter()
+                            .map(|&i| {
+                                let (built, reads) = resolve_lazy_artifact(&artifacts[i], &options, &inline, source_path);
+                                (i, built, reads)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .expect("a lazy-resolve worker starts")
+            })
+            .collect();
+        handles.into_iter().flat_map(|handle| handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
+    });
+    results.sort_by_key(|(i, _, _)| *i);
+    results
+}
+
+/// The settings a worker thread resolves under: `options` without its inline session, which stays on its thread.
+struct WorkerOptions {
+    skip_validation: bool,
+    comprehensive_validation: bool,
+    enrichment: super::enrich::EnrichmentConfig,
+    loader_config: crate::loader::LoaderConfig,
+    skip_inline: bool,
+    compose: super::compose::ComposeConfig,
+    nominalize: bool,
+    service_runtimes: Option<std::collections::HashMap<String, Vec<String>>>,
+    lazy_cache: LazyCache,
+}
+
+impl WorkerOptions {
+    /// `None` when package discovery failed: that error is the caller's to report, so its resolve stays on its thread.
+    fn of(options: &CompilerOptions) -> Option<Self> {
+        if options.discovery_error.is_some() {
+            return None;
+        }
+        Some(Self {
+            skip_validation: options.skip_validation,
+            comprehensive_validation: options.comprehensive_validation,
+            enrichment: options.enrichment.clone(),
+            loader_config: options.inline.loader_config.clone(),
+            skip_inline: options.inline.skip_inline,
+            compose: options.compose.clone(),
+            nominalize: options.nominalize,
+            service_runtimes: options.service_runtimes.clone(),
+            lazy_cache: options.lazy_cache.clone(),
+        })
     }
-    Ok(resolved)
+
+    fn options(&self) -> CompilerOptions {
+        CompilerOptions {
+            skip_validation: self.skip_validation,
+            comprehensive_validation: self.comprehensive_validation,
+            enrichment: self.enrichment.clone(),
+            inline: InlineConfig { loader_config: self.loader_config.clone(), skip_inline: self.skip_inline, session: None },
+            compose: self.compose.clone(),
+            nominalize: self.nominalize,
+            discovery_error: None,
+            service_runtimes: self.service_runtimes.clone(),
+            lazy_cache: self.lazy_cache.clone(),
+            lazy_workers: 1,
+        }
+    }
 }
 
 /// [`resolve_schema_with_path`] for a schema that may `uses lazy`: the

@@ -738,6 +738,7 @@ struct InlinedImport {
     uses_config_sites: Vec<orbital::UsesConfigSite>,
     deferred_merges: Vec<DeferredMerge>,
     loaded_files: HashSet<PathBuf>,
+    reads: orbital_core_base::read_set::ReadSet,
 }
 
 type ImportMemo = HashMap<PathBuf, InlinedImport>;
@@ -2228,9 +2229,17 @@ fn inline_orbital(
                 uses_config_sites.extend(done.uses_config_sites.iter().cloned());
                 deferred_merges.extend(done.deferred_merges.iter().cloned());
                 loader.mark_loaded(&done.loaded_files);
+                done.reads.replay();
                 std::rc::Rc::clone(&done.orbitals)
             } else {
-                let loaded_import = loader.load(&use_decl.from, source_path, chain)?;
+                orbital_core_base::read_set::begin();
+                let loaded_import = match loader.load(&use_decl.from, source_path, chain) {
+                    Ok(loaded) => loaded,
+                    Err(e) => {
+                        orbital_core_base::read_set::end();
+                        return Err(e.into());
+                    }
+                };
                 let file_grants = loaded_import.schema.os_grants.clone();
                 let mut inlined_orbitals = loaded_import.schema.orbitals.clone();
                 for imported in &mut inlined_orbitals {
@@ -2304,6 +2313,7 @@ fn inline_orbital(
                     Ok(())
                 })();
                 let loaded_files = loader.end_recording();
+                let reads = orbital_core_base::read_set::end();
                 inlined?;
                 // Land the alias's own cross-orbital merges on the alias's orbitals, so a
                 // definition copied out of it (an import's clone or retarget) carries the merged
@@ -2336,6 +2346,7 @@ fn inline_orbital(
                         uses_config_sites: uses_config_sites[marks.2..].to_vec(),
                         deferred_merges: deferred_merges[marks.3..].to_vec(),
                         loaded_files,
+                        reads,
                     },
                 );
                 inlined_orbitals

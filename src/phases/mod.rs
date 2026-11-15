@@ -156,6 +156,10 @@ pub struct CompilerOptions {
     /// loaded; `None` reads the baked registry. Decides which calls run in the
     /// browser (`OirModule::browser_services`).
     pub service_runtimes: Option<std::collections::HashMap<String, Vec<String>>>,
+    /// Where resolved lazy behaviors are kept between resolves; none by default.
+    pub lazy_cache: lazy::LazyCache,
+    /// How many lazy behaviors may resolve at once: 0 lets the resolver choose, 1 resolves them one by one.
+    pub lazy_workers: usize,
 }
 
 impl CompilerOptions {
