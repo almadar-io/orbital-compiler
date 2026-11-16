@@ -75,12 +75,13 @@ fn fold_schema(
             };
             let td = Arc::make_mut(td);
             let knobs = literal_knobs(td.config.as_ref());
+            let mut answered = Vec::new();
             let mut folded: CompileResult<()> = Ok(());
             td.state_machine.edit(|machine| {
                 folded = (|| {
                     for transition in &mut machine.transitions {
                         for effect in transition.effects.iter_mut().flatten() {
-                            fold(effect, &knobs, from, described)?;
+                            fold(effect, &knobs, from, described, &mut answered)?;
                         }
                     }
                     Ok(())
@@ -89,12 +90,54 @@ fn fold_schema(
             folded?;
             for tick in td.ticks.iter_mut().flatten() {
                 for effect in &mut tick.effects {
-                    fold(effect, &knobs, from, described)?;
+                    fold(effect, &knobs, from, described, &mut answered)?;
                 }
             }
+            drop_unreachable_failures(td, &answered);
         }
     }
     Ok(())
+}
+
+/// A describe answered at build time cannot fail, so its failure route is dead: an `internal` failure event nothing
+/// left in the trait fires loses its declaration, its local listen and its arms, keeping the folded program as valid
+/// as the program written. An `external` one stays for the traits that hear it.
+fn drop_unreachable_failures(td: &mut orbital_core_base::schema::TraitDefinition, answered: &[String]) {
+    use orbital_core_base::schema::EventScope;
+    let fires = |event: &str, td: &orbital_core_base::schema::TraitDefinition| {
+        let named = |e: &SExpression| mentions(e, event);
+        td.state_machine.transitions.iter().flat_map(|t| t.effects.iter().flatten()).any(named)
+            || td.ticks.iter().flatten().flat_map(|tick| tick.effects.iter()).any(named)
+            || td.listens.iter().flat_map(|l| l.iter()).any(|l| l.source.is_some() && (l.triggers.as_deref() == Some(event) || (l.triggers.is_none() && l.event == event)))
+    };
+    let dead: Vec<&String> = answered
+        .iter()
+        .filter(|event| {
+            let internal = td.emits.iter().flat_map(|e| e.iter()).any(|e| &e.event == *event && matches!(e.scope, Some(EventScope::Internal)));
+            internal && !fires(event, td)
+        })
+        .collect();
+    if dead.is_empty() {
+        return;
+    }
+    let is_dead = |event: &str| dead.iter().any(|d| d.as_str() == event);
+    if let Some(emits) = td.emits.as_mut() {
+        emits.edit(|emits| emits.retain(|e| !is_dead(&e.event)));
+    }
+    if let Some(listens) = td.listens.as_mut() {
+        listens.edit(|listens| listens.retain(|l| l.source.is_some() || !is_dead(&l.event)));
+    }
+    td.state_machine.edit(|machine| machine.transitions.retain(|t| !is_dead(&t.event)));
+}
+
+/// Whether `expr` names `event` anywhere: an `(emit …)`, an emit route, or any other place a step could fire it from.
+fn mentions(expr: &SExpression, event: &str) -> bool {
+    match expr {
+        SExpression::String(s) => s.as_str() == event,
+        SExpression::Array(items) => items.iter().any(|e| mentions(e, event)),
+        SExpression::Object(map) => map.values().any(|e| mentions(e, event)),
+        _ => false,
+    }
 }
 
 /// A trait's config knobs whose default is a literal trait value: `@config.<knob>` names that value at build time,
@@ -114,21 +157,43 @@ fn literal_knobs(
         .collect()
 }
 
+/// Fold `expr`, recording in `failures` the failure route of every describe it answered.
 fn fold(
     expr: &mut SExpression,
     knobs: &LiteralKnobs,
     from: Option<&Path>,
     described: &mut Described,
+    failures: &mut Vec<String>,
 ) -> CompileResult<()> {
+    let failure = failure_route(expr);
     if let Some(answered) = answer(expr, knobs, from, described)? {
         *expr = answered;
+        failures.extend(failure);
         return Ok(());
     }
     match expr {
-        SExpression::Array(items) => items.iter_mut().try_for_each(|e| fold(e, knobs, from, described)),
-        SExpression::Object(map) => map.values_mut().try_for_each(|e| fold(e, knobs, from, described)),
+        SExpression::Array(items) => items.iter_mut().try_for_each(|e| fold(e, knobs, from, described, failures)),
+        SExpression::Object(map) => map.values_mut().try_for_each(|e| fold(e, knobs, from, described, failures)),
         _ => Ok(()),
     }
+}
+
+/// The failure route a `behavior/describe` declares, if `expr` is one.
+fn failure_route(expr: &SExpression) -> Option<String> {
+    let SExpression::Array(items) = expr else {
+        return None;
+    };
+    if items.first().and_then(SExpression::as_str) != Some(DESCRIBE) {
+        return None;
+    }
+    items
+        .get(2)
+        .and_then(SExpression::as_object)
+        .and_then(|o| o.get("emit"))
+        .and_then(SExpression::as_object)
+        .and_then(|e| e.get("failure"))
+        .and_then(SExpression::as_str)
+        .map(str::to_string)
 }
 
 /// The emit a literal describe folds to; `None` for anything else.
@@ -301,6 +366,75 @@ mod tests {
             answer["machine"]["stateMachine"]["transitions"][0]["guard"],
             serde_json::json!(["not", "@entity.done"])
         );
+    }
+
+    /// A trait that describes on INIT and declares both routes, like std-rasm-source; `failed` is an extra arm's effects.
+    fn routed(failure_scope: &str, extra: serde_json::Value) -> OrbitalSchema {
+        register_trait_describer(stub);
+        let lit = serde_json::json!({ "behavior": "std/std-door", "trait": "DoorLife" });
+        from_json_value(&serde_json::json!({
+            "name": "p",
+            "orbitals": [{
+                "name": "O",
+                "entity": { "name": "E", "fields": [] },
+                "traits": [{
+                    "name": "Source",
+                    "stateMachine": {
+                        "states": [{ "name": "idle", "isInitial": true }],
+                        "transitions": [
+                            { "from": "idle", "to": "idle", "event": "INIT", "effects": [describe(lit)] },
+                            { "from": "idle", "to": "idle", "event": "DESCRIBED", "effects": [] },
+                            { "from": "idle", "to": "idle", "event": "DESCRIBE_FAILED", "effects": [] },
+                            { "from": "idle", "to": "idle", "event": "RETRY", "effects": extra }
+                        ]
+                    },
+                    "emits": [
+                        { "event": "DESCRIBED", "scope": "internal" },
+                        { "event": "DESCRIBE_FAILED", "scope": failure_scope }
+                    ],
+                    "listens": [{ "event": "DESCRIBE_FAILED" }]
+                }]
+            }]
+        }))
+        .expect("program")
+    }
+
+    fn declared(schema: &OrbitalSchema) -> (Vec<String>, Vec<String>, Vec<String>) {
+        let TraitReference::Inline(td) = &schema.orbitals[0].traits[0] else {
+            panic!("inline trait")
+        };
+        (
+            td.emits.iter().flat_map(|e| e.iter()).map(|e| e.event.clone()).collect(),
+            td.listens.iter().flat_map(|l| l.iter()).map(|l| l.event.clone()).collect(),
+            td.state_machine.transitions.iter().map(|t| t.event.clone()).collect(),
+        )
+    }
+
+    #[test]
+    fn a_folded_describe_drops_the_internal_failure_route_nothing_else_fires() {
+        let mut schema = routed("internal", serde_json::json!([]));
+        fold_literal_reflection(&mut schema, None).expect("fold");
+        let (emits, listens, transitions) = declared(&schema);
+        assert_eq!(emits, vec!["DESCRIBED"], "the failure can no longer happen");
+        assert!(listens.is_empty(), "{listens:?}");
+        assert_eq!(transitions, vec!["INIT", "DESCRIBED", "RETRY"]);
+    }
+
+    #[test]
+    fn control_a_failure_route_another_step_still_fires_stays() {
+        let mut schema = routed("internal", serde_json::json!([["emit", "DESCRIBE_FAILED", { "error": "again" }]]));
+        fold_literal_reflection(&mut schema, None).expect("fold");
+        let (emits, _, transitions) = declared(&schema);
+        assert_eq!(emits, vec!["DESCRIBED", "DESCRIBE_FAILED"]);
+        assert!(transitions.contains(&"DESCRIBE_FAILED".to_string()));
+    }
+
+    #[test]
+    fn edge_an_external_failure_route_stays_for_the_traits_that_hear_it() {
+        let mut schema = routed("external", serde_json::json!([]));
+        fold_literal_reflection(&mut schema, None).expect("fold");
+        let (emits, _, _) = declared(&schema);
+        assert_eq!(emits, vec!["DESCRIBED", "DESCRIBE_FAILED"]);
     }
 
     #[test]
