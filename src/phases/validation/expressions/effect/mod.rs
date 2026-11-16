@@ -713,14 +713,14 @@ fn optional_payload_fields(
         .iter()
         .flatten()
         .find(|e| e.key == event)
-        .and_then(|e| e.payload_schema.as_deref());
+        .and_then(|e| e.payload_schema.as_deref().map(Vec::as_slice));
     let emitted = || {
         trait_def
             .emits
             .iter()
             .flatten()
             .find(|e| e.event == event)
-            .and_then(|e| e.payload_schema.as_deref())
+            .and_then(|e| e.payload_schema.as_deref().map(Vec::as_slice))
     };
     inbound
         .or_else(emitted)

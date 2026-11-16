@@ -268,7 +268,7 @@ fn emit_value_type(trait_def: &TraitDefinition) -> String {
         .as_ref()
         .and_then(|e| e.first())
         .expect("expected one emit");
-    value_field_type(emit.payload_schema.as_ref())
+    value_field_type(emit.payload_schema.as_deref())
 }
 
 /// The `value` field's declared type off the trait's FIRST
@@ -282,7 +282,7 @@ fn event_value_type(trait_def: &TraitDefinition) -> String {
         .flatten()
         .find(|e| e.payload_schema.is_some())
         .expect("expected one event with a payloadSchema");
-    value_field_type(ev.payload_schema.as_ref())
+    value_field_type(ev.payload_schema.as_deref())
 }
 
 fn value_field_type(schema: Option<&Vec<PayloadField>>) -> String {

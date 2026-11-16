@@ -793,7 +793,7 @@ mod tests {
                 collection: None,
                 persistence: None,
                 instances: None,
-                fields: vec![FieldDefinition {
+                fields: (vec![FieldDefinition {
                     nullable: None,
                     additional_properties: None,
                     mock: None,
@@ -815,7 +815,7 @@ mod tests {
                     record: None,
                     derived: None,
                     update: None,
-                }],
+                }]).into(),
                 id: None,
                 invariants: None,
                 indexes: None,
@@ -892,7 +892,7 @@ mod tests {
                 collection: None,
                 persistence: None,
                 instances: None,
-                fields: vec![FieldDefinition {
+                fields: (vec![FieldDefinition {
                     nullable: None,
                     additional_properties: None,
                     mock: None,
@@ -914,7 +914,7 @@ mod tests {
                     record: None,
                     derived: None,
                     update: None,
-                }],
+                }]).into(),
                 id: None,
                 invariants: None,
                 indexes: None,

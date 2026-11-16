@@ -510,7 +510,7 @@ mod tests {
                     name: "Article".to_string(),
                     collection: None,
                     persistence: None,
-                    fields: vec![],
+                    fields: (vec![]).into(),
                     instances: None,
                     id: None,
                     invariants: None,

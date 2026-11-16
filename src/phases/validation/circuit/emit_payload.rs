@@ -59,7 +59,7 @@ pub fn validate_all_emit_payloads(schema: &OrbitalSchema, ctx: &mut ValidationCo
                 .map(Vec::as_slice)
                 .unwrap_or(&[])
                 .iter()
-                .map(|e| (e.event.as_str(), e.payload_schema.as_deref().unwrap_or(&[])))
+                .map(|e| (e.event.as_str(), e.payload_schema.as_deref().map(Vec::as_slice).unwrap_or(&[])))
                 .collect();
             let trait_path = super::trait_path(oi, &orbital.name, ti, trait_ref);
 
@@ -2494,9 +2494,9 @@ mod tests {
 
     fn item(name: &str, nested: Vec<PayloadField>, open: bool) -> PayloadField {
         let mut list = produced_shape::scalar_field(name, "array");
-        list.properties = Some(nested);
+        list.properties = Some(nested.into());
         if open {
-            list.additional_properties = Some(Box::new(produced_shape::scalar_field("", "any")));
+            list.additional_properties = Some(orbital_core_base::value::Shared::new(produced_shape::scalar_field("", "any")));
         }
         list
     }

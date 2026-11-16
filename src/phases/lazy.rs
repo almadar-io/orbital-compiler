@@ -32,6 +32,9 @@ pub struct ResolvedLazy {
     pub orb_ref: String,
     pub schema: OrbitalSchema,
     pub lazy: Vec<ResolvedLazy>,
+    /// The key this behavior is stored under in the options' `LazyResolveCache`, when there is one; never written.
+    #[serde(skip)]
+    pub cache_key: Option<String>,
 }
 
 /// One lazily-used behavior resolved, with every file its resolution read: reused while each is as it was read.
@@ -294,7 +297,9 @@ fn split_lazy_and_resolve_in(
         match held {
             Some(entry) => {
                 entry.reads.replay();
-                done.push(Some(entry.resolved));
+                let mut resolved = entry.resolved;
+                resolved.cache_key = key.clone();
+                done.push(Some(resolved));
             }
             None => {
                 done.push(None);
@@ -304,9 +309,10 @@ fn split_lazy_and_resolve_in(
     }
     for (i, built, reads) in resolve_lazy_misses(&artifacts, &misses, options, inline, source_path) {
         reads.replay();
-        let built = built?;
+        let mut built = built?;
         if let (Some(cache), Some(key)) = (cache, &keys[i]) {
             cache.put(&lazy_cache_slot(&artifacts[i], source_path), key, CachedLazy { resolved: built.clone(), reads });
+            built.cache_key = Some(key.clone());
         }
         done[i] = Some(built);
     }
@@ -331,7 +337,7 @@ fn resolve_lazy_artifact(
         let mut child = artifact.schema.clone();
         let nested = split_lazy_and_resolve_in(&mut child, options, inline, source_path)?;
         let child = resolve_schema_with_inline(child, options, inline, source_path)?;
-        Ok(ResolvedLazy { orbital: artifact.orbital.clone(), orb_ref: artifact.orb_ref.clone(), schema: child, lazy: nested })
+        Ok(ResolvedLazy { orbital: artifact.orbital.clone(), orb_ref: artifact.orb_ref.clone(), schema: child, lazy: nested, cache_key: None })
     })();
     (built, orbital_core_base::read_set::end())
 }

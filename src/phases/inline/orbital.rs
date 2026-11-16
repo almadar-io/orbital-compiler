@@ -1127,7 +1127,7 @@ pub(crate) fn resolve_orbital_reference(
             if let (true, Some(def)) = (mapped, def) {
                 let mut imported = def.clone();
                 if let Some(pool) = upstream_universe_fields.get(up_name) {
-                    imported.fields = pool.clone();
+                    imported.fields = (pool.clone()).into();
                 }
                 let used: HashSet<String> = kept
                     .iter()
@@ -2581,7 +2581,7 @@ fn rename_relation_targets_in_fields(
         }
         if let Some(items) = f.items.as_mut() {
             rename_relation_targets_in_fields(
-                std::slice::from_mut(items.as_mut()),
+                std::slice::from_mut(&mut **items),
                 entity_subs,
                 entity_ids,
             );
@@ -2677,7 +2677,7 @@ fn collect_relation_targets_referenced(
         }
         if let Some(items) = f.items.as_ref() {
             collect_relation_targets_referenced(
-                std::slice::from_ref(items.as_ref()),
+                std::slice::from_ref(&**items),
                 site,
                 upstream_universe,
                 referenced,

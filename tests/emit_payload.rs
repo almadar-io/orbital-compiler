@@ -61,7 +61,7 @@ fn declared_emit_with_payload(event: &str, fields: Vec<PayloadField>) -> EmitDef
         synonyms: None,
         tier: None,
         scope: Some(EventScope::Internal),
-        payload_schema: Some(fields),
+        payload_schema: Some(fields.into()),
         event_id: None,
         payload_entity: None,
     }
@@ -87,7 +87,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         name: "Task".to_string(),
         collection: Some("tasks".to_string()),
         persistence: None,
-        fields: vec![FieldDefinition {
+        fields: (vec![FieldDefinition {
             nullable: None,
             additional_properties: None,
             mock: None,
@@ -109,7 +109,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
             record: None,
             derived: None,
             update: None,
-        }],
+        }]).into(),
         instances: None,
         id: None,
         invariants: None,

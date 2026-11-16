@@ -260,13 +260,13 @@ fn object_payload_fields(
             let (field_type, properties, open) = field_shape(ty, entity);
             PayloadField {
                 nullable: None,
-                additional_properties: open.then(|| Box::new(scalar_field("", "any"))),
+                additional_properties: open.then(|| orbital_core_base::value::Shared::new(scalar_field("", "any"))),
                 values: None,
                 name: name.clone(),
                 field_type,
                 required: None,
                 description: None,
-                properties,
+                properties: properties.map(Into::into),
                 type_when: None,
                 entity: None,
                 projected_from: None,
@@ -363,10 +363,10 @@ fn shape_fields(shape: &[ShapeField]) -> Vec<PayloadField> {
                 field.required = Some(true);
             }
             if !f.fields.is_empty() {
-                field.properties = Some(shape_fields(f.fields));
+                field.properties = Some(shape_fields(f.fields).into());
             }
             if f.open {
-                field.additional_properties = Some(Box::new(scalar_field("", "any")));
+                field.additional_properties = Some(orbital_core_base::value::Shared::new(scalar_field("", "any")));
             }
             field
         })
@@ -538,13 +538,13 @@ fn program_result_payload(
     };
     let mut fields = vec![PayloadField {
         nullable: None,
-        additional_properties: open.then(|| Box::new(scalar_field("", "any"))),
+        additional_properties: open.then(|| orbital_core_base::value::Shared::new(scalar_field("", "any"))),
         values: None,
         name: "result".to_string(),
         field_type,
         required: None,
         description: None,
-        properties,
+        properties: properties.map(Into::into),
         type_when: None,
         entity: None,
         projected_from: None,

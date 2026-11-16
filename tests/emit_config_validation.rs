@@ -63,7 +63,7 @@ fn schema_with_effects(
         name: "Patient".to_string(),
         collection: Some("patients".to_string()),
         persistence: None,
-        fields: vec![FieldDefinition {
+        fields: (vec![FieldDefinition {
             nullable: None,
             additional_properties: None,
             mock: None,
@@ -85,7 +85,7 @@ fn schema_with_effects(
             record: None,
             derived: None,
             update: None,
-        }],
+        }]).into(),
         instances: None,
         id: None,
         invariants: None,

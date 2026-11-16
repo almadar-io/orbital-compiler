@@ -60,7 +60,7 @@ fn apply_overrides_to_entity(entity_def: &mut EntityDefinition, extends: &Entity
         for f in extra_fields {
             merged.push(f.clone());
         }
-        entity_def.fields = merged;
+        entity_def.fields = merged.into();
     }
 }
 
@@ -709,7 +709,7 @@ mod render_ui_pattern_contract_reference_tests {
             collection: None,
             persistence: Some(Persistence::Persistent),
             instances: None,
-            fields: vec![FieldDefinition {
+            fields: (vec![FieldDefinition {
                 nullable: None,
                 additional_properties: None,
                 mock: None,
@@ -731,7 +731,7 @@ mod render_ui_pattern_contract_reference_tests {
                 record: None,
                 derived: None,
                 update: None,
-            }],
+            }]).into(),
             id: None,
             invariants: None,
             indexes: None,

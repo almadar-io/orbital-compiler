@@ -32,7 +32,7 @@ pub fn validate_all_sexprs(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
     let entity_names = ctx.entity_names.clone();
     for (oi, orbital) in schema.orbitals.iter().enumerate() {
         let fields = match &orbital.entity {
-            EntityRef::Inline(ed) => Some(&ed.fields),
+            EntityRef::Inline(ed) => Some(&*ed.fields),
             EntityRef::Extends(ere) => ere.fields.as_ref(),
             EntityRef::Reference(_) => None,
         };

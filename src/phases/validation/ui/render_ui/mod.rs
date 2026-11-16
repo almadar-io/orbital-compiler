@@ -834,7 +834,7 @@ mod tests {
                 delete_policy: None,
                 access_waivers: None,
                 name: "Company".to_string(),
-                fields: vec![FieldDefinition {
+                fields: (vec![FieldDefinition {
                     nullable: None,
                     additional_properties: None,
                     mock: None,
@@ -856,7 +856,7 @@ mod tests {
                     record: None,
                     derived: None,
                     update: None,
-                }],
+                }]).into(),
                 collection: Some("companies".to_string()),
                 persistence: None,
                 instances: None,
@@ -886,7 +886,7 @@ mod tests {
                 delete_policy: None,
                 access_waivers: None,
                 name: "Inspection".to_string(),
-                fields: vec![
+                fields: (vec![
                     FieldDefinition {
                         nullable: None,
                         additional_properties: None,
@@ -939,7 +939,7 @@ mod tests {
                         derived: None,
                         update: None,
                     },
-                ],
+                ]).into(),
                 collection: Some("inspections".to_string()),
                 persistence: None,
                 instances: None,

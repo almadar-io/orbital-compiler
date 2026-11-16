@@ -72,7 +72,7 @@ mod tests {
             field_type: field_type.to_string(),
             required: None,
             description: None,
-            properties,
+            properties: properties.map(Into::into),
             type_when: None,
             entity: None,
             projected_from: None,

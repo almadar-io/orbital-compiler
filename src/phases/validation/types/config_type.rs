@@ -281,7 +281,7 @@ fn check_event_address_args(
 /// against.
 pub(crate) struct EventRefIndex {
     inputs_by_trait: HashMap<(String, String), Vec<String>>,
-    payloads: HashMap<String, Vec<PayloadField>>,
+    payloads: HashMap<String, orbital_core_base::value::Shared<Vec<PayloadField>>>,
 }
 
 impl EventRefIndex {
@@ -306,7 +306,7 @@ impl EventRefIndex {
     }
 
     fn payload_of(&self, event: &str) -> Option<&[PayloadField]> {
-        self.payloads.get(event).map(Vec::as_slice)
+        self.payloads.get(event).map(|fields| fields.as_slice())
     }
 
     /// Resolve `value` from a knob owned by `owner_orbital`: the addressed trait
@@ -1080,7 +1080,7 @@ fn check_field_ref_knob(
                     knob,
                     vec![(at, name)],
                     def.record.as_deref(),
-                    def.properties.as_ref(),
+                    def.properties.as_deref(),
                     def.items.as_deref(),
                     bctx,
                 ));
@@ -1092,15 +1092,15 @@ fn check_field_ref_knob(
         let item = field.items.as_deref();
         (
             item.and_then(|i| i.record.as_deref()),
-            item.and_then(|i| i.properties.as_ref()),
+            item.and_then(|i| i.properties.as_deref()),
             item.and_then(|i| i.items.as_deref()),
         )
     } else {
-        (
+        ((
             field.record.as_deref(),
-            field.properties.as_ref(),
+            field.properties.as_deref(),
             field.items.as_deref(),
-        )
+        )).into()
     };
     result.merge(check_field_ref_names(knob, named, record, properties, element, bctx));
     result
@@ -1425,7 +1425,7 @@ fn check_config_default_shape(
     }
     // Tuple slot — `field_type` is `[T1, T2, …]`; the slots ride `properties` by index.
     if orbital_core_base::type_compat::tuple_type_slots(&field.field_type).is_some() {
-        let slots = orbital_core_base::schema::tuple_slots_of(field.properties.as_ref());
+        let slots = orbital_core_base::schema::tuple_slots_of(field.properties.as_deref());
         return check_tuple_shape(
             &slots,
             default,
@@ -1470,7 +1470,7 @@ fn check_config_default_shape(
         }
         return result;
     }
-    if let Some(arms) = union_arms(field.values.as_ref(), field.properties.as_ref()).filter(|_| field.union == Some(true)) {
+    if let Some(arms) = union_arms(field.values.as_ref(), field.properties.as_deref()).filter(|_| field.union == Some(true)) {
         if let SExpression::String(s) = default {
             if !s.starts_with('@') && !arms.iter().any(|(_, def)| def.field_type == FieldType::String) {
                 result.add_error(ValidationError::error(
@@ -1559,7 +1559,7 @@ fn check_config_default_shape(
                 values: None,
                 relation: None,
                 items: None,
-                properties: Some(props.clone()),
+                properties: Some((props.clone()).into()),
                 intrinsic: None,
                 description: None,
                 synonyms: None,
@@ -2023,7 +2023,7 @@ pub(crate) fn check_field_def_shape(
         _ => {
             // Primitive leaf — enum first (closed-string union), then
             // structural type.
-            if let (Some(arms), SExpression::String(s)) = (union_arms(schema.values.as_ref(), schema.properties.as_ref()), value) {
+            if let (Some(arms), SExpression::String(s)) = (union_arms(schema.values.as_ref(), schema.properties.as_deref()), value) {
                 if !s.starts_with('@') && !arms.iter().any(|(_, def)| def.field_type == FieldType::String) {
                     result.add_error(ValidationError::error(
                         ErrorCode::TraitConfigShapeMismatch,
@@ -3279,7 +3279,7 @@ mod recursive_type_literal_tests {
             default: None,
             values: None,
             relation: None,
-            items: Some(Box::new(back_ref)),
+            items: Some(orbital_core_base::value::Shared::new(back_ref)),
             properties: None,
             intrinsic: None,
             description: None,
@@ -3329,7 +3329,7 @@ mod recursive_type_literal_tests {
             values: None,
             relation: None,
             items: None,
-            properties: Some(props),
+            properties: Some(props.into()),
             intrinsic: None,
             description: None,
             synonyms: None,
@@ -3349,7 +3349,7 @@ mod recursive_type_literal_tests {
             tier: None,
             values: None,
             union: None,
-            items: Some(Box::new(menu_item)),
+            items: Some(orbital_core_base::value::Shared::new(menu_item)),
             properties: None,
             required: None,
             ref_id: None,
@@ -3476,7 +3476,7 @@ mod required_member_tests {
             values: None,
             relation: None,
             items: None,
-            properties: Some(props),
+            properties: Some(props.into()),
             intrinsic: None,
             description: None,
             synonyms: None,

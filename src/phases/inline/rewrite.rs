@@ -51,7 +51,7 @@ pub(crate) fn map_event_typed_members(
     f: &mut dyn FnMut(&str) -> Option<String>,
 ) -> bool {
     let properties = items
-        .and_then(|schema| schema.properties.as_ref())
+        .and_then(|schema| schema.properties.as_deref())
         .or(properties);
     match value {
         SExpression::Array(entries) => {
@@ -111,7 +111,7 @@ pub(crate) fn map_event_typed_members(
                         touched |= map_event_typed_members(
                             nested,
                             decl.items.as_deref(),
-                            decl.properties.as_ref(),
+                            decl.properties.as_deref(),
                             f,
                         );
                     }
@@ -144,7 +144,7 @@ pub(crate) fn map_effect_event_addresses(td: &mut TraitDefinition, f: &mut Addre
     let Some(emits) = td.emits.as_ref() else {
         return;
     };
-    let schemas: HashMap<String, Vec<PayloadField>> = emits
+    let schemas: HashMap<String, orbital_core_base::value::Shared<Vec<PayloadField>>> = emits
         .iter()
         .filter_map(|e| Some((e.event.clone(), e.payload_schema.clone()?)))
         .collect();
@@ -175,7 +175,7 @@ pub(crate) fn map_effect_event_addresses(td: &mut TraitDefinition, f: &mut Addre
 
 fn map_emitted_addresses(
     expr: &mut SExpression,
-    schemas: &HashMap<String, Vec<PayloadField>>,
+    schemas: &HashMap<String, orbital_core_base::value::Shared<Vec<PayloadField>>>,
     on_value: &mut dyn FnMut(&str) -> Option<String>,
 ) {
     let SExpression::Array(items) = expr else {
@@ -295,7 +295,7 @@ pub(crate) fn map_fields_event_values(
                 map_event_typed_members(
                     default,
                     items.as_deref(),
-                    properties.as_ref(),
+                    properties.as_deref(),
                     &mut *on_value,
                 );
             }
@@ -2971,7 +2971,7 @@ fn rewrite_recorded_shapes(
 /// Whole-payload provenance resolves concrete, implicit and explicit generic bindings here.
 fn resolve_payload_entity_schema(
     payload_entity: &mut Option<String>,
-    payload_schema: &mut Option<Vec<PayloadField>>,
+    payload_schema: &mut Option<orbital_core_base::value::Shared<Vec<PayloadField>>>,
     entities_by_name: &HashMap<String, EntityDefinition>,
     entity_def: Option<&EntityDefinition>,
     subs: &HashMap<String, ParamSub>,
@@ -3029,7 +3029,7 @@ fn resolve_payload_entity_schema(
             field
         })
         .collect();
-    *payload_schema = Some(fields);
+    *payload_schema = Some(fields.into());
     true
 }
 
@@ -3082,7 +3082,7 @@ fn resolve_config_sentinel(
     }
     if is_array {
         knob.field_type = format!("[{tag}]");
-        knob.items = shape.map(Box::new);
+        knob.items = shape.map(orbital_core_base::value::Shared::new);
         knob.properties = None;
         knob.additional_properties = None;
     } else {
@@ -3263,7 +3263,7 @@ fn resolve_sentinel_fields(
                 } else {
                     "object".to_string()
                 };
-                field.properties = Some(entity_fields_to_payload_fields(entity));
+                field.properties = Some(entity_fields_to_payload_fields(entity).into());
                 // B4-V4: `PayloadField.entity` (B4-C's "the declared entity
                 // this field's value IS an instance of") must be stamped
                 // here too, exactly like the lowering-time literal `row :
@@ -3313,7 +3313,7 @@ fn resolve_sentinel_fields(
                         } else {
                             "object".to_string()
                         };
-                        field.properties = Some(entity_fields_to_payload_fields(entity));
+                        field.properties = Some(entity_fields_to_payload_fields(entity).into());
                         // Same class as the `@entity` self-ref stamp above —
                         // an Entity-kind type-param substitution flattens to
                         // `object`/`[object]` too and needs the SAME marker.
@@ -3333,7 +3333,7 @@ fn resolve_sentinel_fields(
                             field.properties = None;
                             field.additional_properties = None;
                             bound.name.clear();
-                            field.items = Some(Box::new(bound));
+                            field.items = Some(orbital_core_base::value::Shared::new(bound));
                         } else {
                             field.field_type = bound.field_type;
                             field.nullable = compose_nullability(field.nullable, bound.nullable);
@@ -3371,7 +3371,7 @@ fn resolve_sentinel_fields(
                 } else {
                     "object".to_string()
                 };
-                field.properties = Some(entity_fields_to_payload_fields(entity));
+                field.properties = Some(entity_fields_to_payload_fields(entity).into());
                 field.entity = Some(entity.name.clone());
                 field.items = None;
                 changed = true;
@@ -5644,7 +5644,7 @@ mod payload_entity_marker_tests {
         let mut entities = HashMap::new();
         entities.insert("Message".to_string(), message.clone());
         resolve_type_param_sentinels(&mut td, None, &entities, &BTreeMap::new());
-        let fields: Vec<PayloadField> = td.emits.as_ref().expect("emits carried")[0]
+        let fields: orbital_core_base::value::Shared<Vec<PayloadField>> = td.emits.as_ref().expect("emits carried")[0]
             .payload_schema
             .clone()
             .expect("payloadSchema carried");

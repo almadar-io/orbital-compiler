@@ -23,7 +23,7 @@ pub fn expected_types(schema: &OrbitalSchema) -> BTreeMap<String, String> {
                 .emits
                 .iter()
                 .flat_map(|emits| emits.iter())
-                .filter_map(|e| e.payload_schema.as_deref().map(|p| (e.event.as_str(), p)))
+                .filter_map(|e| e.payload_schema.as_deref().map(|p| (e.event.as_str(), p.as_slice())))
                 .collect();
             let entity = trait_def.linked_entity.as_deref().and_then(|name| {
                 std::iter::once(&orbital.entity)
@@ -176,10 +176,10 @@ impl Walker<'_> {
                 let keys: Vec<(String, &SExpression)> = literal.iter().map(|(k, v)| (k.to_string(), v)).collect();
                 match members {
                     [union] if union.name.is_empty() && union.field_type == "union" => {
-                        let arms = union.properties.as_deref().unwrap_or_default();
-                        if let Some(arm) = arms.iter().find(|arm| fits(&keys, arm.properties.as_deref().unwrap_or_default())) {
+                        let arms = union.properties.as_deref().map(Vec::as_slice).unwrap_or_default();
+                        if let Some(arm) = arms.iter().find(|arm| fits(&keys, arm.properties.as_deref().map(Vec::as_slice).unwrap_or_default())) {
                             out.insert(path.to_string(), format!("{name}.{}", arm.name));
-                            self.members(keys.into_iter(), arm.properties.as_deref().unwrap_or_default(), Some(&arm.name), path, out);
+                            self.members(keys.into_iter(), arm.properties.as_deref().map(Vec::as_slice).unwrap_or_default(), Some(&arm.name), path, out);
                         } else {
                             self.members(keys.into_iter(), &[], None, path, out);
                         }

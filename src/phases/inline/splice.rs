@@ -657,7 +657,7 @@ mod tests {
             synonyms: None,
             tier: None,
             scope: None,
-            payload_schema: Some(vec![PayloadField {
+            payload_schema: Some((vec![PayloadField {
                 nullable: None,
                 additional_properties: None,
                 values: None,
@@ -671,7 +671,7 @@ mod tests {
                 projected_from: None,
                 items: None,
                 relation: None,
-            }]),
+            }]).into()),
             event_id: None,
             payload_entity: None,
         }
@@ -709,7 +709,7 @@ mod tests {
                 name: "Item".to_string(),
                 collection: None,
                 persistence: None,
-                fields: vec![],
+                fields: (vec![]).into(),
                 instances: None,
                 id: None,
                 invariants: None,

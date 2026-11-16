@@ -512,7 +512,7 @@ mod tests {
             id: None,
             collection: None,
             persistence: None,
-            fields: Vec::new(),
+            fields: Vec::new().into(),
             instances: None,
             shared: false,
             identity: false,

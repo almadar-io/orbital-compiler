@@ -418,6 +418,7 @@ mod tests {
             orb_ref: "child".to_string(),
             schema: program(serde_json::json!([describe(lit)])),
             lazy: Vec::new(),
+            cache_key: None,
         }];
         fold_program(&mut root, &mut lazy, None).expect("fold");
         assert_eq!(calls_for("DescribedAcrossLazy"), 1);

@@ -75,7 +75,7 @@ pub(super) fn validate_all_render_ui_bindings(schema: &OrbitalSchema, ctx: &mut 
             // declares it, `event_payload` stays None and `@payload.X`
             // resolutions return Unknown — the L2 rule then skips
             // rather than emit a false positive.
-            let event_payloads: HashMap<String, Vec<PayloadField>> =
+            let event_payloads: HashMap<String, orbital_core_base::value::Shared<Vec<PayloadField>>> =
                 collect_trait_event_payloads(trait_def);
 
             for (i, transition) in trait_def.state_machine.transitions.iter().enumerate() {
@@ -116,8 +116,8 @@ pub(super) fn validate_all_render_ui_bindings(schema: &OrbitalSchema, ctx: &mut 
 /// IR type (they have `payload_mapping` for cross-event field rewires
 /// only); the canonical payload contract lives on the matching events
 /// declaration.
-fn collect_trait_event_payloads(trait_def: &TraitDefinition) -> HashMap<String, Vec<PayloadField>> {
-    let mut map: HashMap<String, Vec<PayloadField>> = HashMap::new();
+fn collect_trait_event_payloads(trait_def: &TraitDefinition) -> HashMap<String, orbital_core_base::value::Shared<Vec<PayloadField>>> {
+    let mut map: HashMap<String, orbital_core_base::value::Shared<Vec<PayloadField>>> = HashMap::new();
     if let Some(events) = &trait_def.state_machine.events {
         for evt in events {
             if let Some(payload) = &evt.payload_schema {
@@ -501,7 +501,7 @@ fn check_event_binding_payload(
     // first (the canonical declaration site for produced events); the
     // event must be declared somewhere on the trait or its parent for
     // the comparison to make sense.
-    let declared_payload: Option<Vec<orbital_core_base::schema::PayloadField>> = bctx
+    let declared_payload: Option<orbital_core_base::value::Shared<Vec<orbital_core_base::schema::PayloadField>>> = bctx
         .trait_def
         .emits
         .as_deref()

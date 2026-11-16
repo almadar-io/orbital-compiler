@@ -933,7 +933,7 @@ impl<'a> Resolver<'a> {
     ) -> Result<OirType, ResolveError> {
         // Tuple slot: `[T1, T2, …]` with each slot's shape riding `properties` by index.
         if orbital_core_base::type_compat::tuple_type_slots(&field.field_type).is_some() {
-            let slots = orbital_core_base::schema::tuple_slots_of(field.properties.as_ref());
+            let slots = orbital_core_base::schema::tuple_slots_of(field.properties.as_deref());
             if !slots.is_empty() {
                 return Ok(OirType::Tuple {
                     items: slots
@@ -978,7 +978,7 @@ impl<'a> Resolver<'a> {
             return Ok(OirType::FieldRef {
                 record: Box::new(orbital_core_base::ir::types::record_shape(
                     field.record.as_deref(),
-                    field.properties.as_ref(),
+                    field.properties.as_deref(),
                 )?),
                 value: field
                     .items
@@ -2136,11 +2136,11 @@ mod tests {
             field_type: "union".to_string(),
             required: Some(true),
             description: None,
-            properties: Some(vec![
+            properties: Some((vec![
                 variant("string", "string"),
                 variant("number", "number"),
                 variant("array", "[string]"),
-            ]),
+            ]).into()),
             type_when: None,
             entity: None,
             projected_from: None,
@@ -2215,7 +2215,7 @@ mod tests {
             field_type: "object".to_string(),
             required: Some(true),
             description: None,
-            properties: Some(vec![orbital_core_base::schema::PayloadField {
+            properties: Some((vec![orbital_core_base::schema::PayloadField {
                 nullable: None,
                 additional_properties: None,
                 values: None,
@@ -2229,7 +2229,7 @@ mod tests {
                 projected_from: None,
                 items: None,
                 relation: None,
-            }]),
+            }]).into()),
             type_when: None,
             entity: None,
             projected_from: None,
@@ -2307,7 +2307,7 @@ mod tests {
             field_type: "[object]".to_string(),
             required: None,
             description: None,
-            properties: Some(vec![orbital_core_base::schema::PayloadField {
+            properties: Some((vec![orbital_core_base::schema::PayloadField {
                 nullable: None,
                 additional_properties: None,
                 values: None,
@@ -2321,7 +2321,7 @@ mod tests {
                 projected_from: None,
                 items: None,
                 relation: None,
-            }]),
+            }]).into()),
             type_when: None,
             entity: Some("Note".to_string()),
             projected_from: None,
@@ -2365,7 +2365,7 @@ mod tests {
             field_type: "[object]".to_string(),
             required: None,
             description: None,
-            properties: Some(vec![orbital_core_base::schema::PayloadField {
+            properties: Some((vec![orbital_core_base::schema::PayloadField {
                 nullable: None,
                 additional_properties: None,
                 values: None,
@@ -2379,7 +2379,7 @@ mod tests {
                 projected_from: None,
                 items: None,
                 relation: None,
-            }]),
+            }]).into()),
             type_when: None,
             entity: Some("Ghost".to_string()),
             projected_from: None,
@@ -2425,7 +2425,7 @@ mod tests {
             field_type: "[MenuItem]".to_string(),
             required: None,
             description: None,
-            properties: Some(vec![]), // the back-reference marker
+            properties: Some((vec![]).into()), // the back-reference marker
             type_when: None,
             entity: None,
             projected_from: None,
@@ -2440,7 +2440,7 @@ mod tests {
             field_type: "object".to_string(),
             required: Some(true),
             description: None,
-            properties: Some(vec![
+            properties: Some((vec![
                 orbital_core_base::schema::PayloadField {
                     nullable: None,
                     additional_properties: None,
@@ -2457,7 +2457,7 @@ mod tests {
                     relation: None,
                 },
                 sub_menu_backref,
-            ]),
+            ]).into()),
             type_when: None,
             entity: None,
             projected_from: None,

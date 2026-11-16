@@ -102,7 +102,7 @@ pub(crate) fn identity_type(
         description: None,
         visual_prompt: None,
         asset_ref: None,
-        fields: roster.or(expected).unwrap_or_default(),
+        fields: roster.or(expected.map(Into::into)).unwrap_or_default(),
         ..default_identity_shape()
     };
     let fields = with_viewer(&row).fields;

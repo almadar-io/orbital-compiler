@@ -50,7 +50,7 @@ fn emit_def(event: &str, fields: Vec<PayloadField>) -> EmitDefinition {
         payload_schema: if fields.is_empty() {
             None
         } else {
-            Some(fields)
+            Some(fields.into())
         },
         event_id: None,
         payload_entity: None,
@@ -77,7 +77,7 @@ fn task_entity() -> EntityDefinition {
         name: "Task".to_string(),
         collection: Some("tasks".to_string()),
         persistence: None,
-        fields: vec![FieldDefinition {
+        fields: (vec![FieldDefinition {
             nullable: None,
             additional_properties: None,
             mock: None,
@@ -99,7 +99,7 @@ fn task_entity() -> EntityDefinition {
             record: None,
             derived: None,
             update: None,
-        }],
+        }]).into(),
         instances: None,
         id: None,
         invariants: None,

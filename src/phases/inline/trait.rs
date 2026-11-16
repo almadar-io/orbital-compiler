@@ -829,7 +829,7 @@ fn finalize_payload_type_conditionals(trait_def: &mut TraitDefinition) -> bool {
 /// `apply_payload_type_conditionals` pass) has landed — this IS the point
 /// that finalizes and clears every trait's `type_when`, gated trait or not.
 pub(crate) fn rewrite_narrowed_number_display_writes(schema: &mut OrbitalSchema) {
-    let mut entities: HashMap<String, Vec<orbital_core_base::schema::FieldDefinition>> =
+    let mut entities: HashMap<String, orbital_core_base::value::Shared<Vec<orbital_core_base::schema::FieldDefinition>>> =
         HashMap::new();
     for orbital in &schema.orbitals {
         if let EntityRef::Inline(def) = &orbital.entity {
@@ -3011,7 +3011,7 @@ fn local_payload_fields_for_knob(trait_def: &TraitDefinition, knob: &str) -> Has
         .map(|events| {
             events
                 .iter()
-                .filter_map(|e| e.payload_schema.as_ref().map(|p| (e.key.as_str(), p)))
+                .filter_map(|e| e.payload_schema.as_deref().map(|p| (e.key.as_str(), p)))
                 .collect()
         })
         .unwrap_or_default();
@@ -3137,7 +3137,7 @@ mod entity_id_reader_tests {
                 description: None,
                 synonyms: None,
                 tier: None,
-                payload_schema: Some(vec![payload_field(f)]),
+                payload_schema: Some((vec![payload_field(f)]).into()),
                 payload_entity: None,
                 input: None,
                 listened: None,

@@ -62,8 +62,8 @@ fn parse_sigil(field_type: &str) -> Option<Sigil<'_>> {
 /// `ORB_X_CROSS_EMITTER_DECLARED_PAYLOAD_MISMATCH` therefore resolves to the
 /// one true shape, and a schema that is not is exactly where the choice would
 /// have been ambiguous.
-pub(crate) fn build_payload_index(schema: &OrbitalSchema) -> HashMap<String, Vec<PayloadField>> {
-    let mut idx: HashMap<String, Vec<PayloadField>> = HashMap::new();
+pub(crate) fn build_payload_index(schema: &OrbitalSchema) -> HashMap<String, orbital_core_base::value::Shared<Vec<PayloadField>>> {
+    let mut idx: HashMap<String, orbital_core_base::value::Shared<Vec<PayloadField>>> = HashMap::new();
     for orbital in &schema.orbitals {
         for trait_ref in &orbital.traits {
             let TraitReference::Inline(td) = trait_ref else {
@@ -99,7 +99,7 @@ pub(crate) fn field_of(p: &PayloadField) -> FieldDefinition {
             .additional_properties
             .as_deref()
             .map(field_of)
-            .map(Box::new),
+            .map(orbital_core_base::value::Shared::new),
         mock: None,
         merged_from: None,
         name: Some(p.name.clone()),
@@ -137,13 +137,13 @@ pub(crate) fn field_of(p: &PayloadField) -> FieldDefinition {
                     })
                 })
             })
-            .map(Box::new),
+            .map(orbital_core_base::value::Shared::new),
         properties: if element.is_some() {
             None
         } else {
-            p.properties
+            (p.properties
                 .as_ref()
-                .map(|nested| keyed(nested.iter().map(field_of).collect()))
+                .map(|nested| keyed(nested.iter().map(field_of).collect()))).map(Into::into)
         },
         intrinsic: None,
         description: p.description.clone(),
@@ -196,8 +196,8 @@ pub(crate) fn name_knob_records(def: &mut FieldDefinition, named: &dyn Fn(&Optio
 pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
     let payloads = build_payload_index(schema);
 
-    let mut entities: HashMap<String, Vec<FieldDefinition>> = HashMap::new();
-    let mut identity: Option<Vec<FieldDefinition>> = None;
+    let mut entities: HashMap<String, orbital_core_base::value::Shared<Vec<FieldDefinition>>> = HashMap::new();
+    let mut identity: Option<orbital_core_base::value::Shared<Vec<FieldDefinition>>> = None;
     for orbital in &schema.orbitals {
         if let EntityRef::Inline(def) = &orbital.entity {
             entities.insert(def.name.clone(), def.fields.clone());
@@ -223,11 +223,11 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
                 } => {
                     entities
                         .entry(name.clone())
-                        .or_insert_with(|| shape.clone());
+                        .or_insert_with(|| shape.clone().into());
                 }
                 ExpectDeclaration::Identity {
                     shape: Some(shape), ..
-                } if identity.is_none() => identity = Some(shape.clone()),
+                } if identity.is_none() => identity = Some(shape.clone().into()),
                 _ => {}
             }
         }
@@ -388,23 +388,23 @@ pub(crate) fn resolve_sigil_types(schema: &mut OrbitalSchema) {
                         knob_value(declared.as_ref(), knob).and_then(|name| {
                             entities
                                 .get(&name)
-                                .map(|f| (format!("{}Row", pascal(&name)), f.clone()))
+                                .map(|f| (format!("{}Row", pascal(&name)), f.to_vec()))
                         })
                     }
                     Sigil::BoundEntity => linked.as_ref().and_then(|name| {
                         entities
                             .get(name)
-                            .map(|f| (format!("{}Row", pascal(name)), f.clone()))
+                            .map(|f| (format!("{}Row", pascal(name)), f.to_vec()))
                     }),
                     Sigil::Identity => identity
                         .as_ref()
-                        .map(|f| ("IdentityRow".to_string(), f.clone())),
+                        .map(|f| ("IdentityRow".to_string(), f.to_vec())),
                 };
                 if let Some((type_name, fields)) = resolved {
                     // NEVER `object` — that is an unconditional hard error for
                     // a config field regardless of `properties`.
                     field.field_type = type_name;
-                    field.properties = Some(keyed(fields));
+                    field.properties = Some(keyed(fields).into());
                     if let Some(knob) = payload_for_knob {
                         field.payload_for = Some(knob);
                     }
@@ -450,7 +450,7 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
     // Struct members / union variants, in the `Vec<PayloadField>` shape the
     // payload IR uses. A map field carries its VALUE schema in `items` and has
     // no properties by construction, so it is left alone.
-    let props: Option<Vec<PayloadField>> = match f.field_type {
+    let props: Option<orbital_core_base::value::Shared<Vec<PayloadField>>> = match f.field_type {
         // A map's value shape rides in the tag above, not in properties.
         FieldType::Object if f.items.is_some() => None,
         FieldType::Object | FieldType::Union => f.properties.as_ref().and_then(|m| {
@@ -477,7 +477,7 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
                     })
                 })
                 .collect();
-            (!v.is_empty()).then_some(v)
+            (!v.is_empty()).then(|| v.into())
         }),
         // An array of structs: the payload convention is the `[object]` tag with
         // the ELEMENT's fields in `properties`. An array of a union keeps its element in `items` instead.
@@ -506,7 +506,7 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
             .additional_properties
             .as_deref()
             .map(payload_field_of)
-            .map(Box::new),
+            .map(orbital_core_base::value::Shared::new),
         values: f.values.clone(),
         name: f.name.clone().unwrap_or_default(),
         field_type: tag,
@@ -519,7 +519,7 @@ pub(crate) fn payload_field_of(f: &FieldDefinition) -> PayloadField {
         relation: f.relation.clone(),
         items: if f.items.is_some() {
             f.items.as_deref().map(|item| {
-                Box::new(PayloadField {
+                orbital_core_base::value::Shared::new(PayloadField {
                     name: item.name.clone().unwrap_or_else(|| "item".to_string()),
                     ..payload_field_of(item)
                 })
@@ -542,7 +542,7 @@ fn substitute_entity_sentinel(fields: &mut [PayloadField], row: &[PayloadField],
             _ => continue,
         };
         f.field_type = shape.to_string();
-        f.properties = Some(row.to_vec());
+        f.properties = Some((row.to_vec()).into());
         f.entity = Some(entity.to_string());
         f.items = None;
     }
@@ -575,7 +575,7 @@ fn substitute_named_entity_sentinels(
             continue;
         };
         f.field_type = shape.to_string();
-        f.properties = Some(row);
+        f.properties = Some(row.into());
         f.entity = Some(entity);
         f.items = None;
     }
