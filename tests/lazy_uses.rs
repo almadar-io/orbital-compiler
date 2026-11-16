@@ -548,3 +548,65 @@ fn control_a_lazy_atom_without_header_grants_leaves_its_orbital_without_any() {
     let (_, lazy) = split(&s).expect("split");
     assert!(lazy[0].schema.orbitals[0].os_grants.is_none());
 }
+
+fn kept_name_page(orbital: &str, alias: &str) -> String {
+    format!(
+        r#"{{ "name": "{orbital}", "uses": [ {{ "from": "./{orbital}.orb", "as": "{alias}", "lazy": true }} ], "entity": "{alias}.orbitals.{orbital}.entity", "traits": [], "reference": {{ "ref": "{alias}.orbitals.{orbital}" }} }}"#
+    )
+}
+
+fn upstream_with_screen(orbital: &str, path: &str) -> String {
+    format!(
+        r#"{{ "name": "{orbital}", "version": "1.0.0", "orbitals": [ {{
+      "name": "{orbital}",
+      "expects": [ {{ "kind": "state", "traitName": "Body", "state": "idle" }} ],
+      "entity": {{ "name": "{orbital}State", "persistence": "runtime", "fields": [ {{ "name": "id", "type": "string", "required": true }} ] }},
+      "traits": [
+        {{ "name": "Body", "linkedEntity": "{orbital}State", "stateMachine": {{ "states": [ {{ "name": "idle", "isInitial": true }} ], "events": [],
+          "transitions": [ {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [ ["render-ui", "main", {{ "type": "typography", "content": "{orbital}" }}] ] }} ] }} }},
+        {{ "name": "Screen", "linkedEntity": "{orbital}State", "stateMachine": {{ "states": [ {{ "name": "idle", "isInitial": true }} ], "events": [],
+          "transitions": [ {{ "from": "idle", "to": "idle", "event": "INIT", "effects": [ ["render-ui", "main", {{ "type": "stack", "children": ["@trait.Body"] }}] ] }} ] }} }}
+      ],
+      "pages": [ {{ "name": "{orbital}Page", "path": "{path}", "traits": [ {{ "ref": "Screen" }} ] }} ]
+    }} ] }}"#
+    )
+}
+
+fn two_kept_name_pages() -> Site {
+    let s = site_with(&[home("", ""), kept_name_page("IntroEN", "En"), kept_name_page("IntroAR", "Ar")], None);
+    let dir = s.path.parent().unwrap();
+    std::fs::write(dir.join("IntroEN.orb"), upstream_with_screen("IntroEN", "/docs/intro")).unwrap();
+    std::fs::write(dir.join("IntroAR.orb"), upstream_with_screen("IntroAR", "/ar/docs/intro")).unwrap();
+    s
+}
+
+fn lazy_trait_names(child: &orbital_compiler::phases::lazy::ResolvedLazy) -> Vec<String> {
+    child
+        .schema
+        .orbitals
+        .iter()
+        .flat_map(|o| o.traits.iter())
+        .filter_map(|t| t.trait_name().map(str::to_string))
+        .collect()
+}
+
+#[test]
+fn two_lazy_pages_that_keep_their_upstream_name_get_app_unique_trait_names() {
+    let s = two_kept_name_pages();
+    let (schema, lazy) = split(&s).expect("split");
+    let names: Vec<Vec<String>> = lazy.iter().map(lazy_trait_names).collect();
+    assert_eq!(names, vec![vec!["IntroENBody".to_string(), "IntroENScreen".to_string()], vec!["IntroARBody".to_string(), "IntroARScreen".to_string()]]);
+    let places: Vec<Vec<String>> = schema.lazy_pages.iter().flatten().map(|p| p.places.clone()).collect();
+    assert_eq!(places, vec![vec!["IntroENScreen".to_string()], vec!["IntroARScreen".to_string()]]);
+    let embeds = serde_json::to_string(&lazy[0].schema).unwrap();
+    assert!(embeds.contains("@trait.IntroENBody"), "the page's own @trait embed follows the rename: {embeds}");
+    assert!(!embeds.contains("\"@trait.Body\""), "no embed is left on the old name");
+    assert!(embeds.contains("\"traitName\":\"IntroENBody\""), "the orbital's expects follow the rename: {embeds}");
+}
+
+#[test]
+fn control_a_lazy_page_imported_under_a_new_name_is_prefixed_once() {
+    let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
+    let (_, lazy) = split(&s).expect("split");
+    assert_eq!(lazy_trait_names(&lazy[0]), vec!["BlogWhyPostView".to_string()]);
+}

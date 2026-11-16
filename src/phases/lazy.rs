@@ -71,7 +71,7 @@ fn lazy_cache_slot(artifact: &LazyArtifact, source_path: Option<&Path>) -> Strin
 /// What a lazy behavior's resolution depends on besides the files it reads: its own split program, where it was
 /// imported from, and the resolve options that change the result.
 fn lazy_cache_key(artifact: &LazyArtifact, options: &CompilerOptions, source_path: Option<&Path>) -> Option<String> {
-    let mut text = String::from("lazy-resolve 1\n");
+    let mut text = String::from("lazy-resolve 3\n");
     text.push_str(&serde_json::to_string(&artifact.schema).ok()?);
     text.push('\n');
     text.push_str(&artifact.orb_ref);
@@ -197,6 +197,17 @@ fn take_ledger_rows(
             .filter_map(|id| ledger.entries.remove_entry(&id))
             .collect(),
     })
+}
+
+/// A lazy import that keeps its upstream orbital's name is reproduced unprefixed (`import_prefix`), so its trait names
+/// are qualified here once it is resolved: every lazy behavior's names stay unique in the program it joins.
+pub fn qualify_kept_name_import(artifact: &LazyArtifact, resolved: &mut OrbitalSchema) {
+    let kept_name = artifact.schema.orbitals.first().is_some_and(|o| {
+        o.reference.as_ref().and_then(|r| r.reference.rsplit('.').next()) == Some(o.name.as_str())
+    });
+    if kept_name {
+        crate::phases::inline::qualify_lazy_orbital_traits(resolved, &artifact.orbital);
+    }
 }
 
 /// Records the pages of a resolved lazy behavior on its importer.
@@ -335,8 +346,10 @@ fn resolve_lazy_artifact(
     orbital_core_base::read_set::begin();
     let built = (|| {
         let mut child = artifact.schema.clone();
-        let nested = split_lazy_and_resolve_in(&mut child, options, inline, source_path)?;
-        let child = resolve_schema_with_inline(child, options, inline, source_path)?;
+        let mut nested = split_lazy_and_resolve_in(&mut child, options, inline, source_path)?;
+        let mut child = resolve_schema_with_inline(child, options, inline, source_path)?;
+        qualify_kept_name_import(artifact, &mut child);
+        super::reflect::fold_program(&mut child, &mut nested, source_path)?;
         Ok(ResolvedLazy { orbital: artifact.orbital.clone(), orb_ref: artifact.orb_ref.clone(), schema: child, lazy: nested, cache_key: None })
     })();
     (built, orbital_core_base::read_set::end())

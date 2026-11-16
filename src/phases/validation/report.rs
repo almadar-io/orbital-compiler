@@ -341,6 +341,7 @@ fn validate_lazy_children(
     let mut warnings = Vec::new();
     // One loader for every lazy child, as resolution has: the behaviors they share are lowered once, not per child.
     let shared = InlineSession::default();
+    let mut declared_by: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
     for artifact in crate::phases::lazy::split_lazy(schema) {
         let child = ValidationInput {
             schema: artifact.schema.clone(),
@@ -352,10 +353,18 @@ fn validate_lazy_children(
             service_registry: service_registry.clone(),
             program_findings: &[],
         };
-        let core = validate_core(child, options, Some(&shared));
+        let mut core = validate_core(child, options, Some(&shared));
         let prefix = |f: Finding| Finding { path: format!("lazy[{}].{}", artifact.orbital, f.path), ..f };
         errors.extend(core.errors.into_iter().map(prefix));
         warnings.extend(core.warnings.into_iter().map(prefix));
+        if let Some(inlined) = core.inlined.as_mut() {
+            crate::phases::lazy::qualify_kept_name_import(&artifact, inlined);
+            for orbital in &inlined.orbitals {
+                for name in orbital.traits.iter().filter_map(|t| t.trait_name()) {
+                    declared_by.entry(name.to_string()).or_default().push(orbital.name.clone());
+                }
+            }
+        }
         if let Some(inlined) = &core.inlined {
             if let Err(e) = crate::phases::lazy::record_lazy_pages(schema, &artifact, inlined) {
                 errors.push(Finding::new(
@@ -366,6 +375,14 @@ fn validate_lazy_children(
                 ));
             }
         }
+    }
+    for (name, orbitals) in declared_by.into_iter().filter(|(_, orbitals)| orbitals.len() > 1) {
+        errors.push(Finding::new(
+            "ORB_T_DUPLICATE_NAME".to_string(),
+            "lazy".to_string(),
+            format!("Trait '{name}' is defined in more than one lazily loaded behavior: {orbitals:?}"),
+            Some("Lazy behaviors join one running program, so their trait names must be unique across them".to_string()),
+        ));
     }
     (errors, warnings)
 }

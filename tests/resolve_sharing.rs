@@ -419,6 +419,52 @@ fn editing_a_file_a_lazy_behavior_read_resolves_it_again_and_an_unrelated_edit_d
     assert_eq!(cache.stores(), 4, "both blogs read leaf, so both resolve again");
 }
 
+fn describing_stub(value: &serde_json::Value, _from: Option<&Path>) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({ "value": value }))
+}
+
+/// `post` with a literal `behavior/describe` on INIT, which resolution answers at build time.
+fn describing_post() -> String {
+    POST.replace(
+        r#""events": [],"#,
+        r#""events": [ { "key": "DESCRIBED", "name": "Described" }, { "key": "DESCRIBE_FAILED", "name": "Describe failed" } ],"#,
+    )
+    .replace(
+        r#"["render-ui", "main", { "type": "typography", "content": "Why we started" }] ]"#,
+        r#"["render-ui", "main", { "type": "typography", "content": "Why we started" }], ["behavior/describe", { "behavior": "std/std-door", "trait": "Door" }, { "emit": { "success": "DESCRIBED", "failure": "DESCRIBE_FAILED" } }] ]"#,
+    )
+}
+
+/// Whether `value` holds a `behavior/describe` call (an effect-row entry only names its kind).
+fn holds_describe(value: &serde_json::Value) -> bool {
+    value.to_string().contains(r#"["behavior/describe","#)
+}
+
+#[test]
+fn a_cached_lazy_behavior_holds_what_the_resolve_answers_for_it_build_time_answers_included() {
+    orbital_compiler::phases::reflect::register_trait_describer(describing_stub);
+    let site = lazy_blogs();
+    let post = describing_post();
+    assert!(post.contains("behavior/describe") && post.contains("DESCRIBE_FAILED"), "the fixture edit applied");
+    std::fs::write(site.path.parent().expect("a program directory").join("post.orb"), post).expect("write post");
+    let cache = std::sync::Arc::new(MemoryLazyCache::default());
+    let (_, children) = resolve_with(&site.path, Some(cache.clone()));
+    assert!(!holds_describe(&children), "the resolve answers each lazy behavior's literal describe: {children}");
+    let cached: Vec<serde_json::Value> = cache.entries.lock().unwrap().values().map(|e| serde_json::to_value(&e.resolved.schema).expect("serializes")).collect();
+    assert_eq!(cached.len(), 2);
+    assert!(cached.iter().all(|c| !holds_describe(c)), "what the cache holds is what the resolve answered, not the page before its build-time answers");
+    assert_eq!(resolve_with(&site.path, Some(cache)).1, children, "a resolve served from the cache answers the same");
+}
+
+#[test]
+fn control_a_lazy_behavior_without_a_describe_is_cached_as_before() {
+    let site = lazy_blogs();
+    let cache = std::sync::Arc::new(MemoryLazyCache::default());
+    let (_, children) = resolve_with(&site.path, Some(cache.clone()));
+    assert!(!holds_describe(&children));
+    assert_eq!(cache.stores(), 2);
+}
+
 fn resolve_on(path: &Path, workers: usize) -> (serde_json::Value, serde_json::Value) {
     let options = CompilerOptions { lazy_workers: workers, ..CompilerOptions::default() };
     let (schema, lazy) = resolve_program_with_path(parse_file(path).expect("parses"), &options, Some(path)).expect("resolves");

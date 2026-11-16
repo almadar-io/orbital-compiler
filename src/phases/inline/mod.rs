@@ -1418,19 +1418,59 @@ fn uniquify_cross_orbital_pulled_siblings(
     let mut qualified_renames: Vec<(String, orbital_core_base::collections::IndexMap<String, String>)> = Vec::new();
     for (orbital_idx, pulled) in pulled_by_orbital {
         let orbital_name = orbitals[*orbital_idx].name.clone();
-        let mut renames: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
+        let colliding: Vec<String> = pulled
+            .iter()
+            .filter(|old| {
+                name_orbital_count.get(old.as_str()).copied().unwrap_or(0) > 1
+                    && !name_orbital_count.contains_key(&format!("{orbital_name}{old}"))
+            })
+            .cloned()
+            .collect();
+        let renames = prefix_orbital_traits(orbitals, ledger.as_deref_mut(), &mut id_claimed, *orbital_idx, &colliding);
+        if !renames.is_empty() {
+            qualified_renames.push((orbital_name, renames));
+        }
+    }
+    follow_qualified_listens(orbitals, &qualified_renames);
+}
+
+/// Every trait a lazily-loaded behavior declares or pulls in, prefixed with its orbital name, as an import under a new
+/// local name already is (`import_prefix`): a lazy behavior joins the running program beside every other, and trait
+/// names are unique per app.
+pub(crate) fn qualify_lazy_orbital_traits(schema: &mut OrbitalSchema, orbital_name: &str) {
+    let Some(orbital_idx) = schema.orbitals.iter().position(|o| o.name == orbital_name) else { return };
+    let names: Vec<String> = schema.orbitals[orbital_idx]
+        .traits
+        .iter()
+        .filter_map(|t| match t {
+            TraitReference::Inline(td) => Some(td.name.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut id_claimed: HashSet<String> = HashSet::new();
+    let renames = prefix_orbital_traits(&mut schema.orbitals, schema.ledger.as_mut(), &mut id_claimed, orbital_idx, &names);
+    follow_qualified_listens(&mut schema.orbitals, &[(orbital_name.to_string(), renames)]);
+}
+
+/// Renames each of `names` declared inline in `orbitals[orbital_idx]` to `<orbital><name>`, with its ledger row, its
+/// sibling listens, `@trait.<name>` embeds and page references; returns old name -> new name.
+fn prefix_orbital_traits(
+    orbitals: &mut [Orbital],
+    mut ledger: Option<&mut orbital_core_base::identity::IdentityLedger>,
+    id_claimed: &mut HashSet<String>,
+    orbital_idx: usize,
+    names: &[String],
+) -> orbital_core_base::collections::IndexMap<String, String> {
+    let orbital_idx = &orbital_idx;
+    let orbital_name = orbitals[*orbital_idx].name.clone();
+    let mut renames: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
+    {
         let mut id_renames: orbital_core_base::collections::IndexMap<String, String> = orbital_core_base::collections::IndexMap::new();
         // (source_id, new_name, derived_copy_id) — applied to the ledger after
         // the trait borrow ends.
         let mut ledger_ops: Vec<(String, String, Option<String>)> = Vec::new();
-        for old_name in pulled {
-            if name_orbital_count.get(old_name).copied().unwrap_or(0) <= 1 {
-                continue;
-            }
+        for old_name in names {
             let new_name = format!("{}{}", orbital_name, old_name);
-            if name_orbital_count.contains_key(&new_name) {
-                continue;
-            }
             let orbital = &mut orbitals[*orbital_idx];
             for tr in orbital.traits.iter_mut() {
                 if let TraitReference::Inline(td) = tr {
@@ -1529,10 +1569,37 @@ fn uniquify_cross_orbital_pulled_siblings(
                     }
                 }
             }
-            qualified_renames.push((orbital_name, renames));
         }
     }
-    // A listen in any orbital that names a renamed trait by its orbital (`PostOrbital.LoadingSpinner`) follows it.
+    if !renames.is_empty() {
+        for expect in orbitals[*orbital_idx].expects.iter_mut().flatten() {
+            match expect {
+                ExpectDeclaration::Event { trait_name, .. }
+                | ExpectDeclaration::State { trait_name, .. }
+                | ExpectDeclaration::Transition { trait_name, .. } => {
+                    if let Some(to) = renames.get(trait_name.as_str()) {
+                        *trait_name = to.clone();
+                    }
+                }
+                ExpectDeclaration::Page { traits, .. } => {
+                    for name in traits.iter_mut().flatten() {
+                        if let Some(to) = renames.get(name.as_str()) {
+                            *name = to.clone();
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    renames
+}
+
+/// A listen in any orbital that names a renamed trait by its orbital (`PostOrbital.LoadingSpinner`) follows it.
+fn follow_qualified_listens(
+    orbitals: &mut [Orbital],
+    qualified_renames: &[(String, orbital_core_base::collections::IndexMap<String, String>)],
+) {
     for orbital in orbitals.iter_mut() {
         for tr in orbital.traits.iter_mut() {
             let TraitReference::Inline(td) = tr else { continue };
