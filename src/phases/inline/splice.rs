@@ -674,6 +674,7 @@ mod tests {
             }]).into()),
             event_id: None,
             payload_entity: None,
+            payload_spread: None,
         }
     }
 

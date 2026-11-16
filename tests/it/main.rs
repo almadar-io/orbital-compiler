@@ -67,6 +67,7 @@ mod theme_collection;
 mod trait_ref_config_rules;
 mod trait_ref_event_address;
 mod trait_ref_home_orbital_config;
+mod payload_spread_inline;
 mod trait_type_param_inline;
 mod type_param_sentinel_inline;
 mod uses_config_literal_through_orbital_import;

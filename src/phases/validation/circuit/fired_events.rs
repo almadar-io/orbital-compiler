@@ -719,6 +719,7 @@ mod tests {
             scope: None,
             payload_schema: None,
             payload_entity: None,
+            payload_spread: None,
         }].into());
         let edit = trait_rendering_control("ArticleEdit", "EDIT");
 
@@ -758,6 +759,7 @@ mod tests {
             scope: None,
             payload_schema: None,
             payload_entity: None,
+            payload_spread: None,
         }].into());
         let edit = trait_rendering_control("ArticleEdit", "EDIT");
 

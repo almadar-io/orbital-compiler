@@ -54,6 +54,7 @@ fn emit_def(event: &str, fields: Vec<PayloadField>) -> EmitDefinition {
         },
         event_id: None,
         payload_entity: None,
+        payload_spread: None,
     }
 }
 

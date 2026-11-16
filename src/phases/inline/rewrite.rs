@@ -2852,6 +2852,7 @@ pub(crate) fn resolve_type_param_sentinels(
     if let Some(emits) = trait_def.emits.as_mut() {
         emits.edit(|emits| {
             for emit in emits.iter_mut() {
+                changed |= resolve_payload_spread(&mut emit.payload_spread, &mut emit.payload_schema, &subs);
                 if resolve_payload_entity_schema(
                     &mut emit.payload_entity,
                     &mut emit.payload_schema,
@@ -2879,6 +2880,7 @@ pub(crate) fn resolve_type_param_sentinels(
     trait_def.state_machine.edit(|machine| {
         if let Some(events) = machine.events.as_mut() {
             for ev in events.iter_mut() {
+                changed |= resolve_payload_spread(&mut ev.payload_spread, &mut ev.payload_schema, &subs);
                 if resolve_payload_entity_schema(
                     &mut ev.payload_entity,
                     &mut ev.payload_schema,
@@ -2969,6 +2971,31 @@ fn rewrite_recorded_shapes(
 /// (`ORB_EMIT_PAYLOAD_NOT_PRODUCED`).
 ///
 /// Whole-payload provenance resolves concrete, implicit and explicit generic bindings here.
+/// `payloadSpread` (P-040): the fields of the record the type parameter is bound to come first, then the payload's
+/// own. A parameter with no binding, a binding that is not a record, or a record field the payload already names leaves
+/// the marker in place for the type-parameter sweep to report.
+fn resolve_payload_spread(
+    spread: &mut Option<String>,
+    payload_schema: &mut Option<orbital_core_base::value::Shared<Vec<PayloadField>>>,
+    subs: &HashMap<String, ParamSub>,
+) -> bool {
+    let Some(param) = spread.as_deref().and_then(|s| s.strip_prefix('$')) else {
+        return false;
+    };
+    let spread_fields: Vec<PayloadField> = match subs.get(param) {
+        Some(ParamSub::Struct(fields, _)) => fields.clone(),
+        Some(ParamSub::Entity(entity)) => entity_fields_to_payload_fields(entity),
+        Some(ParamSub::Scalar(_)) | None => return false,
+    };
+    let own: Vec<PayloadField> = payload_schema.as_ref().map(|p| p.to_vec()).unwrap_or_default();
+    if spread_fields.iter().any(|f| f.name.is_empty() || own.iter().any(|o| o.name == f.name)) {
+        return false;
+    }
+    *payload_schema = Some(spread_fields.into_iter().chain(own).collect::<Vec<_>>().into());
+    *spread = None;
+    true
+}
+
 fn resolve_payload_entity_schema(
     payload_entity: &mut Option<String>,
     payload_schema: &mut Option<orbital_core_base::value::Shared<Vec<PayloadField>>>,

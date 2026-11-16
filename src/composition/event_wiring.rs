@@ -111,6 +111,7 @@ pub fn apply_event_wiring(
                     event_id: None,
                     scope_overridden: None,
                     payload_entity: None,
+                    payload_spread: None,
                 });
             }
         }

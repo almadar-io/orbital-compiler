@@ -65,6 +65,7 @@ fn declared_emit_with_payload(event: &str, fields: Vec<PayloadField>) -> EmitDef
         payload_schema: Some(fields.into()),
         event_id: None,
         payload_entity: None,
+        payload_spread: None,
     }
 }
 
@@ -469,4 +470,40 @@ fn control_an_optional_source_field_is_a_mismatch_against_a_required_declared_sh
     ]});
     assert!(!declared_shape_emit_mismatches_with(source(), declared(), aliases(), true));
     assert!(declared_shape_emit_mismatches_with(source(), declared(), aliases(), false));
+}
+
+fn merge_payload(left: SExpression, right_key: Option<&str>) -> SExpression {
+    let mut right = orbital_core_base::schema::SObject::new();
+    if let Some(key) = right_key {
+        right.insert("key".into(), string_sexpr(key));
+    }
+    SExpression::Array(vec![string_sexpr("object/merge"), left, SExpression::object(right)].into())
+}
+
+fn computed_emit_codes(payload: SExpression) -> Vec<ErrorCode> {
+    let emit = emit_effect("FWD", Some(payload));
+    let declared = declared_emit_with_payload(
+        "FWD",
+        vec![payload_field("search", "string", true), payload_field("key", "string", true)],
+    );
+    let result = validate_comprehensive_without_services(&schema_with_emit(emit, declared));
+    result.errors.iter().map(|e| e.code.clone()).collect()
+}
+
+fn search_record() -> SExpression {
+    let mut left = orbital_core_base::schema::SObject::new();
+    left.insert("search".into(), string_sexpr("rust"));
+    SExpression::object(left)
+}
+
+#[test]
+fn a_computed_payload_whose_type_has_every_required_field_passes() {
+    let codes = computed_emit_codes(merge_payload(search_record(), Some("k")));
+    assert!(!codes.contains(&ErrorCode::EmitPayloadMissingRequired), "{codes:?}");
+}
+
+#[test]
+fn control_a_computed_payload_whose_type_lacks_a_required_field_is_refused() {
+    let codes = computed_emit_codes(merge_payload(search_record(), None));
+    assert!(codes.contains(&ErrorCode::EmitPayloadMissingRequired), "{codes:?}");
 }

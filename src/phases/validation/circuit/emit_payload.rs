@@ -513,6 +513,20 @@ fn validate_emit_literal(
         return result; // Unknown event handled by effect::validate_emit_against_declaration.
     };
 
+    // A computed payload (`(object/merge …)`, a binding) is checked whole: its inferred type must be one the declared
+    // payload record admits. The literal walk below is for literal payloads only.
+    if let Some(computed) = arr.get(2).filter(|p| !matches!(p, SExpression::Object(_))) {
+        if let (Ok(expr), Ok(declared)) = (
+            orbital_core_eval::lower::lower_sexpr(computed),
+            orbital_core_base::ir::types::declared_alias_shape(schema),
+        ) {
+            let condition = guard.and_then(|guard| orbital_core_eval::lower::lower_sexpr(guard).ok());
+            if crate::type_infer::admits(&expr, &declared, condition.as_ref(), type_ctx) {
+                return result;
+            }
+        }
+    }
+
     // The literal payload object is at index 2; absent when an emit has no payload.
     let payload_obj = match arr.get(2) {
         Some(SExpression::Object(o)) => Some(&**o),

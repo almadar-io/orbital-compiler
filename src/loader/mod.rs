@@ -302,6 +302,10 @@ impl LoaderCache {
         self.cache.get(canonical)
     }
 
+    fn remove_canonical(&mut self, canonical: &Path) {
+        self.cache.remove(canonical);
+    }
+
     pub fn clear(&mut self) {
         self.cache.clear();
     }
@@ -554,6 +558,10 @@ impl ExternalOrbitalLoader {
             return Err(LoaderError::CircularImport(error));
         }
         let loaded: Result<(), LoaderError> = (|| {
+            if self.cache_reads.get(&canonical).is_some_and(|reads| !reads.is_current()) {
+                self.cache.remove_canonical(&canonical);
+                self.cache_reads.remove(&canonical);
+            }
             if self.cache.get_canonical(&canonical).is_none() {
                 orbital_core_base::read_set::begin();
                 let schema = self.load_file(&absolute_path, import_path, chain);
@@ -1266,6 +1274,28 @@ mod tests {
 
     /// G-CROSS-358: a relative import is anchored to its file when that file loads, so whoever reads the program later
     /// (compose, a written copy under `.orbital/`) loads the same file; the anchored spelling resolves inside the base.
+    // G-ORBITAL-CLI-005: a loader kept across calls answers from its cache only while the files a load read are unchanged.
+    #[test]
+    fn a_cached_load_whose_file_changed_is_loaded_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.orb");
+        std::fs::write(&file, r#"{ "name": "First", "orbitals": [] }"#).unwrap();
+        let mut loader = ExternalOrbitalLoader::new(LoaderConfig { base_path: dir.path().to_path_buf(), ..Default::default() });
+        assert_eq!(loader.load("./a.orb", None, &mut ImportChain::new()).unwrap().schema.name, "First");
+        std::fs::write(&file, r#"{ "name": "Second one", "orbitals": [] }"#).unwrap();
+        assert_eq!(loader.load("./a.orb", None, &mut ImportChain::new()).unwrap().schema.name, "Second one");
+    }
+
+    #[test]
+    fn control_an_unchanged_load_is_answered_from_the_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.orb"), r#"{ "name": "First", "orbitals": [] }"#).unwrap();
+        let mut loader = ExternalOrbitalLoader::new(LoaderConfig { base_path: dir.path().to_path_buf(), ..Default::default() });
+        let first = std::ptr::from_ref(loader.load("./a.orb", None, &mut ImportChain::new()).unwrap()) as usize;
+        let again = std::ptr::from_ref(loader.load("./a.orb", None, &mut ImportChain::new()).unwrap()) as usize;
+        assert_eq!(first, again, "the same cached load");
+    }
+
     #[test]
     fn an_absolute_path_inside_the_base_resolves_as_its_relative_spelling_does() {
         let loader = ExternalOrbitalLoader::new(LoaderConfig { base_path: fixtures_dir(), ..Default::default() });
