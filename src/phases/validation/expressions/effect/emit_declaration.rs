@@ -621,6 +621,7 @@ fn validate_leaf_effect(
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str};
     use super::super::set::BindingTypes;
     use super::super::EntityFieldMeta;
     use super::*;
@@ -654,8 +655,8 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let effect: SExpression = serde_json::from_str(effect).unwrap();
-        let guard: Option<SExpression> = guard.map(|g| serde_json::from_str(g).unwrap());
+        let effect: SExpression = from_json_str(effect).unwrap();
+        let guard: Option<SExpression> = guard.map(|g| from_json_str(g).unwrap());
         validate_effect_in(
             &effect,
             "p",

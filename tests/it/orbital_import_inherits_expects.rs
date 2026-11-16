@@ -2,6 +2,7 @@
 //! upstream declared it reads (`@user` under an access policy, a sibling entity), so whatever
 //! composes the import owes the same.
 
+use orbital_core_base::json_value::{from_json_str};
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 
@@ -204,7 +205,7 @@ fn inline_reconciled_consumer(
     let dir = tempfile::TempDir::new().expect("temp dir");
     let expectations = r#""expects": [{"kind":"identity","name":"Customer","shape":[{"name":"role","type":"string","values":["customer","manager"]},{"name":"name","type":"string","required":true}]}],"#;
     let mut source: serde_json::Value =
-        serde_json::from_str(&upstream(expectations)).expect("upstream JSON");
+        from_json_str(&upstream(expectations)).expect("upstream JSON");
     source["orbitals"][0]["entity"]["collection"] = serde_json::json!("products");
     std::fs::write(dir.path().join("upstream.orb"), source.to_string()).expect("write upstream");
     let path = dir.path().join("consumer.orb");

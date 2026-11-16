@@ -13,6 +13,7 @@
 //!    rewrite the listen source through the rename map instead of dropping the
 //!    route as "source not imported".
 
+use orbital_core_base::json_value::{from_json_str};
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig, InlineError};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_core_base::schema::{ListenSource, TraitDefinition, TraitReference};
@@ -666,7 +667,7 @@ fn desk_orbital_with_task(name: &str, trait_name: &str, field: &str) -> serde_js
 }
 
 fn desk_with_orbital_first(first: serde_json::Value) -> String {
-    let mut v: serde_json::Value = serde_json::from_str(DESK_ATOM).expect("desk json");
+    let mut v: serde_json::Value = from_json_str(DESK_ATOM).expect("desk json");
     v["orbitals"].as_array_mut().expect("orbitals").insert(0, first);
     v.to_string()
 }

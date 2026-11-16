@@ -1,5 +1,6 @@
 //! The shape of `@user`: the viewer plus the program's `[identity]` row.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_core_base::schema::{EntityDefinition, EntityRef, Orbital, OrbitalSchema};
 
 /// Shared `@user.<f>` shape readers; they live in `orbital-core-base` so
@@ -135,7 +136,7 @@ fn viewer_guarantees(name: &str) -> bool {
 /// The `@user` shape of a program with no `[identity]` entity: the viewer alone.
 pub(super) fn default_identity_shape() -> EntityDefinition {
     let bare: EntityDefinition =
-        serde_json::from_value(serde_json::json!({ "name": "@user", "fields": [] }))
+        from_json_value(&serde_json::json!({ "name": "@user", "fields": [] }))
             .expect("bare identity shape must deserialize");
     with_viewer(&bare)
 }

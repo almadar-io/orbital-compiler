@@ -25,11 +25,12 @@ pub(crate) fn validate_program_eval(
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str};
     use super::super::super::ErrorCode;
     use super::*;
 
     fn call(json: &str) -> Vec<SExpression> {
-        serde_json::from_str(json).expect("sexpr json")
+        from_json_str(json).expect("sexpr json")
     }
 
     fn codes(arr: &[SExpression]) -> Vec<ErrorCode> {

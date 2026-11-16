@@ -55,10 +55,11 @@ pub fn validate_union_arms(schema: &OrbitalSchema, ctx: &mut ValidationContext) 
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn schema(types: serde_json::Value) -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({ "name": "t", "orbitals": [], "types": types })).expect("schema")
+        from_json_value(&serde_json::json!({ "name": "t", "orbitals": [], "types": types })).expect("schema")
     }
 
     #[test]

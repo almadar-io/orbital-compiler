@@ -428,11 +428,12 @@ fn normalize_trait_ref(
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use serde_json::json;
 
     fn schema(v: serde_json::Value) -> OrbitalSchema {
-        serde_json::from_value(v).expect("valid schema")
+        from_json_value(&v).expect("valid schema")
     }
 
     /// A renamed inline-entity declaration drags its

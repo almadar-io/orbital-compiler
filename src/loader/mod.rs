@@ -5,6 +5,7 @@
 //! - Standard library (std/...)
 //! - Scoped packages (@name/...)
 
+use orbital_core_base::json_value::{from_json_str};
 use orbital_core_base::behavior_packages::{BehaviorPackage, DiscoverError, RegistrySource};
 pub use orbital_core_base::behavior_packages::index_registry_source;
 use orbital_core_base::schema::OrbitalSchema;
@@ -1013,7 +1014,7 @@ impl ExternalOrbitalLoader {
         let content = orbital_core_base::read_set::read_to_string(path)?;
 
         // Deserialize directly into the schema (single parse).
-        let mut schema: OrbitalSchema = serde_json::from_str(&content)
+        let mut schema: OrbitalSchema = from_json_str(&content)
             .map_err(|e| LoaderError::InvalidJson(path.display().to_string(), e.to_string()))?;
         orbital_core_base::stamp::ensure_stamped(&mut schema);
 

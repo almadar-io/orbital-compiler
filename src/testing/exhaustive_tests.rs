@@ -6,6 +6,7 @@
 //! 3. Invalid Transition Tests - Events that should NOT cause transitions
 //! 4. Journey Tests - Graph traversal visiting all states
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_core_base::ir::{
     OirBinaryOp, OirBindingRoot, OirExpr, OirModule, OirTrait, OirTransitionFrom,
 };
@@ -101,12 +102,12 @@ pub fn resolve_transition(
 
     let mut ctx = BindingContext::new();
     if let Some(p) = payload {
-        if let Ok(v) = serde_json::from_value::<Value>(p.clone()) {
+        if let Ok(v) = from_json_value::<Value>(&p) {
             ctx.set_payload(v);
         }
     }
     if let Some(e) = entity_data {
-        if let Ok(v) = serde_json::from_value::<Value>(e.clone()) {
+        if let Ok(v) = from_json_value::<Value>(&e) {
             ctx.set_entity(v);
         }
     }

@@ -122,10 +122,11 @@ fn for_each_trait_ref_mut(orbital: &mut Orbital, f: &mut impl FnMut(&mut TraitRe
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn program(second_orbital_trait: &str) -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "p",
             "orbitals": [
                 {

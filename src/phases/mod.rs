@@ -531,11 +531,12 @@ mod app_root_tests {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use serde_json::json;
 
     fn watch_program(event: &str) -> OrbitalSchema {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "fixture", "version": "1.0.0",
             "orbitals": [{
                 "name": "Feed",
@@ -584,7 +585,7 @@ mod tests {
     fn program_importing_a_missing_file() -> OrbitalSchema {
         let mut value = serde_json::to_value(watch_program("Watcher.SEEN")).expect("value");
         value["orbitals"][0]["uses"] = json!([{ "from": "./does-not-exist.orb", "as": "Missing" }]);
-        serde_json::from_value(value).expect("schema")
+        from_json_value(&value).expect("schema")
     }
 
     #[test]

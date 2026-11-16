@@ -323,10 +323,11 @@ pub fn validate_render_ui_effect(
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str};
     use super::*;
 
     fn sx(json: &str) -> SExpression {
-        serde_json::from_str(json).unwrap()
+        from_json_str(json).unwrap()
     }
 
     fn row_route_errors(expr: &SExpression) -> Vec<String> {
@@ -424,7 +425,7 @@ mod tests {
 
     #[test]
     fn row_action_routes_bound_from_config_check_the_bound_default() {
-        let fields: ConfigFields = serde_json::from_str(
+        let fields: ConfigFields = from_json_str(
             r#"{"actions":{"type":"[ItemAction]","default":[{"navigatesTo":"/a/{{row.id}}"}]},
                 "itemActions":{"type":"[ItemAction]","default":[{"navigatesTo":"/b/{{row.id}}"}]}}"#,
         )

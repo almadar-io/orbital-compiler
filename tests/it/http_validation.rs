@@ -1,6 +1,7 @@
 //! `orb validate` rules of the keyed host calls: every code has a positive case and a control that stays silent.
 //! The `http` effect is retired (EXEC-HTTP-1): HTTP is `std-http-client` over `os/*`, so `(http …)` is an unknown operator.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::embedded::parse_service_registry_data;
 use orbital_compiler::phases::validation::{
     validate_comprehensive_without_services, validate_comprehensive_full, ErrorCode, ValidationResult,
@@ -22,7 +23,7 @@ fn config() -> Value {
 }
 
 fn program(egress: Value, config: Value, effects: Value) -> OrbitalSchema {
-    serde_json::from_value(json!({
+    from_json_value(&json!({
         "name": "fixture", "version": "1.0.0",
         "egress": egress,
         "orbitals": [{
@@ -104,7 +105,7 @@ fn a_keyed_call_service_success_payload_is_the_record_plus_key() {
         let mut value = serde_json::to_value(program(ok_egress(), config(), call_service("queue", "enqueue", keyed_options()))).unwrap();
         value["orbitals"][0]["traits"][0]["emits"][0]["payloadSchema"] = json!([{ "name": name, "type": "string" }]);
         validate_comprehensive_full(
-            &serde_json::from_value::<OrbitalSchema>(value).unwrap(),
+            &from_json_value::<OrbitalSchema>(&value).unwrap(),
             None,
             SchemaLanguage::English,
             registry(),
@@ -121,7 +122,7 @@ fn with_event_payload(effects: Value, event: &str, payload: Value) -> Validation
     let emits = value["orbitals"][0]["traits"][0]["emits"].as_array_mut().unwrap();
     let declared = emits.iter_mut().find(|e| e["event"] == event).unwrap();
     declared["payloadSchema"] = payload;
-    validate_comprehensive_without_services(&serde_json::from_value::<OrbitalSchema>(value).unwrap())
+    validate_comprehensive_without_services(&from_json_value::<OrbitalSchema>(&value).unwrap())
 }
 
 fn field(name: &str, ty: &str) -> Value {
@@ -176,7 +177,7 @@ mod browser_effects_validation {
     const COLLECTOR: &str = "https://collector.example.com";
 
     fn program(effects: Value, payload: Value) -> OrbitalSchema {
-        serde_json::from_value(json!({
+        orbital_core_base::json_value::from_json_value(&json!({
             "name": "fixture", "version": "1.0.0",
             "egress": [COLLECTOR],
             "orbitals": [{
@@ -338,7 +339,7 @@ mod tab_effects_validation {
     use serde_json::{json, Value};
 
     fn program(effects: Value, ticks: Value, payload: Value) -> OrbitalSchema {
-        serde_json::from_value(json!({
+        orbital_core_base::json_value::from_json_value(&json!({
             "name": "fixture", "version": "1.0.0",
             "orbitals": [{
                 "name": "Host",
@@ -454,7 +455,7 @@ mod call_key {
             .as_array_mut()
             .unwrap()
             .push(json!({ "name": "callKey", "type": "CallKey", "required": true }));
-        validate_comprehensive_without_services(&serde_json::from_value(schema).expect("schema"))
+        validate_comprehensive_without_services(&from_json_value(&schema).expect("schema"))
     }
 
     fn mismatch(r: &ValidationResult) -> bool {
@@ -481,7 +482,7 @@ mod call_key {
             .as_array_mut()
             .unwrap()
             .push(json!({ "name": "callKey", "type": "CallKey" }));
-        let r = validate_comprehensive_without_services(&serde_json::from_value(schema).expect("schema"));
+        let r = validate_comprehensive_without_services(&from_json_value(&schema).expect("schema"));
         assert!(!fires(&r, ErrorCode::CancelCallNoKeyedCall), "{:?}", r.errors);
     }
 
@@ -496,7 +497,7 @@ mod call_key {
         let fields = schema["orbitals"][0]["entity"]["fields"].as_array_mut().unwrap();
         fields.push(json!({ "name": "callKeys", "type": "array", "items": { "type": "CallKey" } }));
         fields.push(json!({ "name": "names", "type": "array", "items": { "type": "string" } }));
-        validate_comprehensive_without_services(&serde_json::from_value(schema).expect("schema"))
+        validate_comprehensive_without_services(&from_json_value(&schema).expect("schema"))
     }
 
     #[test]

@@ -365,6 +365,7 @@ pub fn route_manifest(
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str};
     use super::*;
     use crate::shell::BaseShell;
     use orbital_core_base::ir::OirModule;
@@ -561,7 +562,7 @@ mod tests {
             "pruning must stop at output_dir/generated, never remove it"
         );
 
-        let manifest: std::collections::BTreeSet<String> = serde_json::from_str(
+        let manifest: std::collections::BTreeSet<String> = from_json_str(
             &std::fs::read_to_string(output_dir.join(orbital_core_base::project::ORB_MANIFEST_FILE)).unwrap(),
         )
         .unwrap();

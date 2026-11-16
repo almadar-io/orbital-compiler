@@ -3,6 +3,7 @@
 //! tuple with the single-op persist validator, and requires non-literal ops to be
 //! array-typed.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode, ValidationResult};
 use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
@@ -38,7 +39,7 @@ fn validate(effects: Value, saved: Value) -> ValidationResult {
 }
 
 fn validate_with(effects: Value, saved: Value, failed: Value) -> ValidationResult {
-    let schema: OrbitalSchema = serde_json::from_value(json!({
+    let schema: OrbitalSchema = from_json_value(&json!({
         "name": "fixture", "version": "1.0.0",
         "orbitals": [{
             "name": "Rows",
@@ -215,7 +216,7 @@ fn hero() -> Value {
 }
 
 fn validate_rows(fields: Value, types: Value, effects: Value) -> ValidationResult {
-    let schema: OrbitalSchema = serde_json::from_value(json!({
+    let schema: OrbitalSchema = from_json_value(&json!({
         "name": "fixture", "version": "1.0.0",
         "orbitals": [{
             "name": "Rows",

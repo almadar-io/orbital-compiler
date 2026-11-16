@@ -3774,10 +3774,11 @@ mod entity_id_reader_tests {
 /// `sibling_forward_switches_key_through_relaying_rung`).
 #[cfg(test)]
 mod forwarded_sibling_config_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn config_field(default: serde_json::Value) -> ConfigField {
-        serde_json::from_value(serde_json::json!({ "type": "unknown", "default": default }))
+        from_json_value(&serde_json::json!({ "type": "unknown", "default": default }))
             .expect("config field deserializes")
     }
 
@@ -3794,7 +3795,7 @@ mod forwarded_sibling_config_tests {
         name: &str,
         config: orbital_core_base::collections::IndexMap<String, ConfigField>,
     ) -> TraitDefinition {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": name,
             "linkedEntity": "Item",
             "config": config,
@@ -3999,9 +4000,7 @@ mod forwarded_sibling_config_tests {
         assert_eq!(
             metrics.default,
             Some(
-                serde_json::from_value::<SExpression>(
-                    serde_json::json!([{ "label": "Wins", "target": 2 }])
-                )
+                from_json_value::<SExpression>(&serde_json::json!([{ "label": "Wins", "target": 2 }]))
                 .expect("sexpr")
             ),
         );
@@ -4083,10 +4082,11 @@ mod forwarded_sibling_config_tests {
 /// the unbound-embed check read post-inline).
 #[cfg(test)]
 mod unbound_trait_knob_override_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn config_field(field_type: &str, default: serde_json::Value) -> ConfigField {
-        serde_json::from_value(serde_json::json!({ "type": field_type, "default": default }))
+        from_json_value(&serde_json::json!({ "type": field_type, "default": default }))
             .expect("config field deserializes")
     }
 
@@ -4094,7 +4094,7 @@ mod unbound_trait_knob_override_tests {
         name: &str,
         config: orbital_core_base::collections::IndexMap<String, ConfigField>,
     ) -> TraitDefinition {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": name,
             "linkedEntity": "Item",
             "config": config,
@@ -4104,7 +4104,7 @@ mod unbound_trait_knob_override_tests {
     }
 
     fn persisting_trait(refs: &[(&str, &str)]) -> TraitDefinition {
-        let mut td: TraitDefinition = serde_json::from_value(serde_json::json!({
+        let mut td: TraitDefinition = from_json_value(&serde_json::json!({
             "name": "Minter",
             "linkedEntity": "Cursor",
             "config": { "e": { "type": "entity", "default": "AtomRecord" } },
@@ -4356,7 +4356,7 @@ mod unbound_trait_knob_override_tests {
         field_type: &str,
         source: &str,
     ) -> orbital_core_base::collections::IndexMap<String, ConfigField> {
-        let field: ConfigField = serde_json::from_value(serde_json::json!({
+        let field: ConfigField = from_json_value(&serde_json::json!({
             "type": field_type, "wired": true, "default": source
         }))
         .expect("wired entry deserializes");
@@ -4368,7 +4368,7 @@ mod unbound_trait_knob_override_tests {
     }
 
     fn string_or_number() -> std::collections::BTreeMap<String, Vec<PayloadField>> {
-        let members: Vec<PayloadField> = serde_json::from_value(serde_json::json!([{
+        let members: Vec<PayloadField> = from_json_value(&serde_json::json!([{
             "name": "", "type": "union",
             "properties": [{"name": "string", "type": "string"}, {"name": "number", "type": "number"}]
         }]))
@@ -4446,7 +4446,7 @@ mod unbound_trait_knob_override_tests {
     }
 
     fn call_site_null_probe(knob: serde_json::Value, overrides: Option<&str>) -> String {
-        let mut td: TraitDefinition = serde_json::from_value(serde_json::json!({
+        let mut td: TraitDefinition = from_json_value(&serde_json::json!({
             "name": "Body",
             "config": { "knob": knob },
             "stateMachine": {
@@ -4459,7 +4459,7 @@ mod unbound_trait_knob_override_tests {
         .expect("trait");
         let site = overrides.map(|v| {
             let field: ConfigField =
-                serde_json::from_value(serde_json::json!({ "type": "string", "default": v }))
+                from_json_value(&serde_json::json!({ "type": "string", "default": v }))
                     .expect("override");
             orbital_core_base::collections::IndexMap::from([("knob".to_string(), field)])
         });
@@ -4511,12 +4511,13 @@ mod unbound_trait_knob_override_tests {
 
 #[cfg(test)]
 mod config_ref_emit_name_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     /// A trait that emits `@config.onEventClick`, declared in its events registry too (as L1
     /// lowering leaves it), with the knob defaulting to `""`: "empty means not clickable".
     fn calendar_trait() -> TraitDefinition {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "Calendar",
             "linkedEntity": "Note",
             "config": { "onEventClick": { "type": "event", "default": "" } },
@@ -4593,10 +4594,11 @@ mod config_ref_emit_name_tests {
 
 #[cfg(test)]
 mod call_site_listen_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn atom() -> TraitDefinition {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "PersonaLlmApi",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
@@ -4608,7 +4610,7 @@ mod call_site_listen_tests {
     }
 
     fn listen(triggers: &str) -> orbital_core_base::schema::ListenDefinition {
-        serde_json::from_value(serde_json::json!({ "event": "EXTRACT", "triggers": triggers }))
+        from_json_value(&serde_json::json!({ "event": "EXTRACT", "triggers": triggers }))
             .expect("listen")
     }
 
@@ -4644,7 +4646,7 @@ mod call_site_listen_tests {
     fn keyed_atom() -> TraitDefinition {
         let mut td = atom();
         td.listens = Some(
-            vec![serde_json::from_value(serde_json::json!({ "event": "SEND", "triggers": "LLM_EXTRACT", "key": "@payload.key" })).expect("listen")].into(),
+            vec![from_json_value(&serde_json::json!({ "event": "SEND", "triggers": "LLM_EXTRACT", "key": "@payload.key" })).expect("listen")].into(),
         );
         td
     }
@@ -4652,7 +4654,7 @@ mod call_site_listen_tests {
     #[test]
     fn a_call_site_listen_that_restates_the_per_clause_keeps_it() {
         let keyed: orbital_core_base::schema::ListenDefinition =
-            serde_json::from_value(serde_json::json!({ "event": "EXTRACT", "triggers": "LLM_EXTRACT", "key": "@payload.key" })).expect("listen");
+            from_json_value(&serde_json::json!({ "event": "EXTRACT", "triggers": "LLM_EXTRACT", "key": "@payload.key" })).expect("listen");
         let mut td = keyed_atom();
         apply_post_subst_overrides_to_trait(&mut td, Some(&vec![keyed]), None).unwrap();
         assert_eq!(
@@ -4685,7 +4687,7 @@ mod call_site_listen_tests {
     }
 
     fn routed_atom() -> TraitDefinition {
-        let mut td: TraitDefinition = serde_json::from_value(serde_json::json!({
+        let mut td: TraitDefinition = from_json_value(&serde_json::json!({
             "name": "OrbStatsReader",
             "stateMachine": {
                 "states": [{ "name": "idle", "isInitial": true }],
@@ -4695,7 +4697,7 @@ mod call_site_listen_tests {
         }))
         .expect("trait");
         td.listens = Some(
-            vec![serde_json::from_value(serde_json::json!({ "event": "CLI_DONE", "triggers": "UPTIME_DONE", "source": { "kind": "trait", "trait": "OrbUptimeRunner" } })).expect("listen")].into(),
+            vec![from_json_value(&serde_json::json!({ "event": "CLI_DONE", "triggers": "UPTIME_DONE", "source": { "kind": "trait", "trait": "OrbUptimeRunner" } })).expect("listen")].into(),
         );
         td
     }
@@ -4727,7 +4729,7 @@ mod call_site_listen_tests {
     fn control_g_cross_436_a_call_site_listens_that_restates_the_route_records_nothing() {
         let mut td = routed_atom();
         let restated: orbital_core_base::schema::ListenDefinition =
-            serde_json::from_value(serde_json::json!({ "event": "CLI_DONE", "triggers": "UPTIME_DONE", "source": { "kind": "trait", "trait": "OrbUptimeRunner" } })).expect("listen");
+            from_json_value(&serde_json::json!({ "event": "CLI_DONE", "triggers": "UPTIME_DONE", "source": { "kind": "trait", "trait": "OrbUptimeRunner" } })).expect("listen");
         apply_post_subst_overrides_to_trait(&mut td, Some(&vec![restated]), None).unwrap();
         assert!(dropped_listens(&td).is_null());
     }

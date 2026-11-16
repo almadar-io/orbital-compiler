@@ -410,6 +410,7 @@ fn report(
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
 
     fn no_types() -> BindingTypes {
@@ -442,7 +443,7 @@ mod tests {
     }
 
     fn parse(json: &str) -> SExpression {
-        serde_json::from_str(json).unwrap()
+        from_json_str(json).unwrap()
     }
 
     fn mismatches(json: &str, entity: HashMap<String, EntityFieldMeta>) -> Vec<String> {
@@ -1007,7 +1008,7 @@ mod tests {
 
     #[test]
     fn an_optional_viewer_member_is_a_possibly_missing_operand_and_the_guaranteed_id_is_not() {
-        let schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: orbital_core_base::schema::OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "DocOrbital",
@@ -1053,7 +1054,7 @@ mod tests {
     #[test]
     fn the_anonymous_viewer_id_validates_as_string_and_role_as_optional_string_exec_seed_5() {
         use orbital_core_base::ir::OirType;
-        let schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: orbital_core_base::schema::OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "DocOrbital",
@@ -1092,7 +1093,7 @@ mod tests {
     fn a_substituted_config_list_carrying_its_declared_type_is_typed() {
         let mixed = serde_json::json!(["list", { "anchor": "exe-dir", "path": "tool" }, "tool"]);
         let ty = crate::phases::resolve::config_field_carried_type(
-            &serde_json::from_value(serde_json::json!({
+            &from_json_value(&serde_json::json!({
                 "type": "[CliCommand]",
                 "items": { "type": "union", "values": ["string", "AnchoredPath"], "properties": {
                     "string": { "name": "string", "type": "string" },
@@ -1128,7 +1129,7 @@ mod tests {
 
     #[test]
     fn a_union_knob_read_at_an_os_target_carrying_its_declared_type_raises_no_arg_type_mismatch() {
-        let knob: orbital_core_base::schema::ConfigField = serde_json::from_value(serde_json::json!({
+        let knob: orbital_core_base::schema::ConfigField = from_json_value(&serde_json::json!({
             "type": "string",
             "union": true,
             "values": ["string", "Env"],
@@ -1315,7 +1316,7 @@ mod tests {
     fn a_reference_to_a_row_is_read_through_its_entity() {
         use orbital_core_base::ir::OirType;
         let schema: orbital_core_base::schema::OrbitalSchema =
-            serde_json::from_value(serde_json::json!({
+            from_json_value(&serde_json::json!({
                 "name": "App",
                 "orbitals": [{
                     "name": "O",
@@ -1411,7 +1412,7 @@ mod tests {
     }
 
     fn effect_findings(effect: &str) -> Vec<String> {
-        let program: orbital_core_base::schema::OrbitalSchema = serde_json::from_str(&format!(
+        let program: orbital_core_base::schema::OrbitalSchema = from_json_str(&format!(
             r#"{{ "name": "App", "version": "1.0.0", "orbitals": [{{ "name": "O",
               "entity": {{ "name": "RunLog", "fields": [ {{ "name": "id", "type": "string" }}, {{ "name": "headId", "type": "string" }} ] }},
               "auxiliaryEntities": [ {{ "name": "Span", "persistence": "persistent", "collection": "spans", "fields": [
@@ -1519,7 +1520,7 @@ mod tests {
     fn a_set_value_reads_a_row_field_under_the_same_check_as_a_guard() {
         use orbital_core_base::ir::OirType;
         let schema: orbital_core_base::schema::OrbitalSchema =
-            serde_json::from_value(serde_json::json!({
+            from_json_value(&serde_json::json!({
                 "name": "App",
                 "orbitals": [{
                     "name": "O",
@@ -2143,7 +2144,7 @@ mod tests {
     }
 
     fn with_types(json: &str) -> Vec<String> {
-        let schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: orbital_core_base::schema::OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "O",

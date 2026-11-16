@@ -3,17 +3,18 @@
 //! preset definition) and records the app's default `data-theme` key, so the
 //! compiled shells load the themes the program actually names.
 
+use orbital_core_base::json_value::{from_json_str, from_json_value};
 use orbital_compiler::phases::{compile_schema, CompilerOptions};
 use orbital_core_base::ir::OirModule;
 use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 fn fixture() -> Value {
-    serde_json::from_str(include_str!("../fixtures/theme-collection-app.orb")).expect("fixture parses")
+    from_json_str(include_str!("../fixtures/theme-collection-app.orb")).expect("fixture parses")
 }
 
 fn compile(schema: Value) -> OirModule {
-    let schema: OrbitalSchema = serde_json::from_value(schema).expect("schema deserializes");
+    let schema: OrbitalSchema = from_json_value(&schema).expect("schema deserializes");
     compile_schema(schema, &CompilerOptions::default()).expect("compiles")
 }
 

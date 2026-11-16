@@ -2,6 +2,7 @@
 //! (`Trait.EVENT` within the orbital, `Orbital.Trait.EVENT` across the program) —
 //! the contract `llm call-tools` reads. Unlike `event`, a bare name is never one.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
@@ -71,7 +72,7 @@ fn findings_value(member_type: &str, tool: Value) -> Vec<(String, String)> {
               "pages": [{ "name": "NotePage", "path": "/notes", "traits": [{ "ref": "NotePersistor" }] }] }
         ]
     });
-    let schema: OrbitalSchema = serde_json::from_value(schema).expect("fixture deserializes");
+    let schema: OrbitalSchema = from_json_value(&schema).expect("fixture deserializes");
     let result = validate_comprehensive_without_services(&schema);
     result
         .errors

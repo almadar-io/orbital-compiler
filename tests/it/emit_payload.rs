@@ -9,6 +9,7 @@
 //!
 //! All classes are warn-only in V2 Phase 0; tests verify warnings surface on
 //! the result but do not block validation.
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use std::sync::Arc;
 use orbital_core_base::schema::{
@@ -382,18 +383,18 @@ fn declared_shape_emit_mismatches_with(
     if required {
         source["required"] = serde_json::json!(true);
     }
-    let value = serde_json::from_value(serde_json::json!([
+    let value = from_json_value(&serde_json::json!([
         "object/get", "@entity.out", "value"
     ])).unwrap();
     let mut literal = orbital_core_base::schema::SObject::new();
     literal.insert("value".into(), value);
     let mut schema = schema_with_emit(
         emit_effect("USER_SAVED", Some(SExpression::object(literal))),
-        declared_emit_with_payload("USER_SAVED", vec![serde_json::from_value(declared).unwrap()]),
+        declared_emit_with_payload("USER_SAVED", vec![from_json_value(&declared).unwrap()]),
     );
-    schema.orbitals[0].types = Some(serde_json::from_value(aliases).unwrap());
+    schema.orbitals[0].types = Some(from_json_value(&aliases).unwrap());
     let EntityRef::Inline(entity) = &mut schema.orbitals[0].entity else { unreachable!() };
-    entity.fields.push(serde_json::from_value(serde_json::json!({
+    entity.fields.push(from_json_value(&serde_json::json!({
         "name": "out", "type": "object", "required": required, "properties": {"value": source}
     })).unwrap());
     validate_comprehensive_without_services(&schema).errors.iter().any(|e|

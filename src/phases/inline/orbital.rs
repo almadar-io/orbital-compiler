@@ -3086,6 +3086,7 @@ fn rewrite_trait_navigate_targets(td: &mut TraitDefinition, path_map: &orbital_c
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
     use orbital_core_base::schema::{OrbitalSchema, UseDeclaration};
     use serde_json::json;
@@ -3096,7 +3097,7 @@ mod tests {
     fn a_folded_entity_knob_takes_the_call_sites_ref_id() {
         let knob = |default: &str, ref_id: Option<&str>| -> ConfigField {
             let mut field: ConfigField =
-                serde_json::from_value(json!({ "type": "entity", "default": default })).expect("config field deserializes");
+                from_json_value(&json!({ "type": "entity", "default": default })).expect("config field deserializes");
             field.ref_id = ref_id.map(str::to_string);
             field
         };
@@ -3174,7 +3175,7 @@ mod tests {
         if let Some(cfg) = config {
             value["config"] = cfg;
         }
-        serde_json::from_value(value).expect("upstream orbital fixture must deserialize")
+        from_json_value(&value).expect("upstream orbital fixture must deserialize")
     }
 
     fn ctx_with_upstream(config: Option<serde_json::Value>) -> InlineContext {
@@ -3184,7 +3185,7 @@ mod tests {
     }
 
     fn consumer_orbital(local_name: &str) -> Orbital {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": local_name,
             "entity": "Up.orbitals.UpOrbital.entity",
             "traits": []
@@ -3509,7 +3510,7 @@ mod tests {
             let a = Arc::make_mut(a);
             a.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "limit".to_string(),
-                serde_json::from_value::<ConfigField>(json!({
+                from_json_value::<ConfigField>(&json!({
                     "type": "number", "default": "@config.pageSize"
                 }))
                 .unwrap(),
@@ -3521,7 +3522,7 @@ mod tests {
         let mut overrides = orbital_core_base::collections::IndexMap::new();
         overrides.insert(
             "bogusKnob".to_string(),
-            serde_json::from_value::<ConfigField>(json!({ "type": "number", "default": 99 }))
+            from_json_value::<ConfigField>(&json!({ "type": "number", "default": 99 }))
                 .unwrap(),
         );
         let obj = OrbitalRefObject {
@@ -3578,7 +3579,7 @@ mod tests {
             a.config = Some(orbital_core_base::collections::IndexMap::from([
                 (
                     "headline".to_string(),
-                    serde_json::from_value::<ConfigField>(json!({
+                    from_json_value::<ConfigField>(&json!({
                         "type": "string",
                         "default": ["if", ["=", "@config.headline", ""], "fallback", "@config.headline"]
                     }))
@@ -3586,7 +3587,7 @@ mod tests {
                 ),
                 (
                     "href".to_string(),
-                    serde_json::from_value::<ConfigField>(json!({
+                    from_json_value::<ConfigField>(&json!({
                         "type": "string", "default": "@config.href"
                     }))
                     .unwrap(),
@@ -3609,7 +3610,7 @@ mod tests {
             reference: "Up.orbitals.UpOrbital".to_string(),
             omit,
             only,
-            config: config.map(|c| serde_json::from_value(c).expect("override config")),
+            config: config.map(|c| from_json_value(&c).expect("override config")),
             ..Default::default()
         };
         resolve_orbital_reference(
@@ -3700,7 +3701,7 @@ mod tests {
             let td = Arc::make_mut(td);
             td.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "limit".to_string(),
-                serde_json::from_value::<ConfigField>(json!({
+                from_json_value::<ConfigField>(&json!({
                     "type": "number", "default": "@config.pageSize"
                 }))
                 .unwrap(),
@@ -3712,7 +3713,7 @@ mod tests {
         let mut upstream_schema_config = orbital_core_base::collections::IndexMap::new();
         upstream_schema_config.insert(
             "pageSize".to_string(),
-            serde_json::from_value::<ConfigField>(json!({ "type": "number", "default": 42 }))
+            from_json_value::<ConfigField>(&json!({ "type": "number", "default": 42 }))
                 .unwrap(),
         );
         let alias_schema_configs: orbital_core_base::collections::IndexMap<String, orbital_core_base::collections::IndexMap<String, ConfigField>> =
@@ -3776,7 +3777,7 @@ mod tests {
             let td = Arc::make_mut(td);
             td.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "limit".to_string(),
-                serde_json::from_value::<ConfigField>(json!({
+                from_json_value::<ConfigField>(&json!({
                     "type": "number", "default": "@config.pageSize"
                 }))
                 .unwrap(),
@@ -3791,7 +3792,7 @@ mod tests {
         let mut other_alias_config = orbital_core_base::collections::IndexMap::new();
         other_alias_config.insert(
             "pageSize".to_string(),
-            serde_json::from_value::<ConfigField>(json!({ "type": "number", "default": 999 }))
+            from_json_value::<ConfigField>(&json!({ "type": "number", "default": 999 }))
                 .unwrap(),
         );
         let alias_schema_configs: orbital_core_base::collections::IndexMap<String, orbital_core_base::collections::IndexMap<String, ConfigField>> =
@@ -3972,7 +3973,7 @@ mod tests {
     /// (`SiblingOrbital`) — never anyone's primary. `persistence: persistent`
     /// on purpose: persistence is NOT the discriminator, aux-vs-primary is.
     fn aux_only_main_orbital() -> Orbital {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "MainOrbital",
             "id": "orb_AUXONLYMAINORBITAL0000000",
             "entity": {
@@ -3997,7 +3998,7 @@ mod tests {
     }
 
     fn aux_only_sibling_orbital() -> Orbital {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "SiblingOrbital",
             "entity": {
                 "name": "SiblingWidget",
@@ -4021,7 +4022,7 @@ mod tests {
     /// `persistence: persistent` (matches `aux_only_*`, isolating persistence
     /// as NOT the discriminator).
     fn primary_referenced_main_orbital() -> Orbital {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "MainOrbital",
             "id": "orb_PRIMARYREFMAINORBITAL000",
             "entity": {
@@ -4046,7 +4047,7 @@ mod tests {
     }
 
     fn employee_orbital() -> Orbital {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "EmployeeOrbital",
             "entity": {
                 "name": "Employee",
@@ -4345,7 +4346,7 @@ mod tests {
             let a = Arc::make_mut(a);
             a.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "itemClickEvent".to_string(),
-                serde_json::from_value::<ConfigField>(json!({
+                from_json_value::<ConfigField>(&json!({
                     "type": "string", "default": "VIEW"
                 }))
                 .unwrap(),
@@ -4355,7 +4356,7 @@ mod tests {
             let b = Arc::make_mut(b);
             b.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "itemClickEvent".to_string(),
-                serde_json::from_value::<ConfigField>(json!({
+                from_json_value::<ConfigField>(&json!({
                     "type": "string", "default": "@config.itemClickEvent"
                 }))
                 .unwrap(),
@@ -4418,7 +4419,7 @@ mod tests {
     /// `itemClickEvent`; `B` declares nothing relevant; `C` forwards it.
     #[test]
     fn embedder_forwards_config_through_hoisted_splice_chain() {
-        let upstream: Orbital = serde_json::from_value(json!({
+        let upstream: Orbital = from_json_value(&json!({
             "name": "HoistedSpliceOrbital",
             "id": "orb_HOISTEDSPLICEORBITAL0000",
             "entity": {
@@ -4536,7 +4537,7 @@ mod tests {
             let a = Arc::make_mut(a);
             a.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "itemClickEvent".to_string(),
-                serde_json::from_value::<ConfigField>(json!({
+                from_json_value::<ConfigField>(&json!({
                     "type": "string", "default": "VIEW"
                 }))
                 .unwrap(),
@@ -4546,7 +4547,7 @@ mod tests {
             let b = Arc::make_mut(b);
             b.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "itemClickEvent".to_string(),
-                serde_json::from_value::<ConfigField>(json!({
+                from_json_value::<ConfigField>(&json!({
                     "type": "string", "default": "@config.itemClickEvent"
                 }))
                 .unwrap(),
@@ -4617,7 +4618,7 @@ mod tests {
     /// (page-path-rewrite-after-forward fixture). `Widget`'s `read_policy`
     /// carries a role-literal comparison.
     fn stage_b_main_orbital() -> Orbital {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "MainOrbital",
             "id": "orb_STAGEBMAINORBITAL0000000",
             "config": {
@@ -4701,7 +4702,7 @@ mod tests {
     /// out-of-orbital entity `MainOrbital.Widget.otherId` relates to and
     /// `OtherFetcher` fetches/reads by bare token.
     fn stage_b_other_orbital() -> Orbital {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "OtherOrbital",
             "entity": {
                 "name": "Other",
@@ -4718,7 +4719,7 @@ mod tests {
 
     #[test]
     fn an_entities_binding_renames_the_relation_targets_inside_inherited_expectation_shapes() {
-        let upstream: Orbital = serde_json::from_value(json!({
+        let upstream: Orbital = from_json_value(&json!({
             "name": "NotesOrbital",
             "entity": { "name": "Note", "persistence": "persistent", "fields": [
                 { "name": "id", "type": "string", "required": true },
@@ -4737,7 +4738,7 @@ mod tests {
         .unwrap();
         let mut ctx = InlineContext::new();
         ctx.add_alias_multi("Up", vec![upstream], "notes".to_string());
-        let mut orbital: Orbital = serde_json::from_value(json!({ "name": "Local", "entity": "Up.orbitals.NotesOrbital.entity", "traits": [] })).unwrap();
+        let mut orbital: Orbital = from_json_value(&json!({ "name": "Local", "entity": "Up.orbitals.NotesOrbital.entity", "traits": [] })).unwrap();
         orbital.uses = Some(vec![UseDeclaration { lazy: None, from: "notes".to_string(), alias: "Up".to_string(), config: None }]);
         let obj = OrbitalRefObject {
             reference: "Up.orbitals.NotesOrbital".to_string(),
@@ -4762,7 +4763,7 @@ mod tests {
 
     #[test]
     fn an_entities_binding_renames_relation_targets_to_entities_the_import_only_expects() {
-        let upstream: Orbital = serde_json::from_value(json!({
+        let upstream: Orbital = from_json_value(&json!({
             "name": "MentorOrbital",
             "entity": { "name": "Flow", "persistence": "runtime", "fields": [
                 { "name": "id", "type": "string", "required": true }
@@ -4780,7 +4781,7 @@ mod tests {
         .unwrap();
         let mut ctx = InlineContext::new();
         ctx.add_alias_multi("Up", vec![upstream], "mentor".to_string());
-        let mut orbital: Orbital = serde_json::from_value(json!({ "name": "Local", "entity": "Up.orbitals.MentorOrbital.entity", "traits": [] })).unwrap();
+        let mut orbital: Orbital = from_json_value(&json!({ "name": "Local", "entity": "Up.orbitals.MentorOrbital.entity", "traits": [] })).unwrap();
         orbital.uses = Some(vec![UseDeclaration { lazy: None, from: "mentor".to_string(), alias: "Up".to_string(), config: None }]);
         let obj = OrbitalRefObject {
             reference: "Up.orbitals.MentorOrbital".to_string(),
@@ -4805,7 +4806,7 @@ mod tests {
 
     #[test]
     fn an_only_import_drops_the_entity_expectation_only_its_omitted_traits_linked() {
-        let upstream: Orbital = serde_json::from_value(json!({
+        let upstream: Orbital = from_json_value(&json!({
             "name": "FlightOrbital",
             "entity": { "name": "Widget", "persistence": "runtime", "fields": [
                 { "name": "id", "type": "string", "required": true }
@@ -4824,7 +4825,7 @@ mod tests {
         let mut ctx = InlineContext::new();
         ctx.add_alias_multi("Up", vec![upstream], "flight".to_string());
         let resolve = |only: &[&str]| {
-            let mut orbital: Orbital = serde_json::from_value(json!({ "name": "Local", "entity": "Up.orbitals.FlightOrbital.entity", "traits": [] })).unwrap();
+            let mut orbital: Orbital = from_json_value(&json!({ "name": "Local", "entity": "Up.orbitals.FlightOrbital.entity", "traits": [] })).unwrap();
             orbital.uses = Some(vec![UseDeclaration { lazy: None, from: "flight".to_string(), alias: "Up".to_string(), config: None }]);
             let obj = OrbitalRefObject {
                 reference: "Up.orbitals.FlightOrbital".to_string(),
@@ -4914,7 +4915,7 @@ mod tests {
         targets.sort();
         targets.dedup();
         for target in targets {
-            let owner: Orbital = serde_json::from_value(serde_json::json!({
+            let owner: Orbital = from_json_value(&serde_json::json!({
                 "name": format!("{target}Owner"),
                 "entity": {
                     "name": target,
@@ -5184,7 +5185,7 @@ mod tests {
     #[test]
     fn uses_config_override_forwards_consumer_app_knob_last_hop() {
         let field = |v: SExpression| -> ConfigField {
-            serde_json::from_value(json!({ "type": "unknown", "default": v }))
+            from_json_value(&json!({ "type": "unknown", "default": v }))
                 .expect("config field")
         };
         let mut folded: orbital_core_base::collections::IndexMap<String, ConfigField> = orbital_core_base::collections::IndexMap::from([
@@ -5243,7 +5244,7 @@ mod tests {
             let td = Arc::make_mut(td);
             td.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "calendarSyncEnabled".to_string(),
-                serde_json::from_value::<ConfigField>(json!({
+                from_json_value::<ConfigField>(&json!({
                     "type": "boolean", "default": "@config.calendarSyncEnabled"
                 }))
                 .unwrap(),
@@ -5254,7 +5255,7 @@ mod tests {
 
         let consumer_schema_config: orbital_core_base::collections::IndexMap<String, ConfigField> = orbital_core_base::collections::IndexMap::from([(
             "calendarSyncEnabled".to_string(),
-            serde_json::from_value::<ConfigField>(json!({ "type": "boolean", "default": true }))
+            from_json_value::<ConfigField>(&json!({ "type": "boolean", "default": true }))
                 .unwrap(),
         )]);
 
@@ -5269,7 +5270,7 @@ mod tests {
             only: None,
             config: Some(orbital_core_base::collections::IndexMap::from([(
                 "calendarSyncEnabled".to_string(),
-                serde_json::from_value::<ConfigField>(json!({
+                from_json_value::<ConfigField>(&json!({
                     "type": "boolean", "default": "@config.calendarSyncEnabled"
                 }))
                 .unwrap(),
@@ -5354,7 +5355,7 @@ mod tests {
             mounts: None,
             extend: Some(vec![
                 extend_field("overtimeHours", json!("number"), Some(json!(0))),
-                serde_json::from_value(json!({
+                from_json_value(&json!({
                     "name": "workspaceId",
                     "type": "relation",
                     "relation": { "entity": "Workspace", "cardinality": "one" }
@@ -5417,7 +5418,7 @@ mod tests {
         // `entities {}`), so this fixture declares its own `Workspace`
         // owner orbital, matching the SAME id `consumer_ids` supplies, so
         // the JS twin's schema-derived id lookup resolves identically.
-        let workspace_owner: Orbital = serde_json::from_value(json!({
+        let workspace_owner: Orbital = from_json_value(&json!({
             "name": "WorkspaceOwner",
             "entity": {
                 "name": "Workspace",
@@ -5675,7 +5676,7 @@ mod tests {
         // Simulate `orbital-lolo`'s lowering of a sibling trait declared in
         // the reference body: it lands in `orbital.traits` BEFORE the
         // splice runs, un-prefixed, consumer vocabulary.
-        let sibling_td: TraitDefinition = serde_json::from_value(json!({
+        let sibling_td: TraitDefinition = from_json_value(&json!({
             "name": "LocalSiblingTrait",
             "linkedEntity": "LocalWidget",
             "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
@@ -5800,7 +5801,7 @@ mod tests {
             mounts: None,
             extend: None,
             mock: None,
-            listens: Some(serde_json::from_value(listens).expect("listens fixture")),
+            listens: Some(from_json_value(&listens).expect("listens fixture")),
             ..Default::default()
         }
     }
@@ -5815,7 +5816,7 @@ mod tests {
         orbital.traits = siblings
             .iter()
             .map(|name| {
-                serde_json::from_value(json!({
+                from_json_value(&json!({
                     "name": name,
                     "linkedEntity": "Up",
                     "stateMachine": { "states": [ { "name": "idle", "isInitial": true } ], "transitions": [] }
@@ -5873,7 +5874,7 @@ mod tests {
     }
 
     fn host_embedding(name: &str, embeds: &str) -> TraitReference {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": name,
             "linkedEntity": "Up",
             "stateMachine": {
@@ -5991,7 +5992,7 @@ mod tests {
             let a = Arc::make_mut(a);
             a.config = Some(orbital_core_base::collections::IndexMap::from([(
                 "actions".to_string(),
-                serde_json::from_value::<ConfigField>(json!({
+                from_json_value::<ConfigField>(&json!({
                     "type": "array",
                     "default": [ { "event": "EDIT_ITEM", "label": "Edit" } ],
                     "items": {
@@ -6068,12 +6069,12 @@ mod tests {
             a.config = Some(orbital_core_base::collections::IndexMap::from([
                 (
                     "one".to_string(),
-                    serde_json::from_value::<ConfigField>(json!({ "type": "event", "default": one }))
+                    from_json_value::<ConfigField>(&json!({ "type": "event", "default": one }))
                         .unwrap(),
                 ),
                 (
                     "tools".to_string(),
-                    serde_json::from_value::<ConfigField>(json!({
+                    from_json_value::<ConfigField>(&json!({
                         "type": "array",
                         "default": [{ "event": tool }],
                         "items": { "type": "object", "properties": { "event": { "type": "event" } } }
@@ -6161,7 +6162,7 @@ mod tests {
         if let Some(d) = default {
             value["default"] = d;
         }
-        serde_json::from_value(value).expect("extend field fixture must deserialize")
+        from_json_value(&value).expect("extend field fixture must deserialize")
     }
 
     #[test]
@@ -6346,7 +6347,7 @@ mod tests {
             roles: None,
             entities: None,
             mounts: None,
-            extend: Some(vec![serde_json::from_value(json!({
+            extend: Some(vec![from_json_value(&json!({
                 "name": "workspaceId",
                 "type": "relation",
                 "relation": { "entity": "Workspace", "cardinality": "one" }
@@ -6393,7 +6394,7 @@ mod tests {
 
     #[test]
     fn a_field_rename_follows_into_declared_index_paths_and_leaves_other_fields_alone() {
-        let mut entity: EntityDefinition = serde_json::from_value(serde_json::json!({
+        let mut entity: EntityDefinition = from_json_value(&serde_json::json!({
             "name": "Edge",
             "fields": [{ "name": "graphId", "type": "string" }, { "name": "weight", "type": "number" }],
             "indexes": [
@@ -6419,7 +6420,7 @@ mod tests {
     }
 
     fn typed_upstream() -> Orbital {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "UpOrbital",
             "id": "orb_UPSTREAMTYPEDORBITAL0000",
             "types": {"Badge": [{"name": "id", "type": "string"}]},
@@ -6440,7 +6441,7 @@ mod tests {
         if let Some(behavior) = behavior {
             ctx.set_behavior_name("Up", behavior.to_string());
         }
-        let mut orbital: Orbital = serde_json::from_value(json!({
+        let mut orbital: Orbital = from_json_value(&json!({
             "name": "Local", "types": consumer_types, "entity": "Up.orbitals.UpOrbital.entity", "traits": []
         }))
         .expect("consumer");
@@ -6479,7 +6480,7 @@ mod tests {
         assert_eq!(types["Badge"][0].name, "code");
     }
     fn parsing_upstream() -> Orbital {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "UpOrbital",
             "id": "orb_UPSTREAMPARSINGORBITAL00",
             "types": {"Badge": [{"name": "id", "type": "string"}]},
@@ -6502,7 +6503,7 @@ mod tests {
         let mut ctx = InlineContext::new();
         ctx.add_alias("Up", &parsing_upstream());
         ctx.set_behavior_name("Up", behavior.to_string());
-        let mut orbital: Orbital = serde_json::from_value(json!({
+        let mut orbital: Orbital = from_json_value(&json!({
             "name": "Local", "types": consumer_types, "entity": "Up.orbitals.UpOrbital.entity", "traits": []
         }))
         .expect("consumer");
@@ -6535,11 +6536,11 @@ mod tests {
     fn control_an_orbital_level_uses_leaves_a_json_parse_shape_of_an_undeclared_name_alone() {
         let mut upstream = parsing_upstream();
         let text = serde_json::to_string(&upstream).expect("json").replace("\"Badge\"]", "\"Nowhere\"]");
-        upstream = serde_json::from_str(&text).expect("fixture");
+        upstream = from_json_str(&text).expect("fixture");
         let mut ctx = InlineContext::new();
         ctx.add_alias("Up", &upstream);
         ctx.set_behavior_name("Up", "Atom".to_string());
-        let mut orbital: Orbital = serde_json::from_value(json!({
+        let mut orbital: Orbital = from_json_value(&json!({
             "name": "Local", "entity": "Up.orbitals.UpOrbital.entity", "traits": []
         }))
         .expect("consumer");
@@ -6571,14 +6572,14 @@ mod tests {
             def["traits"][0]["typeParams"] = json!([{"name": "p", "kind": "Type"}]);
             def["traits"][0]["typeArgs"] = json!({"p": "Badge"});
         }
-        serde_json::from_value(def).expect("parameterised upstream fixture")
+        from_json_value(&def).expect("parameterised upstream fixture")
     }
 
     fn resolve_parameterised(behavior: &str, with_params: bool) -> Orbital {
         let mut ctx = InlineContext::new();
         ctx.add_alias("Up", &parameterised_upstream(with_params));
         ctx.set_behavior_name("Up", behavior.to_string());
-        let mut orbital: Orbital = serde_json::from_value(json!({
+        let mut orbital: Orbital = from_json_value(&json!({
             "name": "Local", "entity": "Up.orbitals.UpOrbital.entity", "traits": []
         }))
         .expect("consumer");

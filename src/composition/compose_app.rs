@@ -8,6 +8,7 @@
 //! so field order and optional-field presence are the program's own; golden cases recorded from the original
 //! live in `tests/fixtures/compose-app/`.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_core_base::os_grants::OsGrants;
 use orbital_core_base::value::{Shared, Value, ValueMap as Map};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -318,7 +319,7 @@ fn rewrite_own_route(node: &mut Value, old: &str, new: &str) {
 fn merged_shape(existing: Option<&Value>, incoming: Option<&Value>) -> Result<Option<Value>, String> {
     let json = |v: &Value| orbital_core_base::json_value::value_to_json(v);
     orbital_core_base::expects::merge_expectation_shape(existing.map(json).as_ref(), incoming.map(json).as_ref())?
-        .map(|shape| serde_json::from_value(shape).map_err(|e| e.to_string()))
+        .map(|shape| from_json_value(&shape).map_err(|e| e.to_string()))
         .transpose()
 }
 
@@ -2652,7 +2653,7 @@ pub fn compose_orbital_surface_owned(
 pub fn union_os_grants(a: Option<&Value>, b: Option<&Value>) -> Result<Value, String> {
     let typed = |v: &Value| -> Result<OsGrants, String> {
         let json = serde_json::to_value(v).map_err(|e| e.to_string())?;
-        serde_json::from_value(json).map_err(|e| format!("osGrants: {e}"))
+        from_json_value(&json).map_err(|e| format!("osGrants: {e}"))
     };
     let mut union = OsGrants::default();
     for set in a.into_iter().chain(b) {
@@ -2662,7 +2663,7 @@ pub fn union_os_grants(a: Option<&Value>, b: Option<&Value>) -> Result<Value, St
     if let Some(map) = json.as_object_mut() {
         map.retain(|_, family| !family.as_array().is_some_and(Vec::is_empty));
     }
-    serde_json::from_value(json).map_err(|e| e.to_string())
+    from_json_value(&json).map_err(|e| e.to_string())
 }
 
 fn with_upstream_os_grants(
@@ -2779,11 +2780,11 @@ pub fn compose_app_from_owned_files(
     out.insert("schema".into(), schema);
     out.insert(
         "layout".into(),
-        serde_json::from_value(serde_json::to_value(&composed.layout).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?,
+        from_json_value(&serde_json::to_value(&composed.layout).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?,
     );
     out.insert(
         "wiring".into(),
-        serde_json::from_value(serde_json::to_value(&composed.wiring).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?,
+        from_json_value(&serde_json::to_value(&composed.wiring).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?,
     );
     for key in [
         "surfaceRenames",
@@ -3114,9 +3115,10 @@ pub fn apply_compose_overrides(schema: &mut Value, overrides: &Value) -> Result<
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     macro_rules! jv {
         ($($t:tt)*) => {
-            serde_json::from_value::<Value>(serde_json::json!($($t)*)).expect("literal")
+            from_json_value::<Value>(&serde_json::json!($($t)*)).expect("literal")
         };
     }
 
@@ -3137,7 +3139,7 @@ mod tests {
             .map(|p| {
                 (
                     p.file_name().unwrap().to_string_lossy().to_string(),
-                    serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap(),
+                    from_json_str(&std::fs::read_to_string(&p).unwrap()).unwrap(),
                 )
             })
             .collect()
@@ -3240,7 +3242,7 @@ mod tests {
                     layout_strategy: str_of(&opts, "layoutStrategy").map(str::to_string),
                     event_wiring: opts
                         .get("eventWiring")
-                        .map(|w| serde_json::from_value(orbital_core_base::json_value::value_to_json(w)).expect("wiring")),
+                        .map(|w| from_json_value(&orbital_core_base::json_value::value_to_json(w)).expect("wiring")),
                     now: now.to_string(),
                 };
                 Ok((compose_app_from_files(&files, &options, &lookups)?, files))

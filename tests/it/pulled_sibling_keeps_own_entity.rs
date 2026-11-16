@@ -4,6 +4,7 @@
 //! by TicketManage -> Ticket) keeps its binding when a consumer rebinds the
 //! embedder (`TicketManage -> SupportTicket`).
 
+use orbital_core_base::json_value::{from_json_str};
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_core_base::schema::TraitReference;
@@ -153,7 +154,7 @@ fn pulled_auxiliary_sibling_keeps_its_own_source_entity() {
 
 #[test]
 fn pulled_composed_sibling_preserves_nested_source_entity() {
-    let mut atom: serde_json::Value = serde_json::from_str(ATOM).expect("atom");
+    let mut atom: serde_json::Value = from_json_str(ATOM).expect("atom");
     atom["orbitals"][0]["uses"] =
         serde_json::json!([{ "from": "./messages.orb", "as": "Messages" }]);
     atom["orbitals"][0]["traits"][1] =
@@ -191,7 +192,7 @@ fn pulled_composed_sibling_preserves_nested_source_entity() {
 }
 
 fn atom_with_action(field_type: &str, event: &str, source: &str) -> String {
-    let mut atom: serde_json::Value = serde_json::from_str(ATOM).expect("atom");
+    let mut atom: serde_json::Value = from_json_str(ATOM).expect("atom");
     atom["orbitals"][0]["traits"][1]["config"] = serde_json::json!({
         "actions": { "type": "[object]", "items": { "name": "action", "type": "object", "properties": {
             "action": { "name": "action", "type": field_type }
@@ -243,7 +244,7 @@ fn struct_config_action_pulls_the_declared_receiver_only_for_event_fields() {
         ("event", "UNKNOWN", None),
     ] {
         let mut atom: serde_json::Value =
-            serde_json::from_str(&atom_with_action(kind, event, "TicketCorrespondence"))
+            from_json_str(&atom_with_action(kind, event, "TicketCorrespondence"))
                 .expect("atom");
         let action = &mut atom["orbitals"][0]["traits"][1]["config"]["actions"];
         *action = serde_json::json!({ "type": "object", "properties": action["items"]["properties"].clone(), "default": action["default"][0].clone() });

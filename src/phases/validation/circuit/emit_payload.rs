@@ -1371,12 +1371,13 @@ fn primitive_types_compatible(declared: &str, actual: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
 
     #[test]
     fn a_qualified_key_literal_fits_a_message_key_slot() {
         use orbital_core_base::ir::{OirField, OirType};
-        let lit = |v: serde_json::Value| -> SExpression { serde_json::from_value(v).unwrap() };
+        let lit = |v: serde_json::Value| -> SExpression { from_json_value(&v).unwrap() };
         assert!(literal_fits("MessageKey", "string", &lit(serde_json::json!("panel:begin"))));
         assert!(!literal_fits("MessageKey", "string", &lit(serde_json::json!("begin"))), "control: a plain string");
         assert!(!literal_fits("string", "number", &lit(serde_json::json!(3))), "control: other kinds unchanged");
@@ -1489,7 +1490,7 @@ mod tests {
 
     fn check(emits: &str, effect: &str) -> ValidationContext {
         let json = persist_trait_json(emits, effect);
-        let schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
+        let schema: OrbitalSchema = from_json_str(&json).expect("schema parses");
         let mut ctx = ctx_with_seeded_entities(&schema);
         validate_all_emit_payloads(&schema, &mut ctx);
         ctx
@@ -1723,7 +1724,7 @@ mod tests {
                 }}]
             }}"#
         );
-        let mut schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
+        let mut schema: OrbitalSchema = from_json_str(&json).expect("schema parses");
         for orbital in &mut schema.orbitals {
             crate::phases::inline::rewrite::resolve_orbital_type_param_sentinels(orbital);
         }
@@ -2093,7 +2094,7 @@ mod tests {
             r#""name": "ThreadOrbital", "types": { "Point": [{ "name": "x", "type": "number" }], "Points": [{ "name": "", "type": "[Point]" }] },"#,
             1,
         );
-        let schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
+        let schema: OrbitalSchema = from_json_str(&json).expect("schema parses");
         let mut ctx = ctx_with_seeded_entities(&schema);
         validate_all_emit_payloads(&schema, &mut ctx);
         ctx.result
@@ -2125,7 +2126,7 @@ mod tests {
             &format!(r#"["emit", "EMBEDDED", {{ "embeddings": {value} }}]"#),
         )
         .replacen(r#""name": "ThreadOrbital","#, &format!(r#""name": "ThreadOrbital", {EMBED_TYPES}"#), 1);
-        let schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
+        let schema: OrbitalSchema = from_json_str(&json).expect("schema parses");
         let mut ctx = ctx_with_seeded_entities(&schema);
         validate_all_emit_payloads(&schema, &mut ctx);
         ctx.result
@@ -2193,7 +2194,7 @@ mod tests {
                 }}]
             }}"#
         );
-        let mut schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
+        let mut schema: OrbitalSchema = from_json_str(&json).expect("schema parses");
         for orbital in &mut schema.orbitals {
             crate::phases::inline::rewrite::resolve_orbital_type_param_sentinels(orbital);
         }
@@ -2272,7 +2273,7 @@ mod tests {
                 }}]
             }}"#
         );
-        let schema: OrbitalSchema = serde_json::from_str(&json).expect("schema parses");
+        let schema: OrbitalSchema = from_json_str(&json).expect("schema parses");
         let mut ctx = ctx_with_seeded_entities(&schema);
         for orbital in &schema.orbitals {
             for entity in orbital
@@ -2767,7 +2768,7 @@ mod tests {
                 }]
             }]
         }"#;
-        let schema: OrbitalSchema = serde_json::from_str(json).expect("schema parses");
+        let schema: OrbitalSchema = from_json_str(json).expect("schema parses");
         let mut ctx = ValidationContext::new();
         validate_all_emit_payloads(&schema, &mut ctx);
         assert!(
@@ -2799,7 +2800,7 @@ mod tests {
                 }]
             }]
         }"#;
-        let schema: OrbitalSchema = serde_json::from_str(json).expect("schema parses");
+        let schema: OrbitalSchema = from_json_str(json).expect("schema parses");
         let mut ctx = ValidationContext::new();
         validate_all_emit_payloads(&schema, &mut ctx);
         assert!(
@@ -2834,7 +2835,7 @@ mod tests {
                 }]
             }]
         }"#;
-        let schema: OrbitalSchema = serde_json::from_str(json).expect("schema parses");
+        let schema: OrbitalSchema = from_json_str(json).expect("schema parses");
         let mut ctx = ValidationContext::new();
         validate_all_emit_payloads(&schema, &mut ctx);
         assert!(
@@ -2866,7 +2867,7 @@ mod tests {
                 }]
             }]
         }"#;
-        let schema: OrbitalSchema = serde_json::from_str(json).expect("schema parses");
+        let schema: OrbitalSchema = from_json_str(json).expect("schema parses");
         let mut ctx = ValidationContext::new();
         validate_all_emit_payloads(&schema, &mut ctx);
         assert!(
@@ -2909,7 +2910,7 @@ mod tests {
                 }]
             }]
         }"#;
-        let schema: OrbitalSchema = serde_json::from_str(json).expect("schema parses");
+        let schema: OrbitalSchema = from_json_str(json).expect("schema parses");
         let mut ctx = ValidationContext::new();
         validate_all_emit_payloads(&schema, &mut ctx);
         assert!(
@@ -2959,7 +2960,7 @@ mod tests {
         .replace("@EMITTED@", emitted)
         .replace("@LISTENED@", listened)
         .replace("@SOURCE@", source);
-        serde_json::from_str(&json).expect("schema parses")
+        from_json_str(&json).expect("schema parses")
     }
 
     const FROM_EMITTER: &str = r#"{ "kind": "orbital", "orbital": "Sender", "trait": "Emitter" }"#;
@@ -3158,7 +3159,7 @@ mod tests {
         let list = std::env::var("ORB310_PROBE").unwrap();
         for path in list.split(':') {
             let text = std::fs::read_to_string(path).unwrap();
-            let schema: OrbitalSchema = serde_json::from_str(&text).unwrap();
+            let schema: OrbitalSchema = from_json_str(&text).unwrap();
             let mut ctx = ctx_with_seeded_entities(&schema);
             validate_listen_payload_types(&schema, &mut ctx);
             for e in ctx.result.errors.iter().filter(|e| e.code.as_str() == LISTEN_PAYLOAD_CODE) {

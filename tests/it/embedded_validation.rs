@@ -8,6 +8,7 @@
 //! atom/organism tiers. See
 //! `docs/Lolo_Language_Spec_v3_PLAN.md` Section 8.7.
 
+use orbital_core_base::json_value::{from_json_str};
 use orbital_compiler::embedded;
 use orbital_core_base::schema::{
     OrbitalSchema, SExpression, StateDefinition, StateMachine, StringOrArray, StringOrNumber,
@@ -222,7 +223,7 @@ fn installed_std_corpus_validates() {
     for path in &files {
         let content = std::fs::read_to_string(path)
             .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        let schema: OrbitalSchema = serde_json::from_str(&content)
+        let schema: OrbitalSchema = from_json_str(&content)
             .unwrap_or_else(|e| panic!("{} failed to parse as OrbitalSchema: {e}", path.display()));
         assert!(
             !schema.name.is_empty(),

@@ -3653,15 +3653,16 @@ pub(crate) fn trait_ref_name(tr: &TraitReference) -> Option<&str> {
 
 #[cfg(test)]
 mod config_self_read_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use serde_json::json;
 
     fn expr(v: serde_json::Value) -> SExpression {
-        serde_json::from_value(v).expect("expression fixture")
+        from_json_value(&v).expect("expression fixture")
     }
 
     fn subs(items: serde_json::Value) -> orbital_core_base::schema::SObject {
-        serde_json::from_value(items).expect("subs fixture")
+        from_json_value(&items).expect("subs fixture")
     }
 
     #[test]
@@ -3695,6 +3696,7 @@ mod config_self_read_tests {
 
 #[cfg(test)]
 mod literal_list_tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
 
     fn arr(items: Vec<SExpression>) -> SExpression {
@@ -3736,7 +3738,7 @@ mod literal_list_tests {
     /// back to `BrowseItem`).
     #[test]
     fn renamed_entity_ref_without_known_id_drops_the_predecessor_id() {
-        let mut t: TraitDefinition = serde_json::from_value(serde_json::json!({
+        let mut t: TraitDefinition = from_json_value(&serde_json::json!({
             "name": "Rail",
             "stateMachine": { "states": [{ "name": "idle", "isInitial": true }], "transitions": [] },
             "entityRefIds": { "BrowseItem": "ent_browse", "Other": "ent_other" }
@@ -3757,7 +3759,7 @@ mod literal_list_tests {
     /// body as data, not as a `(count slug)` call.
     #[test]
     fn nested_struct_array_members_are_marked_as_literal_lists() {
-        let field: ConfigField = serde_json::from_value(serde_json::json!({
+        let field: ConfigField = from_json_value(&serde_json::json!({
             "type": "[RecordSection]",
             "items": {
                 "type": "object",
@@ -3768,7 +3770,7 @@ mod literal_list_tests {
             }
         }))
         .expect("config field");
-        let mut v: SExpression = serde_json::from_value(serde_json::json!([
+        let mut v: SExpression = from_json_value(&serde_json::json!([
             { "title": "Meta", "fields": ["count", "slug"] }
         ]))
         .expect("value");
@@ -3792,27 +3794,27 @@ mod literal_list_tests {
     /// a literal — and must reach the runtime unwrapped.
     #[test]
     fn struct_element_slot_keeps_a_call_value_unwrapped() {
-        let field: ConfigField = serde_json::from_value(serde_json::json!({
+        let field: ConfigField = from_json_value(&serde_json::json!({
             "type": "[NavLink]",
             "items": { "type": "object", "properties": { "label": { "type": "string" }, "href": { "type": "string" } } }
         }))
         .expect("config field");
         let call = serde_json::json!(["if", ["==", "kflow", "rawi"], [{ "href": "#a", "label": "A" }], [{ "href": "#b", "label": "B" }]]);
-        let mut v: SExpression = serde_json::from_value(call.clone()).expect("value");
+        let mut v: SExpression = from_json_value(&call).expect("value");
         mark_config_literal_lists(&mut v, &field);
-        let expected: SExpression = serde_json::from_value(call).expect("value");
+        let expected: SExpression = from_json_value(&call).expect("value");
         assert_eq!(v, expected);
     }
 
     #[test]
     fn control_string_element_slot_still_wraps_a_string_headed_list() {
-        let field: ConfigField = serde_json::from_value(serde_json::json!({
+        let field: ConfigField = from_json_value(&serde_json::json!({
             "type": "[string]",
             "items": { "type": "string" }
         }))
         .expect("config field");
         let mut v: SExpression =
-            serde_json::from_value(serde_json::json!(["if", "else"])).expect("value");
+            from_json_value(&serde_json::json!(["if", "else"])).expect("value");
         mark_config_literal_lists(&mut v, &field);
         let SExpression::Array(items) = &v else {
             panic!("expected array")
@@ -3822,15 +3824,15 @@ mod literal_list_tests {
 
     #[test]
     fn control_number_element_slot_keeps_a_call_value_unwrapped() {
-        let field: ConfigField = serde_json::from_value(serde_json::json!({
+        let field: ConfigField = from_json_value(&serde_json::json!({
             "type": "[number]",
             "items": { "type": "number" }
         }))
         .expect("config field");
         let call = serde_json::json!(["if", true, [1, 2], [3]]);
-        let mut v: SExpression = serde_json::from_value(call.clone()).expect("value");
+        let mut v: SExpression = from_json_value(&call).expect("value");
         mark_config_literal_lists(&mut v, &field);
-        let expected: SExpression = serde_json::from_value(call).expect("value");
+        let expected: SExpression = from_json_value(&call).expect("value");
         assert_eq!(v, expected);
     }
 
@@ -3905,7 +3907,7 @@ mod literal_list_tests {
     }
 
     fn mixed_commands_trait(effect: serde_json::Value) -> TraitDefinition {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "Runner",
             "config": { "commands": {
                 "type": "[CliCommand]",
@@ -3961,7 +3963,7 @@ mod literal_list_tests {
             "the value is the marked literal: {effect}"
         );
         let declared: orbital_core_base::ir::OirType =
-            serde_json::from_str(binding[2].as_str().expect("type text")).expect("an IR type");
+            from_json_str(binding[2].as_str().expect("type text")).expect("an IR type");
         assert!(
             matches!(&declared, orbital_core_base::ir::OirType::Array { inner } if matches!(**inner, orbital_core_base::ir::OirType::Union { .. })),
             "{declared:?}"
@@ -3985,7 +3987,7 @@ mod literal_list_tests {
         assert_eq!(binding.as_array().map(Vec::len), Some(3), "{effect}");
         assert_eq!(binding[1][0], "list", "{effect}");
         let declared: orbital_core_base::ir::OirType =
-            serde_json::from_str(binding[2].as_str().expect("type text")).expect("an IR type");
+            from_json_str(binding[2].as_str().expect("type text")).expect("an IR type");
         assert!(
             matches!(declared, orbital_core_base::ir::OirType::Array { .. }),
             "{declared:?}"
@@ -4026,7 +4028,7 @@ mod literal_list_tests {
     }
 
     fn cue_list_trait(effect: serde_json::Value, optional: bool) -> TraitDefinition {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "Cues",
             "config": { "cues": {
                 "type": "[Cue]",
@@ -4145,7 +4147,7 @@ mod literal_list_tests {
     }
 
     fn knob_trait(knob: serde_json::Value, effect: serde_json::Value) -> TraitDefinition {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "Runner",
             "config": { "knob": knob },
             "stateMachine": {
@@ -4240,8 +4242,8 @@ mod literal_list_tests {
     #[test]
     fn a_knob_defaulting_to_pages_is_read_as_its_declared_type_where_a_lambda_reads_it() {
         // std-app-layout's navItems (NavItem carries children : [NavItem]) and its INIT render effect.
-        let knob: serde_json::Value = serde_json::from_str(r#"{"nullable": false, "type": "[NavItem]", "default": "@pages", "items": {"nullable": false, "type": "object", "properties": {"label": {"nullable": false, "name": "label", "type": "string", "required": true}, "href": {"nullable": false, "name": "href", "type": "string", "required": true}, "icon": {"nullable": false, "name": "icon", "type": "string", "required": false}, "badge": {"nullable": false, "name": "badge", "type": "string", "required": false}, "children": {"nullable": false, "name": "children", "type": "array", "required": false, "items": {"nullable": false, "type": "union", "values": ["NavItem"], "projectedFrom": {"type": "NavItem"}}}, "roles": {"nullable": false, "name": "roles", "type": "array", "required": false, "items": {"nullable": false, "type": "string"}}}, "projectedFrom": {"type": "NavItem"}}}"#).unwrap();
-        let read: serde_json::Value = serde_json::from_str(r#"["render-ui", "main", {"data-theme": "@config.theme", "className": "min-h-screen w-full", "fullHeight": true, "type": "box", "children": [{"appName": "@config.appName", "logo": ["if", ["==", "@config.logoSrc", ""], null, {"type": "image", "src": "@config.logoSrc", "alt": "", "fit": "contain", "className": "h-8 w-8"}], "children": [{"children": ["@config.contentTrait"], "className": "@config.contentClassName", "direction": "vertical", "gap": "lg", "type": "stack"}], "currentPath": "@config.currentPath", "layoutMode": "@config.layoutMode", "fullBleed": "@config.fullBleed", "navItems": ["array/map", ["array/filter", "@config.knob", ["fn", "item", ["or", ["=", ["array/len", ["object/get", "@item", "roles", []]], 0], ["array/includes", ["object/get", "@item", "roles", []], "@config.viewerRole"]]]], ["fn", "item", ["if", ["object/has", "@item", "children"], ["object/merge", "@item", {"children": ["array/filter", ["object/get", "@item", "children", []], ["fn", "child", ["or", ["=", ["array/len", ["object/get", "@child", "roles", []]], 0], ["array/includes", ["object/get", "@child", "roles", []], "@config.viewerRole"]]]]}], "@item"]]], "notificationClickEvent": "@config.notificationClickEvent", "notifications": ["if", "@config.showNotifications", "@config.notifications", null], "searchEvent": ["if", "@config.showSearch", "@config.searchEvent", null], "showThemeToggle": "@config.showThemeToggle", "sidebarContent": "@config.sidebarTrait", "topBarActions": ["array/filter", "@config.topBarActions", ["fn", "action", ["or", ["=", ["array/len", ["object/get", "@action", "roles", []]], 0], ["array/includes", ["object/get", "@action", "roles", []], "@config.viewerRole"]]]], "userMenuItems": ["array/filter", "@config.userMenuItems", ["fn", "action", ["or", ["=", ["array/len", ["object/get", "@action", "roles", []]], 0], ["array/includes", ["object/get", "@action", "roles", []], "@config.viewerRole"]]]], "type": "@config.layoutPattern", "user": ["if", ["validate/required", "@config.viewerName"], {"avatar": "@config.viewerAvatar", "email": "@config.viewerEmail", "name": "@config.viewerName"}, null]}]}]"#).unwrap();
+        let knob: serde_json::Value = from_json_str(r#"{"nullable": false, "type": "[NavItem]", "default": "@pages", "items": {"nullable": false, "type": "object", "properties": {"label": {"nullable": false, "name": "label", "type": "string", "required": true}, "href": {"nullable": false, "name": "href", "type": "string", "required": true}, "icon": {"nullable": false, "name": "icon", "type": "string", "required": false}, "badge": {"nullable": false, "name": "badge", "type": "string", "required": false}, "children": {"nullable": false, "name": "children", "type": "array", "required": false, "items": {"nullable": false, "type": "union", "values": ["NavItem"], "projectedFrom": {"type": "NavItem"}}}, "roles": {"nullable": false, "name": "roles", "type": "array", "required": false, "items": {"nullable": false, "type": "string"}}}, "projectedFrom": {"type": "NavItem"}}}"#).unwrap();
+        let read: serde_json::Value = from_json_str(r#"["render-ui", "main", {"data-theme": "@config.theme", "className": "min-h-screen w-full", "fullHeight": true, "type": "box", "children": [{"appName": "@config.appName", "logo": ["if", ["==", "@config.logoSrc", ""], null, {"type": "image", "src": "@config.logoSrc", "alt": "", "fit": "contain", "className": "h-8 w-8"}], "children": [{"children": ["@config.contentTrait"], "className": "@config.contentClassName", "direction": "vertical", "gap": "lg", "type": "stack"}], "currentPath": "@config.currentPath", "layoutMode": "@config.layoutMode", "fullBleed": "@config.fullBleed", "navItems": ["array/map", ["array/filter", "@config.knob", ["fn", "item", ["or", ["=", ["array/len", ["object/get", "@item", "roles", []]], 0], ["array/includes", ["object/get", "@item", "roles", []], "@config.viewerRole"]]]], ["fn", "item", ["if", ["object/has", "@item", "children"], ["object/merge", "@item", {"children": ["array/filter", ["object/get", "@item", "children", []], ["fn", "child", ["or", ["=", ["array/len", ["object/get", "@child", "roles", []]], 0], ["array/includes", ["object/get", "@child", "roles", []], "@config.viewerRole"]]]]}], "@item"]]], "notificationClickEvent": "@config.notificationClickEvent", "notifications": ["if", "@config.showNotifications", "@config.notifications", null], "searchEvent": ["if", "@config.showSearch", "@config.searchEvent", null], "showThemeToggle": "@config.showThemeToggle", "sidebarContent": "@config.sidebarTrait", "topBarActions": ["array/filter", "@config.topBarActions", ["fn", "action", ["or", ["=", ["array/len", ["object/get", "@action", "roles", []]], 0], ["array/includes", ["object/get", "@action", "roles", []], "@config.viewerRole"]]]], "userMenuItems": ["array/filter", "@config.userMenuItems", ["fn", "action", ["or", ["=", ["array/len", ["object/get", "@action", "roles", []]], 0], ["array/includes", ["object/get", "@action", "roles", []], "@config.viewerRole"]]]], "type": "@config.layoutPattern", "user": ["if", ["validate/required", "@config.viewerName"], {"avatar": "@config.viewerAvatar", "email": "@config.viewerEmail", "name": "@config.viewerName"}, null]}]}]"#).unwrap();
         let mut t = knob_trait(knob.clone(), read);
         apply_inline_config_defaults(&mut t, &mut Vec::new());
         let effect = serde_json::to_value(first_effect(&t)).unwrap();
@@ -4309,7 +4311,7 @@ mod literal_list_tests {
         let effect = serde_json::to_value(first_effect(&t)).unwrap();
         assert_eq!(effect[2][1][0], "let", "{effect}");
         let declared: orbital_core_base::ir::OirType =
-            serde_json::from_str(effect[2][1][1][0][2].as_str().expect("type text"))
+            from_json_str(effect[2][1][1][0][2].as_str().expect("type text"))
                 .expect("an IR type");
         assert!(
             matches!(declared, orbital_core_base::ir::OirType::Map { .. }),
@@ -4332,7 +4334,7 @@ mod literal_list_tests {
     fn recursive_union_knob_len(
         default: serde_json::Value,
     ) -> Result<orbital_core_base::value::Value, String> {
-        let mut schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let mut schema: orbital_core_base::schema::OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "probe",
             "orbitals": [{
                 "name": "ProbeOrbital",
@@ -4512,6 +4514,7 @@ mod conditional_event_list_tests {
 
 #[cfg(test)]
 mod role_literal_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use serde_json::json;
 
@@ -4534,7 +4537,7 @@ mod role_literal_tests {
     }
 
     fn sexpr(v: serde_json::Value) -> SExpression {
-        serde_json::from_value(v).expect("valid SExpression fixture")
+        from_json_value(&v).expect("valid SExpression fixture")
     }
 
     /// A single-target remap swaps the literal in place — the op and the
@@ -4738,7 +4741,7 @@ mod role_literal_tests {
                 "@config.viewerRole"
             ])
         };
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "Layout",
             "linkedEntity": "Person",
             "config": {
@@ -4801,7 +4804,7 @@ mod role_literal_tests {
     /// in `detailActions` — is a role-list site too, so the import remap
     /// rewrites it before config folding copies it into the render.
     fn action_gated_trait(roles: serde_json::Value, other: serde_json::Value) -> TraitDefinition {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "Ledger",
             "linkedEntity": "Person",
             "config": {
@@ -4974,11 +4977,12 @@ mod role_literal_tests {
 
 #[cfg(test)]
 mod entity_slot_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use serde_json::json;
 
     fn sexpr(v: serde_json::Value) -> SExpression {
-        serde_json::from_value(v).expect("valid SExpression fixture")
+        from_json_value(&v).expect("valid SExpression fixture")
     }
 
     fn candidates() -> HashSet<String> {
@@ -5105,11 +5109,12 @@ mod entity_slot_tests {
 /// `orbital_core_base::collections::IndexMap<String, String>` to this function).
 #[cfg(test)]
 mod payload_entity_marker_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use serde_json::json;
 
     fn trait_with_payload_fields(fields: serde_json::Value) -> TraitDefinition {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "T",
             "linkedEntity": "ConfirmAction",
             "stateMachine": {
@@ -5279,7 +5284,7 @@ mod payload_entity_marker_tests {
     }
 
     fn entity_fixture(name: &str) -> orbital_core_base::schema::EntityDefinition {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": name,
             "persistence": "persistent",
             "fields": [ { "name": "id", "type": "string", "required": true } ]
@@ -5405,7 +5410,7 @@ mod payload_entity_marker_tests {
             "name": "accepted", "type": "[$e]",
             "items": { "name": "", "type": "$e", "projectedFrom": { "type": "e" } }
         });
-        let mut td: TraitDefinition = serde_json::from_value(json!({
+        let mut td: TraitDefinition = from_json_value(&json!({
             "name": "LookupRun",
             "typeParams": [ { "name": "e", "kind": "Type", "default": "string" } ],
             "typeArgs": type_args,
@@ -5559,7 +5564,7 @@ mod payload_entity_marker_tests {
         };
         let note = entity_fixture("Note");
         let key: PayloadField =
-            serde_json::from_value(json!({ "name": "key", "type": "string", "required": true })).unwrap();
+            from_json_value(&json!({ "name": "key", "type": "string", "required": true })).unwrap();
         let types = BTreeMap::from([("Req".to_string(), vec![key])]);
 
         let mut td = make(Some("Req"));
@@ -5587,7 +5592,7 @@ mod payload_entity_marker_tests {
         payload_entity: Option<&str>,
         schema: serde_json::Value,
     ) -> TraitDefinition {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "T",
             "linkedEntity": "Item",
             "emits": [ { "event": event, "payloadEntity": payload_entity, "payloadSchema": schema } ],
@@ -5600,7 +5605,7 @@ mod payload_entity_marker_tests {
         name: &str,
         fields: &[(&str, &str)],
     ) -> orbital_core_base::schema::EntityDefinition {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": name,
             "persistence": "persistent",
             "fields": fields.iter().map(|(n, t)| json!({ "name": n, "type": t })).collect::<Vec<_>>()
@@ -5630,7 +5635,7 @@ mod payload_entity_marker_tests {
                 { "name": "content", "type": "string", "required": true }
             ]),
         );
-        let message: orbital_core_base::schema::EntityDefinition = serde_json::from_value(json!({
+        let message: orbital_core_base::schema::EntityDefinition = from_json_value(&json!({
             "name": "Message",
             "persistence": "persistent",
             "fields": [
@@ -5665,7 +5670,7 @@ mod payload_entity_marker_tests {
     #[test]
     fn a_trait_parameter_binds_the_type_variables_of_its_config_shapes() {
         let trait_with = |args: serde_json::Value| -> TraitDefinition {
-            serde_json::from_value(json!({
+            from_json_value(&json!({
                 "name": "T",
                 "linkedEntity": "Item",
                 "typeParams": [ { "name": "v", "kind": "Type" }, { "name": "e", "kind": "Entity" }, { "name": "w", "kind": "Type" } ],
@@ -5715,7 +5720,7 @@ mod payload_entity_marker_tests {
 
     #[test]
     fn a_config_knob_typed_by_a_trait_parameter_takes_its_binding() {
-        let mut td: TraitDefinition = serde_json::from_value(json!({
+        let mut td: TraitDefinition = from_json_value(&json!({
             "name": "T",
             "linkedEntity": "Item",
             "typeParams": [ { "name": "v", "kind": "Type" }, { "name": "e", "kind": "Entity" }, { "name": "w", "kind": "Type" } ],
@@ -5862,11 +5867,12 @@ mod payload_entity_marker_tests {
 
 #[cfg(test)]
 mod native_record_generic_metadata_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use serde_json::json;
 
     fn alias() -> PayloadField {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "", "type": "object", "nullable": true,
             "properties": [{ "name": "rows", "type": "[string]", "nullable": false,
                 "items": { "name": "", "type": "string", "nullable": true } }],
@@ -5897,7 +5903,7 @@ mod native_record_generic_metadata_tests {
     fn native_record_generic_carrier_conversion_keeps_list_depth_and_scalar_kind() {
         use orbital_core_base::ir::types::{field_shape, payload_field_shape, OirType};
         for tag in ["string", "[string]", "[[string]]"] {
-            let payload: PayloadField = serde_json::from_value(json!({
+            let payload: PayloadField = from_json_value(&json!({
                 "name": "result", "type": tag, "required": true, "nullable": false
             }))
             .unwrap();
@@ -5922,7 +5928,7 @@ mod native_record_generic_metadata_tests {
     fn native_record_generic_config_preserves_occurrence_and_bound_contracts() {
         let sub = ParamSub::Struct(vec![alias()], "A".to_string());
         let subs = HashMap::from([("V".into(), sub)]);
-        let bound: FieldDefinition = serde_json::from_value(json!({
+        let bound: FieldDefinition = from_json_value(&json!({
             "type": "object", "nullable": true,
             "properties": { "rows": { "type": "array", "nullable": false,
                 "items": { "type": "string", "nullable": true } } },
@@ -5933,7 +5939,7 @@ mod native_record_generic_metadata_tests {
         let bindings =
             orbital_core_base::collections::IndexMap::from([("V".into(), bound.clone())]);
         for (tag, array) in [("$V", false), ("[$V]", true)] {
-            let mut knob: ConfigField = serde_json::from_value(json!({
+            let mut knob: ConfigField = from_json_value(&json!({
                 "type": tag, "required": true, "nullable": false
             }))
             .unwrap();
@@ -5962,7 +5968,7 @@ mod native_record_generic_metadata_tests {
         let bound = alias();
         let subs = HashMap::from([("V".into(), ParamSub::Struct(vec![bound.clone()], "V".to_string()))]);
         for (tag, array) in [("$V", false), ("[$V]", true)] {
-            let mut fields: Vec<PayloadField> = serde_json::from_value(json!([{
+            let mut fields: Vec<PayloadField> = from_json_value(&json!([{
                 "name": "result", "type": tag, "required": true, "nullable": false
             }]))
             .unwrap();
@@ -5994,12 +6000,13 @@ mod native_record_generic_metadata_tests {
 
 #[cfg(test)]
 mod cancelled_event_rename_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use serde_json::json;
 
     #[test]
     fn events_rename_reaches_the_cancelled_emit_slot() {
-        let mut effect: SExpression = serde_json::from_value(json!([
+        let mut effect: SExpression = from_json_value(&json!([
             "call-service", "svc", "run", {},
             { "key": "k", "emit": { "success": "DONE", "cancelled": "STOPPED" } }
         ]))
@@ -6011,7 +6018,7 @@ mod cancelled_event_rename_tests {
         .into_iter()
         .collect();
         rewrite_identifiers(&mut effect, &orbital_core_base::collections::IndexMap::new(), &event_subs);
-        let expected: SExpression = serde_json::from_value(json!([
+        let expected: SExpression = from_json_value(&json!([
             "call-service", "svc", "run", {},
             { "key": "k", "emit": { "success": "FINISHED", "cancelled": "ABORTED" } }
         ]))
@@ -6022,10 +6029,11 @@ mod cancelled_event_rename_tests {
 
 #[cfg(test)]
 mod event_typed_union_fold_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn def(json: serde_json::Value) -> orbital_core_base::schema::FieldDefinition {
-        serde_json::from_value(json).expect("field definition")
+        from_json_value(&json).expect("field definition")
     }
 
     fn agent_tool_items() -> orbital_core_base::schema::FieldDefinition {
@@ -6094,11 +6102,12 @@ mod event_typed_union_fold_tests {
 
 #[cfg(test)]
 mod unchanged_rewrite_tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
     use serde_json::json;
 
     fn expr(value: serde_json::Value) -> SExpression {
-        serde_json::from_value(value).expect("expression")
+        from_json_value(&value).expect("expression")
     }
 
     fn map(pairs: &[(&str, &str)]) -> orbital_core_base::collections::IndexMap<String, String> {
@@ -6169,7 +6178,7 @@ mod unchanged_rewrite_tests {
     }
 
     fn shared_trait() -> TraitDefinition {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "T",
             "linkedEntity": "Task",
             "emits": [ { "event": "DONE", "payloadSchema": [ { "name": "row", "type": "Task" } ] } ],
@@ -6197,7 +6206,7 @@ mod unchanged_rewrite_tests {
 
     #[test]
     fn a_scalar_knob_read_in_an_os_target_position_becomes_the_declared_knob_read() {
-        let mut trait_def: TraitDefinition = serde_json::from_value(json!({
+        let mut trait_def: TraitDefinition = from_json_value(&json!({
             "name": "T",
             "linkedEntity": "Task",
             "config": {
@@ -6245,7 +6254,7 @@ mod unchanged_rewrite_tests {
             "Env": { "name": "Env", "type": "object", "properties": {
                 "anchor": { "name": "anchor", "type": "string", "required": true } } }
         });
-        let mut trait_def: TraitDefinition = serde_json::from_value(json!({
+        let mut trait_def: TraitDefinition = from_json_value(&json!({
             "name": "T",
             "linkedEntity": "Task",
             "config": {
@@ -6277,7 +6286,7 @@ mod unchanged_rewrite_tests {
         let effects = &machine["transitions"][0]["effects"];
         let slot = |at: usize| -> serde_json::Value {
             let text = effects[at][1][1][0][2].as_str().unwrap_or_else(|| panic!("no declared type in {effects}"));
-            serde_json::from_str(text).expect("declared type is JSON")
+            from_json_str(text).expect("declared type is JSON")
         };
         assert_eq!(slot(0)["kind"], "union", "{effects}");
         assert_eq!(slot(0)["variants"].as_array().map(Vec::len), Some(2), "{effects}");

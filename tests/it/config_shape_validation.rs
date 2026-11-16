@@ -7,6 +7,7 @@
 //! enums). Bindings like `@entity.X` / `@config.X` are late-bound and
 //! pass the static check.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode};
 use std::sync::Arc;
 use orbital_core_base::schema::{
@@ -1500,7 +1501,7 @@ fn field_ref_alias_schema(name: &str, alias_in_orbital_types: bool) -> OrbitalSc
     trait_def.config = Some(config);
     if alias_in_orbital_types {
         orbital.types = Some(
-            serde_json::from_value(serde_json::json!({
+            from_json_value(&serde_json::json!({
                 "Credit": [{ "name": "amount", "type": "number", "required": true }]
             }))
             .expect("alias json"),
@@ -1551,7 +1552,7 @@ fn alias_knob_schema(alias: serde_json::Value, props: serde_json::Value, default
         unreachable!()
     };
     let trait_def = Arc::make_mut(trait_def);
-    let mut field: ConfigField = serde_json::from_value(serde_json::json!({
+    let mut field: ConfigField = from_json_value(&serde_json::json!({
         "type": "Knob",
         "properties": props,
     }))
@@ -1560,7 +1561,7 @@ fn alias_knob_schema(alias: serde_json::Value, props: serde_json::Value, default
     let mut config = IndexMap::new();
     config.insert("width".to_string(), field);
     trait_def.config = Some(config);
-    orbital.types = Some(serde_json::from_value(serde_json::json!({ "Knob": alias })).expect("alias json"));
+    orbital.types = Some(from_json_value(&serde_json::json!({ "Knob": alias })).expect("alias json"));
     schema
 }
 
@@ -1595,7 +1596,7 @@ fn point_knob(default: serde_json::Value) -> OrbitalSchema {
     alias_knob_schema(
         serde_json::json!([{ "name": "x", "type": "number", "required": true }]),
         serde_json::json!({ "x": { "name": "x", "type": "number", "required": true } }),
-        serde_json::from_value(default).expect("default json"),
+        from_json_value(&default).expect("default json"),
     )
 }
 

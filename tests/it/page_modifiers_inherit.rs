@@ -3,6 +3,7 @@
 //! inherits what it does not override, and no import may weaken an upstream
 //! `access: authenticated` to `public`.
 
+use orbital_core_base::json_value::{from_json_str};
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig, InlineError};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::{compile_schema, CompilerOptions};
@@ -163,7 +164,7 @@ fn a_page_reference_cannot_weaken_access() {
 
 #[test]
 fn the_oir_carries_page_modifiers_and_site() {
-    let mut schema: OrbitalSchema = serde_json::from_str(UPSTREAM).expect("schema");
+    let mut schema: OrbitalSchema = from_json_str(UPSTREAM).expect("schema");
     schema.site = Some(SiteMeta {
         origin: Some("https://example.org".into()),
         sign_in: Some("/login".into()),
@@ -184,7 +185,7 @@ fn the_oir_carries_page_modifiers_and_site() {
 
 #[test]
 fn control_a_page_without_modifiers_has_none_in_the_oir() {
-    let schema: OrbitalSchema = serde_json::from_str(
+    let schema: OrbitalSchema = from_json_str(
         &UPSTREAM
             .replace(r#""access": "authenticated", "indexing": "noindex", "title": ["i18n/t", "up:meta.account"]"#, r#""label": "Account""#),
     )
@@ -205,7 +206,7 @@ fn an_unsupported_metadata_expression_is_rejected_by_the_schema_type() {
         r#""title": "About""#,
         r#""title": ["str/concat", "a", "b"]"#,
     );
-    assert!(serde_json::from_str::<OrbitalSchema>(&bad).is_err());
+    assert!(from_json_str::<OrbitalSchema>(&bad).is_err());
 }
 
 fn whole_import_with(pages: &str, modifiers: &str) -> String {

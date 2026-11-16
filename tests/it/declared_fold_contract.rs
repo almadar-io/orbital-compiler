@@ -1,3 +1,4 @@
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::{phases, CompilerOptions};
 use orbital_core_base::schema::TraitReference;
 use orbital_core_eval::evaluator::{context::BindingContextBuilder, Evaluator};
@@ -106,7 +107,7 @@ orbital Probe {
         (json!("one"), 0.0),
         (json!({"a":[1,"x"]}), 0.0),
     ] {
-        let payload = serde_json::from_value(json!({"value":value})).unwrap();
+        let payload = from_json_value(&json!({"value":value})).unwrap();
         let context = BindingContextBuilder::new().payload(payload).build();
         let result = Evaluator::new()
             .evaluate(&expression, &context)
@@ -151,7 +152,7 @@ orbital Probe {
         .unwrap()[0];
     let expression = effect.as_array().unwrap()[2].clone();
     for (flag, expected) in [(true, 0.0), (false, 1.0)] {
-        let payload = serde_json::from_value(json!({"flag":flag})).unwrap();
+        let payload = from_json_value(&json!({"flag":flag})).unwrap();
         let ctx = BindingContextBuilder::new().payload(payload).build();
         assert_eq!(
             Evaluator::new().evaluate(&expression, &ctx).unwrap(),
@@ -201,11 +202,11 @@ orbital Probe {
         (json!("leaf"), json!(["leaf"])),
         (json!([]), json!([])),
     ] {
-        let payload = serde_json::from_value(json!({"value":value})).unwrap();
+        let payload = from_json_value(&json!({"value":value})).unwrap();
         let ctx = BindingContextBuilder::new().payload(payload).build();
         assert_eq!(
             Evaluator::new().evaluate(&expression, &ctx).unwrap(),
-            serde_json::from_value(expected).unwrap()
+            from_json_value(&expected).unwrap()
         );
     }
     let aliased_source = std::fs::read_to_string(&path)
@@ -231,13 +232,13 @@ orbital Probe {
         .as_array()
         .unwrap()[2]
         .clone();
-    let payload = serde_json::from_value(json!({"value":["a",[2,"b"],false]})).unwrap();
+    let payload = from_json_value(&json!({"value":["a",[2,"b"],false]})).unwrap();
     let ctx = BindingContextBuilder::new().payload(payload).build();
     assert_eq!(
         Evaluator::new()
             .evaluate(&expression, &ctx)
             .expect("a declared alias folds the same recursive children"),
-        serde_json::from_value(json!(["a", "b"])).unwrap()
+        from_json_value(&json!(["a", "b"])).unwrap()
     );
 }
 
@@ -301,15 +302,15 @@ orbital Probe {
         let expression = effect.as_array().unwrap()[2].clone();
         for (flag, expected) in [(true, json!({"x":"one"})), (false, json!({"x":["a","b"]}))] {
             let payload =
-                serde_json::from_value(json!({"flag":flag,"many":["a","b"],"n":0})).unwrap();
-            let entity = serde_json::from_value(json!({"values":{}})).unwrap();
+                from_json_value(&json!({"flag":flag,"many":["a","b"],"n":0})).unwrap();
+            let entity = from_json_value(&json!({"values":{}})).unwrap();
             let ctx = BindingContextBuilder::new()
                 .payload(payload)
                 .entity(entity)
                 .build();
             assert_eq!(
                 Evaluator::new().evaluate(&expression, &ctx).unwrap(),
-                serde_json::from_value(expected).unwrap()
+                from_json_value(&expected).unwrap()
             );
         }
     }
@@ -352,7 +353,7 @@ orbital Probe {
         .unwrap()[2]
         .clone();
     for flag in [true, false] {
-        let payload = serde_json::from_value(json!({"flag":flag,"value":[1,"x"]})).unwrap();
+        let payload = from_json_value(&json!({"flag":flag,"value":[1,"x"]})).unwrap();
         let ctx = BindingContextBuilder::new().payload(payload).build();
         assert_eq!(
             Evaluator::new().evaluate(&expression, &ctx).unwrap(),
@@ -402,7 +403,7 @@ orbital Probe {
         (json!({"x":"scalar"}), 0.0),
         (json!({}), 0.0),
     ] {
-        let payload = serde_json::from_value(json!({"row":row,"key":"x"})).unwrap();
+        let payload = from_json_value(&json!({"row":row,"key":"x"})).unwrap();
         let ctx = BindingContextBuilder::new().payload(payload).build();
         assert_eq!(
             Evaluator::new()
@@ -490,7 +491,7 @@ orbital Probe {
         .unwrap()[2]
         .clone();
     for n in [0, 3] {
-        let payload = serde_json::from_value(json!({"n":n})).unwrap();
+        let payload = from_json_value(&json!({"n":n})).unwrap();
         let ctx = BindingContextBuilder::new().payload(payload).build();
         assert_eq!(
             Evaluator::new().evaluate(&expression, &ctx).unwrap(),
@@ -535,7 +536,7 @@ orbital Probe {
         .unwrap()[2]
         .clone();
     for (flag, expected) in [(true, 0.0), (false, 1.0)] {
-        let payload = serde_json::from_value(json!({"flag":flag})).unwrap();
+        let payload = from_json_value(&json!({"flag":flag})).unwrap();
         let ctx = BindingContextBuilder::new().payload(payload).build();
         assert_eq!(
             Evaluator::new().evaluate(&expression, &ctx).unwrap(),

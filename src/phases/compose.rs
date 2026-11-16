@@ -14,6 +14,7 @@
 //! which are faithful Rust ports of `packages/almadar-core/src/builders/`.
 //! This phase is a thin orchestrator that walks the schema and dispatches.
 
+use orbital_core_base::json_value::{from_json_value};
 use crate::composition::{
     compose_behaviors, ComposeBehaviorsInput, ComposeError, EventWiringEntry,
 };
@@ -167,7 +168,7 @@ fn resolve_compose(args: &[SExpression]) -> Result<SExpression, ComposeError> {
         .first()
         .ok_or_else(|| ComposeError::MissingArgument("behavior/compose".to_string()))?;
     let json = sexpr_to_json(arg);
-    let input: ComposeBehaviorsInput = serde_json::from_value(json)?;
+    let input: ComposeBehaviorsInput = from_json_value(&json)?;
     let result = compose_behaviors(input)?;
     Ok(json_to_sexpr(&orbital_core_base::json_value::value_to_json(&result.schema)))
 }
@@ -180,8 +181,8 @@ fn resolve_wire(args: &[SExpression]) -> Result<SExpression, ComposeError> {
         .get(1)
         .ok_or_else(|| ComposeError::MissingArgument("behavior/wire wiring".to_string()))?;
 
-    let orbitals: Vec<orbital_core_base::value::Value> = serde_json::from_value(sexpr_to_json(orbitals_arg))?;
-    let wiring: Vec<EventWiringEntry> = serde_json::from_value(sexpr_to_json(wiring_arg))?;
+    let orbitals: Vec<orbital_core_base::value::Value> = from_json_value(&sexpr_to_json(orbitals_arg))?;
+    let wiring: Vec<EventWiringEntry> = from_json_value(&sexpr_to_json(wiring_arg))?;
 
     // Drive the typed `apply_event_wiring` indirectly: route through
     // `compose_behaviors` so the JSON-aware wiring helper runs and we get
@@ -208,14 +209,14 @@ fn resolve_detect_layout(args: &[SExpression]) -> Result<SExpression, ComposeErr
     let orbitals_arg = args.first().ok_or_else(|| {
         ComposeError::MissingArgument("behavior/detect-layout orbitals".to_string())
     })?;
-    let orbitals: Vec<orbital_core_base::value::Value> = serde_json::from_value(sexpr_to_json(orbitals_arg))?;
+    let orbitals: Vec<orbital_core_base::value::Value> = from_json_value(&sexpr_to_json(orbitals_arg))?;
     let wiring: Option<Vec<EventWiringEntry>> = match args.get(1) {
         Some(w) => {
             let json = sexpr_to_json(w);
             if json.is_null() {
                 None
             } else {
-                Some(serde_json::from_value(json)?)
+                Some(from_json_value(&json)?)
             }
         }
         None => None,
@@ -233,7 +234,7 @@ fn resolve_detect_layout(args: &[SExpression]) -> Result<SExpression, ComposeErr
 // ============================================================================
 
 fn json_to_sexpr(value: &serde_json::Value) -> SExpression {
-    serde_json::from_value(value.clone()).unwrap_or(SExpression::Null)
+    from_json_value(&value).unwrap_or(SExpression::Null)
 }
 
 // ============================================================================
@@ -242,6 +243,7 @@ fn json_to_sexpr(value: &serde_json::Value) -> SExpression {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
     use std::path::PathBuf;
 
@@ -253,7 +255,7 @@ mod tests {
         let path = fixtures_dir().join(format!("{}.orb", name));
         let raw = std::fs::read_to_string(&path)
             .unwrap_or_else(|_| panic!("missing fixture: {}", path.display()));
-        let parsed: serde_json::Value = serde_json::from_str(&raw).expect("fixture is valid JSON");
+        let parsed: serde_json::Value = from_json_str(&raw).expect("fixture is valid JSON");
         parsed
             .get("input")
             .cloned()
@@ -264,12 +266,12 @@ mod tests {
         let path = fixtures_dir().join(format!("{}.golden.json", name));
         let raw = std::fs::read_to_string(&path)
             .unwrap_or_else(|_| panic!("missing golden: {}", path.display()));
-        serde_json::from_str(&raw).expect("golden is valid JSON")
+        from_json_str(&raw).expect("golden is valid JSON")
     }
 
     fn run_compose(input: serde_json::Value) -> serde_json::Value {
         let parsed: ComposeBehaviorsInput =
-            serde_json::from_value(input).expect("valid compose input");
+            from_json_value(&input).expect("valid compose input");
         let result = compose_behaviors(parsed).expect("compose succeeded");
         orbital_core_base::json_value::value_to_json(&result.schema)
     }

@@ -11,6 +11,7 @@
 //!   Stage-B `roles {}` / `entities {}` / `pages {}` remap diagnostics, at
 //!   the bottom of this file.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::phases::inline::{
     inline_schema, inline_schema_with_orbital_diagnostics, InlineConfig, OrbitalRefDiagnostic,
     UsesConfigSite,
@@ -515,7 +516,7 @@ fn schema_with(
     if let Some(cfg) = trait_config {
         value["orbitals"][0]["traits"][0]["config"] = cfg;
     }
-    serde_json::from_value(value).expect("schema fixture must deserialize")
+    from_json_value(&value).expect("schema fixture must deserialize")
 }
 
 #[test]

@@ -13,6 +13,7 @@
 //! variable no argument bound. It is never a type: handed to a type variable it is an error
 //! (`ORB_X_OPERATOR_ARG_UNDETERMINED`), because a variable never stands for an unknown.
 
+use orbital_core_base::json_value::{from_json_value};
 use std::cell::RefCell;
 
 use orbital_core_base::ir::{
@@ -245,7 +246,7 @@ impl<'c> Inferer<'c> {
                     }
                     if is_value_operator(head) {
                         let lowered = serde_json::to_value(value)
-                            .and_then(serde_json::from_value::<orbital_core_base::schema::SExpression>)
+                            .and_then(|v| from_json_value::<orbital_core_base::schema::SExpression>(&v))
                             .ok()
                             .and_then(|sexpr| orbital_core_eval::lower::lower_sexpr(&sexpr).ok());
                         if let Some(call) = lowered {
@@ -3595,6 +3596,7 @@ pub fn collect_listen_key_type_errors(module: &OirModule) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
     use orbital_core_base::ir::OirBindingRoot;
 
@@ -3731,19 +3733,19 @@ mod tests {
         let row = ExactRow(Row(vec![("m", strings.clone())]));
         for name in ["object/merge", "object/deepMerge"] {
             let sexpr: orbital_core_base::schema::SExpression =
-                serde_json::from_value(serde_json::json!([name, "@entity.m", { "k": "v" }])).expect("s-expression");
+                from_json_value(&serde_json::json!([name, "@entity.m", { "k": "v" }])).expect("s-expression");
             let lowered = orbital_core_eval::lower::lower_sexpr(&sexpr).expect("lowers");
             assert!(admits(&lowered, &strings, None, &row), "{name} of a Map string string and a literal is a Map string string");
         }
         let numbers: orbital_core_base::schema::SExpression =
-            serde_json::from_value(serde_json::json!(["object/merge", "@entity.m", { "k": 1 }])).expect("s-expression");
+            from_json_value(&serde_json::json!(["object/merge", "@entity.m", { "k": 1 }])).expect("s-expression");
         assert!(
             !admits(&orbital_core_eval::lower::lower_sexpr(&numbers).expect("lowers"), &strings, None, &row),
             "control: a number member is not a string map"
         );
         let optional = OirType::Optional { inner: Box::new(strings.clone()) };
         let control: orbital_core_base::schema::SExpression =
-            serde_json::from_value(serde_json::json!(["object/merge", "@entity.m", { "k": "v" }])).expect("s-expression");
+            from_json_value(&serde_json::json!(["object/merge", "@entity.m", { "k": "v" }])).expect("s-expression");
         assert!(admits(&orbital_core_eval::lower::lower_sexpr(&control).expect("lowers"), &optional, None, &row), "control: the optional slot admits it too");
     }
 
@@ -5080,7 +5082,7 @@ mod tests {
     }
 
     fn nested_optional_array_findings(source: &str, required: bool) -> Vec<Diagnostic> {
-        let expr: orbital_core_base::schema::SExpression = serde_json::from_str(source).unwrap();
+        let expr: orbital_core_base::schema::SExpression = from_json_str(source).unwrap();
         let expr = orbital_core_eval::lower::lower_sexpr(&expr).unwrap();
         check_oir_expr(&expr, &NestedOptionalPayload { required })
     }
@@ -5211,7 +5213,7 @@ mod tests {
 
     fn lowered(value: serde_json::Value) -> OirExpr {
         let sexpr: orbital_core_base::schema::SExpression =
-            serde_json::from_value(value).expect("s-expression");
+            from_json_value(&value).expect("s-expression");
         orbital_core_eval::lower::lower_sexpr(&sexpr).expect("lowers")
     }
 
@@ -5616,7 +5618,7 @@ mod tests {
         };
         let list = OirType::array(OirType::TypeRef { name: "Binding".into() });
         let program = |kind: &str| {
-            let sexpr: orbital_core_base::schema::SExpression = serde_json::from_value(serde_json::json!([
+            let sexpr: orbital_core_base::schema::SExpression = from_json_value(&serde_json::json!([
                 "let",
                 [["r",
                     ["array/concat",
@@ -5656,7 +5658,7 @@ mod tests {
         })
         .unwrap();
         let findings = |declaration: &str, body: serde_json::Value| {
-            let sexpr: orbital_core_base::schema::SExpression = serde_json::from_value(serde_json::json!([
+            let sexpr: orbital_core_base::schema::SExpression = from_json_value(&serde_json::json!([
                 "let",
                 [["rows", ["list", { "label": "a" }], declaration]],
                 ["array/map", "@rows", ["fn", "m", body]]
@@ -6737,7 +6739,7 @@ mod tests {
 
     fn roster_local(hp: OirType, value: serde_json::Value) -> Option<OirType> {
         let declaration = OirExpr::String { value: roster_declaration(hp) };
-        let sexpr: orbital_core_base::schema::SExpression = serde_json::from_value(value).expect("s-expression");
+        let sexpr: orbital_core_base::schema::SExpression = from_json_value(&value).expect("s-expression");
         let initializer = orbital_core_eval::lower::lower_sexpr(&sexpr).expect("lowers");
         local_initializer_type(&initializer, Some(&declaration), &Row(vec![]))
     }

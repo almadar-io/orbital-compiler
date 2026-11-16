@@ -4,6 +4,7 @@
 //! Every runtime already runs that, so a program with no host (a static site) still gets the
 //! answer. Runs on the program a runtime receives, after validation has seen the program as written.
 
+use orbital_core_base::json_value::{from_json_value};
 use super::{CompileResult, CompilerError};
 use std::sync::Arc;
 use orbital_core_base::schema::quote::quote_expr;
@@ -169,7 +170,7 @@ fn answer(
             "do".into(),
         )].into())));
     };
-    let description: SExpression = serde_json::from_value(description)
+    let description: SExpression = from_json_value(&description)
         .map_err(|e| reflection_error(format!("the description is not program data: {e}")))?;
     let mut payload = orbital_core_base::schema::SObject::new();
     payload.insert("result".into(), quote_expr(&description));
@@ -227,6 +228,7 @@ fn reflection_error(message: String) -> CompilerError {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
     use orbital_core_base::schema::quote::{decode_quote_body, quote_body_of};
 
@@ -248,7 +250,7 @@ mod tests {
 
     fn program(effects: serde_json::Value) -> OrbitalSchema {
         register_trait_describer(stub);
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "p",
             "orbitals": [{
                 "name": "O",
@@ -278,7 +280,7 @@ mod tests {
         serde_json::json!([
             "behavior/describe",
             arg,
-            serde_json::from_str::<serde_json::Value>(ROUTE).unwrap()
+            from_json_str::<serde_json::Value>(ROUTE).unwrap()
         ])
     }
 
@@ -290,7 +292,7 @@ mod tests {
         let out = effects(&schema);
         assert_eq!(out[0][0], "emit");
         assert_eq!(out[0][1], "DESCRIBED");
-        let quoted: SExpression = serde_json::from_value(out[0][2]["result"].clone()).unwrap();
+        let quoted: SExpression = from_json_value(&out[0][2]["result"]).unwrap();
         let body = quote_body_of(&quoted).expect("a quote");
         assert!(!body.contains('@'), "bindings inside the answer stay data");
         let answer = serde_json::to_value(decode_quote_body(body).unwrap()).unwrap();
@@ -336,7 +338,7 @@ mod tests {
             panic!("inline trait")
         };
         let mut config = orbital_core_base::collections::IndexMap::default();
-        config.insert("subject".to_string(), serde_json::from_value(field).expect("config field"));
+        config.insert("subject".to_string(), from_json_value(&field).expect("config field"));
         Arc::make_mut(td).config = Some(config);
         schema
     }
@@ -348,7 +350,7 @@ mod tests {
         fold_literal_reflection(&mut schema, None).expect("fold");
         let out = effects(&schema);
         assert_eq!(out[0][0], "emit");
-        let quoted: SExpression = serde_json::from_value(out[0][2]["result"].clone()).unwrap();
+        let quoted: SExpression = from_json_value(&out[0][2]["result"]).unwrap();
         let answer = serde_json::to_value(decode_quote_body(quote_body_of(&quoted).unwrap()).unwrap()).unwrap();
         assert_eq!(answer["value"], lit);
     }

@@ -4,6 +4,7 @@
 //! first-declared primary; the source side resolves the trait's OWN bound
 //! entity (primary or aux) rather than the owning orbital's slot 0.
 
+use orbital_core_base::json_value::{from_json_str};
 use orbital_compiler::phases::enrich::{enrich_schema, EnrichmentConfig};
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
@@ -358,7 +359,7 @@ fn enrich_stamps_no_default_collection_on_an_aux_entity() {
         "traits": []
       }]
     }"#;
-    let mut schema: OrbitalSchema = serde_json::from_str(src).expect("parse schema");
+    let mut schema: OrbitalSchema = from_json_str(src).expect("parse schema");
     enrich_schema(&mut schema, &EnrichmentConfig::all());
     let aux = aux_entity(&schema, "TagRef");
     match aux {

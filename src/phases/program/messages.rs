@@ -2,6 +2,7 @@
 //! `_metadata.messageSources`), merged per declared locale with keys qualified `<name>:<key>` — the shape `i18n/t`
 //! reads at runtime. Resolution stores them in the program's `messages`, so the program carries its own text.
 
+use orbital_core_base::json_value::{from_json_str};
 use orbital_core_base::messages::NAMESPACE_SEPARATOR;
 use orbital_core_base::schema::OrbitalSchema;
 use std::collections::BTreeMap;
@@ -31,7 +32,7 @@ pub fn merged_catalogs(
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(e) => return Err(format!("{}: {e}", file.display())),
             };
-            let catalog: BTreeMap<String, String> = serde_json::from_str(&text)
+            let catalog: BTreeMap<String, String> = from_json_str(&text)
                 .map_err(|e| format!("{}: not a flat object of message strings: {e}", file.display()))?;
             for (key, message) in catalog {
                 merged.insert(format!("{name}{NAMESPACE_SEPARATOR}{key}"), message);
@@ -59,12 +60,13 @@ pub fn program_messages(
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use orbital_core_base::schema::SchemaMetadata;
 
     fn program(locales: Option<Vec<&str>>, sources: &[(&str, &str)]) -> OrbitalSchema {
         let mut schema: OrbitalSchema =
-            serde_json::from_value(serde_json::json!({ "name": "site", "orbitals": [] })).unwrap();
+            from_json_value(&serde_json::json!({ "name": "site", "orbitals": [] })).unwrap();
         schema.locales = locales.map(|l| l.into_iter().map(String::from).collect());
         schema.metadata = Some(SchemaMetadata {
             message_sources: Some(

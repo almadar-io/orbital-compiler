@@ -1221,11 +1221,12 @@ fn check_callback_arg_schema(
 mod control_payload_tests {
     //! G-ORB-002: a control that never carries a field its event declares required validated clean and the
     //! handler read nothing (`button action: SEND` with no `actionPayload`, `SEND { value : string! }`).
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use orbital_core_base::schema::TraitDefinition;
 
     fn trait_with(event: &str, field: &str, required: bool) -> TraitDefinition {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "Composer",
             "stateMachine": {
                 "states": [],
@@ -1239,7 +1240,7 @@ mod control_payload_tests {
     fn never_carried(t: &TraitDefinition, node: serde_json::Value) -> Vec<String> {
         let entities = HashMap::new();
         let ctx = BindingContext { trait_def: t, entity_definitions: &entities, event_payload: None, sibling_trait_names: &[] };
-        let node: SExpression = serde_json::from_value(node).expect("pattern");
+        let node: SExpression = from_json_value(&node).expect("pattern");
         let mut out = Vec::new();
         walk_pattern_props(&node, &ctx, "test", &mut out);
         out.into_iter()
@@ -1300,11 +1301,12 @@ mod array_into_record_tests {
     //! declares object-only (`form-section.initialData`, cardinality record)
     //! validated 0/0 and failed at runtime with "expected object, got array"
     //! (2026-09-30: ui-form-section / ui-form / ui-detail-panel).
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use orbital_core_base::schema::{EntityDefinition, PayloadField, TraitDefinition};
 
     fn bare_trait() -> TraitDefinition {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "FormSectionRender",
             "stateMachine": { "states": [], "transitions": [] }
         }))
@@ -1600,14 +1602,12 @@ mod array_into_record_tests {
     }
 
     fn entity(name: &str) -> EntityDefinition {
-        serde_json::from_value(
-            serde_json::json!({ "name": name, "fields": [{ "name": "id", "type": "string" }] }),
-        )
+        from_json_value(&serde_json::json!({ "name": name, "fields": [{ "name": "id", "type": "string" }] }))
         .expect("minimal entity")
     }
 
     fn entity_mismatches(prop: &str, data_type: &str, linked: &str) -> Vec<ValidationError> {
-        let t: TraitDefinition = serde_json::from_value(serde_json::json!({
+        let t: TraitDefinition = from_json_value(&serde_json::json!({
             "name": "BookingDetail",
             "linkedEntity": linked,
             "stateMachine": { "states": [], "transitions": [] }
@@ -1658,11 +1658,12 @@ mod array_into_record_tests {
 mod array_element_kind_tests {
     //! A `[FieldSpec]` config knob bound into `timeline.fields` (`string[]`)
     //! validated 0/0 and rendered object cells (G-ORB-029).
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use orbital_core_base::schema::{EntityDefinition, TraitDefinition};
 
     fn trait_with_config(config: serde_json::Value) -> TraitDefinition {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "Render",
             "config": config,
             "stateMachine": { "states": [], "transitions": [] }

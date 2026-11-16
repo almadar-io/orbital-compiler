@@ -467,6 +467,7 @@ pub fn validate_protocol_pages(schema: &OrbitalSchema) -> ValidationResult {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn href_obj(href: SExpression) -> SExpression {
@@ -541,7 +542,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     fn schema_with_two_page_paths(path_a: &str, path_b: &str) -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "test-page-path-convergence",
             "version": "1.0.0",
             "orbitals": [
@@ -598,6 +599,7 @@ mod tests {
 
 #[cfg(test)]
 mod endpoint_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use serde_json::{json, Value};
 
@@ -648,7 +650,7 @@ mod endpoint_tests {
         if !grants.is_null() {
             schema["osGrants"] = grants;
         }
-        let schema: OrbitalSchema = serde_json::from_value(schema).unwrap();
+        let schema: OrbitalSchema = from_json_value(&schema).unwrap();
         let mut ctx = ValidationContext::new();
         validate_all_pages(&schema, &mut ctx);
         ctx.result.errors.into_iter().map(|e| e.code).collect()

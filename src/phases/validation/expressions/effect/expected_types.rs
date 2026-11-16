@@ -243,10 +243,11 @@ fn fits(keys: &[(String, &SExpression)], arm: &[PayloadField]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn ladder(effect: serde_json::Value) -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "t", "version": "1.0.0",
             "orbitals": [{
                 "name": "O",

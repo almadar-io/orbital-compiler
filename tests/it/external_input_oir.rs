@@ -1,12 +1,13 @@
 //! A declared external input reaches the OIR as `OirEvent.external`, so every
 //! codegen backend can build its input table from the IR.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::phases::resolve::resolve_to_oir;
 use orbital_core_base::schema::OrbitalSchema;
 use serde_json::json;
 
 fn schema(events: serde_json::Value) -> OrbitalSchema {
-    serde_json::from_value(json!({
+    from_json_value(&json!({
         "name": "App",
         "orbitals": [{
             "name": "TaskOrbital",

@@ -274,6 +274,7 @@ impl Pass<'_> {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use crate::loader::LoaderConfig;
     use std::path::PathBuf;
@@ -283,7 +284,7 @@ mod tests {
     }
 
     fn schema_with(default: serde_json::Value, effect: serde_json::Value) -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "Holder",
@@ -338,7 +339,7 @@ mod tests {
         run(&mut schema).expect("resolves");
         assert_eq!(
             default_of(&schema),
-            serde_json::from_value::<SExpression>(tv("./loader/fixtures/health", "HealthTrait"))
+            from_json_value::<SExpression>(&tv("./loader/fixtures/health", "HealthTrait"))
                 .unwrap()
         );
     }
@@ -414,7 +415,7 @@ mod tests {
     #[test]
     fn control_a_behavior_ref_inside_a_quasiquote_body_is_left_alone() {
         let body = orbital_core_base::schema::quote::quasiquote_expr(
-            &serde_json::from_value::<SExpression>(serde_json::json!([
+            &from_json_value::<SExpression>(&serde_json::json!([
                 "behavior/ref",
                 ["unquote", "@payload.behavior"]
             ]))
@@ -517,9 +518,7 @@ mod tests {
             panic!("inline entity")
         };
         ed.fields.push(
-            serde_json::from_value(
-                serde_json::json!({ "name": "app", "type": field_type, "mock": mock }),
-            )
+            from_json_value(&serde_json::json!({ "name": "app", "type": field_type, "mock": mock }))
             .unwrap(),
         );
         schema
@@ -591,7 +590,7 @@ mod tests {
     #[test]
     fn control_an_unquote_inside_a_quasiquote_body_is_not_a_call() {
         let body = orbital_core_base::schema::quote::quasiquote_expr(
-            &serde_json::from_value::<SExpression>(serde_json::json!([
+            &from_json_value::<SExpression>(&serde_json::json!([
                 "list",
                 ["unquote", "@entity.id"]
             ]))

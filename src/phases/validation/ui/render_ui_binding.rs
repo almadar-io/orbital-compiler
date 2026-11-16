@@ -666,6 +666,7 @@ fn static_return_to_binding(s: &str) -> BindingType {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use orbital_core_base::schema::{StateMachine, StringOrArray, TransitionDefinition};
 
@@ -1049,7 +1050,7 @@ mod tests {
     }
 
     fn config_field_of(field_type: &str) -> ConfigField {
-        serde_json::from_value(serde_json::json!({ "type": field_type }))
+        from_json_value(&serde_json::json!({ "type": field_type }))
             .expect("config field deserializes")
     }
 

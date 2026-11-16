@@ -552,12 +552,13 @@ fn infix_in_args_suggestion(operator: &str, args: &[SExpression], _max: usize) -
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     #[test]
     fn a_proposition_is_checked_like_a_guard() {
         let program = |ensures: serde_json::Value, holds: serde_json::Value| -> TraitDefinition {
-            serde_json::from_value(serde_json::json!({
+            from_json_value(&serde_json::json!({
                 "name": "T",
                 "stateMachine": {
                     "states": [{ "name": "s", "isInitial": true, "holds": holds }],
@@ -592,7 +593,7 @@ mod tests {
     #[test]
     fn g_orb_434_a_let_or_fn_named_after_a_binding_root_is_refused() {
         let codes = |expr: serde_json::Value| -> Vec<ErrorCode> {
-            let expr: SExpression = serde_json::from_value(expr).unwrap();
+            let expr: SExpression = from_json_value(&expr).unwrap();
             validate_sexpr(&expr, "p", SExprContext::Effect, &HashSet::new())
                 .errors
                 .into_iter()

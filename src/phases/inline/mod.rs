@@ -4212,12 +4212,13 @@ pub(super) fn merge_expectation(into: &mut Vec<ExpectDeclaration>, incoming: Exp
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     #[test]
     fn merged_transition_expectations_conjoin_their_ensures_and_store_an_equal_one_once() {
         let edge = |ensures: serde_json::Value, strict: bool| -> ExpectDeclaration {
-            serde_json::from_value(serde_json::json!({
+            from_json_value(&serde_json::json!({
                 "kind": "transition", "traitName": "Wallet", "from": "active", "event": "SPEND", "to": "active",
                 "ensures": ensures, "strict": strict
             }))
@@ -4234,7 +4235,7 @@ mod tests {
         assert_eq!(merged["strict"], serde_json::json!(true), "a strict contributor keeps it strict");
         let mut other = Vec::new();
         merge_expectation(&mut other, edge(serde_json::json!([b]), false));
-        let control: ExpectDeclaration = serde_json::from_value(serde_json::json!({
+        let control: ExpectDeclaration = from_json_value(&serde_json::json!({
             "kind": "transition", "traitName": "Wallet", "from": "idle", "event": "SPEND", "to": "active" })).unwrap();
         merge_expectation(&mut other, control);
         assert_eq!(other.len(), 2, "control: a different edge is its own expectation");
@@ -4247,7 +4248,7 @@ mod tests {
             if let Some(word) = protocol {
                 v["protocol"] = serde_json::json!(word);
             }
-            serde_json::from_value(v).unwrap()
+            from_json_value(&v).unwrap()
         };
         let mut boot = Vec::new();
         merge_expectation(&mut boot, page(Some("boot"), "", &["Validate"]));
@@ -4375,7 +4376,7 @@ mod tests {
                 ]
             })
         };
-        let mut schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let mut schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "version": "2.0", "name": "T",
             "orbitals": [orbital("Alpha"), orbital("Beta")]
         }))
@@ -4447,7 +4448,7 @@ mod tests {
                 }]
             })
         };
-        let mut schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let mut schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "version": "2.0", "name": "T",
             "orbitals": [orbital("Alpha"), orbital("Beta")],
             "schemaVersion": 1,
@@ -4869,7 +4870,7 @@ mod tests {
                 }
             }
         });
-        let mut schema: OrbitalSchema = serde_json::from_value(json).expect("fixture parses");
+        let mut schema: OrbitalSchema = from_json_value(&json).expect("fixture parses");
 
         // Before the merge: the consumer ledger has no row for the foreign id its trait links.
         assert!(
@@ -6258,7 +6259,7 @@ mod tests {
     }
 
     fn stamped_event_trait() -> TraitDefinition {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "T",
             "stateMachine": {
                 "states": [
@@ -6361,7 +6362,7 @@ mod tests {
     }
 
     fn stamped_emit_only_trait() -> TraitDefinition {
-        let mut schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let mut schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "P",
             "orbitals": [{
                 "name": "O",
@@ -7303,7 +7304,7 @@ mod tests {
 
     #[test]
     fn an_expected_entity_shape_takes_the_intrinsic_fields_of_a_composed_atom_and_no_data_field() {
-        let mut orbitals: Vec<Orbital> = vec![serde_json::from_value(serde_json::json!({
+        let mut orbitals: Vec<Orbital> = vec![from_json_value(&serde_json::json!({
             "name": "O",
             "entity": { "name": "Own", "persistence": "runtime", "fields": [{ "name": "id", "type": "string" }] },
             "expects": [{ "kind": "entity", "name": "Post", "shape": [{ "name": "likes", "type": "number" }] }],
@@ -7311,7 +7312,7 @@ mod tests {
             "pages": []
         }))
         .expect("orbital")];
-        let imported: EntityDefinition = serde_json::from_value(serde_json::json!({
+        let imported: EntityDefinition = from_json_value(&serde_json::json!({
             "name": "BrowseItem",
             "persistence": "runtime",
             "fields": [
@@ -8200,7 +8201,7 @@ mod tests {
             serde_json::json!({"name": name, "uses": [{"from": "./org.orb", "as": "Org"}],
                 "entity": format!("Org.orbitals.{upstream}.entity"), "traits": [], "pages": [], "reference": reference})
         };
-        serde_json::from_value(serde_json::json!({"name": "Consumer", "orbitals": [
+        from_json_value(&serde_json::json!({"name": "Consumer", "orbitals": [
             import("Owner", "OwnerOrbital", "Owner", serde_json::Value::Null),
             import("User", "UserOrbital", "UserView", user_entities)]}))
         .expect("consumer schema")
@@ -8333,7 +8334,7 @@ mod tests {
     }
 
     fn nested_consumer() -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({"name": "Consumer", "orbitals": [
+        from_json_value(&serde_json::json!({"name": "Consumer", "orbitals": [
             import_of("Account", "Sol", "./solution.orb", "Account", "Customer", serde_json::Value::Null),
             import_of("Chat", "Sol", "./solution.orb", "Chat", "Chat", serde_json::json!({"Customer": "Customer"}))]}))
         .expect("consumer schema")
@@ -8372,7 +8373,7 @@ mod tests {
     }
 
     fn same_file_consumer(shelf_entities: serde_json::Value) -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({"name": "Consumer", "orbitals": [
+        from_json_value(&serde_json::json!({"name": "Consumer", "orbitals": [
             import_of("ProductOrbital", "Shop", "./shop.orb", "ProductOrbital", "Product", serde_json::Value::Null),
             import_of("ShelfOrbital", "Shop", "./shop.orb", "ShelfOrbital", "Shelf", shelf_entities)]}))
         .expect("consumer schema")
@@ -8439,7 +8440,7 @@ mod tests {
         if !uses_config.is_null() {
             import["uses"][0]["config"] = uses_config;
         }
-        serde_json::from_value(serde_json::json!({"name": "Consumer", "orbitals": [import]}))
+        from_json_value(&serde_json::json!({"name": "Consumer", "orbitals": [import]}))
             .expect("consumer schema")
     }
 
@@ -8510,7 +8511,7 @@ mod tests {
     }
 
     fn consumer_composing(trait_name: &str) -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({"name": "Consumer", "orbitals": [{"name": "PersonOrbital",
+        from_json_value(&serde_json::json!({"name": "Consumer", "orbitals": [{"name": "PersonOrbital",
             "uses": [{"from": "./hr.orb", "as": "Hr"}],
             "entity": {"name": "Person", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}, {"name": "title", "type": "string"}]},
             "traits": [{"ref": format!("Hr.traits.{trait_name}"), "linkedEntity": "Person"}], "pages": []}]}))
@@ -10242,10 +10243,11 @@ fn repoint_entity_ids(orbitals: &mut [Orbital], map: &HashMap<String, String>) {
 
 #[cfg(test)]
 mod shadowed_auxiliary_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn orbitals() -> Vec<Orbital> {
-        serde_json::from_value(serde_json::json!([
+        from_json_value(&serde_json::json!([
             { "name": "OrderDesk", "entity": { "name": "OrderRecord", "fields": [
                 { "name": "id", "type": "string" }, { "name": "title", "type": "string" }, { "name": "stage", "type": "string" } ] },
               "traits": [] },
@@ -10271,7 +10273,7 @@ mod shadowed_auxiliary_tests {
     }
 
     fn with_ids() -> Vec<Orbital> {
-        serde_json::from_value(serde_json::json!([
+        from_json_value(&serde_json::json!([
             { "name": "OrderDesk", "entity": { "id": "ent_OWNER", "name": "OrderRecord", "fields": [
                 { "name": "id", "type": "string" }, { "name": "title", "type": "string" } ] },
               "traits": [] },
@@ -10327,9 +10329,7 @@ mod shadowed_auxiliary_tests {
             o[1].auxiliary_entities.as_mut().and_then(|a| a.first_mut())
         {
             copy.fields.push(
-                serde_json::from_value(
-                    serde_json::json!({ "name": "importedOnly", "type": "string" }),
-                )
+                from_json_value(&serde_json::json!({ "name": "importedOnly", "type": "string" }))
                 .expect("field"),
             );
         }
@@ -10342,7 +10342,7 @@ mod shadowed_auxiliary_tests {
             o[1].auxiliary_entities.as_mut().and_then(|a| a.first_mut())
         {
             copy.fields.push(
-                serde_json::from_value(serde_json::json!({ "name": field, "type": "string" }))
+                from_json_value(&serde_json::json!({ "name": field, "type": "string" }))
                     .expect("field"),
             );
         }
@@ -10351,7 +10351,7 @@ mod shadowed_auxiliary_tests {
     fn merge_of(field: &str) -> DeferredMerge {
         DeferredMerge {
             target: "OrderRecord".to_string(),
-            imported: serde_json::from_value(serde_json::json!({
+            imported: from_json_value(&serde_json::json!({
                 "name": "OrderRecord",
                 "fields": [ { "name": "id", "type": "string" }, { "name": field, "type": "string", "mergedFrom": "Stats" } ]
             }))
@@ -10378,9 +10378,7 @@ mod shadowed_auxiliary_tests {
             o[1].auxiliary_entities.as_mut().and_then(|a| a.first_mut())
         {
             copy.fields.push(
-                serde_json::from_value(
-                    serde_json::json!({ "name": field, "type": "string", "mergedFrom": "Stats" }),
-                )
+                from_json_value(&serde_json::json!({ "name": field, "type": "string", "mergedFrom": "Stats" }))
                 .expect("field"),
             );
         }
@@ -10427,6 +10425,7 @@ mod shadowed_auxiliary_tests {
 
 #[cfg(test)]
 mod ambiguous_type_name_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn program(types: serde_json::Value) -> OrbitalSchema {
@@ -10435,7 +10434,7 @@ mod ambiguous_type_name_tests {
             orbitals.push(serde_json::json!({ "name": name, "types": declared,
                 "entity": { "name": format!("{name}Row"), "fields": [ { "name": "id", "type": "string" } ] }, "traits": [] }));
         }
-        serde_json::from_value(serde_json::json!({ "name": "p", "orbitals": orbitals })).expect("program")
+        from_json_value(&serde_json::json!({ "name": "p", "orbitals": orbitals })).expect("program")
     }
 
     fn loader() -> ExternalOrbitalLoader {
@@ -10507,7 +10506,7 @@ mod ambiguous_type_name_tests {
     #[test]
     fn a_program_level_type_conflicting_with_an_orbital_type_is_refused() {
         let mut schema = program(serde_json::json!({ "AtomA": badge(&[("id", "string")]) }));
-        schema.types = serde_json::from_value(badge(&[("code", "string")])).expect("program types");
+        schema.types = from_json_value(&badge(&[("code", "string")])).expect("program types");
         let err = reject_ambiguous_type_names(&schema, &loader()).expect_err("program vs orbital");
         assert!(err.to_string().contains("the program"), "{err}");
     }
@@ -10515,6 +10514,7 @@ mod ambiguous_type_name_tests {
 
 #[cfg(test)]
 mod event_rename_reid_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use serde_json::json;
 
@@ -10535,7 +10535,7 @@ mod event_rename_reid_tests {
     }
 
     fn schema(orbitals: Vec<serde_json::Value>) -> OrbitalSchema {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "version": "2.0", "name": "T", "schemaVersion": 1,
             "orbitals": orbitals,
             "ledger": { "schemaVersion": 1, "entries": {
@@ -10634,7 +10634,7 @@ mod event_rename_reid_tests {
         ]);
         s.ledger.as_mut().unwrap().entries.insert(
             "evt_w".into(),
-            serde_json::from_value(json!({ "id": "evt_w", "kind": "event", "bakedName": "WATCH", "curName": "WATCH", "renames": [], "owner": "std", "parent": "trt_w" })).unwrap(),
+            from_json_value(&json!({ "id": "evt_w", "kind": "event", "bakedName": "WATCH", "curName": "WATCH", "renames": [], "owner": "std", "parent": "trt_w" })).unwrap(),
         );
         reconcile_event_id_renames(&mut s);
         let a_id = event_id(inline(&s, 0, 0));
@@ -10645,6 +10645,7 @@ mod event_rename_reid_tests {
 
 #[cfg(test)]
 mod merged_ledger_row_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use orbital_core_base::identity::{IdKind, LedgerEntry, LedgerOwner};
     use serde_json::json;
@@ -10678,7 +10679,7 @@ mod merged_ledger_row_tests {
         } else {
             vec![listener(listen)]
         };
-        let mut s: OrbitalSchema = serde_json::from_value(json!({
+        let mut s: OrbitalSchema = from_json_value(&json!({
             "version": "2.0", "name": "T", "schemaVersion": 1,
             "orbitals": [{
                 "name": "A", "entity": { "name": "Note", "fields": [], "id": "ent_a" },
@@ -10725,6 +10726,7 @@ mod merged_ledger_row_tests {
 
 #[cfg(test)]
 mod qualified_local_type_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use serde_json::json;
 
@@ -10753,7 +10755,7 @@ mod qualified_local_type_tests {
             uses.push(json!({"from": format!("./{name}.orb"), "as": name}));
             traits.push(json!({"ref": format!("{name}.traits.{name}Reader"), "linkedEntity": "Host"}));
         }
-        let mut schema: OrbitalSchema = serde_json::from_value(json!({"name": "Consumer", "orbitals": [{
+        let mut schema: OrbitalSchema = from_json_value(&json!({"name": "Consumer", "orbitals": [{
             "name": "HostOrbital", "uses": uses, "types": own_types,
             "entity": {"name": "Host", "persistence": "runtime", "fields": [{"name": "id", "type": "string", "required": true}, {"name": "v", "type": "string"}]},
             "traits": traits, "pages": []}]}))

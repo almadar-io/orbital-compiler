@@ -2,6 +2,7 @@
 //! (`Trait.EVENT` within the orbital, `Orbital.Trait.EVENT` across the program)
 //! must name a trait in the program and one of its declared external inputs.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::phases::validation::validate_comprehensive_without_services;
 use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
@@ -68,7 +69,7 @@ fn findings(one: &str, tool: &str) -> Vec<(String, String)> {
               "pages": [{ "name": "NotePage", "path": "/notes", "traits": [{ "ref": "NotePersistor" }] }] }
         ]
     });
-    let schema: OrbitalSchema = serde_json::from_value(schema).expect("fixture deserializes");
+    let schema: OrbitalSchema = from_json_value(&schema).expect("fixture deserializes");
     let result = validate_comprehensive_without_services(&schema);
     result
         .errors

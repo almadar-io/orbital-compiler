@@ -19,6 +19,7 @@
 //! shape. That is what lets a generated atom validate standalone, where the
 //! knob still holds its own default and nothing has declared that event.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_core_base::schema::{
     ConfigField, EntityRef, ExpectDeclaration, FieldDefinition, FieldType, OrbitalSchema,
     PayloadField, SExpression, TraitReference,
@@ -87,7 +88,7 @@ pub(crate) fn build_payload_index(schema: &OrbitalSchema) -> HashMap<String, orb
 /// `orbital-lolo` already has (which this crate cannot import — they are
 /// siblings).
 fn field_type_of(name: &str) -> FieldType {
-    serde_json::from_value(serde_json::Value::String(name.to_lowercase()))
+    from_json_value(&serde_json::Value::String(name.to_lowercase()))
         .unwrap_or(FieldType::String)
 }
 
@@ -596,11 +597,12 @@ fn pascal(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::{field_of, payload_field_of, substitute_entity_sentinel, substitute_named_entity_sentinels};
     use orbital_core_base::schema::{FieldDefinition, FieldType, PayloadField};
 
     fn payload(json: serde_json::Value) -> PayloadField {
-        serde_json::from_value(json).expect("PayloadField")
+        from_json_value(&json).expect("PayloadField")
     }
 
     /// A sibling-orbital `@entity` resolves to the same shape and marker the per-orbital
@@ -695,7 +697,7 @@ mod tests {
     }
 
     fn field(json: serde_json::Value) -> FieldDefinition {
-        serde_json::from_value(json).expect("FieldDefinition")
+        from_json_value(&json).expect("FieldDefinition")
     }
 
     fn names(p: &PayloadField) -> Vec<String> {

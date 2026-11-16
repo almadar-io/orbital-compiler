@@ -20,6 +20,7 @@
 //! candidates for one (trait, slot) disagree, that slot gets no prediction —
 //! never a guess.
 
+use orbital_core_base::json_value::{from_json_value};
 use crate::pattern_registry::get_props_schema;
 use orbital_core_base::runs_on::RunsOn;
 use orbital_core_base::ir::{AwaitRender, SkeletonNode, SkeletonShape, SKELETON_VARIANTS};
@@ -350,7 +351,7 @@ fn shape_from_json(value: &serde_json::Value) -> Option<SkeletonNode> {
             columns: None,
             fields: None,
         },
-        serde_json::Value::Object(_) => serde_json::from_value(value.clone()).ok()?,
+        serde_json::Value::Object(_) => from_json_value(&value).ok()?,
         _ => return None,
     };
     Some(SkeletonNode::Shape { shape })
@@ -446,10 +447,11 @@ pub fn attach_await_renders<T: AwaitRenderTree>(schema: &OrbitalSchema, value: &
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn schema(traits: serde_json::Value) -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{ "name": "O", "entity": { "name": "Item", "fields": [] }, "traits": traits, "pages": [] }]
         }))
@@ -494,7 +496,7 @@ mod tests {
         attach_await_renders(&s, &mut tree);
         let mut value = orbital_core_base::value_serialize::to_value(&s).unwrap();
         attach_await_renders(&s, &mut value);
-        let from_tree: orbital_core_base::value::Value = serde_json::from_value(tree.clone()).unwrap();
+        let from_tree: orbital_core_base::value::Value = from_json_value(&tree).unwrap();
         let path = "orbitals.0.traits.0.stateMachine.transitions.0.awaitRender";
         assert_eq!(value.get_path(path), from_tree.get_path(path));
         assert!(value.get_path(path).is_some(), "{tree}");

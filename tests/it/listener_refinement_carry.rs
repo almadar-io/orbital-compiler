@@ -4,6 +4,7 @@
 //! never populated, `payload_mapping` did not exist — so every compiled shell
 //! lost what the interpreter honored (C-OIR-LISTENER-DROPS-WITH-AND-GUARD).
 
+use orbital_core_base::json_value::{from_json_str};
 use orbital_compiler::phases::resolve_to_oir;
 use orbital_core_base::ir::OirExpr;
 use orbital_core_base::schema::OrbitalSchema;
@@ -45,7 +46,7 @@ fn schema_with_refined_listen() -> OrbitalSchema {
         }
       ]
     }"#;
-    serde_json::from_str(json).expect("probe schema parses")
+    from_json_str(json).expect("probe schema parses")
 }
 
 #[test]

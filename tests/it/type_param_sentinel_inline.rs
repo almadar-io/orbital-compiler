@@ -9,6 +9,7 @@
 //! leave it in place (`ORB_T_UNRESOLVED_TYPE_PARAM`, reported by the
 //! `type-param-sweep` lint).
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use std::sync::Arc;
 use orbital_compiler::phases::validation::{generic_types, ValidationContext};
@@ -49,7 +50,7 @@ fn schema_with_trait(linked_entity: Option<&str>) -> OrbitalSchema {
             "pages": []
         }]
     });
-    serde_json::from_value(schema_json).expect("schema fixture must deserialize")
+    from_json_value(&schema_json).expect("schema fixture must deserialize")
 }
 
 fn thing_trait(schema: &OrbitalSchema) -> &orbital_core_base::schema::TraitDefinition {
@@ -243,7 +244,7 @@ fn schema_with_sigils(action_default: Option<&str>, identity_shape: bool) -> Orb
             ]
         }]);
     }
-    serde_json::from_value(json!({ "name": "App", "orbitals": [orbital] }))
+    from_json_value(&json!({ "name": "App", "orbitals": [orbital] }))
         .expect("schema fixture must deserialize")
 }
 
@@ -439,7 +440,7 @@ fn raw_schema_json() -> serde_json::Value {
 }
 
 fn schema_with_all_four_sentinel_forms() -> OrbitalSchema {
-    serde_json::from_value(raw_schema_json()).expect("schema fixture must deserialize")
+    from_json_value(&raw_schema_json()).expect("schema fixture must deserialize")
 }
 
 /// Shared-fixture contract (`derive_id.json` pattern, mirrors
@@ -540,7 +541,7 @@ fn schema_with_payload_row_knob(source: &str) -> OrbitalSchema {
             "events": [{ "key": "ROWS_LOADED", "payloadSchema": payload }]
         }
     });
-    serde_json::from_value(json!({
+    from_json_value(&json!({
         "name": "App",
         "orbitals": [{
             "name": "ThingOrbital",

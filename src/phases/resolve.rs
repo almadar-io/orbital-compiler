@@ -2,6 +2,7 @@
 //!
 //! Resolves all references and produces the final OIR (Orbital Intermediate Representation).
 
+use orbital_core_base::json_value::{from_json_value};
 use crate::phases::embed_graph::EmbedGraph;
 use orbital_core_base::ir::{
     OirBindingRoot, OirCardinality, OirConfigFieldType, OirConstraint, OirEffect, OirEmit,
@@ -1704,7 +1705,7 @@ impl<'a> DeclaredTypes<'a> {
 pub(crate) fn config_field_carried_type(field: &orbital_core_base::schema::ConfigField) -> Result<OirType, ResolveError> {
     thread_local! {
         static NO_PROGRAM: OrbitalSchema =
-            serde_json::from_value(serde_json::json!({ "name": "", "orbitals": [] })).expect("the empty program");
+            from_json_value(&serde_json::json!({ "name": "", "orbitals": [] })).expect("the empty program");
     }
     NO_PROGRAM.with(|schema| Resolver::new(schema).resolve_config_field_shape(field))
 }
@@ -1895,6 +1896,7 @@ fn parse_payload_field_type(field_type: &str) -> Result<OirType, orbital_core_ba
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
     use orbital_core_base::ir::{OirBinaryOp, OirBinding};
     use orbital_core_base::schema::DispatchMode;
@@ -1903,7 +1905,7 @@ mod tests {
     fn a_key_typed_knob_keeps_its_nominal_type() {
         let schema = empty_schema();
         let knob = |ty: &str| -> orbital_core_base::schema::ConfigField {
-            serde_json::from_value(serde_json::json!({ "type": ty })).unwrap()
+            from_json_value(&serde_json::json!({ "type": ty })).unwrap()
         };
         assert_eq!(config_field_oir_type(&knob("MessageKey"), &schema).unwrap(), OirType::MessageKey);
         assert_eq!(config_field_oir_type(&knob("[MessageKey]"), &schema).unwrap(), OirType::array(OirType::MessageKey));
@@ -1919,7 +1921,7 @@ mod tests {
         let entity_names: HashSet<String> = ["Note".to_string()].into_iter().collect();
         let ctx = NamedTypeCtx { schema: &schema, named_types: &named_types, in_progress: &in_progress, entity_names: &entity_names };
         for entity in ["Note", "Ghost"] {
-            let field: orbital_core_base::schema::PayloadField = serde_json::from_value(serde_json::json!({
+            let field: orbital_core_base::schema::PayloadField = from_json_value(&serde_json::json!({
                 "name": "envelope", "type": "object",
                 "properties": [{ "name": "rows", "type": "[object]", "nullable": true, "entity": entity,
                     "properties": [{ "name": "id", "type": "string", "required": true }] }],
@@ -1974,7 +1976,7 @@ mod tests {
     }
 
     fn resolved_call_service(json: &str) -> OirEffect {
-        let sexpr: SExpression = serde_json::from_str(json).expect("sexpr");
+        let sexpr: SExpression = from_json_str(json).expect("sexpr");
         match resolve_sexpr_standalone(&sexpr).expect("resolve") {
             OirExpr::Effect { effect } => *effect,
             other => panic!("expected an effect, got {other:?}"),
@@ -2044,9 +2046,9 @@ mod tests {
 
     #[test]
     fn cancel_call_requires_exactly_one_argument() {
-        let none: SExpression = serde_json::from_str(r#"["cancel-call"]"#).unwrap();
+        let none: SExpression = from_json_str(r#"["cancel-call"]"#).unwrap();
         assert!(resolve_sexpr_standalone(&none).is_err());
-        let two: SExpression = serde_json::from_str(r#"["cancel-call", "a", "b"]"#).unwrap();
+        let two: SExpression = from_json_str(r#"["cancel-call", "a", "b"]"#).unwrap();
         assert!(resolve_sexpr_standalone(&two).is_err());
     }
 
@@ -2087,7 +2089,7 @@ mod tests {
     #[test]
     fn a_config_knob_tagged_union_resolves_to_a_union_not_a_struct() {
         let knob = |carrier: serde_json::Value| -> OirType {
-            let field: orbital_core_base::schema::ConfigField = serde_json::from_value(carrier).expect("knob");
+            let field: orbital_core_base::schema::ConfigField = from_json_value(&carrier).expect("knob");
             config_field_carried_type(&field).expect("resolves")
         };
         let members = serde_json::json!({
@@ -2174,7 +2176,7 @@ mod tests {
     /// rendered `A | null | B | null` (TS) / `.optional()` per member (Zod).
     #[test]
     fn tagged_union_entity_field_members_are_never_optional() {
-        let field: FieldDefinition = serde_json::from_value(serde_json::json!({
+        let field: FieldDefinition = from_json_value(&serde_json::json!({
             "name": "entry",
             "type": "union",
             "values": ["MessageEntry", "ErrorEntry"],
@@ -2511,7 +2513,7 @@ mod tests {
     /// `MenuItem`'s definition.
     #[test]
     fn recursive_struct_entity_field_resolves_to_type_ref_and_registers() {
-        let field: FieldDefinition = serde_json::from_value(serde_json::json!({
+        let field: FieldDefinition = from_json_value(&serde_json::json!({
             "name": "x",
             "type": "object",
             "properties": {
@@ -2602,7 +2604,7 @@ mod tests {
         // it: each alias keyed under its OWN name, body-first (one extra
         // expansion level before the by-name marker — see
         // `lookup_named_type_shape`'s doc; not normalized).
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "MutualApp",
             "version": "1.0.0",
             "orbitals": [{
@@ -2633,7 +2635,7 @@ mod tests {
         // An entity field `x : A` — `lower/entity.rs`'s lowered shape for a
         // mutually-recursive struct field: full expansion down to the FIRST
         // re-entrant occurrence (`x.b.a` re-enters "A").
-        let field: FieldDefinition = serde_json::from_value(serde_json::json!({
+        let field: FieldDefinition = from_json_value(&serde_json::json!({
             "name": "x",
             "type": "object",
             "properties": {
@@ -2679,7 +2681,7 @@ mod tests {
     /// all — `TypeRef` is a distinct variant).
     #[test]
     fn single_member_backref_is_not_an_enum_shape() {
-        let field: FieldDefinition = serde_json::from_value(serde_json::json!({
+        let field: FieldDefinition = from_json_value(&serde_json::json!({
             "type": "union",
             "values": ["MenuItem"]
         }))
@@ -2756,11 +2758,11 @@ mod tests {
             serde_json::json!({ "type": "union", "values": ["A", "B"] }),
             serde_json::json!({ "type": "union", "values": ["A"], "properties": {} }),
         ] {
-            let field: FieldDefinition = serde_json::from_value(malformed.clone()).unwrap();
+            let field: FieldDefinition = from_json_value(&malformed).unwrap();
             assert!(resolver.resolve_field_shape(&field).is_err(), "{malformed}");
         }
         let by_name: FieldDefinition =
-            serde_json::from_value(serde_json::json!({ "type": "union", "values": ["Node"] }))
+            from_json_value(&serde_json::json!({ "type": "union", "values": ["Node"] }))
                 .unwrap();
         assert!(matches!(
             resolver.resolve_field_shape(&by_name),
@@ -2795,7 +2797,7 @@ mod tests {
             OirType::array(OirType::Number)
         );
         let schema: OrbitalSchema =
-            serde_json::from_value(serde_json::json!({ "name": "T", "orbitals": [] })).unwrap();
+            from_json_value(&serde_json::json!({ "name": "T", "orbitals": [] })).unwrap();
         let resolver = Resolver::new(&schema);
         assert_eq!(resolver.type_string_to_oir("[number, number, number]").unwrap(), n3);
         assert_eq!(
@@ -2819,16 +2821,12 @@ mod tests {
         };
         let slots = serde_json::json!({ "0": { "type": "number" }, "1": { "type": "number" }, "2": { "type": "number" } });
         let schema: OrbitalSchema =
-            serde_json::from_value(serde_json::json!({ "name": "T", "orbitals": [] })).unwrap();
+            from_json_value(&serde_json::json!({ "name": "T", "orbitals": [] })).unwrap();
         let resolver = Resolver::new(&schema);
-        let member: FieldDefinition = serde_json::from_value(
-            serde_json::json!({ "name": "position", "type": "tuple", "properties": slots }),
-        )
+        let member: FieldDefinition = from_json_value(&serde_json::json!({ "name": "position", "type": "tuple", "properties": slots }))
         .unwrap();
         assert_eq!(resolver.resolve_field_shape(&member).expect("resolves"), n3);
-        let knob: orbital_core_base::schema::ConfigField = serde_json::from_value(
-            serde_json::json!({ "type": "[number, number, number]", "properties": slots }),
-        )
+        let knob: orbital_core_base::schema::ConfigField = from_json_value(&serde_json::json!({ "type": "[number, number, number]", "properties": slots }))
         .unwrap();
         assert_eq!(resolver.resolve_config_field_shape(&knob).unwrap(), n3);
     }
@@ -2870,7 +2868,7 @@ mod tests {
         let schema = empty_schema();
         let resolver = Resolver::new(&schema);
         let field = |ty: &str| -> orbital_core_base::schema::ConfigField {
-            serde_json::from_value(serde_json::json!({ "type": ty })).unwrap()
+            from_json_value(&serde_json::json!({ "type": ty })).unwrap()
         };
         for generic in ["array", "list", "json"] {
             let error = resolver.resolve_config_field_shape(&field(generic)).unwrap_err();
@@ -2883,9 +2881,9 @@ mod tests {
             "an `object` text is the same empty record a payload's is"
         );
         assert_eq!(resolver.resolve_config_field_shape(&field("render-ui")).unwrap(), OirType::SExpr, "render-ui is an expression tree");
-        let entity: FieldDefinition = serde_json::from_value(serde_json::json!({ "type": "object" })).unwrap();
+        let entity: FieldDefinition = from_json_value(&serde_json::json!({ "type": "object" })).unwrap();
         assert!(matches!(resolver.resolve_field_shape(&entity), Err(ResolveError::NoShape(_))));
-        let array: FieldDefinition = serde_json::from_value(serde_json::json!({ "type": "array" })).unwrap();
+        let array: FieldDefinition = from_json_value(&serde_json::json!({ "type": "array" })).unwrap();
         assert!(matches!(resolver.resolve_field_shape(&array), Err(ResolveError::NoShape(_))));
     }
 
@@ -2981,7 +2979,7 @@ mod tests {
             { "name": "MatchedIndex", "type": "object", "projectedFrom": { "type": "MatchedIndex" },
               "properties": [{ "name": "index", "type": "int", "required": true }] } ] },
             { "name": "note", "type": "object", "properties": [{ "name": "n", "type": "string" }] }]"#;
-        serde_json::from_str(&format!(
+        from_json_str(&format!(
             r#"{{ "name": "t", "version": "1.0.0", "orbitals": [
               {{ "name": "O", "types": {{ "Matched": {matched}, "MatchedText": {text}, "MatchedIndex": {index} }},
                 "entity": {{ "name": "W", "fields": [] }},
@@ -3035,7 +3033,7 @@ mod tests {
     /// compiled path was silently dropping this arg.
     #[test]
     fn navigate_with_payload_resolves_params() {
-        let schema: OrbitalSchema = serde_json::from_str(
+        let schema: OrbitalSchema = from_json_str(
             r#"{
               "name": "t", "version": "1.0.0",
               "orbitals": [{
@@ -3073,7 +3071,7 @@ mod tests {
     /// contributes no `"params"` key to the OIR JSON at all.
     #[test]
     fn navigate_without_payload_omits_params_key_from_oir_json() {
-        let schema: OrbitalSchema = serde_json::from_str(
+        let schema: OrbitalSchema = from_json_str(
             r#"{
               "name": "t", "version": "1.0.0",
               "orbitals": [{
@@ -3117,7 +3115,7 @@ mod tests {
         // OIR binding — this is what replaced the deleted `rewrite_page_trait_refs`
         // token rewrite for codegen. The inline trait is named "RenamedTrait" and
         // carries id "trt_x"; the page ref says "OldName" + refId "trt_x".
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "O",
@@ -3151,7 +3149,7 @@ mod tests {
 
     #[test]
     fn entity_collection_is_the_declared_one_else_the_entity_name() {
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "app", "version": "1.0.0",
             "orbitals": [
                 { "name": "A", "entity": { "name": "InterviewSlot", "fields": [{ "name": "title", "type": "string" }] }, "traits": [], "pages": [] },
@@ -3166,7 +3164,7 @@ mod tests {
     }
 
     fn relation_schema(display: serde_json::Value) -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "app", "version": "1.0.0",
             "orbitals": [
                 { "name": "O", "traits": [], "pages": [],
@@ -3200,7 +3198,7 @@ mod tests {
 
     #[test]
     fn a_traits_render_ui_fields_are_stamped_from_its_linked_entity() {
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "app", "version": "1.0.0",
             "orbitals": [{
                 "name": "O",
@@ -3240,7 +3238,7 @@ mod tests {
 
     #[test]
     fn page_not_found_marker_is_stamped_on_the_resolved_page() {
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "app", "version": "1.0.0",
             "orbitals": [{
                 "name": "O",
@@ -3261,7 +3259,7 @@ mod tests {
 
     #[test]
     fn page_initial_marker_is_stamped_on_the_resolved_page() {
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "app", "version": "1.0.0",
             "orbitals": [{
                 "name": "O",
@@ -3288,7 +3286,7 @@ mod tests {
         // it to the knob's declared default, `""` — a real, deliberate value
         // meaning "this optional event slot is unfulfilled", not a
         // substitution failure. Resolve must not turn that into an OirEvent.
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "O",
@@ -3328,7 +3326,7 @@ mod tests {
         // Same slot, but the knob resolved to a concrete literal (what the
         // inline phase leaves behind when a call site sets it, e.g.
         // `extraAddonEvent: "PRODUCE"`) — the event must reach OIR intact.
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "O",
@@ -3450,7 +3448,7 @@ mod tests {
     }
 
     fn relation_field_json(cardinality: &str) -> FieldDefinition {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "revisions",
             "type": "relation",
             "relation": { "entity": "Revision", "cardinality": cardinality }
@@ -3641,7 +3639,7 @@ mod tests {
     #[test]
     fn let_binding_names_never_resolve_as_calls() {
         for name in ["set", "max", "total"] {
-            let sexpr: SExpression = serde_json::from_value(serde_json::json!([
+            let sexpr: SExpression = from_json_value(&serde_json::json!([
                 "let",
                 [[name, [">", "@a", "@b"]]],
                 ["+", format!("@{name}"), 1]
@@ -3738,7 +3736,7 @@ mod tests {
         let schema = empty_schema();
         let resolver = Resolver::new(&schema);
         let field: orbital_core_base::schema::FieldDefinition =
-            serde_json::from_value(serde_json::json!({
+            from_json_value(&serde_json::json!({
                 "name": "currentStepIndex",
                 "type": "number",
                 "intrinsic": true
@@ -3753,7 +3751,7 @@ mod tests {
         let schema = empty_schema();
         let resolver = Resolver::new(&schema);
         let field: orbital_core_base::schema::FieldDefinition =
-            serde_json::from_value(serde_json::json!({
+            from_json_value(&serde_json::json!({
                 "name": "title",
                 "type": "string"
             }))
@@ -3771,7 +3769,7 @@ mod tests {
         let schema = empty_schema();
         let resolver = Resolver::new(&schema);
         let trait_def: orbital_core_base::schema::TraitDefinition =
-            serde_json::from_value(serde_json::json!({
+            from_json_value(&serde_json::json!({
                 "name": "DraftEditor",
                 "dispatch": "client",
                 "stateMachine": {
@@ -3789,7 +3787,7 @@ mod tests {
         let schema = empty_schema();
         let resolver = Resolver::new(&schema);
         let trait_def: orbital_core_base::schema::TraitDefinition =
-            serde_json::from_value(serde_json::json!({
+            from_json_value(&serde_json::json!({
                 "name": "ServerTrait",
                 "stateMachine": {
                     "states": [{"name": "idle", "isInitial": true}],
@@ -3803,7 +3801,7 @@ mod tests {
 
     #[test]
     fn only_route_pages_become_oir_pages() {
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "app", "version": "1.0.0",
             "orbitals": [{
                 "name": "O",
@@ -3824,7 +3822,7 @@ mod tests {
 
     #[test]
     fn a_string_field_with_declared_values_carries_them_as_enum_values() {
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "app", "version": "1.0.0",
             "orbitals": [{
                 "name": "O",
@@ -3860,7 +3858,7 @@ mod tests {
     }
 
     fn resolve_json(value: serde_json::Value) -> OirExpr {
-        let sexpr: SExpression = serde_json::from_value(value).unwrap();
+        let sexpr: SExpression = from_json_value(&value).unwrap();
         resolve_sexpr_standalone(&sexpr).unwrap()
     }
 

@@ -139,12 +139,13 @@ impl EmbedGraph {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use orbital_core_base::schema::SExpression;
     use serde_json::json;
 
     fn trait_ref(json_val: serde_json::Value) -> TraitReference {
-        serde_json::from_value(json_val).expect("trait reference fixture deserializes")
+        from_json_value(&json_val).expect("trait reference fixture deserializes")
     }
 
     fn inline_trait(

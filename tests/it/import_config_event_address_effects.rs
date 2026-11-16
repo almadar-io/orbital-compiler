@@ -5,6 +5,7 @@
 //! (`call-service test-svc run { tools: @config.tools }`), not only the
 //! config default.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_core_base::schema::{OrbitalSchema, SExpression, TraitReference};
@@ -364,7 +365,7 @@ fn prove_tool_names(event_key: &str) -> Vec<orbital_core_eval::proof::Finding> {
         ["if", ["object/has", "@t", "event"],
             ["validate/pattern", ["str/replaceAll", ["object/get", "@t", "event"], ".", "__"], "^[a-zA-Z0-9_-]{1,64}$"],
             true]]]);
-    let expect = serde_json::from_value(serde_json::json!({
+    let expect = from_json_value(&serde_json::json!({
         "kind": "state", "traitName": loop_name, "state": "idle", "holds": holds, "strict": true
     }))
     .expect("expectation");

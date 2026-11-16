@@ -288,10 +288,11 @@ fn call(
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn program(guard: serde_json::Value, effects: serde_json::Value) -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "app",
             "orbitals": [{
                 "name": "O",
@@ -410,7 +411,7 @@ mod tests {
         ]);
         let mut value = serde_json::to_value(&schema).expect("value");
         value["orbitals"][0]["entity"]["fields"] = fields;
-        schema = serde_json::from_value(value).expect("program");
+        schema = from_json_value(&value).expect("program");
         let narrowed = expression_narrowings(&schema);
         assert!(narrowed.contains(&format!("{AT}.effects[0][2]")), "the guard narrows the set's read: {narrowed:?}");
         assert!(narrowed.contains(&format!("{AT}.effects[1].then[0][2]")), "a when narrows its body's read: {narrowed:?}");
@@ -426,7 +427,7 @@ mod tests {
         );
         let mut value = serde_json::to_value(&schema).expect("value");
         value["orbitals"][0]["traits"][0]["stateMachine"]["events"][0]["payloadSchema"] = serde_json::json!([{ "name": "note", "type": "string" }]);
-        let schema: OrbitalSchema = serde_json::from_value(value).expect("program");
+        let schema: OrbitalSchema = from_json_value(&value).expect("program");
         let narrowed = expression_narrowings(&schema);
         assert!(narrowed.contains(&format!("{AT}.effects[0].then[0][2][1]")), "the when proves the payload field present: {narrowed:?}");
         assert!(!narrowed.contains(&format!("{AT}.effects[1][2][1][1]")), "control: an unguarded optional payload read is not narrowed: {narrowed:?}");

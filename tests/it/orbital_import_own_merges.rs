@@ -3,6 +3,7 @@
 //! the imported record leaves with the sibling; importing the sibling too brings
 //! it back through that sibling's trait.
 
+use orbital_core_base::json_value::{from_json_str};
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::parse::parse_file;
 use orbital_core_base::schema::{EntityRef, OrbitalSchema};
@@ -215,7 +216,7 @@ const NOTES: &str = r#"{
 // The same upstream with an earlier orbital holding its own copy of `Task`: the
 // sibling's merge lands on that copy, not on the owner's record.
 fn shadowed() -> String {
-    let mut v: serde_json::Value = serde_json::from_str(REBINDING).expect("rebinding json");
+    let mut v: serde_json::Value = from_json_str(REBINDING).expect("rebinding json");
     let shadow = serde_json::json!({
       "name": "ShadowView",
       "entity": { "name": "ShadowVisit", "persistence": "runtime", "fields": [ { "name": "id", "type": "string", "required": true } ] },
@@ -244,7 +245,7 @@ fn shadowed() -> String {
 // The rebinding view is declared before the record's owner and carries its own copy of
 // the record, so inside the upstream the merge lands on the view's copy first.
 fn view_first() -> String {
-    let mut v: serde_json::Value = serde_json::from_str(REBINDING).expect("rebinding json");
+    let mut v: serde_json::Value = from_json_str(REBINDING).expect("rebinding json");
     let orbitals = v["orbitals"].as_array_mut().expect("orbitals");
     let notes = orbitals.remove(1);
     orbitals.insert(0, notes);

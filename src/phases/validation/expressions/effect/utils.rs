@@ -83,6 +83,7 @@ pub(crate) fn is_upper_snake_case(s: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str};
     use super::super::super::{ErrorCode, PageInitPayload};
     use super::super::{validate_effect, DeclaredEmit};
     use super::is_upper_snake_case;
@@ -283,7 +284,7 @@ mod tests {
     }
 
     fn nested_check(json: &str, declared: &[DeclaredEmit]) -> Vec<(ErrorCode, String)> {
-        let effect: SExpression = serde_json::from_str(json).unwrap();
+        let effect: SExpression = from_json_str(json).unwrap();
         let known: HashSet<String> = ["Message".to_string()].into_iter().collect();
         validate_effect(
             &effect,

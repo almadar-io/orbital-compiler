@@ -13,6 +13,7 @@
 //! collides with a consumer primary is dropped; a REFERENCED one still collides,
 //! because two live shapes under one name is a real conflict.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::phases::{inline_schema, InlineConfig};
 use orbital_core_base::schema::{EntityRef, OrbitalSchema};
 use serde_json::{json, Value};
@@ -89,7 +90,7 @@ fn aux_names(schema: &OrbitalSchema, orbital: &str) -> Vec<String> {
 }
 
 fn inline(schema: Value) -> OrbitalSchema {
-    let mut s: OrbitalSchema = serde_json::from_value(schema).expect("fixture must deserialize");
+    let mut s: OrbitalSchema = from_json_value(&schema).expect("fixture must deserialize");
     inline_schema(&mut s, &InlineConfig::default(), None).expect("inline must succeed");
     s
 }

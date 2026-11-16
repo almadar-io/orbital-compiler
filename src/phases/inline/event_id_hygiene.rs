@@ -341,11 +341,12 @@ fn reresolve_config(
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
     use serde_json::json;
 
     fn schema(v: serde_json::Value) -> OrbitalSchema {
-        serde_json::from_value(v).expect("valid schema")
+        from_json_value(&v).expect("valid schema")
     }
 
     /// The reproduced clobber shape: one atom expanded twice, one instance
@@ -550,7 +551,7 @@ mod tests {
         let s2 = serde_json::to_string(&v["orbitals"][0]["traits"][1])
             .unwrap()
             .replace("evt_shared", "evt_other");
-        v["orbitals"][0]["traits"][1] = serde_json::from_str(&s2).unwrap();
+        v["orbitals"][0]["traits"][1] = from_json_str(&s2).unwrap();
         let mut s = schema(v.clone());
         let before = serde_json::to_value(&s).unwrap();
         uniquify_instance_event_ids(&mut s);

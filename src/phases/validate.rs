@@ -565,6 +565,7 @@ fn validate_page(page: &PageDefinition, path: &str, ctx: &mut ValidationContext)
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
     use orbital_core_base::schema::{
         EntityRef, SExpression, StateDefinition, StateMachine, TraitDefinition,
@@ -781,25 +782,25 @@ mod tests {
     #[test]
     fn test_modal_render_effect_detection() {
         // Test render-ui to modal with content
-        let effect: SExpression = serde_json::from_str(
+        let effect: SExpression = from_json_str(
             r#"["render-ui", "modal", { "type": "form-section", "title": "Test" }]"#,
         )
         .unwrap();
         assert!(is_modal_render_effect(&effect));
 
         // Test render-ui to modal with null (clearing)
-        let effect: SExpression = serde_json::from_str(r#"["render-ui", "modal", null]"#).unwrap();
+        let effect: SExpression = from_json_str(r#"["render-ui", "modal", null]"#).unwrap();
         assert!(!is_modal_render_effect(&effect));
 
         // Test render-ui to main slot
-        let effect: SExpression = serde_json::from_str(
+        let effect: SExpression = from_json_str(
             r#"["render-ui", "main", { "type": "page-header", "title": "Test" }]"#,
         )
         .unwrap();
         assert!(!is_modal_render_effect(&effect));
 
         // Test render-ui to drawer
-        let effect: SExpression = serde_json::from_str(
+        let effect: SExpression = from_json_str(
             r#"["render-ui", "drawer", { "type": "detail-panel", "entity": "Task" }]"#,
         )
         .unwrap();
@@ -809,16 +810,16 @@ mod tests {
     #[test]
     fn test_modal_clear_effect_detection() {
         // Test clearing modal
-        let effect: SExpression = serde_json::from_str(r#"["render-ui", "modal", null]"#).unwrap();
+        let effect: SExpression = from_json_str(r#"["render-ui", "modal", null]"#).unwrap();
         assert!(is_modal_clear_effect(&effect));
 
         // Test clearing drawer
-        let effect: SExpression = serde_json::from_str(r#"["render-ui", "drawer", null]"#).unwrap();
+        let effect: SExpression = from_json_str(r#"["render-ui", "drawer", null]"#).unwrap();
         assert!(is_modal_clear_effect(&effect));
 
         // Test rendering to modal (not clearing)
         let effect: SExpression =
-            serde_json::from_str(r#"["render-ui", "modal", { "type": "form-section" }]"#).unwrap();
+            from_json_str(r#"["render-ui", "modal", { "type": "form-section" }]"#).unwrap();
         assert!(!is_modal_clear_effect(&effect));
     }
 
@@ -845,7 +846,7 @@ mod tests {
             to: to.to_string(),
             event: event.to_string(),
             guard: None,
-            effects: effects_json.map(|json| vec![serde_json::from_str(json).unwrap()]),
+            effects: effects_json.map(|json| vec![from_json_str(json).unwrap()]),
             ensures: None,
             await_render: None,
         }
@@ -1022,7 +1023,7 @@ mod tests {
     #[test]
     fn only_a_route_page_needs_a_path() {
         let page = |value: serde_json::Value| -> Vec<String> {
-            let page: PageDefinition = serde_json::from_value(value).unwrap();
+            let page: PageDefinition = from_json_value(&value).unwrap();
             let mut ctx = ValidationContext::new();
             validate_page(&page, "orbitals[0].pages[0]", &mut ctx);
             ctx.errors.iter().map(|e| e.to_string()).collect()
@@ -1034,7 +1035,7 @@ mod tests {
 
     #[test]
     fn a_spec_orbital_needs_no_trait_but_an_empty_orbital_still_does() {
-        let spec: Orbital = serde_json::from_value(serde_json::json!({
+        let spec: Orbital = from_json_value(&serde_json::json!({
             "name": "ShopSpec",
             "spec": true,
             "expects": [{ "kind": "entity", "name": "Order", "strict": true }],

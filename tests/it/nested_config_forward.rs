@@ -4,6 +4,7 @@
 //! `apply_overrides_to_trait`), and so publishes the app knob to the std lint
 //! `std-orb-lint-orbital-config-dead-knob`.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::phases::inline::inline_schema;
 use orbital_compiler::phases::parse::parse_file;
 use orbital_compiler::phases::InlineConfig;
@@ -86,7 +87,7 @@ fn nested_app_knob_folds_and_publishes() {
     let metrics = metrics_field(&schema);
     assert_eq!(
         metrics.default,
-        Some(serde_json::from_value::<SExpression>(serde_json::json!([{ "label": "Wins", "target": 2 }])).expect("sexpr")),
+        Some(from_json_value::<SExpression>(&serde_json::json!([{ "label": "Wins", "target": 2 }])).expect("sexpr")),
     );
     assert_eq!(metrics.nested_forwarded_from, vec!["@config.weeklyWinTarget".to_string()]);
 }

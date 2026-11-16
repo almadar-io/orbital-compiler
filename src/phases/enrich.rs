@@ -177,10 +177,11 @@ fn build_cross_references(schema: &OrbitalSchema, ctx: &mut EnrichmentContext) {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn schema_with_parse(shape: &str) -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "app",
             "orbitals": [{
                 "name": "O",

@@ -776,10 +776,11 @@ pub(crate) struct DeclaredEmit {
 
 #[cfg(test)]
 mod per_event_payload_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn listening_trait() -> orbital_core_base::schema::TraitDefinition {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "Listener",
             "stateMachine": {
                 "initial": "idle",
@@ -801,7 +802,7 @@ mod per_event_payload_tests {
     #[test]
     fn an_orbital_knob_has_its_declared_type_with_or_without_a_default() {
         use orbital_core_base::ir::OirType;
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "O",
@@ -849,7 +850,7 @@ mod per_event_payload_tests {
     fn an_earlier_delivery_is_the_merge_of_the_listened_payloads() {
         use orbital_core_base::ir::OirType;
         let schema: OrbitalSchema =
-            serde_json::from_value(serde_json::json!({ "name": "App", "orbitals": [] })).unwrap();
+            from_json_value(&serde_json::json!({ "name": "App", "orbitals": [] })).unwrap();
         let trait_def = listening_trait();
         let per_event = collect_per_event_payload_shapes(&trait_def, &schema);
         let types = binding_types(&trait_def, &schema, HashMap::new(), &per_event);
@@ -891,8 +892,7 @@ mod per_event_payload_tests {
     /// a false ORB_X_SET_VALUE_TYPE_MISMATCH on every writeback in the trait.
     #[test]
     fn inbound_event_payload_wins_over_same_named_emit_field() {
-        let trait_def: orbital_core_base::schema::TraitDefinition = serde_json::from_value(
-            serde_json::json!({
+        let trait_def: orbital_core_base::schema::TraitDefinition = from_json_value(&serde_json::json!({
                 "name": "SvcTrait",
                 "stateMachine": {
                     "initial": "idle",
@@ -905,8 +905,7 @@ mod per_event_payload_tests {
                 "emits": [
                     { "event": "GetDone", "payloadSchema": [{ "name": "value", "type": "Map<string,string>" }] }
                 ]
-            }),
-        )
+            }))
         .expect("fixture deserializes");
 
         let per_event = collect_per_event_payload_field_types(&trait_def);

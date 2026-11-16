@@ -462,6 +462,7 @@ fn collect_fired_with_knobs(
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use orbital_core_base::schema::{
         EntityDefinition, EntityRef, Orbital, StateDefinition, StateMachine, StringOrArray,
@@ -620,7 +621,7 @@ mod tests {
         if let Some(key) = key {
             edge["key"] = key;
         }
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "Rows",
@@ -665,7 +666,7 @@ mod tests {
         if !body_search.is_null() {
             config["bodySearch"] = serde_json::json!({ "type": "boolean", "default": body_search });
         }
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "Items",
@@ -809,7 +810,7 @@ mod tests {
     #[test]
     fn a_request_addressed_at_the_calling_trait_fires_its_event() {
         let fired_by = |effect: serde_json::Value| {
-            let tree: SExpression = serde_json::from_value(effect).unwrap();
+            let tree: SExpression = from_json_value(&effect).unwrap();
             let mut fired = FiredEvents::default();
             collect_fired_with_knobs("T", &tree, &orbital_core_base::schema::SObject::new(), &mut fired);
             fired.by_effect
@@ -851,7 +852,7 @@ mod tests {
     }
 
     fn render_with_item_actions(actions: serde_json::Value) -> SExpression {
-        serde_json::from_value(serde_json::json!([
+        from_json_value(&serde_json::json!([
             "render-ui", "main",
             { "type": "data-list", "itemActions": ["let", [["knob_itemActions", actions, "{\"kind\":\"array\"}"]], "@knob_itemActions"] }
         ]))
@@ -873,14 +874,14 @@ mod tests {
 
     #[test]
     fn value_leaves_see_through_a_declared_knob_let() {
-        let value: SExpression = serde_json::from_value(serde_json::json!(
+        let value: SExpression = from_json_value(&serde_json::json!(
             ["let", [["knob_k", ["list", "A"], "{}"]], "@knob_k"]
         ))
         .unwrap();
-        assert_eq!(value.declared_knob_literal(), Some(&serde_json::from_value::<SExpression>(serde_json::json!(["list", "A"])).unwrap()));
+        assert_eq!(value.declared_knob_literal(), Some(&from_json_value::<SExpression>(&serde_json::json!(["list", "A"])).unwrap()));
         let leaves = value.value_leaves(&live_sources());
         assert_eq!(leaves, vec![&s("A")], "the knob's literal is walked through `list`'s declared value slots");
-        let plain: SExpression = serde_json::from_value(serde_json::json!(["let", [["x", 1, "{}"]], "@x"])).unwrap();
+        let plain: SExpression = from_json_value(&serde_json::json!(["let", [["x", 1, "{}"]], "@x"])).unwrap();
         assert!(plain.declared_knob_literal().is_none(), "control: only a knob_ local read back is a knob read");
     }
 

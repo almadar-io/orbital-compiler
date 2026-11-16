@@ -108,11 +108,12 @@ pub(crate) fn resolve_fetch_include_field(
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str};
     use super::super::super::{validate_comprehensive_without_services, ErrorCode};
     use orbital_core_base::schema::OrbitalSchema;
 
     fn nearest_program(options: &str, embedding_required: bool) -> OrbitalSchema {
-        serde_json::from_str(&format!(
+        from_json_str(&format!(
             r#"{{ "name": "S", "orbitals": [{{ "name": "O",
               "entity": {{ "name": "Doc", "persistence": "runtime", "fields": [
                 {{ "name": "id", "type": "string" }}, {{ "name": "title", "type": "string" }},

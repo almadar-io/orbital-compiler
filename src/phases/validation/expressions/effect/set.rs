@@ -1150,19 +1150,20 @@ fn field_type_str(ft: &FieldType) -> std::borrow::Cow<'static, str> {
 
 #[cfg(test)]
 mod return_type_tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
 
     fn persist_row_errors(field_type: &str, value: &str) -> usize {
-        let target: EntityDefinition = serde_json::from_value(serde_json::json!({
+        let target: EntityDefinition = from_json_value(&serde_json::json!({
             "name": "Row", "collection": "rows", "fields": [{ "name": "at", "type": field_type }]
         }))
         .unwrap();
-        let linked: EntityDefinition = serde_json::from_value(serde_json::json!({
+        let linked: EntityDefinition = from_json_value(&serde_json::json!({
             "name": "E", "collection": "es", "fields": [{ "name": "count", "type": "number" }, { "name": "when", "type": "instant", "required": true }, { "name": "items", "type": "array", "items": { "type": "string" }, "required": true }]
         }))
         .unwrap();
         let definitions = HashMap::from([("Row".to_string(), target)]);
-        let arr: Vec<SExpression> = serde_json::from_str(&format!(
+        let arr: Vec<SExpression> = from_json_str(&format!(
             r#"["persist", "create", "Row", {{ "at": {value} }}]"#
         ))
         .unwrap();
@@ -1250,7 +1251,7 @@ mod return_type_tests {
     }
 
     fn typed_schema() -> orbital_core_base::schema::OrbitalSchema {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "O",
@@ -1267,12 +1268,12 @@ mod return_type_tests {
     }
 
     fn set_parsed_time_into(field: serde_json::Value, value: &str) -> usize {
-        let entity: EntityDefinition = serde_json::from_value(serde_json::json!({
+        let entity: EntityDefinition = from_json_value(&serde_json::json!({
             "name": "E", "collection": "es", "fields": [field]
         }))
         .unwrap();
         let fields = entity_field_type_map(&entity);
-        let source = |text: &str| -> SExpression { serde_json::from_str(text).unwrap() };
+        let source = |text: &str| -> SExpression { from_json_str(text).unwrap() };
         let arr = vec![
             SExpression::String("set".into()),
             SExpression::string("@entity.t"),
@@ -1288,7 +1289,7 @@ mod return_type_tests {
     #[test]
     fn a_numeric_literal_set_into_a_number_field_must_fit_its_type() {
         let errors = |ty: &str, literal: f64| {
-            let entity: EntityDefinition = serde_json::from_value(serde_json::json!({
+            let entity: EntityDefinition = from_json_value(&serde_json::json!({
                 "name": "E", "collection": "es", "fields": [{ "name": "n", "type": ty, "nullable": true }]
             }))
             .unwrap();
@@ -1326,7 +1327,7 @@ mod return_type_tests {
     #[test]
     fn a_record_literal_set_into_a_record_field_must_carry_its_required_fields_with_their_types() {
         let errors = |literal: serde_json::Value| {
-            let entity: EntityDefinition = serde_json::from_value(serde_json::json!({
+            let entity: EntityDefinition = from_json_value(&serde_json::json!({
                 "name": "E", "collection": "es", "fields": [{
                     "name": "tool", "type": "object", "properties": {
                         "event": { "name": "event", "type": "string", "required": true },
@@ -1338,7 +1339,7 @@ mod return_type_tests {
             let arr = vec![
                 SExpression::String("set".into()),
                 SExpression::string("@entity.tool"),
-                serde_json::from_value(literal).unwrap(),
+                from_json_value(&literal).unwrap(),
             ];
             validate_set_return_type(&arr, "p", &entity_field_type_map(&entity), &HashMap::new(), None, None, None)
                 .errors
@@ -1616,7 +1617,7 @@ mod return_type_tests {
         use crate::type_infer::TypeCtx;
         use orbital_core_base::ir::OirType;
 
-        let schema: orbital_core_base::schema::OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: orbital_core_base::schema::OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "O",
@@ -1663,7 +1664,7 @@ mod return_type_tests {
         use orbital_core_base::ir::OirType;
 
         let schema_with = |types: serde_json::Value| -> orbital_core_base::schema::OrbitalSchema {
-            serde_json::from_value(serde_json::json!({
+            from_json_value(&serde_json::json!({
                 "name": "App",
                 "orbitals": [{
                     "name": "O",
@@ -1971,6 +1972,7 @@ mod comparison_operand_tests {
 
 #[cfg(test)]
 mod set_value_type_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use orbital_core_base::ir::{OirField, OirType};
 
@@ -2215,7 +2217,7 @@ mod set_value_type_tests {
     }
 
     fn schema_with_message_alias() -> OrbitalSchema {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "name": "App",
             "orbitals": [{
                 "name": "Chat",
@@ -2299,12 +2301,13 @@ mod set_value_type_tests {
 
 #[cfg(test)]
 mod absent_entity_read_tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
     use crate::type_infer::TypeCtx;
     use orbital_core_base::ir::{OirBinding, OirBindingRoot, OirType};
 
     fn entity() -> HashMap<String, EntityFieldMeta> {
-        let entity: EntityDefinition = serde_json::from_value(serde_json::json!({
+        let entity: EntityDefinition = from_json_value(&serde_json::json!({
             "name": "E", "collection": "es", "fields": [
                 { "name": "loose", "type": "string" },
                 { "name": "needed", "type": "string", "required": true },
@@ -2335,7 +2338,7 @@ mod absent_entity_read_tests {
 
     fn set_errors(target: &str, value: &str, guard: Option<&str>) -> usize {
         let fields = entity();
-        let source = |text: &str| -> SExpression { serde_json::from_str(text).unwrap() };
+        let source = |text: &str| -> SExpression { from_json_str(text).unwrap() };
         let arr = vec![
             SExpression::String("set".into()),
             SExpression::string(format!("@entity.{target}")),
@@ -2401,7 +2404,7 @@ mod absent_entity_read_tests {
         let fields = entity();
         let knob_errors = |target: &str| {
             let effect: SExpression =
-                serde_json::from_value(serde_json::json!(["set", format!("@entity.{target}"), "@config.k"])).unwrap();
+                from_json_value(&serde_json::json!(["set", format!("@entity.{target}"), "@config.k"])).unwrap();
             validate_set_required_field_from_optional_knob(&effect, "p", "T", &fields).errors.len()
         };
         assert_eq!(knob_errors("dst"), 1, "control: a required field is refused today");

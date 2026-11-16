@@ -17,6 +17,7 @@
 //! `orbital_compiler::composition`, and prints the resulting schema as
 //! `JSON.stringify(..., null, 2)`-equivalent JSON to stdout.
 
+use orbital_core_base::json_value::{from_json_str, from_json_value};
 use orbital_compiler::composition::{compose_behaviors, ComposeBehaviorsInput};
 use std::env;
 use std::fs;
@@ -40,7 +41,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let parsed: serde_json::Value = match serde_json::from_str(&raw) {
+    let parsed: serde_json::Value = match from_json_str(&raw) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("failed to parse {}: {}", path, e);
@@ -56,7 +57,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let input: ComposeBehaviorsInput = match serde_json::from_value(input_value) {
+    let input: ComposeBehaviorsInput = match from_json_value(&input_value) {
         Ok(i) => i,
         Err(e) => {
             eprintln!("invalid ComposeBehaviorsInput in {}: {}", path, e);

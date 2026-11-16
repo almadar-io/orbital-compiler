@@ -2,6 +2,7 @@
 //! validation, OIR) that yields the structured findings every renderer reads. Source positions come through
 //! [`SourceLocator`], so the parser that owns the source text stays a sibling, not a dependency.
 
+use orbital_core_base::json_value::{from_json_str};
 use super::validate_comprehensive_full;
 use crate::phases::inline::{
     inline_schema_with_orbital_diagnostics, InlineError, InlineSession,
@@ -252,7 +253,7 @@ fn load_catalogs(
             let parsed = if file.is_file() {
                 std::fs::read_to_string(&file)
                     .map_err(|e| e.to_string())
-                    .and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
+                    .and_then(|text| from_json_str(&text).map_err(|e| e.to_string()))
                     .map(Some)
             } else {
                 Ok(None)
@@ -594,6 +595,7 @@ pub fn validate_parsed(input: ValidationInput<'_>, options: &CompilerOptions) ->
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str};
     use super::*;
 
     fn orb(transition_to: &str) -> OrbitalSchema {
@@ -691,12 +693,12 @@ mod tests {
 
     #[test]
     fn a_program_finding_keeps_its_entity_and_field_in_the_report() {
-        let named: ProgramFinding = serde_json::from_str(
+        let named: ProgramFinding = from_json_str(
             r#"{"code":"LINT_X","path":"orbitals[0]","message":"m","severity":"error","entity":"Other","field":"ownerId"}"#,
         )
         .unwrap();
         let bare: ProgramFinding =
-            serde_json::from_str(r#"{"code":"LINT_Y","path":"orbitals[0]","message":"m","severity":"error"}"#).unwrap();
+            from_json_str(r#"{"code":"LINT_Y","path":"orbitals[0]","message":"m","severity":"error"}"#).unwrap();
         let found = report(orb("idle"), None, &[named, bare]);
         let named = found.errors.iter().find(|f| f.code == "LINT_X").expect("named");
         assert_eq!(

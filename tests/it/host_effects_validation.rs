@@ -1,12 +1,13 @@
 //! `orb validate` rules of `random-bytes`, `credential-status` and `credential-forget`
 //! (`docs/Almadar_Embedded_Kernel.md` H.7 P4, P6): every code has a positive case and a control that stays silent.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::phases::validation::{validate_comprehensive_without_services, ErrorCode, ValidationResult};
 use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 fn program(effects: Value) -> OrbitalSchema {
-    serde_json::from_value(json!({
+    from_json_value(&json!({
         "name": "fixture", "version": "1.0.0",
         "orbitals": [{
             "name": "Host",
@@ -48,7 +49,7 @@ fn check(effects: Value) -> ValidationResult {
 fn check_declaring(effects: Value, types: Value) -> ValidationResult {
     let mut schema = serde_json::to_value(program(effects)).expect("program");
     schema["types"] = types;
-    validate_comprehensive_without_services(&serde_json::from_value(schema).expect("schema"))
+    validate_comprehensive_without_services(&from_json_value(&schema).expect("schema"))
 }
 
 fn fires(r: &ValidationResult, code: ErrorCode) -> bool {
@@ -84,7 +85,7 @@ fn os_binary_payloads_reject_string_handlers_and_accept_bytes() {
             schema["orbitals"][0]["traits"][0]["emits"] = json!([
                 { "event": "DATA", "payloadSchema": [{ "name": "data", "type": field_type, "required": true }] }
             ]);
-            let schema: OrbitalSchema = serde_json::from_value(schema).unwrap();
+            let schema: OrbitalSchema = from_json_value(&schema).unwrap();
             let result = validate_comprehensive_without_services(&schema);
             assert_eq!(fires(&result, ErrorCode::EmitPayloadNotProduced), rejected, "{effect}, {field_type}: {:?}", result.errors);
         }
@@ -109,7 +110,7 @@ fn stdin_success_allows_data_only_for_a_single_read() {
                 { "event": "DATA", "payloadSchema": payload },
                 { "event": "CHUNK", "payloadSchema": [{ "name": "data", "type": "bytes", "required": true }] }
             ]);
-            let schema: OrbitalSchema = serde_json::from_value(schema).unwrap();
+            let schema: OrbitalSchema = from_json_value(&schema).unwrap();
             let result = validate_comprehensive_without_services(&schema);
             let streamed = options["key"] == "stdin" && options["emit"]["onMessage"] == "CHUNK";
             assert_eq!(fires(&result, ErrorCode::EmitPayloadNotProduced), streamed && include_data, "{options}, data={include_data}: {:?}", result.errors);
@@ -142,7 +143,7 @@ fn os_keys_extend_success_failure_and_stream_messages_only_when_keyed() {
                     { "name": "key", "type": "string", "required": true }
                 ] }
             ]);
-            let schema: OrbitalSchema = serde_json::from_value(schema).unwrap();
+            let schema: OrbitalSchema = from_json_value(&schema).unwrap();
             let result = validate_comprehensive_without_services(&schema);
             assert_eq!(fires(&result, ErrorCode::EmitPayloadNotProduced), !keyed, "{operator}, {route}, keyed={keyed}: {:?}", result.errors);
         }

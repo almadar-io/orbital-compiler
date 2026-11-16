@@ -2,6 +2,7 @@
 //! alias is split out of the importer and resolved as its own schema. The
 //! importer keeps only `lazyPages`; nothing of the lazy behavior is inlined.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_compiler::phases::inline::{inline_schema, InlineConfig};
 use orbital_compiler::phases::lazy::split_lazy_and_resolve;
 use orbital_compiler::phases::parse::parse_file;
@@ -180,7 +181,7 @@ fn the_links_of_a_lazy_page_are_serialized_sorted_and_survive_a_round_trip() {
     let (schema, _) = split(&s).expect("split");
     let json = serde_json::to_value(&schema).expect("serializes");
     assert_eq!(json["lazyPages"][0]["links"], serde_json::json!(["/earlier", "/next"]));
-    let back: OrbitalSchema = serde_json::from_value(json).expect("reads back");
+    let back: OrbitalSchema = from_json_value(&json).expect("reads back");
     assert_eq!(back.lazy_pages, schema.lazy_pages);
 }
 
@@ -340,7 +341,7 @@ fn the_split_schema_keeps_the_importers_declared_themes() {
     let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
     let mut schema = parse_file(&s.path).unwrap();
     schema.themes = Some(
-        serde_json::from_value(serde_json::json!([
+        from_json_value(&serde_json::json!([
             "prism-dark",
             "scandi-light",
             { "name": "brand-serif", "tokens": { "colors": { "primary": "#111111" } } }

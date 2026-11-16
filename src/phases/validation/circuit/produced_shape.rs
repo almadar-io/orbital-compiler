@@ -94,10 +94,11 @@ fn narrow<'a>(
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
 
     fn union_of_three() -> OperatorTypeRef {
-        let table: OperatorTypeRef = serde_json::from_str(
+        let table: OperatorTypeRef = from_json_str(
             r#"{"kind":"union","of":[{"kind":"object","fields":{"row":"string"},"open":false},{"kind":"object","fields":{"deleted":"boolean"},"open":false},{"kind":"object","fields":{"count":"number"},"open":false}]}"#,
         )
         .expect("a union of three shapes");
@@ -105,8 +106,8 @@ mod tests {
     }
 
     fn call(action: &str) -> Vec<SExpression> {
-        let json: serde_json::Value = serde_json::from_str(&format!(r#"["persist","{action}","Row",{{}}]"#)).expect("a call");
-        match serde_json::from_value::<SExpression>(json).expect("an s-expression") {
+        let json: serde_json::Value = from_json_str(&format!(r#"["persist","{action}","Row",{{}}]"#)).expect("a call");
+        match from_json_value::<SExpression>(&json).expect("an s-expression") {
             SExpression::Array(items) => items.into_iter().collect(),
             other => panic!("a call is an array, got {other:?}"),
         }
@@ -138,7 +139,7 @@ mod tests {
     }
 
     fn stepping() -> orbital_core_base::language::registry::EmbeddedOperator {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "category": "std-program", "minArity": 2, "maxArity": 3,
             "returnType": { "kind": "array", "of": { "kind": "object", "fields": { "trait": "string" }, "open": true } },
             "params": [
@@ -155,8 +156,8 @@ mod tests {
 
     fn step_call(options: Option<&str>) -> Vec<SExpression> {
         let tail = options.map(|o| format!(",{o}")).unwrap_or_default();
-        let json: serde_json::Value = serde_json::from_str(&format!(r#"["program/step","@p",[]{tail}]"#)).expect("a call");
-        match serde_json::from_value::<SExpression>(json).expect("an s-expression") {
+        let json: serde_json::Value = from_json_str(&format!(r#"["program/step","@p",[]{tail}]"#)).expect("a call");
+        match from_json_value::<SExpression>(&json).expect("an s-expression") {
             SExpression::Array(items) => items.into_iter().collect(),
             other => panic!("a call is an array, got {other:?}"),
         }

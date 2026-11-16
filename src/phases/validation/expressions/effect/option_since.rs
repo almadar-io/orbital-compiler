@@ -83,11 +83,12 @@ fn check_call(
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
     use orbital_core_base::language::registry::EmbeddedOperator;
 
     fn operator() -> EmbeddedOperator {
-        serde_json::from_value(serde_json::json!({
+        from_json_value(&serde_json::json!({
             "category": "std-os", "minArity": 1, "maxArity": 3,
             "params": [
                 { "name": "port", "type": { "kind": "object", "fields": { "anchor": "string" }, "open": true } },
@@ -100,7 +101,7 @@ mod tests {
     }
 
     fn call(json: &str) -> Vec<SExpression> {
-        serde_json::from_str(json).unwrap()
+        from_json_str(json).unwrap()
     }
 
     fn findings(json: &str, running: &str) -> Vec<String> {

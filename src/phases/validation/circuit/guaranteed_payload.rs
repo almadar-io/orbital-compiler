@@ -292,10 +292,11 @@ fn answers_null(ty: &orbital_core_base::language::registry::OperatorTypeRef) -> 
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str};
     use crate::phases::validation::ErrorCode;
 
     fn null_operands(read: &str, other_trait: &str) -> usize {
-        let program: orbital_core_base::schema::OrbitalSchema = serde_json::from_str(&format!(
+        let program: orbital_core_base::schema::OrbitalSchema = from_json_str(&format!(
             r#"{{ "name": "App", "version": "1.0.0", "orbitals": [{{ "name": "O",
               "entity": {{ "name": "Doc", "persistence": "persistent", "collection": "docs", "fields": [
                 {{ "name": "id", "type": "string" }}, {{ "name": "title", "type": "string" }} ] }},
@@ -383,7 +384,7 @@ mod tests {
     fn routed(required: bool) -> usize {
         // std-wiki-page: `WikiAttachmentStorage.STORAGE_FAILED -> WikiAttachmentStorageFailed`, std-storage declaring
         // `STORAGE_FAILED -> external { message : string! }`.
-        let program: orbital_core_base::schema::OrbitalSchema = serde_json::from_str(&format!(
+        let program: orbital_core_base::schema::OrbitalSchema = from_json_str(&format!(
             r#"{{ "name": "App", "version": "1.0.0", "orbitals": [{{ "name": "O",
               "entity": {{ "name": "Doc", "fields": [ {{ "name": "id", "type": "string" }}, {{ "name": "title", "type": "string" }} ] }},
               "traits": [
@@ -411,7 +412,7 @@ mod tests {
     }
 
     fn forwarded(listen: &str, consumer_effects: &str, required: bool) -> usize {
-        let program: orbital_core_base::schema::OrbitalSchema = serde_json::from_str(&format!(
+        let program: orbital_core_base::schema::OrbitalSchema = from_json_str(&format!(
             r#"{{ "name": "App", "version": "1.0.0", "orbitals": [{{ "name": "O",
               "entity": {{ "name": "Doc", "fields": [ {{ "name": "id", "type": "string" }}, {{ "name": "title", "type": "string" }} ] }},
               "traits": [
@@ -505,7 +506,7 @@ mod tests {
                 )
             })
             .collect();
-        serde_json::from_str(&format!(
+        from_json_str(&format!(
             r#"{{ "name": "App", "version": "1.0.0", "orbitals": [{{ "name": "O",
               "entity": {{ "name": "Doc", "fields": [ {{ "name": "id", "type": "string" }}, {{ "name": "title", "type": "string" }} ] }},
               "traits": [

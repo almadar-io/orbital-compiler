@@ -2338,11 +2338,12 @@ elements; `[string]`/scalar element types cannot carry objects.";
 
 #[cfg(test)]
 mod node_config_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
     use orbital_core_base::schema::ConfigField;
 
     fn field(field_type: &str, default: SExpression) -> ConfigField {
-        serde_json::from_value(serde_json::json!({ "type": field_type }))
+        from_json_value(&serde_json::json!({ "type": field_type }))
             .map(|mut f: ConfigField| {
                 f.default = Some(default);
                 f
@@ -2352,7 +2353,7 @@ mod node_config_tests {
 
     #[test]
     fn node_array_of_patterns_passes_per_element() {
-        let default = serde_json::from_value(serde_json::json!([
+        let default = from_json_value(&serde_json::json!([
             { "type": "canvas-2d" },
             { "type": "typography", "content": "hi" }
         ]))
@@ -2369,7 +2370,7 @@ mod node_config_tests {
 
     #[test]
     fn node_computed_operator_call_is_skipped() {
-        let default = serde_json::from_value(serde_json::json!(
+        let default = from_json_value(&serde_json::json!(
             ["if", ["==", "@entity.result", "none"], null, { "type": "game-menu" }]
         ))
         .unwrap();
@@ -2391,10 +2392,11 @@ mod node_config_tests {
 
 #[cfg(test)]
 mod event_config_tests {
+    use orbital_core_base::json_value::{from_json_str};
     use super::*;
 
     fn run(schema_json: &str) -> ValidationResult {
-        let schema: OrbitalSchema = serde_json::from_str(schema_json).expect("fixture parses");
+        let schema: OrbitalSchema = from_json_str(schema_json).expect("fixture parses");
         let mut ctx = ValidationContext::new();
         validate_all_config_types(&schema, &mut ctx);
         ctx.result
@@ -2457,7 +2459,7 @@ mod event_config_tests {
     }
 
     fn run_with_entities(schema_json: &str) -> ValidationResult {
-        let schema: OrbitalSchema = serde_json::from_str(schema_json).expect("fixture parses");
+        let schema: OrbitalSchema = from_json_str(schema_json).expect("fixture parses");
         let mut ctx = ValidationContext::new();
         validate_all_config_types(&schema, &mut ctx);
         validate_all_entity_field_defaults(&schema, &mut ctx);
@@ -2617,10 +2619,11 @@ mod event_config_tests {
 
 #[cfg(test)]
 mod struct_event_field_tests {
+    use orbital_core_base::json_value::{from_json_str};
     use super::*;
 
     fn schema_from_json(json: &str) -> OrbitalSchema {
-        serde_json::from_str(json).expect("fixture parses")
+        from_json_str(json).expect("fixture parses")
     }
 
     fn run(schema_json: &str) -> ValidationResult {
@@ -2797,10 +2800,11 @@ mod struct_event_field_tests {
 /// assertions read `result.errors`.
 #[cfg(test)]
 mod reference_binding_type_tests {
+    use orbital_core_base::json_value::{from_json_str};
     use super::*;
 
     fn schema_from_json(json: &str) -> OrbitalSchema {
-        serde_json::from_str(json).expect("fixture parses")
+        from_json_str(json).expect("fixture parses")
     }
 
     /// Mirrors the real pipeline's Phase 1 (`collect_names`) just enough to
@@ -3430,6 +3434,7 @@ mod recursive_type_literal_tests {
 /// A config default is a complete value: a struct/alias member's `!` is enforced on it.
 #[cfg(test)]
 mod required_member_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     /// `type Alias = { id : string!, kind : string! }` — a struct alias
@@ -3510,7 +3515,7 @@ mod required_member_tests {
     /// primitive member takes that primitive's value, not only records.
     #[test]
     fn a_union_with_a_primitive_member_takes_its_value() {
-        let schema: FieldDefinition = serde_json::from_value(serde_json::json!({
+        let schema: FieldDefinition = from_json_value(&serde_json::json!({
             "type": "union",
             "values": ["string", "AnchoredEnv", "AnchoredPath"],
             "properties": {
@@ -3546,6 +3551,7 @@ mod required_member_tests {
 
 #[cfg(test)]
 mod effect_event_address_tests {
+    use orbital_core_base::json_value::{from_json_str};
     use super::*;
 
     const REGISTRY: &str = r#"{ "services": { "test-svc": { "actions": [ { "name": "run", "params": [
@@ -3587,7 +3593,7 @@ mod effect_event_address_tests {
       ]
     }}"#
         );
-        let schema: OrbitalSchema = serde_json::from_str(&json).expect("fixture parses");
+        let schema: OrbitalSchema = from_json_str(&json).expect("fixture parses");
         let mut ctx = ValidationContext::new();
         ctx.service_registry =
             crate::embedded::parse_service_registry_data(REGISTRY).expect("registry parses");
@@ -3639,6 +3645,7 @@ mod effect_event_address_tests {
 
 #[cfg(test)]
 mod top_level_event_address_tests {
+    use orbital_core_base::json_value::{from_json_str};
     use super::*;
 
     const REGISTRY: &str = r#"{ "services": { "test-svc": { "actions": [ { "name": "watch", "params": [
@@ -3671,7 +3678,7 @@ mod top_level_event_address_tests {
       }}]
     }}"#
         );
-        let schema: OrbitalSchema = serde_json::from_str(&json).expect("fixture parses");
+        let schema: OrbitalSchema = from_json_str(&json).expect("fixture parses");
         let mut ctx = ValidationContext::new();
         ctx.service_registry =
             crate::embedded::parse_service_registry_data(REGISTRY).expect("registry parses");
@@ -3727,6 +3734,7 @@ mod top_level_event_address_tests {
 
 #[cfg(test)]
 mod tuple_shape_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn nums(values: &[f64]) -> SExpression {
@@ -3742,7 +3750,7 @@ mod tuple_shape_tests {
     #[test]
     fn a_tuple_value_is_checked_for_arity_and_slot_types() {
         let member: FieldDefinition =
-            serde_json::from_value(serde_json::json!({ "type": "tuple", "properties": slots() }))
+            from_json_value(&serde_json::json!({ "type": "tuple", "properties": slots() }))
                 .unwrap();
         let check = |v: &SExpression| {
             check_field_def_shape(
@@ -3770,9 +3778,7 @@ mod tuple_shape_tests {
             "not an array"
         );
 
-        let knob: ConfigField = serde_json::from_value(
-            serde_json::json!({ "type": "[number, number, number]", "properties": slots() }),
-        )
+        let knob: ConfigField = from_json_value(&serde_json::json!({ "type": "[number, number, number]", "properties": slots() }))
         .unwrap();
         let check_knob = |v: &SExpression| {
             check_config_default_shape(&knob, v, "k", &EventScope::default(), None)
@@ -3797,10 +3803,11 @@ mod tuple_shape_tests {
 
 #[cfg(test)]
 mod named_alias_required_member_tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::*;
 
     fn run(types: serde_json::Value, knob: serde_json::Value) -> ValidationResult {
-        let schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "t", "version": "1.0.0",
             "orbitals": [{
                 "name": "O",
@@ -3896,6 +3903,7 @@ mod named_alias_required_member_tests {
 
 #[cfg(test)]
 mod payload_of_member_tests {
+    use orbital_core_base::json_value::{from_json_str};
     use super::*;
 
     fn run(action: &str, payload: &str) -> ValidationResult {
@@ -3929,7 +3937,7 @@ mod payload_of_member_tests {
       }}]
     }}"#
         );
-        let schema: OrbitalSchema = serde_json::from_str(&json).expect("fixture parses");
+        let schema: OrbitalSchema = from_json_str(&json).expect("fixture parses");
         let mut ctx = ValidationContext::new();
         crate::phases::validation::collect_names(&schema, &mut ctx);
         validate_all_config_types(&schema, &mut ctx);

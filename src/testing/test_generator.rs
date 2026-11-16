@@ -2,6 +2,7 @@
 //!
 //! Generates tests alongside application code for each backend.
 
+use orbital_core_base::json_value::{from_json_str};
 use orbital_core_base::ir::{OirEffect, OirEntity, OirModule, OirPage, OirTrait};
 use orbital_core_base::str_utils::to_snake_case;
 use std::path::PathBuf;
@@ -324,7 +325,7 @@ mod tests {{
     fn test_{name_lower}_serialization() {{
         let entity = {name}::default();
         let json = serde_json::to_string(&entity).unwrap();
-        let deserialized: {name} = serde_json::from_str(&json).unwrap();
+        let deserialized: {name} = from_json_str(&json).unwrap();
         assert_eq!(entity.id, deserialized.id);
     }}
 {field_tests}

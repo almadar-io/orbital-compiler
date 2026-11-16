@@ -1,6 +1,7 @@
 //! Type-export alias reference check: every name a `types` export's shape refers to must resolve.
 //! The generic-type ban (`ORB_T_GENERIC_TYPE_DEPRECATED`) is owned by the std lint `std-orb-lint-generic-types`.
 
+use orbital_core_base::json_value::{from_json_value};
 use orbital_core_base::schema::{FieldType, OrbitalSchema, PayloadField};
 
 use super::{
@@ -11,7 +12,7 @@ use super::{
 /// A language type word (`EventAddress`, `behavior`, `trait`, `orbital`, …) is a value kind of the schema's own
 /// field-type table, not a name a program declares.
 fn is_value_kind(name: &str) -> bool {
-    serde_json::from_value::<FieldType>(serde_json::Value::String(name.to_string())).is_ok()
+    from_json_value::<FieldType>(&serde_json::Value::String(name.to_string())).is_ok()
 }
 
 /// Every name a type export's shape refers to must be a declared alias, an entity, a language program type, a sealed

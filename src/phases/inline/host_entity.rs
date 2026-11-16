@@ -10,12 +10,13 @@ pub(super) fn bind_unlinked_traits_to_host_entity(schema: &mut OrbitalSchema) {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_value};
     use super::super::{inline_schema, InlineConfig};
     use orbital_core_base::dispatch_mode::DispatchMode;
     use orbital_core_base::schema::{EntityRef, OrbitalSchema, TraitDefinition, TraitReference};
 
     fn inlined(traits: serde_json::Value) -> OrbitalSchema {
-        let mut schema: OrbitalSchema = serde_json::from_value(serde_json::json!({
+        let mut schema: OrbitalSchema = from_json_value(&serde_json::json!({
             "name": "HostEntity",
             "orbitals": [
                 {

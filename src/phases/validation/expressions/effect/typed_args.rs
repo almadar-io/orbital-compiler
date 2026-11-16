@@ -260,11 +260,12 @@ pub(crate) fn needs_declaration(ty: &OirType) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use orbital_core_base::json_value::{from_json_str, from_json_value};
     use super::*;
     use serde_json::json;
 
     fn program(via: serde_json::Value, effect: serde_json::Value) -> OrbitalSchema {
-        serde_json::from_value(json!({
+        from_json_value(&json!({
             "name": "probe",
             "orbitals": [{
                 "name": "ProbeOrbital",
@@ -344,8 +345,8 @@ mod tests {
         );
         record_declared_shapes(&mut schema).expect("shapes");
         let effect = effect_of(&schema);
-        let expression = serde_json::from_value(effect[2].clone()).unwrap();
-        let payload = serde_json::from_value(json!({"via": [{"id": 1}, "text"]})).unwrap();
+        let expression = from_json_value(&effect[2]).unwrap();
+        let payload = from_json_value(&json!({"via": [{"id": 1}, "text"]})).unwrap();
         let context = BindingContextBuilder::new().payload(payload).build();
         let actual = Evaluator::new()
             .evaluate(&expression, &context)
@@ -415,7 +416,7 @@ mod tests {
 
     fn with_row_types(mut schema: OrbitalSchema) -> OrbitalSchema {
         schema.orbitals[0].types = Some(
-            serde_json::from_value(json!({
+            from_json_value(&json!({
                 "RowFile": [
                     { "name": "rows", "type": "[Row]", "required": true },
                     { "name": "changes", "type": "[string]", "required": true }
@@ -502,7 +503,7 @@ mod tests {
         let mut schema = with_row_types(program(via, effect));
         record_declared_shapes(&mut schema).expect("shapes");
         let recorded: DeclaredShape =
-            serde_json::from_str(effect_of(&schema)[2][2].as_str().expect("shape text"))
+            from_json_str(effect_of(&schema)[2][2].as_str().expect("shape text"))
                 .expect("a recorded shape");
         assert_eq!(recorded.name.as_deref(), Some("RowFile"));
         assert_eq!(
@@ -514,7 +515,7 @@ mod tests {
     #[test]
     fn a_json_parse_naming_a_program_alias_records_its_type_with_every_type_it_names() {
         let recorded: DeclaredShape =
-            serde_json::from_str(parse_shape_of("RowFile").as_str().expect("shape text"))
+            from_json_str(parse_shape_of("RowFile").as_str().expect("shape text"))
                 .expect("a recorded shape");
         assert_eq!(recorded.name.as_deref(), Some("RowFile"));
         assert!(
@@ -551,7 +552,7 @@ mod tests {
     #[test]
     fn a_json_parse_naming_a_non_recursive_alias_records_its_type() {
         let recorded: DeclaredShape =
-            serde_json::from_str(parse_shape_of("Point").as_str().expect("shape text"))
+            from_json_str(parse_shape_of("Point").as_str().expect("shape text"))
                 .expect("a recorded shape");
         assert!(matches!(recorded.ty, OirType::Struct { ref fields, .. } if fields.len() == 1));
         assert!(recorded.named.is_empty());
