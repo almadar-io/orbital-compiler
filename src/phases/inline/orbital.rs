@@ -3120,7 +3120,7 @@ mod tests {
     /// pages, no aux entities — the config/pages/aux cases get their own
     /// smaller fixtures below. The full-surface proof (config forward, page
     /// remap with all navigate arities, `ListenSource::Orbital`, disjoint
-    /// double import) lives in `tests/orbital_import.rs` instead, exercised
+    /// double import) lives in `tests/it/orbital_import.rs` instead, exercised
     /// through the real `inline_schema` pipeline rather than this function.
     fn upstream_orbital(config: Option<serde_json::Value>) -> Orbital {
         let mut value = json!({

@@ -3769,7 +3769,7 @@ mod entity_id_reader_tests {
 /// Unit coverage for the hoisted-forward chain walk (`forwarded_sibling_config_from`)
 /// and the pull-site chain builder (`forwarded_sibling_config`). End-to-end
 /// coverage of the SAME contract, exercised through the real sibling
-/// auto-pull, lives in `tests/config_override_round_trip.rs`
+/// auto-pull, lives in `tests/it/config_override_round_trip.rs`
 /// (`sibling_forward_resolves_through_three_deep_hoisted_chain` /
 /// `sibling_forward_switches_key_through_relaying_rung`).
 #[cfg(test)]

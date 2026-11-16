@@ -9,7 +9,7 @@ use orbital_core_base::schema::OrbitalSchema;
 use serde_json::{json, Value};
 
 fn fixture() -> Value {
-    serde_json::from_str(include_str!("fixtures/theme-collection-app.orb")).expect("fixture parses")
+    serde_json::from_str(include_str!("../fixtures/theme-collection-app.orb")).expect("fixture parses")
 }
 
 fn compile(schema: Value) -> OirModule {
