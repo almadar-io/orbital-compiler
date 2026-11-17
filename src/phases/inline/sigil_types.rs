@@ -118,7 +118,16 @@ pub(crate) fn field_of(p: &PayloadField) -> FieldDefinition {
         items: p
             .items
             .as_deref()
-            .map(field_of)
+            .map(|item| match (element, item.properties.is_none(), p.properties.is_some()) {
+                // `[Alias]` lowers with the alias's fields on the list and an item that only names it.
+                (Some("object"), true, true) => field_of(&PayloadField {
+                    field_type: "object".to_string(),
+                    properties: p.properties.clone(),
+                    entity: item.entity.clone().or_else(|| p.entity.clone()),
+                    ..item.clone()
+                }),
+                _ => field_of(item),
+            })
             .or_else(|| {
                 element.map(|element| {
                     field_of(&PayloadField {
@@ -622,6 +631,33 @@ mod tests {
         assert_eq!(fields[0].entity.as_deref(), Some("NoteTagRef"));
         assert_eq!(fields[1].field_type, "[object]");
         assert_eq!(fields[1].entity.as_deref(), Some("NoteTagRef"));
+    }
+
+    /// A list of a record alias lowers as `[object]` with the record's fields and an `items` that only names the
+    /// alias; the round trip through a field definition keeps the record, never a list of strings.
+    #[test]
+    fn a_list_of_a_record_alias_keeps_its_record_items_through_the_field_round_trip() {
+        let rows = payload(serde_json::json!({
+            "name": "rows", "type": "[object]", "required": true,
+            "properties": [{ "name": "id", "type": "string" }],
+            "items": { "name": "", "type": "Row", "projectedFrom": { "type": "Row" } }
+        }));
+        let back = payload_field_of(&field_of(&rows));
+        assert_eq!(back.field_type, "[object]", "{back:?}");
+        let item = back.items.as_deref().expect("items");
+        assert_eq!(item.field_type, "object", "{item:?}");
+        let names: Vec<&str> = item.properties.iter().flat_map(|p| p.iter()).map(|f| f.name.as_str()).collect();
+        assert_eq!(names, vec!["id"], "{item:?}");
+    }
+
+    #[test]
+    fn control_a_list_of_strings_stays_a_list_of_strings_through_the_field_round_trip() {
+        let tags = payload(serde_json::json!({
+            "name": "tags", "type": "[string]",
+            "items": { "name": "", "type": "string" }
+        }));
+        let back = payload_field_of(&field_of(&tags));
+        assert_eq!(back.field_type, "[string]", "{back:?}");
     }
 
     #[test]
