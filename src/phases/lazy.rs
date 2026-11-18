@@ -525,7 +525,7 @@ pub fn resolved_tree(resolved: &OrbitalSchema) -> Result<serde_json::Value, Stri
 
 /// [`resolved_tree`] pretty-printed: the text `orb resolve` prints and writes.
 pub fn resolved_json(resolved: &OrbitalSchema) -> Result<String, String> {
-    serde_json::to_string_pretty(&resolved_tree(resolved)?).map_err(|e| format!("Failed to serialize resolved schema: {e}"))
+    serde_json::to_string(&resolved_tree(resolved)?).map_err(|e| format!("Failed to serialize resolved schema: {e}"))
 }
 
 /// The resolved program as a key-sorted core value, built straight from the schema with no JSON tree between.
