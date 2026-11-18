@@ -416,39 +416,86 @@ pub(crate) fn visit_entity_slots(expr: &mut SExpression, f: &mut dyn FnMut(&mut 
     }
 }
 
-/// Apply `f` to the entity name of every op tuple a batch's `<ops>` writes out.
+/// Apply `f` to the entity name of every op tuple a batch's `<ops>` writes out: a literal list of tuples, a `list`, an
+/// `array/map` whose lambda returns a tuple, and lists combined with `array/concat`, `array/prepend`, `array/append`
+/// or `array/flatten`, through `let`, `if` and `do` around either a list or a tuple.
 fn visit_batch_op_entities(ops: &mut SExpression, f: &mut dyn FnMut(&mut String)) {
-    use orbital_core_base::persist_batch::is_op_tuple;
+    use orbital_core_base::persist_batch::{is_op_tuple, BATCH_ACTIONS};
+    fn head(items: &[SExpression]) -> Option<&str> {
+        match items.first() {
+            Some(SExpression::String(h)) => Some(h.as_str()),
+            _ => None,
+        }
+    }
+    fn wrapped<'a>(items: &'a mut [SExpression]) -> Vec<&'a mut SExpression> {
+        match head(items) {
+            Some("let") | Some("do") => items.last_mut().into_iter().collect(),
+            Some("if") => items.iter_mut().skip(2).collect(),
+            _ => Vec::new(),
+        }
+    }
     fn tuple(t: &mut SExpression, f: &mut dyn FnMut(&mut String)) {
-        if !is_op_tuple(t) {
+        if let SExpression::Array(items) = t {
+            let action = matches!(items.get(1), Some(SExpression::String(a)) if BATCH_ACTIONS.contains(&a.as_str()));
+            if head(items) == Some("list") && action {
+                if let Some(SExpression::String(name)) = items.get_mut(2) {
+                    f(name);
+                }
+                return;
+            }
+        }
+        if is_op_tuple(t) {
+            if let SExpression::Array(items) = t {
+                if let Some(SExpression::String(name)) = items.get_mut(1) {
+                    f(name);
+                }
+            }
             return;
         }
         if let SExpression::Array(items) = t {
-            if let Some(SExpression::String(name)) = items.get_mut(1) {
-                f(name);
+            for inner in wrapped(items) {
+                tuple(inner, f);
             }
         }
     }
-    let SExpression::Array(items) = ops else {
-        return;
-    };
-    match items.first() {
-        Some(SExpression::String(head)) if head == "array/map" && items.len() == 3 => {
-            if let SExpression::Array(lambda) = &mut items[2] {
-                let is_fn = matches!(lambda.first(), Some(SExpression::String(h)) if h == "fn");
-                if is_fn && lambda.len() >= 3 {
-                    if let Some(body) = lambda.last_mut() {
-                        tuple(body, f);
+    fn list(ops: &mut SExpression, f: &mut dyn FnMut(&mut String)) {
+        let SExpression::Array(items) = ops else {
+            return;
+        };
+        match head(items) {
+            Some("array/map") if items.len() == 3 => {
+                if let SExpression::Array(lambda) = &mut items[2] {
+                    if head(lambda) == Some("fn") && lambda.len() >= 3 {
+                        if let Some(body) = lambda.last_mut() {
+                            tuple(body, f);
+                        }
                     }
                 }
             }
+            Some("list") if matches!(items.get(1), Some(SExpression::String(a)) if BATCH_ACTIONS.contains(&a.as_str())) => {}
+            Some("list") => items[1..].iter_mut().for_each(|e| tuple(e, f)),
+            Some("array/concat") | Some("array/flatten") => items[1..].iter_mut().for_each(|e| list(e, f)),
+            Some("array/prepend") | Some("array/append") if items.len() == 3 => {
+                list(&mut items[1], f);
+                tuple(&mut items[2], f);
+            }
+            Some("let") | Some("do") | Some("if") => {
+                for inner in wrapped(items) {
+                    list(inner, f);
+                }
+            }
+            Some(_) => {}
+            None => items.iter_mut().for_each(|e| {
+                let list_tuple = matches!(e, SExpression::Array(inner) if head(inner) == Some("list") && matches!(inner.get(1), Some(SExpression::String(a)) if BATCH_ACTIONS.contains(&a.as_str())));
+                if is_op_tuple(e) || list_tuple {
+                    tuple(e, f);
+                } else {
+                    list(e, f);
+                }
+            }),
         }
-        Some(SExpression::String(head)) if head == "list" => {
-            items[1..].iter_mut().for_each(|e| tuple(e, f))
-        }
-        Some(SExpression::String(_)) => {}
-        _ => items.iter_mut().for_each(|e| tuple(e, f)),
     }
+    list(ops, f);
 }
 
 /// Read-only twin of `visit_entity_slots`: every entity name at one of its
@@ -5108,6 +5155,48 @@ mod entity_slot_tests {
             &mut out,
         );
         assert!(out.contains("Other"));
+    }
+
+    /// Op tuples a batch builds by combining lists (concat, prepend, append, flatten) or from a lambda body that
+    /// wraps its tuple in let or if are entity slots too: a composed program must not write to the atom's bare names.
+    #[test]
+    fn persist_batch_op_tuples_inside_combined_lists_and_wrapped_bodies_are_entity_slots() {
+        let mut subs = orbital_core_base::collections::IndexMap::new();
+        subs.insert("Other".to_string(), "Renamed".to_string());
+        subs.insert("Edge".to_string(), "RenamedEdge".to_string());
+        let none = orbital_core_base::collections::IndexMap::new();
+        let mut combined = sexpr(json!([
+            "persist",
+            "batch",
+            [
+                "array/concat",
+                [["create", "Edge", {}]],
+                ["array/prepend", ["array/map", "@entity.es", ["fn", "e", ["delete", "Edge", "@e"]]], ["delete", "Other", "n"]],
+                ["array/append", [["delete", "Edge", "x"]], ["update", "Other", "y", {}]],
+                ["array/flatten", [[["create", "Other", {}]]]],
+                ["array/map", "@entity.us", ["fn", "u", ["let", [["k", "@u"]], ["update", "Other", "@k", {}]]]],
+                ["array/map", "@entity.vs", ["fn", "v", ["if", "@v", ["update", "Other", "@v", {}], ["delete", "Other", "@v"]]]],
+                ["array/prepend", ["array/map", "@entity.ws", ["fn", "w", ["list", "delete", "Edge", "@w"]]], ["list", "delete", "Other", "@entity.n"]],
+                [["list", "delete", "Edge", "@entity.e"]]
+            ]
+        ]));
+        rewrite_identifiers(&mut combined, &subs, &none);
+        let text = format!("{combined:?}");
+        assert!(!text.contains("\"Other\""), "every Other renamed: {text}");
+        assert!(!text.contains("\"Edge\""), "every Edge renamed: {text}");
+        assert_eq!(text.matches("\"Renamed\"").count(), 7, "{text}");
+        assert_eq!(text.matches("\"RenamedEdge\"").count(), 5, "{text}");
+    }
+
+    /// Control: a string that is not an op tuple's entity position keeps its spelling.
+    #[test]
+    fn control_a_non_tuple_string_inside_a_combined_batch_is_not_renamed() {
+        let mut subs = orbital_core_base::collections::IndexMap::new();
+        subs.insert("Other".to_string(), "Renamed".to_string());
+        let mut expr = sexpr(json!(["persist", "batch", ["array/concat", [["create", "Other", { "note": "Other" }]], ["array/map", "@entity.xs", ["fn", "x", ["str/concat", "Other", "@x"]]]]]));
+        rewrite_identifiers(&mut expr, &subs, &orbital_core_base::collections::IndexMap::new());
+        let text = format!("{expr:?}");
+        assert_eq!(text.matches("\"Other\"").count(), 2, "the note and the str/concat literal stay: {text}");
     }
 
     /// The rename walker and the collector agree: renaming then re-collecting

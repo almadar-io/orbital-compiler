@@ -7106,6 +7106,7 @@ mod tests {
             name: "ArcadeCanvasPage".to_string(),
             protocol: None,
             address: None,
+            address_forwarded_from: Vec::new(),
             path: "/arcade/canvas".to_string(),
             view_type: None,
             primary_entity: None,

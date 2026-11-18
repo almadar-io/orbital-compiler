@@ -1440,7 +1440,10 @@ pub(crate) fn resolve_orbital_reference(
             .filter(|(key, _)| {
                 let token = format!("@config.{key}");
                 let forward = SExpression::string(token.clone());
-                parent_configs.values().any(|cfg| {
+                let address_reads = upstream.pages.iter().flatten().any(|p| {
+                    matches!(p, PageRef::Inline(page) if page.address.as_ref().is_some_and(|a| super::r#trait::sexpr_references_config(a, &token)))
+                });
+                address_reads || parent_configs.values().any(|cfg| {
                     cfg.values().any(|f| {
                         f.default.as_ref() == Some(&forward)
                             || f.default.as_ref().is_some_and(|d| super::r#trait::sexpr_references_config(d, &token))

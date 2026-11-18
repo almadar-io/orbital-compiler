@@ -263,10 +263,55 @@ pub(crate) fn resolve_page_addresses(
         let Some(address) = page_def.address.as_ref() else {
             continue;
         };
+        for key in orbital_config.into_iter().chain(schema_config).flat_map(|config| config.keys()) {
+            let token = format!("@config.{key}");
+            if super::r#trait::sexpr_references_config(address, &token) && !page_def.address_forwarded_from.contains(&token) {
+                page_def.address_forwarded_from.push(token);
+            }
+        }
         if let Some(folded) =
             super::r#trait::forwarded_expression(address, orbital_config, schema_config)
         {
             page_def.address = Some(folded);
         }
+    }
+}
+
+#[cfg(test)]
+mod address_reads_tests {
+    use super::*;
+
+    fn config(json: serde_json::Value) -> orbital_core_base::collections::IndexMap<String, ConfigField> {
+        serde_json::from_value(json).expect("config")
+    }
+
+    fn http_page(address: serde_json::Value) -> Option<Vec<PageRef>> {
+        let page: PageDefinition = serde_json::from_value(serde_json::json!({ "name": "Api", "path": "", "protocol": "http", "address": address })).expect("page");
+        Some(vec![PageRef::Inline(page)])
+    }
+
+    fn reads(pages: &Option<Vec<PageRef>>) -> Vec<String> {
+        match pages.as_deref() {
+            Some([PageRef::Inline(page)]) => page.address_forwarded_from.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_page_address_records_the_knobs_it_read_before_they_fold() {
+        let knobs = config(serde_json::json!({ "origin": { "type": "string", "default": "https://api.example.com" }, "port": { "type": "number", "default": 8080 } }));
+        let mut pages = http_page(serde_json::json!({ "host": "0.0.0.0", "port": "@config.port", "origin": "@config.origin" }));
+        resolve_page_addresses(&mut pages, Some(&knobs), None);
+        let mut got = reads(&pages);
+        got.sort();
+        assert_eq!(got, vec!["@config.origin".to_string(), "@config.port".to_string()]);
+    }
+
+    #[test]
+    fn control_a_literal_page_address_records_no_knob() {
+        let knobs = config(serde_json::json!({ "origin": { "type": "string", "default": "" } }));
+        let mut pages = http_page(serde_json::json!({ "host": "0.0.0.0", "port": 8080 }));
+        resolve_page_addresses(&mut pages, Some(&knobs), None);
+        assert!(reads(&pages).is_empty());
     }
 }
