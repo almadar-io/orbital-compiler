@@ -226,7 +226,7 @@ pub fn record_lazy_pages(
                 name: def.name.clone(),
                 dispatch_mode: def.dispatch_mode(None, &orbital_core_base::runs_on::Residence::none()),
                 listens: def.listens.iter().flat_map(|l| l.iter()).cloned().collect(),
-                background_ticks: def.ticks.iter().flatten().any(|tick| tick.background),
+                background_ticks: def.ticks_in_background_at_rest(),
             }),
             _ => None,
         })
