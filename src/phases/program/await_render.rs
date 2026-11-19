@@ -445,6 +445,32 @@ pub fn attach_await_renders<T: AwaitRenderTree>(schema: &OrbitalSchema, value: &
     }
 }
 
+/// [`attach_await_renders`] on the schema itself: each predicted transition's `await_render` is set, so a host that
+/// opens the typed program carries what the printed resolve output carries.
+pub fn set_await_renders(schema: &mut OrbitalSchema) {
+    let predictions = predict_await_renders(schema);
+    if predictions.is_empty() {
+        return;
+    }
+    for orbital in &mut schema.orbitals {
+        for reference in &mut orbital.traits {
+            let TraitReference::Inline(def) = reference else {
+                continue;
+            };
+            if !predictions.keys().any(|(name, _)| *name == def.name) {
+                continue;
+            }
+            let def = std::sync::Arc::make_mut(def);
+            let name = def.name.clone();
+            for (idx, transition) in def.state_machine.transitions.iter_mut().enumerate() {
+                if let Some(renders) = predictions.get(&(name.clone(), idx)) {
+                    transition.await_render = Some(renders.clone());
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use orbital_core_base::json_value::{from_json_value};
@@ -480,6 +506,29 @@ mod tests {
                 fields: None,
             },
         }
+    }
+
+    #[test]
+    fn the_schema_gains_the_await_render_its_printed_tree_reads_back() {
+        let s = schema(serde_json::json!([trait_def(
+            "Browse",
+            serde_json::json!([
+                { "from": "idle", "to": "loading", "event": "INIT", "effects": [["fetch", "Item", { "emit": { "success": "LOADED" } }]] },
+                { "from": "loading", "to": "ready", "event": "LOADED", "effects": [["render-ui", "main", { "type": "data-grid", "skeleton": "grid" }]] }
+            ]),
+            serde_json::json!([])
+        )]));
+        let mut tree = serde_json::to_value(&s).unwrap();
+        attach_await_renders(&s, &mut tree);
+        let read_back: OrbitalSchema = from_json_value(&tree).expect("the printed tree is a schema");
+        let mut typed = s.clone();
+        set_await_renders(&mut typed);
+        assert_eq!(serde_json::to_value(&typed).unwrap(), serde_json::to_value(&read_back).unwrap());
+        assert_ne!(serde_json::to_value(&typed).unwrap(), serde_json::to_value(&s).unwrap(), "control: the prediction was set");
+        let mut none = schema(serde_json::json!([trait_def("Still", serde_json::json!([{ "from": "idle", "to": "idle", "event": "INIT" }]), serde_json::json!([]))]));
+        let before = serde_json::to_value(&none).unwrap();
+        set_await_renders(&mut none);
+        assert_eq!(serde_json::to_value(&none).unwrap(), before, "control: a program that waits on nothing is unchanged");
     }
 
     #[test]
