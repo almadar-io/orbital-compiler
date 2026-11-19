@@ -1168,10 +1168,11 @@ fn fetch_includes(trait_def: &TraitDefinition, entity: &str, relation: &str) -> 
     transitions.chain(ticks).any(|effect| walk(effect, trait_def, entity, relation))
 }
 
-/// `<relation>.<field>` on the entity `record`, when the trait fetches `record` with that relation included (the row
-/// then carries it): the type of `<field>` on the entity the relation targets, or the target's name, the unknown tail
-/// and the target's fields. `None` when `record` is no entity of the program, `name` is not one dotted step, its head
-/// is no relation field, or no fetch of the trait includes it.
+/// `<relation>.<field>` on the entity `record`, when the trait fetches `record` with that relation included: the
+/// head is the key the kernel hydrates the related row under, the relation field's name without a trailing `Id`
+/// (`populate_relations`), and the result is the type of `<field>` on the entity the relation targets, or the
+/// target's name, the unknown tail and the target's fields. `None` when `record` is no entity of the program, `name`
+/// is not one dotted step, its head is no relation's hydrated key, or no fetch of the trait includes it.
 #[allow(clippy::type_complexity)]
 fn related_entity_field(
     record: &str,
@@ -1179,16 +1180,17 @@ fn related_entity_field(
     bctx: &ReferenceBindingCtx,
 ) -> Option<Result<OrbitalOirType, (String, String, Vec<String>)>> {
     let (head, tail) = name.split_once('.')?;
-    if !fetch_includes(bctx.trait_def, record, head) {
+    let entity = bctx.entity_definitions.get(record)?;
+    let field = entity.fields.iter().find(|f| {
+        f.merged_from.is_none()
+            && f.relation.is_some()
+            && f.name.as_deref().is_some_and(|n| n.strip_suffix("Id").unwrap_or(n) == head)
+    })?;
+    let field_name = field.name.as_deref()?;
+    if !fetch_includes(bctx.trait_def, record, field_name) && !fetch_includes(bctx.trait_def, record, head) {
         return None;
     }
-    let entity = bctx.entity_definitions.get(record)?;
-    let relation = entity
-        .fields
-        .iter()
-        .find(|f| f.merged_from.is_none() && f.name.as_deref() == Some(head))?
-        .relation
-        .as_ref()?;
+    let relation = field.relation.as_ref()?;
     let target = bctx.entity_definitions.get(relation.entity.as_str())?;
     let declared = || target.fields.iter().filter(|f| f.merged_from.is_none());
     Some(match declared().find(|f| f.name.as_deref() == Some(tail)) {

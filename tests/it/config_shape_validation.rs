@@ -1677,3 +1677,74 @@ fn a_string_default_fits_a_union_knob_with_a_string_arm() {
         "control: a union with no string arm refuses a string default: {errs:?}"
     );
 }
+
+// ============================================================================
+// A `<relation>.<field>` knob names the key the kernel hydrates an included relation under: the relation
+// field's name without a trailing `Id` (`populate_relations`), so `projectId` reads as `project.name`.
+// ============================================================================
+
+fn relation_path_schema(relation_field: &str, include: Option<&str>, knob: &str) -> OrbitalSchema {
+    let fetch = match include {
+        Some(entry) => serde_json::json!(["fetch", "Job", { "include": [entry] }]),
+        None => serde_json::json!(["fetch", "Job", {}]),
+    };
+    let render = serde_json::json!(["render-ui", "main", { "type": "gantt", "tasks": [], "groupField": "@config.groupField" }]);
+    from_json_value(&serde_json::json!({
+        "name": "mini",
+        "version": "1.0.0",
+        "orbitals": [{
+            "name": "PlanOrbital",
+            "entity": { "name": "Project", "persistence": "runtime", "fields": [
+                { "name": "id", "type": "string", "required": true },
+                { "name": "name", "type": "string", "default": "" }
+            ]},
+            "auxiliaryEntities": [{ "name": "Job", "persistence": "runtime", "fields": [
+                { "name": "id", "type": "string", "required": true },
+                { "name": relation_field, "type": "relation", "relation": { "entity": "Project", "cardinality": "one", "display": "name" } }
+            ]}],
+            "traits": [{
+                "name": "Plan",
+                "linkedEntity": "Job",
+                "stateMachine": {
+                    "states": [{ "name": "idle", "isInitial": true }],
+                    "events": [{ "key": "INIT", "name": "Initialize" }],
+                    "transitions": [{ "from": "idle", "to": "idle", "event": "INIT", "effects": [fetch, render] }]
+                },
+                "config": { "groupField": { "record": "@entity", "type": "field", "default": knob, "items": { "type": "string" } } }
+            }],
+            "pages": [{ "name": "Plan", "path": "/plan", "traits": [{ "ref": "Plan" }] }]
+        }]
+    }))
+    .expect("relation path schema json")
+}
+
+#[test]
+fn a_relation_path_knob_names_the_hydrated_key_without_the_id_suffix() {
+    assert!(field_ref_codes(&relation_path_schema("projectId", Some("projectId"), "project.name")).is_empty());
+    assert!(field_ref_codes(&relation_path_schema("projectId", Some("project"), "project.name")).is_empty());
+}
+
+#[test]
+fn a_relation_path_knob_through_the_id_field_name_reads_nothing_and_is_refused() {
+    assert_eq!(
+        field_ref_codes(&relation_path_schema("projectId", Some("projectId"), "projectId.name")),
+        vec![ErrorCode::ConfigFieldRefUnknown]
+    );
+}
+
+#[test]
+fn control_a_relation_field_without_an_id_suffix_reads_under_its_own_name() {
+    assert!(field_ref_codes(&relation_path_schema("project", Some("project"), "project.name")).is_empty());
+}
+
+#[test]
+fn control_a_relation_path_knob_needs_the_fetch_to_include_it_and_a_real_tail() {
+    assert_eq!(
+        field_ref_codes(&relation_path_schema("projectId", None, "project.name")),
+        vec![ErrorCode::ConfigFieldRefUnknown]
+    );
+    assert_eq!(
+        field_ref_codes(&relation_path_schema("projectId", Some("projectId"), "project.title")),
+        vec![ErrorCode::ConfigFieldRefUnknown]
+    );
+}
