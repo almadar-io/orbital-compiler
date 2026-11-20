@@ -181,6 +181,7 @@ fn schema_with_effects(
         }],
         metadata: None,
         ledger: None,
+        dispatch_kernel: None,
         schema_version: None,
         config: None,
     egress: None,

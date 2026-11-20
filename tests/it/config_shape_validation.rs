@@ -317,6 +317,7 @@ fn schema_with_config(config: orbital_core_base::collections::IndexMap<String, C
         }],
         metadata: None,
         ledger: None,
+        dispatch_kernel: None,
         schema_version: None,
         config: None,
     egress: None,

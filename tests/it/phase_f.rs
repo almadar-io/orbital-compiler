@@ -223,6 +223,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
         }],
         metadata: None,
         ledger: None,
+        dispatch_kernel: None,
         schema_version: None,
         config: None,
     egress: None,

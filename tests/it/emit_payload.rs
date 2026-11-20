@@ -200,6 +200,7 @@ fn schema_with_emit(emit: SExpression, declared: EmitDefinition) -> OrbitalSchem
         }],
         metadata: None,
         ledger: None,
+        dispatch_kernel: None,
         schema_version: None,
         config: None,
     egress: None,

@@ -1226,6 +1226,7 @@ mod tests {
             orbitals: vec![],
             metadata: None,
             ledger: None,
+            dispatch_kernel: None,
             schema_version: None,
             config: None,
     egress: None,

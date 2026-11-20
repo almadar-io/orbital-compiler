@@ -4951,6 +4951,7 @@ mod tests {
             metadata: None,
             schema_version: None,
             ledger: None,
+            dispatch_kernel: None,
     egress: None,
     inbound: None,
     os_grants: None,

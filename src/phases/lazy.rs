@@ -165,6 +165,7 @@ pub fn split_lazy(schema: &mut OrbitalSchema) -> Vec<LazyArtifact> {
                     metadata: None,
                     schema_version: schema.schema_version,
                     ledger,
+                    dispatch_kernel: None,
                     egress: schema.egress.clone(),
                     inbound: schema.inbound.clone(),
                     os_grants: schema.os_grants.clone(),
