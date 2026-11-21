@@ -3168,7 +3168,7 @@ mod tests {
         assert!(listen_mismatches(&schema).is_empty());
     }
     #[test]
-    #[ignore]
+    #[ignore = "tool: prints the listen-payload findings for each program in ORB310_PROBE"]
     fn probe_310_real_programs() {
         let list = std::env::var("ORB310_PROBE").unwrap();
         for path in list.split(':') {

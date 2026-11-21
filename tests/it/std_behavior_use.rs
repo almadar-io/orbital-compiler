@@ -582,7 +582,8 @@ fn cart_extends_lowered_output_has_inherited_and_extra_fields() {
     // must be present, and there must be no duplicates.
     let field_names: Vec<&str> = cart.fields.iter().map(|f| f.name.as_str()).collect();
 
-    // The 5 inherited fields from std-modal's `ModalRecord`.
+    // The 9 inherited fields from std-modal's `ModalRecord` (`pendingRow`, `saveError`, `saveInFlight` joined with
+    // `awaitSave`, 2026-11-20).
     // (`seedRow` joined ModalRecord upstream 2026-08 — the @intrinsic
     // edit-mode seed stash; the inherited set tracks the live atom.)
     for inherited in [
@@ -591,6 +592,9 @@ fn cart_extends_lowered_output_has_inherited_and_extra_fields() {
         "description",
         "status",
         "seedRow",
+        "pendingRow",
+        "saveError",
+        "saveInFlight",
         "createdAt",
     ] {
         assert!(
@@ -610,12 +614,12 @@ fn cart_extends_lowered_output_has_inherited_and_extra_fields() {
         );
     }
 
-    // Total field count == 6 inherited + 2 extras (no collisions in this
+    // Total field count == 9 inherited + 2 extras (no collisions in this
     // fixture, so no dedup happens).
     assert_eq!(
         cart.fields.len(),
-        8,
-        "CartItem must have exactly 8 fields (6 inherited + 2 extras), got {}: {:?}",
+        11,
+        "CartItem must have exactly 11 fields (9 inherited + 2 extras), got {}: {:?}",
         cart.fields.len(),
         field_names
     );
