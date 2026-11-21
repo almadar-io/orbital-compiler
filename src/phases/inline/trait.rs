@@ -1316,6 +1316,7 @@ pub(super) fn forwarded_sibling_config_keeping(
                     }
                 }
                 let mut forwarded = field.clone();
+                forwarded.forward_source = field.forward_source.clone().or_else(|| field.default.clone());
                 forwarded.default = Some(hit.value.clone());
                 forwarded.forwarded_from = Some(hit.target);
                 out.insert(key.clone(), forwarded);
@@ -1342,6 +1343,7 @@ pub(super) fn forwarded_sibling_config_keeping(
                     }
                 }
                 let mut forwarded = field.clone();
+                forwarded.forward_source = field.forward_source.clone().or_else(|| field.default.clone());
                 forwarded.default = Some(resolved);
                 for token in tokens {
                     if !forwarded.nested_forwarded_from.contains(&token) {

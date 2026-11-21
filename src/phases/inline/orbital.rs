@@ -134,6 +134,37 @@ pub(crate) fn fold_declared_config_override(
     })
 }
 
+/// An upstream that is itself an extension already resolved its traits'
+/// `@config.<knob>` forwards to values. A knob this call site overrides puts
+/// the forward back, so the per-trait pass below resolves it to the override.
+fn reopen_overridden_forwards(
+    kept: &mut [TraitDefinition],
+    overrides: Option<&orbital_core_base::collections::IndexMap<String, ConfigField>>,
+) {
+    let Some(overrides) = overrides else { return };
+    for td in kept.iter_mut() {
+        let Some(cfg) = td.config.as_mut() else { continue };
+        for field in cfg.values_mut() {
+            let overridden = field
+                .forwarded_from
+                .iter()
+                .chain(field.nested_forwarded_from.iter())
+                .filter_map(|token| token.strip_prefix("@config."))
+                .any(|knob| overrides.contains_key(knob));
+            if !overridden {
+                continue;
+            }
+            if let Some(source) = field.forward_source.clone() {
+                field.default = Some(source);
+                field.forwarded_from = None;
+                field.nested_forwarded_from.clear();
+            } else if let Some(token) = field.forwarded_from.clone() {
+                field.default = Some(SExpression::string(token));
+            }
+        }
+    }
+}
+
 /// Last hop of a `uses Alias { config { k: @config.j } }` override: a folded
 /// alias app-knob whose default is exactly the consumer app-knob token
 /// `@config.<j>` takes the consumer's declared default (provenance kept in
@@ -1272,6 +1303,7 @@ pub(crate) fn resolve_orbital_reference(
         .map(String::as_str)
         .filter(|e| e.starts_with('/'))
         .collect();
+    reopen_overridden_forwards(&mut kept, obj.config.as_ref());
     // Snapshot every kept trait's declared config, keyed by its FINAL
     // (post-rename) name, for the step-6 embedder lookup below — a clone
     // taken before the loop starts iter_mut over `kept`, since the loop
@@ -5224,6 +5256,134 @@ mod tests {
         assert_eq!(
             folded["title"].default,
             Some(SExpression::string("literal"))
+        );
+    }
+
+    fn ref_with_config(reference: &str, config: Option<serde_json::Value>) -> OrbitalRefObject {
+        OrbitalRefObject {
+            reference: reference.to_string(),
+            config: config.map(|c| {
+                c.as_object()
+                    .expect("config object")
+                    .iter()
+                    .map(|(k, v)| (k.clone(), from_json_value::<ConfigField>(&json!({ "type": "unknown", "default": v })).unwrap()))
+                    .collect()
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn resolve_into(name: &str, ctx: &InlineContext, obj: &OrbitalRefObject) -> Orbital {
+        let mut orbital = consumer_orbital(name);
+        resolve_orbital_reference(
+            &mut orbital,
+            obj,
+            ctx,
+            &orbital_core_base::collections::IndexMap::new(),
+            &orbital_core_base::collections::IndexMap::new(),
+            &HashMap::new(),
+            None,
+            &mut Vec::new(),
+            None,
+            &mut Vec::new(),
+        )
+        .expect("resolves");
+        orbital
+    }
+
+    /// A page shell extended twice (shell → design system → landing): the
+    /// landing's own value for a knob the shell forwards into a trait must reach
+    /// that trait, though the middle level already resolved the forward.
+    fn sections_through_two_levels(middle: Option<serde_json::Value>, outer: Option<serde_json::Value>) -> Option<SExpression> {
+        let mut base = upstream_orbital(Some(json!({
+            "sections": { "type": "unknown", "default": [] },
+            "system": { "type": "string", "default": "" }
+        })));
+        if let TraitReference::Inline(td) = &mut base.traits[0] {
+            Arc::make_mut(td).config = Some(orbital_core_base::collections::IndexMap::from([(
+                "children".to_string(),
+                from_json_value::<ConfigField>(&json!({ "type": "unknown", "default": "@config.sections" })).unwrap(),
+            )]));
+        }
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Shell", &base);
+        let system = resolve_into("System", &ctx, &ref_with_config("Shell.orbitals.UpOrbital", middle));
+
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Sys", &system);
+        let landing = resolve_into("Landing", &ctx, &ref_with_config("Sys.orbitals.System", outer));
+        let names = trait_names(&landing);
+        let a = names.iter().find(|n| n.ends_with('A')).unwrap_or_else(|| panic!("no A in {names:?}"));
+        kept_trait(&landing, a)
+            .config
+            .as_ref()
+            .and_then(|c| c.get("children"))
+            .and_then(|f| f.default.clone())
+    }
+
+    fn pins_through_two_levels(middle: Option<serde_json::Value>, outer: Option<serde_json::Value>) -> Option<SExpression> {
+        let mut base = upstream_orbital(Some(json!({
+            "fixed": { "type": "unknown", "default": [] },
+            "system": { "type": "string", "default": "" }
+        })));
+        if let TraitReference::Inline(td) = &mut base.traits[0] {
+            Arc::make_mut(td).config = Some(orbital_core_base::collections::IndexMap::from([(
+                "pins".to_string(),
+                from_json_value::<ConfigField>(&json!({ "type": "unknown", "default": ["array/concat", "@config.fixed", ["soundToggle"]] })).unwrap(),
+            )]));
+        }
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Shell", &base);
+        let system = resolve_into("System", &ctx, &ref_with_config("Shell.orbitals.UpOrbital", middle));
+        let mut ctx = InlineContext::new();
+        ctx.add_alias("Sys", &system);
+        let landing = resolve_into("Landing", &ctx, &ref_with_config("Sys.orbitals.System", outer));
+        let names = trait_names(&landing);
+        let a = names.iter().find(|n| n.ends_with('A')).unwrap_or_else(|| panic!("no A in {names:?}"));
+        kept_trait(&landing, a).config.as_ref().and_then(|c| c.get("pins")).and_then(|f| f.default.clone())
+    }
+
+    #[test]
+    fn an_outer_extension_sets_a_knob_the_shell_reads_inside_an_expression_through_a_middle_extension() {
+        let expected = |fixed: serde_json::Value| Some(from_json_value::<SExpression>(&json!(["array/concat", fixed, ["soundToggle"]])).unwrap());
+        assert_eq!(
+            pins_through_two_levels(Some(json!({ "system": "ledger" })), Some(json!({ "fixed": ["tour"] }))),
+            expected(json!(["tour"])),
+            "the landing's fixed reaches the expression the shell's trait holds"
+        );
+        assert_eq!(
+            pins_through_two_levels(Some(json!({ "fixed": ["mid"] })), Some(json!({ "system": "ledger" }))),
+            expected(json!(["mid"])),
+            "control: a knob the landing leaves keeps the middle level's value"
+        );
+    }
+
+    #[test]
+    fn an_outer_extension_sets_a_knob_the_shell_forwards_through_a_middle_extension() {
+        let landing = json!(["sec0", "sec1"]);
+        assert_eq!(
+            sections_through_two_levels(Some(json!({ "system": "ledger" })), Some(json!({ "sections": landing.clone() }))),
+            Some(from_json_value::<SExpression>(&landing).unwrap()),
+            "the landing's sections reach the shell's trait through the system level"
+        );
+        assert_eq!(
+            sections_through_two_levels(Some(json!({ "sections": ["mid"] })), Some(json!({ "sections": landing.clone() }))),
+            Some(from_json_value::<SExpression>(&landing).unwrap()),
+            "the outer value wins over the middle level's"
+        );
+    }
+
+    #[test]
+    fn a_knob_no_outer_extension_sets_keeps_the_middle_or_shell_value() {
+        assert_eq!(
+            sections_through_two_levels(Some(json!({ "sections": ["mid"] })), Some(json!({ "system": "ledger" }))),
+            Some(from_json_value::<SExpression>(&json!(["mid"])).unwrap()),
+            "the middle level's value stays when the landing leaves the knob"
+        );
+        assert_eq!(
+            sections_through_two_levels(None, None),
+            Some(SExpression::Array(vec![].into())),
+            "neither level sets it: the shell's default"
         );
     }
 

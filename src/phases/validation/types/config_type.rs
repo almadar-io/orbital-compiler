@@ -3361,6 +3361,7 @@ mod recursive_type_literal_tests {
             ref_id: None,
             forwarded_from: None,
             nested_forwarded_from: Vec::new(),
+            forward_source: None,
             wired: false,
             payload_for: None,
             projected_from: None,
