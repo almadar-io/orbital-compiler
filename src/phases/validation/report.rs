@@ -303,7 +303,25 @@ fn catalog_findings(schema: &OrbitalSchema, path: &Path) -> Vec<Finding> {
     let declared = schema.locales.clone().unwrap_or_default();
     let mut catalogs = std::collections::BTreeMap::new();
     let mut issues = Vec::new();
+    let carried = schema.messages.as_ref();
+    if let Some(carried) = carried {
+        let prefix = format!("{}{}", schema.name, orbital_core_base::messages::NAMESPACE_SEPARATOR);
+        for locale in &declared {
+            let own = carried.get(locale).map(|messages| {
+                serde_json::Value::Object(
+                    messages
+                        .iter()
+                        .filter_map(|(key, text)| key.strip_prefix(&prefix).map(|k| (k.to_string(), serde_json::Value::String(text.clone()))))
+                        .collect(),
+                )
+            });
+            catalogs.insert(locale.clone(), own);
+        }
+    }
     for (locale, loaded) in load_catalogs(path, &schema.name, &declared) {
+        if carried.is_some() && declared.contains(&locale) {
+            continue;
+        }
         match loaded {
             Ok(value) => {
                 catalogs.insert(locale, value);
@@ -731,5 +749,47 @@ mod tests {
         assert_eq!(pathless.render(), "[ORB_X] broken");
         let codeless = Finding { code: String::new(), message: "guard".into(), ..pathless };
         assert_eq!(codeless.render(), "guard");
+    }
+
+    fn translated(messages: Option<serde_json::Value>) -> OrbitalSchema {
+        let mut program = serde_json::json!({"name":"probe","version":"1.0.0","locales":["en","ar"],"orbitals":[{"name":"Probe",
+            "entity":{"name":"Item","persistence":"runtime","fields":[{"name":"id","type":"string","required":true}]},
+            "traits":[{"name":"Counter","linkedEntity":"Item","stateMachine":{
+              "states":[{"name":"idle","isInitial":true}],"events":[{"key":"GO"}],
+              "transitions":[{"from":"idle","to":"idle","event":"GO","effects":[["render-ui","main",{"type":"alert","title":["i18n/t","probe:hello"]}]]}]}}]}]});
+        if let Some(messages) = messages {
+            program["messages"] = messages;
+        }
+        orbital_core_base::schema::parse_schema(&program.to_string()).expect("fixture parses")
+    }
+
+    fn catalog_codes(schema: &OrbitalSchema) -> Vec<String> {
+        let nowhere = std::env::temp_dir().join("orb-catalog-probe-nowhere").join("program.orb");
+        catalog_findings(schema, &nowhere).into_iter().map(|f| f.code).collect()
+    }
+
+    #[test]
+    fn a_resolved_program_is_checked_against_the_messages_it_carries() {
+        let carried = translated(Some(serde_json::json!({"en":{"probe:hello":"Hi"},"ar":{"probe:hello":"أهلا"}})));
+        assert_eq!(catalog_codes(&carried), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_key_missing_from_the_carried_messages_is_reported() {
+        let short = translated(Some(serde_json::json!({"en":{},"ar":{"probe:hello":"أهلا"}})));
+        assert_eq!(catalog_codes(&short), vec!["ORB_I18N_KEY_MISSING".to_string()]);
+        let untranslated = translated(Some(serde_json::json!({"en":{"probe:hello":"Hi"}})));
+        assert_eq!(catalog_codes(&untranslated), vec!["ORB_I18N_KEY_UNTRANSLATED".to_string()]);
+    }
+
+    #[test]
+    fn edge_another_behaviors_carried_messages_do_not_count_as_this_programs() {
+        let other = translated(Some(serde_json::json!({"en":{"other:hello":"Hi"},"ar":{"other:hello":"أهلا"}})));
+        assert_eq!(catalog_codes(&other), vec!["ORB_I18N_KEY_MISSING".to_string(), "ORB_I18N_KEY_UNTRANSLATED".to_string()]);
+    }
+
+    #[test]
+    fn control_a_program_without_carried_messages_reads_its_catalog_files() {
+        assert_eq!(catalog_codes(&translated(None)), vec!["ORB_I18N_KEY_MISSING".to_string(), "ORB_I18N_KEY_UNTRANSLATED".to_string()]);
     }
 }
