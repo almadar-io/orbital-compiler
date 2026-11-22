@@ -611,3 +611,56 @@ fn control_a_lazy_page_imported_under_a_new_name_is_prefixed_once() {
     let (_, lazy) = split(&s).expect("split");
     assert_eq!(lazy_trait_names(&lazy[0]), vec!["BlogWhyPostView".to_string()]);
 }
+
+/// A program with no `uses lazy` compiles to the same IR from its split resolve as from its file, so `generate`
+/// resolves it once (P-049: the launchpad's start resolved its 45.8 MB program twice).
+#[test]
+fn a_program_without_lazy_imports_compiles_to_the_same_ir_from_its_split_resolve() {
+    let s = site(&[home(EAGER_USE, ""), blog(EAGER_USE, REMAP)], true);
+    let options = CompilerOptions::default();
+    let direct = orbital_compiler::phases::compile_file_with_source(&s.path, &s.path, &options).expect("compiles from the file");
+    let (resolved, lazy) = orbital_compiler::phases::lazy::resolve_program_with_path(parse_file(&s.path).expect("parses"), &options, Some(&s.path))
+        .expect("resolves");
+    assert!(lazy.is_empty());
+    let reused = orbital_compiler::phases::compile_schema_with_path(resolved, &options, Some(&s.path)).expect("compiles from the resolve");
+    let content = |oir: &orbital_core_base::ir::OirModule| {
+        let mut v = serde_json::to_value(oir).unwrap();
+        v["metadata"].as_object_mut().expect("metadata").remove("generatedAt");
+        v
+    };
+    let (direct, reused) = (content(&direct), content(&reused));
+    assert!(direct == reused, "first difference at {}", first_difference(&direct, &reused, String::new()).unwrap_or_default());
+}
+
+fn first_difference(a: &serde_json::Value, b: &serde_json::Value, at: String) -> Option<String> {
+    match (a, b) {
+        (serde_json::Value::Object(x), serde_json::Value::Object(y)) => x
+            .keys()
+            .chain(y.keys())
+            .find_map(|k| match (x.get(k), y.get(k)) {
+                (Some(l), Some(r)) => first_difference(l, r, format!("{at}.{k}")),
+                (l, r) => Some(format!("{at}.{k}: {} vs {}", l.map_or("absent".into(), |v| v.to_string()), r.map_or("absent".into(), |v| v.to_string()))),
+            }),
+        (serde_json::Value::Array(x), serde_json::Value::Array(y)) if x.len() == y.len() => {
+            x.iter().zip(y).enumerate().find_map(|(i, (l, r))| first_difference(l, r, format!("{at}[{i}]")))
+        }
+        _ if a == b => None,
+        _ => Some(format!("{at}: {a} vs {b}")),
+    }
+}
+
+/// A program with no `uses lazy` resolves to the same program in its compiled form (what a served shell embeds) as
+/// in its split form, so a serve resolves it once for both (P-049).
+#[test]
+fn a_program_without_lazy_imports_resolves_the_same_in_its_compiled_and_split_forms() {
+    let s = site(&[home(EAGER_USE, ""), blog(EAGER_USE, REMAP)], true);
+    let options = CompilerOptions::default();
+    let compiled = orbital_compiler::phases::resolve_compiled_program_with_path(parse_file(&s.path).expect("parses"), &options, Some(&s.path))
+        .expect("resolves compiled");
+    let (mut split, lazy) = orbital_compiler::phases::lazy::resolve_program_with_path(parse_file(&s.path).expect("parses"), &options, Some(&s.path))
+        .expect("resolves split");
+    assert!(lazy.is_empty());
+    orbital_core_base::schema::normalize_fn_shapes(&mut split);
+    let (compiled, split) = (serde_json::to_value(&compiled).unwrap(), serde_json::to_value(&split).unwrap());
+    assert!(compiled == split, "first difference at {}", first_difference(&compiled, &split, String::new()).unwrap_or_default());
+}

@@ -167,8 +167,6 @@ pub fn generate_from_file_with_source_resolved<R>(
     let output_dir = output_dir.as_ref();
     let _span = tracing::info_span!(target: ns::COMPILER, "generate", file = %schema_path.display()).entered();
 
-    // Step 1: Compile schema to OIR
-    let oir = compile_file_with_source(schema_path, source_path, &options.compiler)?;
     let split: SplitProgram = {
         let _span = tracing::info_span!(target: ns::COMPILER, "resolve_split").entered();
         crate::phases::lazy::resolve_program_with_path(
@@ -176,6 +174,13 @@ pub fn generate_from_file_with_source_resolved<R>(
             &options.compiler,
             Some(source_path),
         )?
+    };
+    // Without lazy behaviors the split program is the whole program, so its IR compiles from it without a second
+    // resolve; with them the compiled path folds the lazy pages in and resolves the file itself.
+    let oir = if split.1.is_empty() {
+        crate::phases::compile_schema_with_path(split.0.clone(), &options.compiler, Some(source_path))?
+    } else {
+        compile_file_with_source(schema_path, source_path, &options.compiler)?
     };
 
     // Generate code from OIR

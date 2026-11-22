@@ -400,7 +400,7 @@ fn validate_for_compile(
 }
 
 /// Compile a schema file to OIR with source path for resolving imports
-fn compile_schema_with_path(
+pub fn compile_schema_with_path(
     schema: OrbitalSchema,
     options: &CompilerOptions,
     source_path: Option<&Path>,
