@@ -333,6 +333,9 @@ pub fn route_manifest(
         if let Some(description) = head.description {
             obj.insert("description".into(), description.into());
         }
+        if let Some(image) = head.image {
+            obj.insert("image".into(), image.into());
+        }
         if !head.alternates.is_empty() {
             obj.insert("alternates".into(), serde_json::to_value(&head.alternates).map_err(|e| e.to_string())?);
         }
@@ -369,8 +372,23 @@ pub fn page_heads(
     catalogs: &std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
 ) -> Result<std::collections::BTreeMap<String, orbital_core_base::schema::PageHead>, String> {
     use orbital_core_base::schema::{PageHead, PageMessage, PageMeta};
+    let origin = oir.site.as_ref().and_then(|s| s.origin.as_deref());
+    let site_image = oir.site.as_ref().and_then(|s| s.image.as_deref());
     let mut heads = std::collections::BTreeMap::new();
     for page in &oir.pages {
+        let image = match page.image.as_deref().or(site_image) {
+            None => None,
+            Some(src) if src.starts_with("https://") || src.starts_with("http://") => Some(src.to_string()),
+            Some(src) => match origin {
+                Some(o) => Some(format!("{}/{}", o.trim_end_matches('/'), src.trim_start_matches('/'))),
+                None => {
+                    return Err(format!(
+                        "ORB_P_IMAGE_NO_ORIGIN: route {} shares the image {src}, a path, but the app declares no `origin:` — a link preview needs an absolute URL",
+                        page.path
+                    ))
+                }
+            },
+        };
         let locale = oir.locale_of_path(&page.path);
         let resolve = |meta: &PageMeta| -> Result<String, String> {
             match meta {
@@ -388,6 +406,7 @@ pub fn page_heads(
                 title: page.title.as_ref().map(resolve).transpose()?,
                 description: page.description.as_ref().map(resolve).transpose()?,
                 alternates: locale_alternates(oir, page).unwrap_or_default(),
+                image,
             },
         );
     }

@@ -37,6 +37,9 @@ pub(crate) fn apply_page_modifiers(
     if mods.description.is_some() {
         page_def.description = mods.description.clone();
     }
+    if mods.image.is_some() {
+        page_def.image = mods.image.clone();
+    }
     if mods.translation_of.is_some() {
         page_def.translation_of = mods.translation_of.clone();
     }
@@ -81,6 +84,7 @@ fn apply_overrides_to_page(
         label: obj.label.clone(),
         icon: obj.icon.clone(),
         roles: obj.roles.clone(),
+        image: obj.image.clone(),
     };
     let path = obj.path.clone().unwrap_or_else(|| page_def.path.clone());
     let found = obj.protocol.as_deref().unwrap_or(orbital_core_base::protocols::ROUTE);

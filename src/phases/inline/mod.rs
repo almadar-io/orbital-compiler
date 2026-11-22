@@ -7098,6 +7098,7 @@ mod tests {
 
         let canvas_page = PageDefinition {
             translation_of: None,
+            image: None,
             head: None,
             source_page: None,
             access: None,

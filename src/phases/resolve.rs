@@ -1473,6 +1473,7 @@ impl<'a> Resolver<'a> {
         oir_page.indexing = page.indexing;
         oir_page.source_page = page.source_page.clone();
         oir_page.translation_of = page.translation_of.clone();
+        oir_page.image = page.image.clone();
         oir_page.is_initial = page.is_initial == Some(true);
         oir_page.is_not_found = page.is_not_found == Some(true);
         oir_page.title = page.title.clone();

@@ -268,6 +268,7 @@ mod stamped_heads {
                 title: Some("HomeEN".into()),
                 description: Some("HomeEN".into()),
                 alternates: vec![alt("en", "/"), alt("ar", "/ar"), alt("sl", "/sl")],
+                image: None,
             })
         );
     }
@@ -317,5 +318,57 @@ mod stamped_heads {
         let mut split: SplitProgram = (schema(&["/elsewhere"]), Vec::new());
         stamp_page_heads(&mut split, &heads);
         assert_eq!(head_of(&split.0, "/elsewhere"), None);
+    }
+}
+
+// A route's share image is its page's `image:`, else the app's, always an absolute URL under the origin.
+mod share_image {
+    use super::*;
+    use orbital_compiler::generate::page_heads;
+
+    fn site(image: Option<&str>, page_image: Option<&str>, origin: Option<&str>) -> OirModule {
+        let mut m = OirModule::new("site", "1.0.0");
+        let mut home = OirPage::new("Home", "/");
+        home.access = Some(PageAccess::Public);
+        home.image = page_image.map(str::to_string);
+        m.pages = vec![home];
+        m.site = Some(SiteMeta { origin: origin.map(str::to_string), image: image.map(str::to_string), ..SiteMeta::default() });
+        m
+    }
+
+    #[test]
+    fn a_page_image_is_its_routes_image_as_an_absolute_url() {
+        let heads = page_heads(&site(Some("/img/site.jpg"), Some("/img/home.jpg"), Some("https://example.org/")), &BTreeMap::new()).unwrap();
+        assert_eq!(heads["/"].image.as_deref(), Some("https://example.org/img/home.jpg"));
+    }
+
+    #[test]
+    fn a_page_without_an_image_takes_the_apps() {
+        let heads = page_heads(&site(Some("/img/site.jpg"), None, Some("https://example.org")), &BTreeMap::new()).unwrap();
+        assert_eq!(heads["/"].image.as_deref(), Some("https://example.org/img/site.jpg"));
+    }
+
+    #[test]
+    fn edge_an_absolute_image_url_is_kept_as_written() {
+        let heads = page_heads(&site(None, Some("https://cdn.example.net/a.png"), Some("https://example.org")), &BTreeMap::new()).unwrap();
+        assert_eq!(heads["/"].image.as_deref(), Some("https://cdn.example.net/a.png"));
+    }
+
+    #[test]
+    fn control_no_image_anywhere_means_none() {
+        let heads = page_heads(&site(None, None, Some("https://example.org")), &BTreeMap::new()).unwrap();
+        assert_eq!(heads["/"].image, None);
+    }
+
+    #[test]
+    fn an_image_path_in_an_app_without_origin_is_an_error() {
+        let err = page_heads(&site(Some("/img/site.jpg"), None, None), &BTreeMap::new()).expect_err("relative image, no origin");
+        assert!(err.contains("ORB_P_IMAGE_NO_ORIGIN") && err.contains("/img/site.jpg"), "{err}");
+    }
+
+    #[test]
+    fn the_route_manifest_writes_the_image() {
+        let m = route_manifest(&site(Some("/img/site.jpg"), None, Some("https://example.org")), &BTreeMap::new()).unwrap();
+        assert_eq!(m["routes"][0]["image"], "https://example.org/img/site.jpg");
     }
 }
