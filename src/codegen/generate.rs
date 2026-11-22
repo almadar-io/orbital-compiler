@@ -167,7 +167,7 @@ pub fn generate_from_file_with_source_resolved<R>(
     let output_dir = output_dir.as_ref();
     let _span = tracing::info_span!(target: ns::COMPILER, "generate", file = %schema_path.display()).entered();
 
-    let split: SplitProgram = {
+    let mut split: SplitProgram = {
         let _span = tracing::info_span!(target: ns::COMPILER, "resolve_split").entered();
         crate::phases::lazy::resolve_program_with_path(
             parse_file(schema_path).map_err(crate::phases::CompilerError::from)?,
@@ -183,12 +183,15 @@ pub fn generate_from_file_with_source_resolved<R>(
         compile_file_with_source(schema_path, source_path, &options.compiler)?
     };
 
+    // The page titles in every locale, from the messages the program and its lazy behaviors carry.
+    let catalogs = crate::phases::messages::program_messages(&split.0, &split.1);
+    // Each page carries its route's head, so a client opens a page with the head routes.json writes for it.
+    let heads = page_heads(&oir, &catalogs).map_err(std::io::Error::other)?;
+    stamp_page_heads(&mut split, &heads);
+
     // Generate code from OIR
     let result = write(&oir, &split, output_dir)?;
     let (resolved, lazy) = &split;
-
-    // The page titles in every locale, from the messages the program and its lazy behaviors carry.
-    let catalogs = crate::phases::messages::program_messages(resolved, lazy);
 
     // Every route the app serves with its resolved page modifiers — the one
     // manifest the route documents, sitemap and prerender read.
@@ -261,17 +264,7 @@ pub fn route_manifest(
     oir: &orbital_core_base::ir::OirModule,
     catalogs: &std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
 ) -> Result<serde_json::Value, String> {
-    use orbital_core_base::schema::{PageAccess, PageIndexing, PageMessage, PageMeta};
-    let resolve = |meta: &PageMeta, locale: Option<&str>, path: &str| -> Result<String, String> {
-        match meta {
-            PageMeta::Literal(s) => Ok(s.clone()),
-            PageMeta::Message(PageMessage(_, key)) => locale
-                .and_then(|l| catalogs.get(l))
-                .and_then(|c| c.get(key))
-                .cloned()
-                .ok_or_else(|| format!("route {path}: no {} message for `{key}`", locale.unwrap_or("default-locale"))),
-        }
-    };
+    use orbital_core_base::schema::{PageAccess, PageIndexing};
     if let Some(page) = oir
         .pages
         .iter()
@@ -297,9 +290,11 @@ pub fn route_manifest(
             paths.join(", ")
         ));
     }
+    let heads = page_heads(oir, catalogs)?;
     let mut routes = Vec::new();
     for page in &oir.pages {
         let locale = oir.locale_of_path(&page.path);
+        let head = heads.get(&page.path).cloned().unwrap_or_default();
         let mut route = serde_json::json!({
             "path": page.path,
             "page": page.name,
@@ -332,11 +327,14 @@ pub fn route_manifest(
                 .into(),
             );
         }
-        if let Some(title) = &page.title {
-            obj.insert("title".into(), resolve(title, locale, &page.path)?.into());
+        if let Some(title) = head.title {
+            obj.insert("title".into(), title.into());
         }
-        if let Some(description) = &page.description {
-            obj.insert("description".into(), resolve(description, locale, &page.path)?.into());
+        if let Some(description) = head.description {
+            obj.insert("description".into(), description.into());
+        }
+        if !head.alternates.is_empty() {
+            obj.insert("alternates".into(), serde_json::to_value(&head.alternates).map_err(|e| e.to_string())?);
         }
         routes.push(route);
     }
@@ -353,11 +351,6 @@ pub fn route_manifest(
             ));
         }
     }
-    for (page, route) in oir.pages.iter().zip(routes.iter_mut()) {
-        if let Some(alternates) = locale_alternates(oir, page) {
-            route["alternates"] = alternates;
-        }
-    }
     let mut manifest = serde_json::json!({ "routes": routes });
     if let Some(default_locale) = oir.locales.first() {
         manifest["defaultLocale"] = default_locale.clone().into();
@@ -366,6 +359,66 @@ pub fn route_manifest(
         manifest["site"] = serde_json::to_value(site).map_err(|e| e.to_string())?;
     }
     Ok(manifest)
+}
+
+/// Each route's document head by path: its title and description resolved for the route's locale (a literal as written,
+/// `i18n/t` from that locale's catalog) and its language alternates. The one computation `routes.json` and the stamped
+/// pages both carry.
+pub fn page_heads(
+    oir: &orbital_core_base::ir::OirModule,
+    catalogs: &std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+) -> Result<std::collections::BTreeMap<String, orbital_core_base::schema::PageHead>, String> {
+    use orbital_core_base::schema::{PageHead, PageMessage, PageMeta};
+    let mut heads = std::collections::BTreeMap::new();
+    for page in &oir.pages {
+        let locale = oir.locale_of_path(&page.path);
+        let resolve = |meta: &PageMeta| -> Result<String, String> {
+            match meta {
+                PageMeta::Literal(s) => Ok(s.clone()),
+                PageMeta::Message(PageMessage(_, key)) => locale
+                    .and_then(|l| catalogs.get(l))
+                    .and_then(|c| c.get(key))
+                    .cloned()
+                    .ok_or_else(|| format!("route {}: no {} message for `{key}`", page.path, locale.unwrap_or("default-locale"))),
+            }
+        };
+        heads.insert(
+            page.path.clone(),
+            PageHead {
+                title: page.title.as_ref().map(resolve).transpose()?,
+                description: page.description.as_ref().map(resolve).transpose()?,
+                alternates: locale_alternates(oir, page).unwrap_or_default(),
+            },
+        );
+    }
+    Ok(heads)
+}
+
+/// Stamps each inline page of the split program, eager and lazy, with its route's head, so a client applies the head
+/// `routes.json` carries instead of recomputing it. A page with no route head is left as it is.
+pub fn stamp_page_heads(
+    split: &mut SplitProgram,
+    heads: &std::collections::BTreeMap<String, orbital_core_base::schema::PageHead>,
+) {
+    fn stamp(schema: &mut OrbitalSchema, heads: &std::collections::BTreeMap<String, orbital_core_base::schema::PageHead>) {
+        for orbital in &mut schema.orbitals {
+            for page in orbital.pages.iter_mut().flatten() {
+                if let orbital_core_base::schema::types::PageRef::Inline(page) = page {
+                    if let Some(head) = heads.get(&page.path) {
+                        page.head = Some(head.clone());
+                    }
+                }
+            }
+        }
+    }
+    fn stamp_lazy(lazy: &mut [crate::phases::lazy::ResolvedLazy], heads: &std::collections::BTreeMap<String, orbital_core_base::schema::PageHead>) {
+        for behavior in lazy {
+            stamp(&mut behavior.schema, heads);
+            stamp_lazy(&mut behavior.lazy, heads);
+        }
+    }
+    stamp(&mut split.0, heads);
+    stamp_lazy(&mut split.1, heads);
 }
 
 #[cfg(test)]

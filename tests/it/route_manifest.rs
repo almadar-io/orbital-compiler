@@ -227,3 +227,95 @@ fn the_not_found_page_is_marked_in_its_route_and_only_there() {
     let none = route_manifest(&module(), &catalogs()).expect("manifest");
     assert!(none["routes"].as_array().unwrap().iter().all(|r| !r.as_object().unwrap().contains_key("notFound")));
 }
+
+// The head each route resolves is computed once and stamped onto the program's pages, eager and lazy, so a client
+// applies the compiler's head instead of recomputing it from the pages it happens to hold.
+mod stamped_heads {
+    use super::*;
+    use orbital_compiler::generate::{page_heads, stamp_page_heads, SplitProgram};
+    use orbital_compiler::phases::lazy::ResolvedLazy;
+    use orbital_core_base::schema::{LocaleAlternate, PageHead};
+    use orbital_core_base::schema::types::{OrbitalSchema, PageRef};
+
+    fn alt(locale: &str, path: &str) -> LocaleAlternate {
+        LocaleAlternate { locale: locale.into(), path: path.into() }
+    }
+
+    fn schema(pages: &[&str]) -> OrbitalSchema {
+        let pages: Vec<serde_json::Value> = pages
+            .iter()
+            .map(|path| serde_json::json!({ "name": format!("P{}", path.replace('/', "_")), "path": path }))
+            .collect();
+        orbital_core_base::json_value::from_json_str(
+            &serde_json::json!({ "name": "site", "orbitals": [{ "name": "Site", "entity": { "name": "Row", "fields": [{ "name": "id", "type": "string" }] }, "traits": [], "pages": pages }] }).to_string(),
+        )
+        .expect("schema")
+    }
+
+    fn head_of(schema: &OrbitalSchema, path: &str) -> Option<PageHead> {
+        schema.orbitals.iter().flat_map(|o| o.pages.iter().flatten()).find_map(|p| match p {
+            PageRef::Inline(page) if page.path == path => Some(page.head.clone()),
+            _ => None,
+        }).flatten()
+    }
+
+    #[test]
+    fn each_route_head_carries_its_resolved_title_description_and_alternates() {
+        let heads = page_heads(&localized(), &BTreeMap::new()).expect("heads");
+        assert_eq!(
+            heads.get("/"),
+            Some(&PageHead {
+                title: Some("HomeEN".into()),
+                description: Some("HomeEN".into()),
+                alternates: vec![alt("en", "/"), alt("ar", "/ar"), alt("sl", "/sl")],
+            })
+        );
+    }
+
+    #[test]
+    fn a_message_title_resolves_in_the_routes_own_locale() {
+        let heads = page_heads(&module(), &catalogs()).expect("heads");
+        assert_eq!(heads["/ar"].title.as_deref(), Some("الرئيسية"));
+        assert_eq!(heads["/"].title.as_deref(), Some("Home"));
+    }
+
+    #[test]
+    fn control_a_page_with_no_translation_has_no_alternates() {
+        let heads = page_heads(&localized(), &BTreeMap::new()).expect("heads");
+        assert!(heads["/docs"].alternates.is_empty());
+    }
+
+    #[test]
+    fn the_route_manifest_writes_the_same_heads() {
+        let m = route_manifest(&localized(), &BTreeMap::new()).expect("manifest");
+        let heads = page_heads(&localized(), &BTreeMap::new()).expect("heads");
+        for route in m["routes"].as_array().unwrap() {
+            let head = &heads[route["path"].as_str().unwrap()];
+            assert_eq!(route["title"].as_str(), head.title.as_deref());
+            let alternates: Vec<LocaleAlternate> =
+                serde_json::from_value(route.get("alternates").cloned().unwrap_or_else(|| serde_json::json!([]))).unwrap();
+            assert_eq!(alternates, head.alternates, "{}", route["path"]);
+        }
+    }
+
+    #[test]
+    fn stamping_puts_each_head_on_its_eager_and_lazy_page() {
+        let heads = page_heads(&localized(), &BTreeMap::new()).expect("heads");
+        let mut split: SplitProgram = (
+            schema(&["/", "/docs"]),
+            vec![ResolvedLazy { orbital: "HomeAR".into(), orb_ref: "lazy/HomeAR.orb".into(), schema: schema(&["/ar"]), lazy: Vec::new(), cache_key: None }],
+        );
+        stamp_page_heads(&mut split, &heads);
+        assert_eq!(head_of(&split.0, "/"), heads.get("/").cloned());
+        assert_eq!(head_of(&split.0, "/docs"), heads.get("/docs").cloned());
+        assert_eq!(head_of(&split.1[0].schema, "/ar"), heads.get("/ar").cloned());
+    }
+
+    #[test]
+    fn control_a_page_with_no_route_head_stays_unstamped() {
+        let heads = page_heads(&localized(), &BTreeMap::new()).expect("heads");
+        let mut split: SplitProgram = (schema(&["/elsewhere"]), Vec::new());
+        stamp_page_heads(&mut split, &heads);
+        assert_eq!(head_of(&split.0, "/elsewhere"), None);
+    }
+}
