@@ -298,56 +298,22 @@ impl<'a> Resolver<'a> {
             }
         }
 
-        // Collect every theme the program declares — app-level first, then
-        // each orbital's — deduped by name. An inline theme is carried as-is; a
-        // preset key (`"clay-dark"`) carries the installed preset definition, so
-        // the shells emit its CSS the same way they emit an inline theme's.
+        // Every theme the program declares ships its CSS (an inline theme as written, a preset key as the installed
+        // preset); the first app-level or orbital theme is the default.
         let presets = orbital_core_base::theme::ThemePresets::installed();
-        let declared = self
-            .schema
-            .theme
-            .iter()
-            .chain(self.schema.orbitals.iter().filter_map(|o| o.theme.as_ref()));
-        let mut seen_themes = std::collections::HashSet::new();
-        for theme_ref in declared {
-            let (definition, key) = match theme_ref {
-                ThemeRef::Inline(theme) => (Some(theme), format!("{}-light", theme.name)),
-                ThemeRef::Reference(key) if key.is_empty() => continue,
-                ThemeRef::Reference(key) => {
-                    let base = key
-                        .strip_suffix("-dark")
-                        .or_else(|| key.strip_suffix("-light"))
-                        .unwrap_or(key);
-                    (presets.get(base), key.clone())
-                }
-            };
-            if module.default_theme.is_none() {
-                module.default_theme = Some(key);
-            }
-            if let Some(theme) = definition {
-                if seen_themes.insert(theme.name.clone()) {
-                    module.themes.push(theme.clone());
-                }
-            }
+        if module.default_theme.is_none() {
+            module.default_theme = self
+                .schema
+                .theme
+                .iter()
+                .chain(self.schema.orbitals.iter().filter_map(|o| o.theme.as_ref()))
+                .find_map(|theme_ref| match theme_ref {
+                    ThemeRef::Inline(theme) => Some(format!("{}-light", theme.name)),
+                    ThemeRef::Reference(key) if key.is_empty() => None,
+                    ThemeRef::Reference(key) => Some(key.clone()),
+                });
         }
-        // The themes it switches to: their CSS ships too, but none is the default.
-        for theme_ref in self.schema.themes.iter().flatten() {
-            let definition = match theme_ref {
-                ThemeRef::Inline(theme) => Some(theme),
-                ThemeRef::Reference(key) => {
-                    let base = key
-                        .strip_suffix("-dark")
-                        .or_else(|| key.strip_suffix("-light"))
-                        .unwrap_or(key);
-                    presets.get(base)
-                }
-            };
-            if let Some(theme) = definition {
-                if seen_themes.insert(theme.name.clone()) {
-                    module.themes.push(theme.clone());
-                }
-            }
-        }
+        module.themes.extend(orbital_core_base::theme::program_theme_definitions(&self.schema, presets));
 
         // Collect services from orbitals (only inline services, skip duplicates)
         let mut seen_services = std::collections::HashSet::new();
@@ -2067,6 +2033,7 @@ mod tests {
             site: None,
             public_dir: None,
             locales: None,
+            format_locale: None,
             messages: None,
             lazy_pages: None,
             name: String::new(),
@@ -2536,6 +2503,7 @@ mod tests {
             site: None,
             public_dir: None,
             locales: None,
+            format_locale: None,
             messages: None,
             lazy_pages: None,
             name: String::new(),
@@ -2698,6 +2666,7 @@ mod tests {
             site: None,
             public_dir: None,
             locales: None,
+            format_locale: None,
             messages: None,
             lazy_pages: None,
             name: String::new(),
@@ -2740,6 +2709,7 @@ mod tests {
             site: None,
             public_dir: None,
             locales: None,
+            format_locale: None,
             messages: None,
             lazy_pages: None,
             name: String::new(),
@@ -3381,6 +3351,7 @@ mod tests {
             site: None,
             public_dir: None,
             locales: None,
+            format_locale: None,
             messages: None,
             lazy_pages: None,
             theme: None,
@@ -3434,6 +3405,7 @@ mod tests {
             site: None,
             public_dir: None,
             locales: None,
+            format_locale: None,
             messages: None,
             lazy_pages: None,
             theme: None,

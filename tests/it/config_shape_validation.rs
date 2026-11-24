@@ -287,6 +287,7 @@ fn schema_with_config(config: orbital_core_base::collections::IndexMap<String, C
         site: None,
         public_dir: None,
         locales: None,
+        format_locale: None,
         messages: None,
         lazy_pages: None,
         theme: None,

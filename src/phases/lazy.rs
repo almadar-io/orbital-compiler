@@ -160,6 +160,7 @@ pub fn split_lazy(schema: &mut OrbitalSchema) -> Vec<LazyArtifact> {
                     config: schema.config.clone(),
                     orbitals: vec![orbital],
                     locales: schema.locales.clone(),
+                    format_locale: schema.format_locale.clone(),
                     messages: None,
                     lazy_pages: None,
                     metadata: None,

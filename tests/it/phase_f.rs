@@ -193,6 +193,7 @@ fn schema_for_f1(strict_target_event: &str) -> OrbitalSchema {
         site: None,
         public_dir: None,
         locales: None,
+        format_locale: None,
         messages: None,
         lazy_pages: None,
         theme: None,

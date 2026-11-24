@@ -664,3 +664,29 @@ fn a_program_without_lazy_imports_resolves_the_same_in_its_compiled_and_split_fo
     let (compiled, split) = (serde_json::to_value(&compiled).unwrap(), serde_json::to_value(&split).unwrap());
     assert!(compiled == split, "first difference at {}", first_difference(&compiled, &split, String::new()).unwrap_or_default());
 }
+
+/// The program's `formatLocale` (the region whose date, time and number rules it follows) is the root's own: it
+/// survives inlining its imports, and a lazy page's program carries it like the locales.
+#[test]
+fn the_roots_format_locale_survives_inlining_and_an_import_never_sets_it() {
+    let post = POST.replacen(r#""version": "1.0.0","#, r#""version": "1.0.0", "formatLocale": "en-US","#, 1);
+    let s = site_with(&[home(EAGER_USE, ""), blog(EAGER_USE, REMAP)], Some(&post));
+    let mut schema = parse_file(&s.path).unwrap();
+    schema.format_locale = Some("sl-SI".into());
+    inline_schema(&mut schema, &InlineConfig::default(), Some(&s.path)).expect("inline");
+    assert_eq!(schema.format_locale.as_deref(), Some("sl-SI"));
+
+    let mut bare = parse_file(&s.path).unwrap();
+    inline_schema(&mut bare, &InlineConfig::default(), Some(&s.path)).expect("inline");
+    assert_eq!(bare.format_locale, None, "control: an imported behavior's formatLocale is not the program's");
+}
+
+#[test]
+fn a_lazy_pages_program_carries_the_roots_format_locale() {
+    let s = site(&[home(LAZY_USE, ""), blog(LAZY_USE, REMAP)], true);
+    let mut schema = parse_file(&s.path).unwrap();
+    schema.format_locale = Some("sl-SI".into());
+    let lazy = split_lazy_and_resolve(&mut schema, &CompilerOptions::default(), Some(&s.path)).expect("split");
+    assert!(!lazy.is_empty());
+    assert!(lazy.iter().all(|l| l.schema.format_locale.as_deref() == Some("sl-SI")));
+}
