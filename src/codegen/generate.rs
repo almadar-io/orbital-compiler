@@ -208,14 +208,9 @@ pub fn generate_from_file_with_source_resolved<R>(
 
     // Step 7: `resolved.orb` (post Inline + Compose + Enrich, every import resolved) and each lazy behavior beside
     // it: the bundled view downstream tools parse as an `OrbitalSchema`, each carrying its own messages.
-    crate::phases::lazy::write_lazy(output_dir, lazy, &|schema| {
-        orbital_core_eval::util::canonical_json::to_canonical_string_pretty(schema).map_err(std::io::Error::other)
-    })?;
+    crate::phases::lazy::write_lazy(output_dir, lazy, &|schema| crate::phases::lazy::program_json(schema).map_err(std::io::Error::other))?;
     let resolved_path = output_dir.join("resolved.orb");
-    std::fs::write(
-        &resolved_path,
-        orbital_core_eval::util::canonical_json::to_canonical_string_pretty(resolved).map_err(std::io::Error::other)?,
-    )?;
+    std::fs::write(&resolved_path, crate::phases::lazy::program_json(resolved).map_err(std::io::Error::other)?)?;
     tracing::info!(target: ns::COMPILER, path = %resolved_path.display(), "wrote resolved.orb");
 
     Ok(result)

@@ -28,6 +28,7 @@ mod imported_trait_addressing;
 mod input_number_narrowing;
 mod intrinsic_rebind_merge;
 mod lazy_uses;
+mod resolved_written_once;
 mod listener_refinement_carry;
 mod multi_entity_rebind_merge;
 mod multi_instance_explicit_companion;

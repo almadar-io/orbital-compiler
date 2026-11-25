@@ -525,9 +525,10 @@ pub fn resolved_tree(resolved: &OrbitalSchema) -> Result<serde_json::Value, Stri
     Ok(orbital_core_eval::util::into_canonical_json(tree))
 }
 
-/// [`resolved_tree`] pretty-printed: the text `orb resolve` prints and writes.
+/// The text `orb resolve` prints and writes: [`resolved_value`] with each repeated list or record written once
+/// (`$def`, G-CROSS-637), read back by `parse_schema`; a program with no repeat is [`resolved_tree`]'s text.
 pub fn resolved_json(resolved: &OrbitalSchema) -> Result<String, String> {
-    serde_json::to_string(&resolved_tree(resolved)?).map_err(|e| format!("Failed to serialize resolved schema: {e}"))
+    Ok(orbital_core_base::json_value::value_json_string_with_defs(&resolved_value(resolved)?))
 }
 
 /// The resolved program as a key-sorted core value, built straight from the schema with no JSON tree between.
@@ -535,6 +536,13 @@ pub fn resolved_value(resolved: &OrbitalSchema) -> Result<orbital_core_base::val
     let mut value = orbital_core_base::value_serialize::to_canonical_value(resolved).map_err(|e| format!("Failed to serialize resolved schema: {e}"))?;
     super::await_render::attach_await_renders(resolved, &mut value);
     Ok(value)
+}
+
+/// A compiled program as the bundle downstream tools parse (`resolved.orb` beside a compile's output): its keys sorted and
+/// each repeated list or record written once (`$def`, read by `parse_schema`).
+pub fn program_json(program: &OrbitalSchema) -> Result<String, String> {
+    let value = orbital_core_base::value_serialize::to_canonical_value(program).map_err(|e| format!("Failed to serialize program: {e}"))?;
+    Ok(orbital_core_base::json_value::value_json_string_with_defs(&value))
 }
 
 /// [`write_lazy`] with each child printed by [`resolved_json`].
