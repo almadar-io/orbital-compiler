@@ -921,13 +921,13 @@ mod tests {
                         required: None,
                         primary_key: None,
                         unique: None,
-                        relation: Some(RelationDefinition {
+                        relation: Some(Box::new(RelationDefinition {
                             entity: "Company".to_string(),
                             cardinality: None,
                             entity_id: None,
                             on_delete: None,
                             display: None,
-                        }),
+                        })),
                         items: None,
                         values: None,
                         default: None,

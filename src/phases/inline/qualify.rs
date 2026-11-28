@@ -96,7 +96,7 @@ impl LocalTypes {
 
     pub(crate) fn payload_field(&self, field: &mut PayloadField) {
         self.rename_in_place(&mut field.field_type);
-        self.projection(field.projected_from.as_mut());
+        self.projection(field.projected_from.as_deref_mut());
         field
             .properties
             .iter_mut()
@@ -127,7 +127,7 @@ impl LocalTypes {
             field.values = Some(vec![name]);
         }
         self.record(&mut field.record);
-        self.projection(field.projected_from.as_mut());
+        self.projection(field.projected_from.as_deref_mut());
         if let Some(items) = field.items.as_mut() {
             self.field_definition(items);
         }

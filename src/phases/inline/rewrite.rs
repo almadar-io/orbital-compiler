@@ -3398,10 +3398,10 @@ fn resolve_sentinel_fields(
                         let mut bound = super::sigil_types::payload_field_of(
                             &param_sub_field(sub).expect("a structural binding has a field shape"),
                         );
-                        bound.projected_from = Some(orbital_core_base::schema::FieldProjection {
+                        bound.projected_from = Some(Box::new(orbital_core_base::schema::FieldProjection {
                             type_name: alias.clone(),
                             field: None,
-                        });
+                        }));
                         if is_array_sentinel {
                             field.field_type = format!("[{}]", bound.field_type);
                             field.properties = None;
@@ -6101,7 +6101,7 @@ mod native_record_generic_metadata_tests {
             assert_eq!(result.nullable, Some(!array));
             if array {
                 let mut named = bound.clone();
-                named.projected_from = Some(orbital_core_base::schema::FieldProjection { type_name: "V".to_string(), field: None });
+                named.projected_from = Some(orbital_core_base::schema::FieldProjection { type_name: "V".to_string(), field: None }).map(Box::new);
                 assert_eq!(result.items.as_deref(), Some(&named), "the item is the bound shape, projected from its alias");
                 assert!(result.properties.is_none());
                 assert!(result.additional_properties.is_none());

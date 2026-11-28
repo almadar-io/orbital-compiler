@@ -7709,13 +7709,13 @@ mod tests {
         };
 
         let mut replies_field = make_field("replies", FieldType::Relation);
-        replies_field.relation = Some(RelationDefinition {
+        replies_field.relation = Some(Box::new(RelationDefinition {
             entity: "ThreadPost".to_string(),
             entity_id: Some("ent_IMPORTED_THREADPOST".to_string()),
             cardinality: Some(Cardinality::Many),
             on_delete: None,
             display: None,
-        });
+        }));
         let imported = EntityDefinition {
             timestamps: None,
             soft_delete: None,
