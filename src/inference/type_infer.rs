@@ -3594,6 +3594,34 @@ pub fn collect_listen_key_type_errors(module: &OirModule) -> Vec<String> {
     errors
 }
 
+/// A deadline tick's `at` must name an instant (EXEC-TICK-9): one error per tick whose `at` type is definitively not
+/// one. A binding the types leave undetermined is judged at run time, where a value that is no instant leaves the row
+/// unarmed.
+pub fn collect_tick_at_type_errors(module: &OirModule) -> Vec<String> {
+    let mut errors = Vec::new();
+    for tr in &module.traits {
+        for tk in &tr.ticks {
+            let Some(at) = &tk.at else { continue };
+            if let Some(
+                found @ (OirType::Number
+                | OirType::Integer
+                | OirType::Boolean
+                | OirType::String
+                | OirType::Money
+                | OirType::Array { .. }
+                | OirType::Struct { .. }),
+            ) = infer_oir_expr_type(at, &NoBindingCtx)
+            {
+                errors.push(format!(
+                    "{}: tick '{}' declares `at` of type {found:?}, not an instant",
+                    tr.name, tk.name
+                ));
+            }
+        }
+    }
+    errors
+}
+
 #[cfg(test)]
 mod tests {
     use orbital_core_base::json_value::{from_json_str, from_json_value};
@@ -6688,6 +6716,30 @@ mod tests {
         assert!(collect_listen_key_type_errors(&module_with_listener_key(Some(call("str/concat", vec![OirExpr::String { value: "a".into() }])))).is_empty());
         assert!(collect_listen_key_type_errors(&module_with_listener_key(None)).is_empty());
     }
+    fn module_with_tick_at(at: OirExpr) -> OirModule {
+        let mut trait_ = OirTrait::new("MyTrait");
+        let mut tk = OirTick::new("fire", OirInterval::Deadline);
+        tk.at = Some(at);
+        trait_.ticks.push(tk);
+        let mut m = OirModule::new("App", "1.0.0");
+        m.traits.push(trait_);
+        m
+    }
+
+    #[test]
+    fn a_tick_at_that_is_a_number_is_an_error() {
+        let errors = collect_tick_at_type_errors(&module_with_tick_at(OirExpr::Number { value: 1.0 }));
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].contains("MyTrait") && errors[0].contains("not an instant"));
+    }
+
+    #[test]
+    fn control_a_tick_at_that_adds_to_a_time_or_an_undetermined_binding_is_clean() {
+        let added = call("time/add", vec![local_ref("start"), OirExpr::Number { value: 5.0 }, OirExpr::String { value: "ms".into() }]);
+        assert!(collect_tick_at_type_errors(&module_with_tick_at(added)).is_empty());
+        assert!(collect_tick_at_type_errors(&module_with_tick_at(local_ref("due"))).is_empty());
+    }
+
     fn local_ref(name: &str) -> OirExpr {
         OirExpr::Binding { binding: OirBinding::new(OirBindingRoot::Local(name.into()), vec![]) }
     }

@@ -74,7 +74,8 @@ fn make_trait_with_tick(effects: Vec<SExpression>) -> TraitDefinition {
     let mut t = make_trait_with_transition(None, vec![]);
     t.ticks = Some(vec![TickDefinition {
         name: "test-tick".to_string(),
-        interval: StringOrNumber::Number(1000.0),
+        interval: Some(StringOrNumber::Number(1000.0)),
+        at: None,
         guard: None,
         effects,
         applies_to: None,

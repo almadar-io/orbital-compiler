@@ -896,7 +896,8 @@ mod tests {
         use orbital_core_base::schema::{StringOrNumber, TickDefinition};
         let tick_in = |states: &[&str]| TickDefinition {
             name: "beat".to_string(),
-            interval: StringOrNumber::Number(100.0),
+            interval: Some(StringOrNumber::Number(100.0)),
+            at: None,
             guard: None,
             effects: vec![],
             applies_to: Some(states.iter().map(|s| s.to_string()).collect()),

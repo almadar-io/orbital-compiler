@@ -1366,7 +1366,9 @@ impl<'a> Resolver<'a> {
         tick: &orbital_core_base::schema::TickDefinition,
     ) -> Result<OirTick, ResolveError> {
         let interval = match &tick.interval {
-            orbital_core_base::schema::StringOrNumber::String(s) => {
+            None if tick.at.is_some() => OirInterval::Deadline,
+            None => return Err(ResolveError::InvalidTickInterval(format!("tick '{}' has neither an interval nor an at", tick.name))),
+            Some(orbital_core_base::schema::StringOrNumber::String(s)) => {
                 // Order matters: check "ms" before "s" (a suffix of "ms").
                 if s == "frame" {
                     OirInterval::Frame
@@ -1409,7 +1411,7 @@ impl<'a> Resolver<'a> {
                     return Err(ResolveError::InvalidTickInterval(s.clone()));
                 }
             }
-            orbital_core_base::schema::StringOrNumber::Number(n) => {
+            Some(orbital_core_base::schema::StringOrNumber::Number(n)) => {
                 OirInterval::Milliseconds { value: *n as u64 }
             }
         };
@@ -1421,6 +1423,9 @@ impl<'a> Resolver<'a> {
 
         if let Some(guard) = &tick.guard {
             oir_tick.guard = Some(self.resolve_sexpr(guard)?);
+        }
+        if let Some(at) = &tick.at {
+            oir_tick.at = Some(self.resolve_sexpr(at)?);
         }
 
         // effects is Vec<SExpression>, not Option<Vec>
@@ -3383,7 +3388,8 @@ mod tests {
     ) -> orbital_core_base::schema::TickDefinition {
         orbital_core_base::schema::TickDefinition {
             name: "testTick".to_string(),
-            interval,
+            interval: Some(interval),
+            at: None,
             guard: None,
             effects: vec![],
             applies_to: None,

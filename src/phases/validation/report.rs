@@ -583,6 +583,9 @@ fn validate_core(input: ValidationInput<'_>, options: &CompilerOptions, shared: 
                 for e in crate::type_infer::collect_listen_key_type_errors(&module) {
                     errors.push(Finding { code: "ORB_X_LISTEN_KEY_NOT_STRING".to_string(), message: e, ..Finding::default() });
                 }
+                for e in crate::type_infer::collect_tick_at_type_errors(&module) {
+                    errors.push(Finding { code: "ORB_X_TICK_AT_NOT_INSTANT".to_string(), message: e, ..Finding::default() });
+                }
             }
             Err(e) => errors.push(Finding::new(
                 "COMPILATION_ERROR".to_string(),

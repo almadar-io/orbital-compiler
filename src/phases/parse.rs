@@ -2,7 +2,7 @@
 //!
 //! Reads schema files and deserializes them into OrbitalSchema types.
 
-use orbital_core_base::json_value::{from_json_str};
+
 use orbital_core_base::schema::OrbitalSchema;
 use std::path::Path;
 use thiserror::Error;
@@ -43,7 +43,7 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<OrbitalSchema, ParseError> {
 
 /// Parse a JSON string into OrbitalSchema
 pub fn parse_json(json: &str) -> Result<OrbitalSchema, ParseError> {
-    let mut schema: OrbitalSchema = from_json_str(json)?;
+    let mut schema: OrbitalSchema = orbital_core_base::json_value::program_from_json(json.as_bytes())?;
     orbital_core_base::stamp::ensure_stamped(&mut schema);
     Ok(schema)
 }
@@ -232,5 +232,22 @@ mod tests {
         let json = r#"{ invalid json }"#;
         let result = parse_json(json);
         assert!(result.is_err());
+    }
+}
+
+#[cfg(test)]
+mod def_ref_tests {
+    use super::*;
+
+    const PLAIN: &str = r#"{"name":"App","typeContractVersion":1,"orbitals":[{"name":"Main","entity":{"name":"Item","fields":[{"name":"id","type":"string"}]},"traits":[{"name":"A","linkedEntity":"Item","stateMachine":{"states":[{"name":"idle","isInitial":true}],"transitions":[{"from":"idle","to":"idle","event":"GO","effects":[["set","@entity.n",1]]}]}},{"name":"B","linkedEntity":"Item","stateMachine":{"states":[{"name":"idle","isInitial":true}],"transitions":[{"from":"idle","to":"idle","event":"GO","effects":[["set","@entity.n",1]]}]}}]}]}"#;
+
+    #[test]
+    fn a_program_written_with_shared_records_parses_as_its_plain_text_does() {
+        let plain = parse_json(PLAIN).unwrap();
+        let value: orbital_core_base::value::Value = orbital_core_base::json_value::from_json_str(PLAIN).unwrap();
+        let shared = orbital_core_base::json_value::value_json_string_with_defs(&value);
+        assert!(shared.contains("$def"), "the fixture shares a record: {shared}");
+        let read = parse_json(&shared).expect("a $def program parses");
+        assert_eq!(serde_json::to_value(&read).unwrap(), serde_json::to_value(&plain).unwrap());
     }
 }
